@@ -90,12 +90,14 @@ export async function loadFinanceSnapshot(sb: SupabaseClient, today: string, own
     .filter((t) => runwayAccountIds.has(t.account_id))
     .map((t) => ({ date: t.date, amount: Number(t.amount), is_transfer: t.is_transfer }));
   const averages = monthlyAverages(runwayTxns, today, lookback);
-  // Input runway_include_signed_consulting (update 0011): add expected income from signed consulting work.
+  // Input runway_include_signed_consulting (update 0011): add expected income from signed consulting work
+  // that has not had its first payment yet.
   const includeSignedConsulting = (inputs.num.runway_include_signed_consulting ?? 0) >= 1;
   let signedConsultingMonthly = 0;
   if (includeSignedConsulting) {
     try {
-      signedConsultingMonthly = (await loadConsulting(sb, { ownerId, today })).signedMonthly;
+      // Only engagements with no payment received yet; paid ones are already in average income.
+      signedConsultingMonthly = (await loadConsulting(sb, { ownerId, today })).runwaySignedMonthly;
     } catch {
       signedConsultingMonthly = 0;
     }

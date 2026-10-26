@@ -357,7 +357,9 @@ begin
       ('Demo Retail Group: operations retainer', 'Active', org_client, c_client, c_friend, 'monthly_retainer', 4200::numeric, null::numeric, null::numeric, current_date - 120, null::date, null::int),
       ('Sample Clinic Partners: pricing project', 'Proposal sent', org_client2, c_lead, c_friend, 'project', 18000::numeric, null::numeric, 3::numeric, current_date + 21, current_date + 111, null::int),
       ('Demo Logistics: hourly advisory', 'Discovery call', null::uuid, c_lead, null::uuid, 'hourly', 175::numeric, 20::numeric, null::numeric, null::date, null::date, 40),
-      ('Demo Bakery: process review', 'Identified', null::uuid, null::uuid, null::uuid, null::text, null::numeric, null::numeric, null::numeric, null::date, null::date, null::int)
+      ('Demo Bakery: process review', 'Identified', null::uuid, null::uuid, null::uuid, null::text, null::numeric, null::numeric, null::numeric, null::date, null::date, null::int),
+      -- Signed this week, no payment yet: counted in runway when the runway setting is on (until its first payment).
+      ('Demo Dental Group: monthly retainer', 'Signed', null::uuid, c_client, null::uuid, 'monthly_retainer', 2500::numeric, null::numeric, null::numeric, current_date - 3, null::date, null::int)
     ) as v (name, stage, org, lead_from, intro, rate_type, rate, hours, months, start_d, end_d, prob)
   loop
     insert into pipeline_items (owner_id, pipeline_id, stage_id, name, organization_id, primary_contact_id, source_contact_id, introduced_by_contact_id)
@@ -370,4 +372,20 @@ begin
   -- The demo consulting payments are linked to the retainer engagement.
   select id into it from pipeline_items where owner_id = o and name = 'Demo Retail Group: operations retainer';
   update transactions set pipeline_item_id = it where owner_id = o and description = 'CONSULTING CLIENT DEMO PAYMENT';
+end $$;
+
+-- Contact options demo data (needs migration 0012): a friend, an Other contact, and a deal with a typed source.
+do $$
+declare
+  o uuid := (select id from auth.users order by created_at limit 1);
+begin
+  if to_regprocedure('public.schema_has_0012()') is null then
+    raise notice 'Skipping contact options demo data: database update 0012 is not applied.';
+    return;
+  end if;
+  update contacts set relationship_group = 'friend', roles = array_append(roles, 'friend') where owner_id = o and name = 'Jamie Fictional' and not ('friend' = any (roles));
+  insert into contacts (owner_id, name, roles, email, relationship_group, notes)
+  values (o, 'Quinn Other (demo)', '{other}', 'quinn@example.com', 'other', 'Other group: no set schedule, not in the Outreach Queue.');
+  update pipeline_items set source = 'BizBuySell listing', source_contact_id = null
+   where owner_id = o and name = 'Demo Car Wash Co';
 end $$;

@@ -99,3 +99,46 @@ export function topIntroducers(
     .sort((a, b) => b.deals - a.deals || b.consulting_leads - a.consulting_leads || a.name.localeCompare(b.name))
     .slice(0, opts.limit ?? 5);
 }
+
+/**
+ * "Deal came from" / "Lead came from" is one field: a contact, or "Not a person" with a typed source
+ * (example: "BizBuySell listing"). The typed source is saved in pipeline_items.source.
+ */
+export type SourceMode = "contact" | "text";
+
+/** How the field opens: "Not a person" when there is no contact and a typed source exists; otherwise the contact. */
+export function initialSourceMode(contactId: string | null | undefined, sourceText: string | null | undefined): SourceMode {
+  return !contactId && String(sourceText ?? "").trim() ? "text" : "contact";
+}
+
+/**
+ * The values saved for the field.
+ * - "Not a person": no contact, and the typed source (empty = none).
+ * - A contact (or none): the contact. The typed source is cleared when the owner switched from "Not a person" to a
+ *   contact; an item that already had both (from before the fields were merged) keeps its typed source.
+ */
+export function resolveSourceFields(p: {
+  mode: SourceMode;
+  contactId: string | null | undefined;
+  text: string | null | undefined;
+  initialMode: SourceMode;
+  initialText: string | null | undefined;
+}): { source_contact_id: string | null; source: string | null } {
+  if (p.mode === "text") return { source_contact_id: null, source: String(p.text ?? "").trim() || null };
+  const keep = p.initialMode === "contact" ? String(p.initialText ?? "").trim() || null : null;
+  return { source_contact_id: p.contactId || null, source: keep };
+}
+
+/** Deal type suggestion for the field: none for a typed source (it is not a person), otherwise by the contact. */
+export function suggestForSource(mode: SourceMode, contact: ContactForSuggestion | null | undefined): DealSourceType | null {
+  return mode === "text" ? null : suggestDealSourceType(contact);
+}
+
+/** What the item page shows for the field: the contact name, the typed source, or both. */
+export function describeSource(contactName: string | null | undefined, sourceText: string | null | undefined): string | null {
+  const text = String(sourceText ?? "").trim();
+  if (contactName && text) return `${contactName} (also noted: ${text})`;
+  if (contactName) return contactName;
+  if (text) return `${text} (not a person)`;
+  return null;
+}

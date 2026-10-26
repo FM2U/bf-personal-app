@@ -1,6 +1,6 @@
 /**
  * "+ New" next to a reference field: the short form for creating the referenced record without leaving the page.
- * Pure functions (tested). The dialog is src/components/app/ref-picker.tsx; saving uses createRecordInline in src/app/actions/records.ts.
+ * Pure functions (tested). The dialog is src/components/app/record-form.tsx; saving uses createRecordInline in src/app/actions/records.ts.
  */
 import { getResource, RESOURCES, type Field } from "@/lib/resources";
 
@@ -8,7 +8,7 @@ export type RefOption = { id: string; label: string };
 
 /** Hand-picked short forms: the name plus the most useful fields. Every required field is always added. */
 const QUICK_FIELDS: Record<string, string[]> = {
-  contacts: ["name", "organization_id", "email", "phone", "relationship_group"],
+  contacts: ["name", "email", "phone", "organization_id", "title", "relationship_group", "roles"],
   organizations: ["name", "kind", "website", "phone"],
   initiatives: ["name", "description"],
   goals: ["title", "initiative_id", "deadline"],
@@ -20,8 +20,14 @@ const QUICK_FIELDS: Record<string, string[]> = {
 const SIMPLE_TYPES = new Set(["text", "email", "url", "number", "money", "percent", "date", "select"]);
 const MAX_OPTIONAL = 2;
 
-/** Made on their own screen with extra setup (scenarios copy the current numbers), so no "+ New" in forms. */
-const OWN_SCREEN = new Set(["scenarios"]);
+/**
+ * Made on their own screen with extra setup, so no "+ New" in forms: scenarios copy the current numbers;
+ * pipelines and stages are set up in Settings, Initiatives and pipelines (the reference fields keep search).
+ */
+const OWN_SCREEN = new Set(["scenarios", "pipelines", "pipeline_stages"]);
+
+/** How deep "+ New" can go: a form (0) and one dialog inside it (1), for example Organization inside a new contact. */
+export const MAX_CREATE_DEPTH = 2;
 
 /** Record types that can be created from a reference field. */
 export function canQuickCreate(table: string | undefined): boolean {
@@ -48,8 +54,13 @@ export function quickCreateFields(table: string): Field[] {
     for (const f of optional) names.add(f.name);
   }
   for (const f of editable) if (f.required) names.add(f.name);
-  return editable.filter((f) => names.has(f.name));
+  const shown = editable.filter((f) => names.has(f.name));
+  // A hand-picked list is shown in its own order (pairs of fields per row in the dialog).
+  if (picked) return [...shown].sort((a, b) => rank(picked, a.name) - rank(picked, b.name));
+  return shown;
 }
+
+const rank = (list: string[], name: string) => (list.includes(name) ? list.indexOf(name) : list.length);
 
 /** Reference tables the "+ New" dialogs of a form need options for (example: Organization inside the new contact dialog). */
 export function quickCreateRefTables(fields: Field[]): string[] {
@@ -57,6 +68,8 @@ export function quickCreateRefTables(fields: Field[]): string[] {
   for (const f of fields) {
     if (f.type !== "ref" || !canQuickCreate(f.ref)) continue;
     for (const q of quickCreateFields(f.ref!)) if (q.type === "ref" && q.ref && RESOURCES[q.ref]) out.add(q.ref);
+    // The "+ New" organization dialog lists contacts to link (People at this organization).
+    if (f.ref === "organizations") out.add("contacts").add("organizations");
   }
   return [...out];
 }

@@ -1,7 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { todayInTz } from "@/lib/calc/dates";
-import { outreachStatus, sortQueue, type OutreachStatus } from "@/lib/calc/outreach";
+import { effectiveEveryDays, outreachStatus, sortQueue, type OutreachStatus } from "@/lib/calc/outreach";
 import { creditByContact, introducedNote, type ContactCredit } from "@/lib/calc/source-chain";
 import { fetchAll } from "@/lib/data";
 import { scoped } from "@/lib/finance";
@@ -29,7 +29,7 @@ export type QueueRow = {
 };
 
 /**
- * Contacts with a relationship group or an outreach frequency, with the date of the latest communication
+ * Contacts with an outreach schedule (relationship group other than "Other", or their own number of days), with the date of the latest communication
  * (read from communications, never stored by hand) and whether a message is due.
  * `available` is false until database update 0008 is applied.
  */
@@ -44,7 +44,8 @@ export async function loadOutreachQueue(
   if (error && isMissingSchemaError(error)) ({ data, error } = await read(`${base},is_deal_source`));
   if (error && isMissingSchemaError(error)) ({ data, error } = await read(base));
   if (error) return { available: !isMissingSchemaError(error), all: [], due: [], error: error.message };
-  const contacts = ((data ?? []) as unknown as Row[]).filter((c) => c.relationship_group || c.outreach_every_days);
+  // Only contacts with a schedule: a group with a schedule (not "Other"), or their own number of days.
+  const contacts = ((data ?? []) as unknown as Row[]).filter((c) => effectiveEveryDays(c.relationship_group, c.outreach_every_days) !== null);
   if (!contacts.length) return { available: true, all: [], due: [] };
   let comms: Row[] = [];
   let orgs: Row[] = [];

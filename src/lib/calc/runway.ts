@@ -53,7 +53,8 @@ export type RunwayResult = {
 /**
  * Default formula: available cash / (average monthly spending - average monthly income).
  * `signedConsultingMonthly` (input runway_include_signed_consulting = 1): expected monthly income from signed consulting
- * work, added to average monthly income (it is added even when average income is not subtracted).
+ * work that has no payment received yet, added to average monthly income (it is added even when average income is not
+ * subtracted). Paid engagements are left out: their payments are already in average income.
  */
 export function computeRunway(params: {
   cash: number;
@@ -94,7 +95,7 @@ export function runwayExplanation(p: { lookbackMonths: number; subtractIncome: b
     : `Cash divided by average monthly spending, last ${months} months (income not subtracted).`;
   const usd = `$${Math.round(p.signedConsultingMonthly).toLocaleString("en-US")}`;
   const consulting = p.includeSignedConsulting
-    ? ` Signed consulting income is counted: ${usd} per month expected from Signed and Active consulting work is added to income.`
+    ? ` Signed consulting income is counted: ${usd} per month expected from Signed and Active consulting work with no payment received yet is added to income. After an engagement's first payment, its payments count in average income instead.`
     : p.settingAvailable === false
       ? ""
       : " Signed consulting income is not counted (Inputs: Count signed consulting income in runway = 0).";

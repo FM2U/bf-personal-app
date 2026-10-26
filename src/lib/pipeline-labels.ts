@@ -3,7 +3,7 @@
  * Used by the pipeline item form and the item page. A pipeline added in Settings uses its kind's labels.
  */
 
-export type FieldText = { label?: string; help?: string };
+export type FieldText = { label?: string; help?: string; placeholder?: string };
 
 /** "Organization" on a pipeline item, per pipeline kind. */
 export const ORGANIZATION_LABEL: Record<string, string> = {
@@ -19,8 +19,9 @@ export const SOURCE_FIELD_TEXT: Record<string, Record<string, FieldText>> = {
   acquisition: {
     source_contact_id: {
       label: "Deal came from",
-      help: "Who handed you this deal directly: the broker, the owner, or a friend who knows the owner.",
+      help: 'Who handed you this deal: the broker, the owner, or a friend who knows the owner. For a listing or a campaign, choose "Not a person".',
     },
+    source: { placeholder: "Examples: BizBuySell listing, Cold email campaign" },
     introduced_by_contact_id: {
       label: "Introduced by",
       help: "The person in your network who started the chain, for example the friend who introduced you to the broker.",
@@ -30,8 +31,9 @@ export const SOURCE_FIELD_TEXT: Record<string, Record<string, FieldText>> = {
   consulting: {
     source_contact_id: {
       label: "Lead came from",
-      help: "Who handed you this lead directly: the client, or the person who referred you.",
+      help: 'Who handed you this lead: the client, or the person who referred you. For a posting or a campaign, choose "Not a person".',
     },
+    source: { placeholder: "Examples: LinkedIn post, Cold email campaign" },
     introduced_by_contact_id: {
       label: "Introduced by",
       help: "The person in your network who started the chain, for example the friend who introduced you to the referrer.",

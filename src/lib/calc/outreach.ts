@@ -5,11 +5,18 @@ import { addDaysISO, daysBetween } from "./dates";
  * their outreach frequency, and the date of the latest communication with them.
  */
 
-export type RelationshipGroup = "close" | "warm" | "professional";
+export type RelationshipGroup = "close" | "friend" | "warm" | "professional" | "other";
 
-export const GROUP_DEFAULT_DAYS: Record<RelationshipGroup, number> = { close: 30, warm: 60, professional: 90 };
+/**
+ * Days between messages per group. "Other" has no set schedule: such a contact is in the Outreach Queue only when
+ * "Reach out every (days)" is set on the contact.
+ */
+export const GROUP_DEFAULT_DAYS: Record<RelationshipGroup, number | null> = { close: 30, friend: 30, warm: 60, professional: 90, other: null };
 
-export const GROUP_LABELS: Record<RelationshipGroup, string> = { close: "Close", warm: "Warm", professional: "Professional" };
+export const GROUP_LABELS: Record<RelationshipGroup, string> = { close: "Close", friend: "Friend", warm: "Warm", professional: "Professional", other: "Other" };
+
+/** Plain list of the group schedules, for help text. */
+export const GROUP_SCHEDULE_TEXT = "close 30, friend 30, warm 60, professional 90 days; other: no set schedule";
 
 export const OUTCOME_LABELS: Record<string, string> = {
   replied: "Replied",
@@ -18,7 +25,10 @@ export const OUTCOME_LABELS: Record<string, string> = {
   no_response: "No response",
 };
 
-/** Days between messages: the contact's own number, otherwise the group default (close 30, warm 60, professional 90). */
+/**
+ * Days between messages: the contact's own number, otherwise the group default
+ * (close 30, friend 30, warm 60, professional 90). Other, no group, or an unknown group: null (no schedule).
+ */
 export function effectiveEveryDays(group: string | null | undefined, everyDays: number | null | undefined): number | null {
   if (everyDays !== null && everyDays !== undefined && Number(everyDays) > 0) return Number(everyDays);
   if (group && group in GROUP_DEFAULT_DAYS) return GROUP_DEFAULT_DAYS[group as RelationshipGroup];
@@ -37,7 +47,7 @@ export type OutreachStatus = {
 
 /**
  * A contact is due when (last contact date + frequency) is today or earlier,
- * or when the contact has a relationship group and has never been contacted.
+ * or when the contact has a relationship group with a schedule (or its own number of days) and has never been contacted.
  */
 export function outreachStatus(
   c: { relationship_group?: string | null; outreach_every_days?: number | null },

@@ -16,7 +16,7 @@ import { DbUpdateNotice } from "@/components/app/target-grid";
 import { date as fmtDate, money } from "@/lib/format";
 import type { Row } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { pipelineViewCookie, resolvePipelineView } from "@/lib/pipeline-view";
+import { pipelineClosedCookie, pipelineViewCookie, resolvePipelineView, resolveShowClosed } from "@/lib/pipeline-view";
 import { RememberPipelineView } from "@/components/app/remember-view";
 import { Stat, StatGrid } from "@/components/app/page-header";
 import { loadConsulting, loadConsultingIncome, type ConsultingData } from "@/lib/consulting";
@@ -53,9 +53,11 @@ export default async function PipelinePage({ params, searchParams }: { params: P
   const cItem = Object.fromEntries((consulting?.items ?? []).map((c) => [c.item.id, c]));
   const month = monthBounds(ctx.today);
   const incomeThisMonth = isConsulting && consulting?.available ? await loadConsultingIncome(supabase, { ownerId, from: month.start, to: month.end, itemIds: consulting.items.map((c) => c.item.id) }) : null;
-  const showClosed = sp.closed === "1";
+  const jar = await cookies();
   const viewCookie = pipelineViewCookie(pipelineId);
-  const view = resolvePipelineView(sp.view, (await cookies()).get(viewCookie)?.value);
+  const closedCookie = pipelineClosedCookie(pipelineId);
+  const view = resolvePipelineView(sp.view, jar.get(viewCookie)?.value);
+  const showClosed = resolveShowClosed(sp.closed, jar.get(closedCookie)?.value);
   const listView = view === "list";
   const stageList = allStages.filter((s) => showClosed || s.outcome === "open");
   const stageName = Object.fromEntries(allStages.map((s) => [s.id, s.name]));
@@ -70,7 +72,7 @@ export default async function PipelinePage({ params, searchParams }: { params: P
   const stalledCount = items.filter((i) => status.byItem[i.id]?.stalled).length;
   const overCount = items.filter((i) => status.byItem[i.id]?.limit?.over).length;
   const href = (p: Record<string, string>) => {
-    const q = new URLSearchParams({ ...(showClosed ? { closed: "1" } : {}), view, ...p });
+    const q = new URLSearchParams({ view, ...p });
     for (const [k, v] of [...q.entries()]) if (!v) q.delete(k);
     const s = q.toString();
     return `/opportunities/${pipelineId}${s ? `?${s}` : ""}`;
@@ -96,7 +98,7 @@ export default async function PipelinePage({ params, searchParams }: { params: P
               </Button>
             </div>
             <Button asChild size="sm" variant="outline">
-              <Link href={href({ closed: showClosed ? "" : "1" })}>{showClosed ? "Hide closed stages" : `Show closed stages (${closedCount})`}</Link>
+              <Link href={href({ closed: showClosed ? "0" : "1" })}>{showClosed ? "Hide closed stages" : `Show closed stages (${closedCount})`}</Link>
             </Button>
             <Button asChild size="sm">
               <Link href={`/records/pipeline_items/new?pipeline_id=${pipelineId}&stage_id=${stageList[0]?.id ?? ""}`}>Add item</Link>
@@ -104,7 +106,7 @@ export default async function PipelinePage({ params, searchParams }: { params: P
           </>
         }
       />
-      <RememberPipelineView cookie={viewCookie} view={view} />
+      <RememberPipelineView cookie={viewCookie} view={view} closedCookie={closedCookie} showClosed={showClosed} />
       <div className="mb-4 flex flex-col gap-4">
         {!status.available ? <DbUpdateNotice compact /> : null}
         {isConsulting && consulting ? <ConsultingStrip data={consulting} incomeThisMonth={incomeThisMonth?.total ?? 0} pipelineId={pipelineId} /> : null}
@@ -184,11 +186,11 @@ export default async function PipelinePage({ params, searchParams }: { params: P
           </CardContent>
         </Card>
       ) : (
-        // Board: all stage columns share the page width on desktop (1024px and up, min 6.75rem each);
+        // Board: all stage columns share the page width on desktop (1024px and up, min 6rem each, so 9 stages fit at 1280);
         // on narrow screens the board scrolls sideways inside this box, never the page.
         <div className="-mx-4 overflow-x-auto px-4 pb-3 sm:mx-0 sm:px-0" role="region" aria-label={`${pipe.name} board`} tabIndex={0}>
           <div
-            className="grid gap-2 [--col-min:13rem] lg:[--col-min:6.75rem]"
+            className="grid gap-2 [--col-min:13rem] lg:[--col-min:6rem]"
             style={{ gridTemplateColumns: `repeat(${stageList.length}, minmax(var(--col-min), 1fr))` }}
           >
             {stageList.map((s) => {

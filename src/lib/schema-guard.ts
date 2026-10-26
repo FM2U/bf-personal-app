@@ -1,17 +1,20 @@
 /**
- * Database updates 0008 (Daily Targets and Outreach Queue), 0009 (pipeline accountability and deal source), and
- * 0010 (commitment rule: tasks.times_moved, released commitments) may not be applied yet on the live database.
+ * Database updates 0008 (Daily Targets and Outreach Queue), 0009 (pipeline accountability and deal source),
+ * 0010 (commitment rule: tasks.times_moved, released commitments), 0011 (deal source chain and Consulting), and
+ * 0012 (contact options: relationship groups Friend and Other) may not be applied yet on the live database.
  * Every query that reads or writes the new tables or columns checks for "does not exist" errors with
  * isMissingSchemaError and shows DB_UPDATE_NOTICE (or skips the step) instead of failing.
- * All updates are in one file: supabase/UPDATE_RUN_ONCE.sql (0008 to 0011).
- * Update 0011 (deal source chain and Consulting) is also in supabase/UPDATE_0011_RUN_ONCE.sql, the file for the
- * live database (which has 0001 to 0010). Features from 0011 name that file in their notice.
+ * All updates are in one file: supabase/UPDATE_RUN_ONCE.sql (0008 to 0012).
+ * The live database has 0001 to 0010 (or 0001 to 0011): it uses supabase/UPDATE_0011_0012_RUN_ONCE.sql (0011, then 0012).
+ * Features from 0011 and 0012 name that file in their notice.
  */
 
 export const DB_UPDATE_FILE = "supabase/UPDATE_RUN_ONCE.sql";
 export const DB_UPDATE_NOTICE = `Database update needed: paste ${DB_UPDATE_FILE} into the Supabase SQL Editor and run it.`;
 
-export const DB_UPDATE_FILE_0011 = "supabase/UPDATE_0011_RUN_ONCE.sql";
+/** The file for the live database (0001 to 0010, or 0001 to 0011): updates 0011 and 0012 in one paste. */
+export const DB_UPDATE_FILE_0011 = "supabase/UPDATE_0011_0012_RUN_ONCE.sql";
+export const DB_UPDATE_FILE_0012 = DB_UPDATE_FILE_0011;
 export const DB_UPDATE_NOTICE_0011 = `Database update needed: paste ${DB_UPDATE_FILE_0011} into the Supabase SQL Editor and run it.`;
 
 /** Columns added by 0008, 0009, and 0011 to tables that already existed. Saving drops them when the update is not applied yet. */
@@ -45,6 +48,14 @@ export const COLUMNS_0011: Record<string, string[]> = {
 };
 
 export const NEW_TABLES = ["targets", "target_entries", "target_misses", "stage_tasks", "pipeline_item_stage_extensions", "consulting_details"];
+
+/** Option values that need database update 0012 (a check constraint allows them only after it). */
+export const OPTIONS_0012: Record<string, Record<string, string[]>> = {
+  contacts: { relationship_group: ["friend", "other"] },
+};
+
+/** Function added by 0012, called to check whether the update is applied. */
+export const PROBE_0012 = "schema_has_0012";
 
 /** Tables added by 0011. */
 export const TABLES_0011 = ["consulting_details"];

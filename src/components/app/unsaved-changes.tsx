@@ -12,6 +12,9 @@
  * A field counts as changed when its value differs from the value it was shown with
  * (changing it back is not a change). Forms with method="get" (filters) and forms marked
  * data-unsaved="off" are never checked.
+ *
+ * - useUnsavedWork: for screens that are not one form (the CSV import wizard). While it reports work in progress,
+ *   leaving asks too; the dialog offers "Leave and discard" and "Stay on this page" (there is nothing to save).
  */
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useTransition } from "react";
 import { requestFormReset } from "react-dom";
@@ -56,6 +59,31 @@ export function formHasChanges(form: HTMLFormElement): boolean {
 function changedForms(): HTMLFormElement[] {
   if (typeof document === "undefined") return [];
   return [...document.querySelectorAll("form")].filter((f) => isChecked(f) && formHasChanges(f));
+}
+
+// ---------- Work in progress outside a form ----------
+
+const UNSAVED_EVENT = "app:unsaved-work";
+const unsavedWork = new Map<symbol, string>();
+
+/**
+ * Reports work in progress that is not a form field (example: a CSV file chosen in the import wizard).
+ * `message` is shown in the leave dialog.
+ */
+export function useUnsavedWork(active: boolean, message: string) {
+  useEffect(() => {
+    if (!active) return;
+    const key = Symbol("unsaved-work");
+    unsavedWork.set(key, message);
+    window.dispatchEvent(new Event(UNSAVED_EVENT));
+    return () => {
+      unsavedWork.delete(key);
+    };
+  }, [active, message]);
+}
+
+function hasChanges(): boolean {
+  return changedForms().length > 0 || unsavedWork.size > 0;
 }
 
 // ---------- GuardedForm ----------
@@ -177,7 +205,8 @@ function saveForLeave(form: HTMLFormElement, dest: string | null): Promise<SaveR
 
 // ---------- The guard ----------
 
-type Pending = { kind: "link"; href: string; anchor: HTMLAnchorElement } | { kind: "back" };
+/** savable: a form holds the changes (Save and leave is offered); otherwise only work outside forms (nothing to save). */
+type Pending = ({ kind: "link"; href: string; anchor: HTMLAnchorElement } | { kind: "back" }) & { savable: boolean };
 
 export function UnsavedChangesGuard() {
   const router = useRouter();
@@ -206,7 +235,7 @@ export function UnsavedChangesGuard() {
     const check = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        if (!sentinel.current && changedForms().length) {
+        if (!sentinel.current && hasChanges()) {
           window.history.pushState(window.history.state, "", window.location.href);
           sentinel.current = true;
         }
@@ -214,10 +243,12 @@ export function UnsavedChangesGuard() {
     };
     document.addEventListener("input", check, true);
     document.addEventListener("change", check, true);
+    window.addEventListener(UNSAVED_EVENT, check);
     return () => {
       cancelAnimationFrame(frame);
       document.removeEventListener("input", check, true);
       document.removeEventListener("change", check, true);
+      window.removeEventListener(UNSAVED_EVENT, check);
     };
   }, []);
 
@@ -230,11 +261,11 @@ export function UnsavedChangesGuard() {
       const url = new URL(a.href, window.location.href);
       if (url.origin !== window.location.origin) return;
       if (url.pathname === window.location.pathname && url.search === window.location.search) return; // same page (a section link)
-      if (!changedForms().length) return;
+      if (!hasChanges()) return;
       e.preventDefault();
       e.stopPropagation();
       setError(null);
-      setPending({ kind: "link", href: url.pathname + url.search + url.hash, anchor: a });
+      setPending({ kind: "link", href: url.pathname + url.search + url.hash, anchor: a, savable: changedForms().length > 0 });
     };
     window.addEventListener("click", onClick, true);
     return () => window.removeEventListener("click", onClick, true);
@@ -246,9 +277,9 @@ export function UnsavedChangesGuard() {
       if (!sentinel.current) return;
       sentinel.current = false;
       e.stopImmediatePropagation();
-      if (changedForms().length) {
+      if (hasChanges()) {
         setError(null);
-        setPending({ kind: "back" });
+        setPending({ kind: "back", savable: changedForms().length > 0 });
       } else {
         window.history.back();
       }
@@ -260,7 +291,7 @@ export function UnsavedChangesGuard() {
   // Tab close and reload: the browser's own prompt.
   useEffect(() => {
     const onUnload = (e: BeforeUnloadEvent) => {
-      if (bypass.current || !changedForms().length) return;
+      if (bypass.current || !hasChanges()) return;
       e.preventDefault();
       e.returnValue = "";
     };
@@ -299,7 +330,7 @@ export function UnsavedChangesGuard() {
   const stay = () => {
     const wasBack = pending?.kind === "back";
     setPending(null);
-    if (wasBack && changedForms().length && !sentinel.current) {
+    if (wasBack && hasChanges() && !sentinel.current) {
       window.history.pushState(window.history.state, "", window.location.href);
       sentinel.current = true;
     }
@@ -344,14 +375,25 @@ export function UnsavedChangesGuard() {
     <>
       <Dialog open={!!pending} onOpenChange={(open) => (!open && !saving ? stay() : null)}>
         <DialogContent className="max-w-md" aria-describedby="unsaved-desc">
-          <DialogTitle>Save your changes?</DialogTitle>
-          <DialogDescription id="unsaved-desc">This page has changes that are not saved yet.</DialogDescription>
+          {pending && !pending.savable ? (
+            <>
+              <DialogTitle>Leave this page?</DialogTitle>
+              <DialogDescription id="unsaved-desc">{[...unsavedWork.values()][0] ?? "This page has work that is not finished."}</DialogDescription>
+            </>
+          ) : (
+            <>
+              <DialogTitle>Save your changes?</DialogTitle>
+              <DialogDescription id="unsaved-desc">This page has changes that are not saved yet.</DialogDescription>
+            </>
+          )}
           <div className="flex flex-col gap-2 sm:flex-row-reverse sm:flex-wrap sm:justify-start">
-            <Button onClick={saveAndLeave} disabled={saving} data-testid="unsaved-save">
-              {saving ? "Saving..." : "Save and leave"}
-            </Button>
+            {pending && !pending.savable ? null : (
+              <Button onClick={saveAndLeave} disabled={saving} data-testid="unsaved-save">
+                {saving ? "Saving..." : "Save and leave"}
+              </Button>
+            )}
             <Button variant="outline" onClick={leave} disabled={saving} data-testid="unsaved-leave">
-              Leave without saving
+              {pending && !pending.savable ? "Leave and discard" : "Leave without saving"}
             </Button>
             <Button variant="ghost" onClick={stay} disabled={saving} data-testid="unsaved-stay">
               Stay on this page

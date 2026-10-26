@@ -127,7 +127,7 @@ begin
   -- Inputs
   insert into inputs (owner_id, key, label, category, unit, value_number, value_text, description, sort_order) values
     (p_owner, 'runway_include_signed_consulting', 'Count signed consulting income in runway (1 = yes, 0 = no)', 'Runway', 'boolean', 0, null,
-     'When 1, the expected monthly income of Signed and Active consulting items (between their start and end dates) is added to average monthly income in the runway formula.', 45),
+     'When 1, the expected monthly income of Signed and Active consulting items (between their start and end dates) is added to average monthly income in the runway formula until the item''s first payment is received. After that, its payments are already in average monthly income.', 45),
     (p_owner, 'consulting_monthly_income', 'Consulting: monthly income', 'Consulting', 'usd', 0, null,
      'Used in scenarios: consulting income added each month for the number of months below, and in the Bridge comparison.', 320),
     (p_owner, 'consulting_months', 'Consulting: months of consulting income', 'Consulting', 'months', 12, null,

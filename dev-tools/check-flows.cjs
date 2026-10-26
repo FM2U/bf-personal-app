@@ -343,50 +343,50 @@ const expectText = async (page, text) => {
     const href = await page.locator("a[href^='/records/pipeline_items/']:not([href*='/new'])").first().getAttribute("href");
     itemEdit = `${BASE}${href}?edit=1`;
     await page.goto(itemEdit);
-    const original = await page.inputValue('input[name="source"]');
-    await page.fill('input[name="source"]', "Flow test source");
+    const original = await page.inputValue('textarea[name="notes"]');
+    await page.fill('textarea[name="notes"]', "Flow test source");
     await homeLink().click();
     await page.getByRole("dialog", { name: "Save your changes?" }).waitFor();
     await page.screenshot({ path: path.join(OUT, "flow-unsaved-dialog.png") });
     await page.getByTestId("unsaved-stay").click();
     await page.waitForTimeout(300);
     if (!page.url().includes("edit=1")) throw new Error("left the page after Stay");
-    if ((await page.inputValue('input[name="source"]')) !== "Flow test source") throw new Error("typed value lost after Stay");
+    if ((await page.inputValue('textarea[name="notes"]')) !== "Flow test source") throw new Error("typed value lost after Stay");
     // Browser Back asks too.
     await page.goBack();
     await page.getByRole("dialog", { name: "Save your changes?" }).waitFor();
     await page.getByTestId("unsaved-stay").click();
     if (!page.url().includes("edit=1")) throw new Error("left the page after Back and Stay");
     // Changed back to the original: no question.
-    await page.fill('input[name="source"]', original);
+    await page.fill('textarea[name="notes"]', original);
     await homeLink().click();
     await page.waitForURL(`${BASE}/`);
   });
 
   await step("Unsaved changes: Leave without saving goes and keeps the old value", async () => {
     await page.goto(itemEdit);
-    const original = await page.inputValue('input[name="source"]');
-    await page.fill('input[name="source"]', "Not saved value");
+    const original = await page.inputValue('textarea[name="notes"]');
+    await page.fill('textarea[name="notes"]', "Not saved value");
     await homeLink().click();
     await page.getByTestId("unsaved-leave").click();
     await page.waitForURL(`${BASE}/`);
     await page.goto(itemEdit);
-    if ((await page.inputValue('input[name="source"]')) !== original) throw new Error("value was saved");
+    if ((await page.inputValue('textarea[name="notes"]')) !== original) throw new Error("value was saved");
   });
 
   await step("Unsaved changes: Save and leave saves, then opens the link", async () => {
     await page.goto(itemEdit);
-    await page.fill('input[name="source"]', "Saved by Save and leave");
+    await page.fill('textarea[name="notes"]', "Saved by Save and leave");
     await homeLink().click();
     await page.getByTestId("unsaved-save").click();
     await page.waitForURL(`${BASE}/`);
     await page.goto(itemEdit);
-    if ((await page.inputValue('input[name="source"]')) !== "Saved by Save and leave") throw new Error("value not saved");
+    if ((await page.inputValue('textarea[name="notes"]')) !== "Saved by Save and leave") throw new Error("value not saved");
   });
 
   await step("Unsaved changes: Save and leave stays and shows the error when the save fails", async () => {
     await page.goto(itemEdit);
-    await page.fill('input[name="source"]', "Will not save");
+    await page.fill('textarea[name="notes"]', "Will not save");
     await page.evaluate(() => {
       document.querySelectorAll("[required]").forEach((e) => e.removeAttribute("required"));
       document.querySelector('input[name="next_action"]').value = "";
@@ -396,7 +396,7 @@ const expectText = async (page, text) => {
     await page.getByTestId("unsaved-save").click();
     await expectText(page, "Next action is required.");
     if (!page.url().includes("edit=1")) throw new Error("left the page after a failed save");
-    if ((await page.inputValue('input[name="source"]')) !== "Will not save") throw new Error("typed value lost after failed save");
+    if ((await page.inputValue('textarea[name="notes"]')) !== "Will not save") throw new Error("typed value lost after failed save");
     await page.goto(itemEdit);
   });
 
@@ -504,9 +504,151 @@ const expectText = async (page, text) => {
     await page.waitForLoadState("networkidle");
     await page.goto(`${BASE}/`);
     await expectText(page, "Signed consulting income is counted");
+    // Only the signed engagement without a payment yet (Demo Dental Group, $2,500) is added; the paid retainer is not.
+    await expectText(page, "$2,500 per month expected from Signed and Active consulting work with no payment received yet");
     const after = await page.evaluate(() => [...document.querySelectorAll("p")].find((e) => e.textContent.trim() === "Runway")?.nextElementSibling?.textContent ?? "");
     if (before === after) throw new Error(`runway did not change (${before})`);
     await page.screenshot({ path: path.join(OUT, "flow-runway-consulting.png"), fullPage: true });
+  });
+
+  await step("Board shows closed stages by default; Hide closed stages is remembered", async () => {
+    const fresh = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    await fresh.addCookies([cookie]);
+    const p = await fresh.newPage();
+    await p.goto(`${BASE}/opportunities`);
+    await p.getByRole("link", { name: "Open pipeline" }).first().click();
+    await p.waitForURL(/\/opportunities\/[0-9a-f-]{36}/);
+    const id = p.url().match(/opportunities\/([0-9a-f-]{36})/)[1];
+    await p.goto(`${BASE}/opportunities/${id}?view=board`);
+    const board = p.locator("[role=region][aria-label$='board']");
+    await board.waitFor();
+    if (!(await board.locator("section[aria-label='Passed']").count())) throw new Error("closed stage Passed not shown by default");
+    const sw = await p.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    if (sw > 0) throw new Error(`page scrolls sideways by ${sw}px at 1280`);
+    const inner = await board.evaluate((e) => e.scrollWidth - e.clientWidth);
+    if (inner > 0) throw new Error(`board scrolls inside its box by ${inner}px at 1280 (all stages should fit)`);
+    await p.screenshot({ path: path.join(OUT, "flow-board-closed-1280.png"), fullPage: true });
+    await p.getByRole("link", { name: "Hide closed stages" }).click();
+    await p.waitForURL(/closed=0/);
+    await p.goto(`${BASE}/opportunities/${id}?view=board`);
+    await board.waitFor();
+    if (await board.locator("section[aria-label='Passed']").count()) throw new Error("hide choice not remembered");
+    await p.getByRole("link", { name: /Show closed stages/ }).click();
+    await p.waitForURL(/closed=1/);
+    await fresh.close();
+  });
+
+  await step("Pipeline and Stage fields have search but no + New", async () => {
+    await page.goto(itemEdit);
+    if (await page.getByRole("button", { name: /^New pipeline for/ }).count()) throw new Error("+ New on Pipeline");
+    if (await page.getByRole("button", { name: /^New stage for/ }).count()) throw new Error("+ New on Stage");
+    if (!(await page.getByRole("button", { name: "New contact for Deal came from" }).count())) throw new Error("+ New missing on Deal came from");
+  });
+
+  await step("+ New contact dialog has email, phone, organization (with + New), title, roles, group; email is saved", async () => {
+    await page.goto(itemEdit);
+    await page.getByRole("button", { name: "New contact for Deal came from" }).click();
+    const dlg = page.getByRole("dialog", { name: "New contact" });
+    await dlg.waitFor();
+    for (const n of ["name", "email", "phone", "title", "relationship_group", "roles"]) if (!(await dlg.locator(`[name="${n}"]`).count())) throw new Error(`dialog has no ${n}`);
+    if (!(await dlg.getByRole("button", { name: "New organization for Organization" }).count())) throw new Error("no + New organization inside the contact dialog");
+    await dlg.locator('input[name="name"]').fill("Flow Dialog Person");
+    await dlg.locator('input[name="email"]').fill("flow.dialog@example.com");
+    await dlg.locator('input[name="phone"]').fill("555-0142");
+    await dlg.locator('input[name="title"]').fill("Owner");
+    await dlg.locator('select[name="relationship_group"]').selectOption("friend");
+    await dlg.locator('input[name="roles"][value="friend"]').check();
+    await page.screenshot({ path: path.join(OUT, "flow-new-contact-dialog.png") });
+    await dlg.getByRole("button", { name: "Add contact" }).click();
+    await dlg.waitFor({ state: "detached" });
+    if ((await page.inputValue("#f_source_contact_id")) !== "Flow Dialog Person") throw new Error("new contact not chosen");
+    await page.getByRole("button", { name: "Save changes" }).click();
+    await page.waitForURL(/\/records\/pipeline_items\/[0-9a-f-]{36}$/);
+    await page.getByRole("link", { name: "Flow Dialog Person" }).first().click();
+    await page.waitForURL(/\/records\/contacts\//);
+    await expectText(page, "flow.dialog@example.com");
+    await expectText(page, "555-0142");
+    await expectText(page, "Friend");
+  });
+
+  await step("Deal came from: Not a person saves the typed source and suggests no deal type", async () => {
+    await page.goto(itemEdit);
+    await page.locator("#f_source_contact_id").click();
+    await page.locator("[role=option]", { hasText: "Not a person: type the source" }).click();
+    const box = page.getByRole("textbox", { name: /the source \(not a person\)/ });
+    await box.waitFor();
+    if ((await box.getAttribute("placeholder")) !== "Examples: BizBuySell listing, Cold email campaign") throw new Error("placeholder examples missing");
+    await box.fill("Flow BizBuySell listing");
+    await expectText(page, "A typed source gives no suggestion");
+    if (await page.locator('input[name="source"][type="text"], input[name="source"]:not([type])').count() !== 1) throw new Error("expected one source text box");
+    await page.screenshot({ path: path.join(OUT, "flow-source-not-a-person.png"), fullPage: true });
+    await page.getByRole("button", { name: "Save changes" }).click();
+    await page.waitForURL(/\/records\/pipeline_items\/[0-9a-f-]{36}$/);
+    await expectText(page, "Flow BizBuySell listing (not a person)");
+    await page.goto(itemEdit);
+    if ((await page.inputValue("#f_source_contact_id")) !== "Not a person (type it below)") throw new Error("does not open as Not a person");
+    if ((await page.getByRole("textbox", { name: /the source \(not a person\)/ }).inputValue()) !== "Flow BizBuySell listing") throw new Error("typed source not kept");
+    if (await page.locator("label", { hasText: "Where it came from" }).count()) throw new Error("separate Where it came from field still shown");
+  });
+
+  await step("Organization form adds two new people; the page lists them and can unlink one", async () => {
+    await page.goto(`${BASE}/records/organizations/new`);
+    await page.fill('input[name="name"]', "Flow People Org");
+    await page.getByRole("textbox", { name: "New person 1: name" }).fill("Flow Person One");
+    await page.getByRole("textbox", { name: "New person 1: email" }).fill("one@example.com");
+    await page.getByRole("button", { name: "Add another person" }).click();
+    await page.getByRole("textbox", { name: "New person 2: name" }).fill("Flow Person Two");
+    await page.getByRole("textbox", { name: "New person 2: title" }).fill("CFO");
+    await page.getByRole("combobox", { name: "Search contacts to link" }).fill("riley");
+    await page.locator("[role=option]", { hasText: "Riley Test" }).first().click();
+    await page.getByRole("button", { name: "Add organization" }).click();
+    await page.waitForURL(/\/records\/organizations\/[0-9a-f-]{36}$/);
+    const people = page.locator("#people");
+    for (const n of ["Flow Person One", "Flow Person Two", "Riley Test"]) await people.getByRole("link", { name: n }).waitFor();
+    await page.screenshot({ path: path.join(OUT, "flow-org-people.png"), fullPage: true });
+    await page.getByRole("button", { name: "Unlink Riley Test" }).click();
+    await page.waitForLoadState("networkidle");
+    await page.waitForFunction(() => !document.querySelector("#people")?.textContent.includes("Riley Test"));
+    // The contact is kept.
+    await page.goto(`${BASE}/people`);
+    await expectText(page, "Riley Test");
+  });
+
+  await step("CSV import: leaving with a file chosen asks (Stay or Leave and discard)", async () => {
+    const fs = require("node:fs");
+    const csv = path.join(require("node:os").tmpdir(), "flow-import.csv");
+    fs.writeFileSync(csv, "Posted Date,Description,Amount\n10/01/2026,FLOW TEST STORE,-12.50\n10/02/2026,FLOW TEST PAY,100.00\n");
+    await page.goto(`${BASE}/finance/import`);
+    await page.setInputFiles("#csv_file", csv);
+    await expectText(page, "2 rows found");
+    await page.getByTestId("csv-fill-note").waitFor();
+    await page.screenshot({ path: path.join(OUT, "flow-csv-wizard.png"), fullPage: true });
+    await homeLink().click();
+    const dlg = page.getByRole("dialog", { name: "Leave this page?" });
+    await dlg.waitFor();
+    if (await page.getByTestId("unsaved-save").count()) throw new Error("Save and leave offered on the import");
+    if ((await page.getByTestId("unsaved-leave").innerText()).trim() !== "Leave and discard") throw new Error("leave button text");
+    await page.getByTestId("unsaved-stay").click();
+    if (!page.url().includes("/finance/import")) throw new Error("left after Stay");
+    // A required column not chosen: a clear error names it.
+    await page.locator("#csv_date_column").selectOption("");
+    await page.getByRole("button", { name: "Review the rows" }).click();
+    await expectText(page, "Choose a column for: Date.");
+    await homeLink().click();
+    await page.getByTestId("unsaved-leave").click();
+    await page.waitForURL(`${BASE}/`);
+    // A restarted import fills the column choices made last time for this account.
+    await page.goto(`${BASE}/finance/import`);
+    await page.setInputFiles("#csv_file", csv);
+    await expectText(page, "Columns filled from your last choices for this account");
+    if ((await page.inputValue("#csv_date_column")) !== "") throw new Error("restarted import did not keep the last choices");
+    await page.locator("#csv_date_column").selectOption("Posted Date");
+    await page.getByRole("button", { name: "Review the rows" }).click();
+    await page.getByRole("button", { name: /^Import \d+ transactions/ }).click();
+    await expectText(page, "Imported");
+    // Nothing left to lose: leaving does not ask.
+    await homeLink().click();
+    await page.waitForURL(`${BASE}/`);
   });
 
   await browser.close();

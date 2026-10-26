@@ -1,12 +1,8 @@
+-- USE supabase/UPDATE_0011_0012_RUN_ONCE.sql INSTEAD. That file runs this update (0011) and the next one (0012).
+-- This file is kept for reference only. Running it first does no harm: the combined file is safe after it.
+--
 -- BF Personal App: database update 0011 (deal source chain and the Consulting pipeline).
--- For the live database, which already has 0001 to 0010. Paste this whole file into the Supabase SQL Editor and press Run.
--- Safe to run more than once: nothing is duplicated. (A database with only 0001 to 0007, 0008, or 0009 uses
--- supabase/UPDATE_RUN_ONCE.sql instead, which includes this update.)
--- What it adds:
---   - Pipeline items: "Introduced by" (the person in your network who started the chain).
---   - The Consulting initiative and pipeline: stages, stage task lists, time limits, required details, stage probabilities.
---   - Consulting details per item (rate type, rate, hours, dates, probability); payments linked to an engagement;
---     "Consulting lead" on contacts; the consulting outreach purpose; three inputs (runway and scenarios).
+-- For a database that has 0001 to 0010. Safe to run more than once: nothing is duplicated.
 -- Generated from supabase/migrations/0011_source_chain_consulting.sql by supabase/build_combined.py.
 
 -- 0011: Deal source chain and the Consulting pipeline (approved 2026-10-26).
@@ -138,7 +134,7 @@ begin
   -- Inputs
   insert into inputs (owner_id, key, label, category, unit, value_number, value_text, description, sort_order) values
     (p_owner, 'runway_include_signed_consulting', 'Count signed consulting income in runway (1 = yes, 0 = no)', 'Runway', 'boolean', 0, null,
-     'When 1, the expected monthly income of Signed and Active consulting items (between their start and end dates) is added to average monthly income in the runway formula.', 45),
+     'When 1, the expected monthly income of Signed and Active consulting items (between their start and end dates) is added to average monthly income in the runway formula until the item''s first payment is received. After that, its payments are already in average monthly income.', 45),
     (p_owner, 'consulting_monthly_income', 'Consulting: monthly income', 'Consulting', 'usd', 0, null,
      'Used in scenarios: consulting income added each month for the number of months below, and in the Bridge comparison.', 320),
     (p_owner, 'consulting_months', 'Consulting: months of consulting income', 'Consulting', 'months', 12, null,

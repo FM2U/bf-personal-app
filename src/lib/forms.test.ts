@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { initialSelection, isFieldDirty, isFormDirty, safeLeaveTarget } from "./form-dirty";
-import { addCreatedOption, canQuickCreate, filterOptions, quickCreateFields, quickCreateRefTables } from "./quick-create";
+import { addCreatedOption, canQuickCreate, filterOptions, MAX_CREATE_DEPTH, quickCreateFields, quickCreateRefTables } from "./quick-create";
 import { getResource } from "./resources";
 
 describe("unsaved changes: comparing fields with what they held when shown", () => {
@@ -50,8 +50,10 @@ describe("unsaved changes: comparing fields with what they held when shown", () 
 });
 
 describe("+ New next to a reference field", () => {
-  it("contacts: name, organization, email, phone, relationship group", () => {
-    expect(quickCreateFields("contacts").map((f) => f.name)).toEqual(["name", "organization_id", "email", "phone", "relationship_group"]);
+  it("contacts: name, email, phone, organization, title, relationship group, roles (email is always there)", () => {
+    expect(quickCreateFields("contacts").map((f) => f.name)).toEqual(["name", "email", "phone", "organization_id", "title", "relationship_group", "roles"]);
+    expect(quickCreateFields("contacts").find((f) => f.name === "email")?.type).toBe("email");
+    expect(quickCreateFields("contacts").find((f) => f.name === "roles")?.options?.map((o) => o.value)).toContain("friend");
   });
 
   it("organizations: name, kind, website, phone", () => {
@@ -59,7 +61,7 @@ describe("+ New next to a reference field", () => {
   });
 
   it("other record types: every required field plus up to 2 simple optional fields, in form order", () => {
-    for (const table of ["pipeline_stages", "milestones", "debts", "accounts", "tasks"]) {
+    for (const table of ["milestones", "debts", "accounts", "tasks", "goals"]) {
       const fields = quickCreateFields(table);
       const r = getResource(table)!;
       const required = r.fields.filter((f) => f.required && !f.readOnly && !f.hideOnForm).map((f) => f.name);
@@ -78,6 +80,18 @@ describe("+ New next to a reference field", () => {
     expect(canQuickCreate("not_a_table")).toBe(false);
     expect(canQuickCreate("scenarios")).toBe(false);
     expect(quickCreateFields("commitments")).toEqual([]);
+  });
+
+  it("Pipeline and Stage fields keep search but have no + New (they are set up in Settings)", () => {
+    expect(canQuickCreate("pipelines")).toBe(false);
+    expect(canQuickCreate("pipeline_stages")).toBe(false);
+    expect(canQuickCreate("organizations")).toBe(true);
+    expect(canQuickCreate("initiatives")).toBe(true);
+  });
+
+  it("a new contact dialog can add its organization (one level of + New inside a dialog)", () => {
+    expect(MAX_CREATE_DEPTH).toBe(2);
+    expect(quickCreateRefTables(getResource("contacts")!.fields)).toEqual(expect.arrayContaining(["organizations", "contacts"]));
   });
 
   it("lists the reference options the dialogs need (organizations for a new contact)", () => {

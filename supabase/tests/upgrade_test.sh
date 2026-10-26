@@ -3,7 +3,11 @@
 #   (b) 0001 to 0007 plus an existing owner and data, then UPDATE_RUN_ONCE.sql twice (safe to run twice)
 #   (c) 0001 to 0008 plus an existing owner and data, then UPDATE_RUN_ONCE.sql once
 #   (d) 0001 to 0009 (as first released: every stage task a commitment) plus an owner and data, then UPDATE_RUN_ONCE.sql twice
-#   (e) 0001 to 0010 (the live database on 2026-10-26) plus an owner and data, then UPDATE_0011_RUN_ONCE.sql twice
+#   (e) 0001 to 0010 plus an owner and data, then UPDATE_0011_RUN_ONCE.sql twice (the reference file still works)
+#   (f) 0001 to 0010 (the live database on 2026-10-26) plus an owner and data, then UPDATE_0011_0012_RUN_ONCE.sql twice
+#   (g) 0001 to 0011 plus an owner and data (UPDATE_0011 was run first), then UPDATE_0011_0012_RUN_ONCE.sql twice
+#   (h) 0001 to 0011, then UPDATE_0012_RUN_ONCE.sql twice
+# Every UPDATE_RUN_ONCE.sql path also checks 0012.
 # Usage: bash supabase/tests/upgrade_test.sh
 set -euo pipefail
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -152,6 +156,27 @@ select '0011 checks passed' as result;
 SQL
 }
 
+check12() { # $1 = database: 0012 applied once, existing data kept
+  su postgres -c "$PSQL -d $1" <<'SQL'
+\set ON_ERROR_STOP 1
+do $$ begin
+  assert (select count(*) from pg_constraint where conname = 'contacts_relationship_group_check') = 1, 'one relationship group check';
+  assert to_regprocedure('public.schema_has_0012()') is not null, 'check function';
+  assert (select count(*) from public.inputs where key = 'runway_include_signed_consulting') = 1, 'runway setting once';
+  assert (select description like '%until the item''s first payment is received%' from public.inputs where key = 'runway_include_signed_consulting'), 'runway setting text updated';
+  assert (select relationship_group from public.contacts where name = 'Existing contact') is null, 'existing contact group kept';
+end $$;
+insert into public.contacts (owner_id, name, relationship_group) values ('00000000-0000-0000-0000-000000000001', 'Upgrade friend', 'friend'), ('00000000-0000-0000-0000-000000000001', 'Upgrade other', 'other');
+delete from public.contacts where name in ('Upgrade friend', 'Upgrade other');
+select '0012 checks passed' as result;
+SQL
+}
+
+# Existing owner edited the runway setting text: 0012 keeps the edit.
+edited_text() { # $1 = database
+  su postgres -c "$PSQL -d $1 -c \"update public.inputs set description = 'My own note' where key = 'runway_include_signed_consulting'\""
+}
+
 # (b) Live state today: 0001 to 0007 applied.
 setup bf_upgrade_b 0007
 for run in 1 2; do
@@ -185,4 +210,43 @@ for run in 1 2; do
 done
 check11 bf_upgrade_e
 
-echo "Upgrade paths passed: 0001-0007 + update twice, 0001-0008 + update, 0001-0009 + update twice, 0001-0010 + 0011 update twice."
+# (f) Live state on 2026-10-26: 0001 to 0010 applied, then UPDATE_0011_0012_RUN_ONCE.sql twice.
+setup bf_upgrade_f 0010
+for run in 1 2; do
+  echo "[bf_upgrade_f] Applying UPDATE_0011_0012_RUN_ONCE.sql (run $run)"
+  su postgres -c "$PSQL -d bf_upgrade_f -f $DIR/UPDATE_0011_0012_RUN_ONCE.sql"
+done
+check11 bf_upgrade_f
+check12 bf_upgrade_f
+
+# (g) 0001 to 0011 applied (the owner ran the old UPDATE_0011 text first), then UPDATE_0011_0012_RUN_ONCE.sql twice.
+setup bf_upgrade_g 0010
+echo "[bf_upgrade_g] Applying the 0011 update as first released (original runway setting text)"
+sed "s/ until the item''s first payment is received. After that, its payments are already in average monthly income.', 45)/.', 45)/" "$DIR/UPDATE_0011_RUN_ONCE.sql" > /tmp/bf_old_0011.sql
+grep -qF "is added to average monthly income in the runway formula.', 45)" /tmp/bf_old_0011.sql
+su postgres -c "$PSQL -d bf_upgrade_g -f /tmp/bf_old_0011.sql"
+for run in 1 2; do
+  echo "[bf_upgrade_g] Applying UPDATE_0011_0012_RUN_ONCE.sql (run $run)"
+  su postgres -c "$PSQL -d bf_upgrade_g -f $DIR/UPDATE_0011_0012_RUN_ONCE.sql"
+done
+check11 bf_upgrade_g
+check12 bf_upgrade_g
+
+# (h) 0001 to 0011 with an edited runway setting text, then UPDATE_0012_RUN_ONCE.sql twice: the edit is kept.
+setup bf_upgrade_h 0011
+edited_text bf_upgrade_h
+for run in 1 2; do
+  echo "[bf_upgrade_h] Applying UPDATE_0012_RUN_ONCE.sql (run $run)"
+  su postgres -c "$PSQL -d bf_upgrade_h -f $DIR/UPDATE_0012_RUN_ONCE.sql"
+done
+su postgres -c "$PSQL -d bf_upgrade_h" <<'SQL'
+\set ON_ERROR_STOP 1
+do $$ begin
+  assert (select description from public.inputs where key = 'runway_include_signed_consulting') = 'My own note', 'edited text kept';
+end $$;
+SQL
+
+for db in bf_upgrade_b bf_upgrade_c bf_upgrade_d; do check12 $db; done
+
+echo "Upgrade paths passed: 0001-0007 + update twice, 0001-0008 + update, 0001-0009 + update twice, 0001-0010 + 0011 update twice,"
+echo "0001-0010 + 0011_0012 update twice, 0001-0011 + 0011_0012 update twice, 0001-0011 + 0012 update twice (edited text kept)."

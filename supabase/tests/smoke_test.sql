@@ -387,4 +387,29 @@ do $$ begin
 end $$;
 reset role;
 
+-- 0012: relationship groups Friend and Other, the check function, and the runway setting text.
+set role authenticated;
+select set_config('request.jwt.claim.aal', 'aal2', false);
+insert into public.contacts (name, relationship_group, roles) values ('Smoke friend', 'friend', '{friend}'), ('Smoke other', 'other', '{}');
+do $$ begin
+  assert (select count(*) from public.contacts where name in ('Smoke friend', 'Smoke other')) = 2, 'friend and other groups saved';
+  assert public.schema_has_0012(), 'check function callable by the owner';
+  assert (select description like '%until the item''s first payment is received%' from public.inputs where key = 'runway_include_signed_consulting'), 'runway setting text';
+  begin
+    insert into public.contacts (name, relationship_group) values ('Smoke bad group', 'acquaintance');
+    raise exception 'unknown relationship group allowed';
+  exception when check_violation then null;
+  end;
+end $$;
+reset role;
+set role anon;
+do $$ begin
+  begin
+    perform public.schema_has_0012();
+    raise exception 'anon can call the 0012 check function';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+
 select 'smoke test passed' as result;

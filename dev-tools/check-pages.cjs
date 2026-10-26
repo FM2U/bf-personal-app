@@ -34,7 +34,7 @@ const PAGES = (process.env.PAGES || [
   "/productivity", "/productivity/tasks", "/productivity/recurring", "/productivity/calendar", "/productivity/pipeline-actions",
   "/accountability", "/accountability/targets", "/accountability/reviews", "/accountability/scores", "/accountability/partners", "/accountability/reports",
   "/settings", "/settings/ai", "/settings/imports", "/settings/partner-access", "/settings/initiatives", "/settings/categories", "/settings/export", "/settings/profile", "/settings/change-log",
-  "/proposals", "/records/tasks/new", "/records/decision_conditions/new", "/records/pipeline_items/new", "/records/contacts/new",
+  "/proposals", "/records/tasks/new", "/records/decision_conditions/new", "/records/pipeline_items/new", "/records/contacts/new", "/records/organizations/new",
 ].join(",")).split(",");
 
 // Record pages found in the local demo database (consulting list and item, acquisition item form, contact with deal credit).
@@ -59,7 +59,11 @@ async function keyPages() {
     if (acq) out.push(`/records/pipeline_items/${acq}?edit=1`);
     const contact = await one("select id from contacts where name = 'Jamie Fictional' limit 1").catch(() => null);
     if (contact) out.push(`/records/contacts/${contact}`);
-    return [...out, "/people/outreach", "/finance/income"];
+    const org = await one("select id from organizations where name = 'Demo Retail Group' limit 1").catch(() => null);
+    if (org) out.push(`/records/organizations/${org}`);
+    const acqPipe = await one("select id from pipelines where kind = 'acquisition' limit 1").catch(() => null);
+    if (acqPipe) out.push(`/opportunities/${acqPipe}?view=board&closed=1`);
+    return [...out, "/people/outreach", "/finance/income", "/records/contacts/new", "/records/organizations/new", "/finance/import"];
   } catch {
     return [];
   } finally {
@@ -74,6 +78,8 @@ async function keyPages() {
   const KEY = process.env.KEY_PAGES === "0" ? [] : await keyPages();
   const named = (p) => {
     if (p.startsWith("/opportunities/") && p.includes("view=list")) return "consulting-list";
+    if (p.startsWith("/opportunities/") && p.includes("view=board")) return "board-closed-stages";
+    if (p.startsWith("/records/organizations/") && !p.endsWith("/new")) return "organization-page";
     if (p.startsWith("/records/pipeline_items/") && p.endsWith("?edit=1")) return "acquisition-item-form";
     if (p.startsWith("/records/pipeline_items/")) return "consulting-item";
     if (p.startsWith("/records/contacts/")) return "contact-deal-credit";

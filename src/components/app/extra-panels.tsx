@@ -51,6 +51,9 @@ import { DealSourceBadge, ItemStatusBadges } from "@/components/app/pipeline-bad
 import { TaskList } from "@/components/app/task-list";
 import { logDealActivity } from "@/app/actions/pipeline";
 import { GuardedForm } from "@/components/app/unsaved-changes";
+import { OrgPeopleAddForm, type PersonOption } from "@/components/app/org-people";
+import { unlinkOrgPerson } from "@/app/actions/people";
+import { optionExclusions } from "@/lib/form-rules";
 
 type P = {
   sb: SupabaseClient;
@@ -90,9 +93,85 @@ export async function ExtraPanels(p: P) {
       );
     case "targets":
       return <TargetHistoryPanel {...p} />;
+    case "organizations":
+      // While editing, the form has its own "People at this organization" section.
+      return p.sp?.edit === "1" ? null : <OrgPeoplePanel {...p} />;
     default:
       return null;
   }
+}
+
+/** Organization page: its people (contacts linked to it) with Unlink, and a form to add existing contacts or new people. */
+async function OrgPeoplePanel({ sb, row, refOptions }: P) {
+  const [{ data }, exclude] = await Promise.all([
+    sb.from("contacts").select("id,name,title,email,phone").eq("organization_id", row.id).order("name"),
+    optionExclusions(sb),
+  ]);
+  const people = (data ?? []) as Row[];
+  return (
+    <Card id="people">
+      <CardHeader>
+        <CardTitle>People at this organization</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-5">
+        {people.length ? (
+          <div className="overflow-x-auto">
+            <Table className="min-w-[36rem] table-fixed">
+              <THead>
+                <TR className="hover:bg-transparent">
+                  <TH className="w-[28%]">Name</TH>
+                  <TH className="w-[24%]">Job title or role</TH>
+                  <TH>Email and phone</TH>
+                  <TH className="w-[6.5rem]">
+                    <span className="sr-only">Unlink</span>
+                  </TH>
+                </TR>
+              </THead>
+              <TBody>
+                {people.map((c) => (
+                  <TR key={c.id}>
+                    <TD>
+                      <Link href={recordHref("contacts", c.id)} className="clamp-2 font-medium hover:underline">
+                        {c.name}
+                      </Link>
+                    </TD>
+                    <TD>
+                      <span className="clamp-2">{c.title ?? <span className="text-muted-foreground">Not set</span>}</span>
+                    </TD>
+                    <TD>
+                      <span className="clamp-1">{c.email ?? ""}</span>
+                      {c.phone ? <span className="clamp-1 text-xs text-muted-foreground">{c.phone}</span> : null}
+                    </TD>
+                    <TD className="text-right">
+                      <GuardedForm action={unlinkOrgPerson}>
+                        <input type="hidden" name="organization_id" value={row.id} />
+                        <input type="hidden" name="contact_id" value={c.id} />
+                        <SubmitButton size="sm" variant="outline" pendingText="Unlinking..." aria-label={`Unlink ${c.name}`}>
+                          Unlink
+                        </SubmitButton>
+                      </GuardedForm>
+                    </TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">No people linked yet.</p>
+        )}
+        <div className="border-t border-slate-200 pt-4">
+          <p className="mb-3 text-sm font-semibold text-slate-900">Add people</p>
+          <OrgPeopleAddForm
+            organizationId={row.id}
+            contacts={(refOptions.contacts ?? []) as PersonOption[]}
+            organizations={Object.fromEntries((refOptions.organizations ?? []).map((o) => [o.id, o.label]))}
+            excludeGroups={exclude["contacts.relationship_group"]}
+          />
+        </div>
+      </CardContent>
+      <CardNote>Unlink removes a person from this organization only. The contact is kept.</CardNote>
+    </Card>
+  );
 }
 
 /** Record-specific panels shown in the side column. */
@@ -342,7 +421,7 @@ async function PipelineItemPanels({ sb, ownerId, row, refOptions, today }: P) {
                 : []),
               ...(showChain
                 ? [
-                    { label: text.source_contact_id?.label ?? "Deal came from", value: contactLink(row.source_contact_id) },
+                    { label: text.source_contact_id?.label ?? "Deal came from", value: row.source && row.source_contact_id ? <>{contactLink(row.source_contact_id)} (also noted: {row.source})</> : row.source ? `${row.source} (not a person)` : contactLink(row.source_contact_id) },
                     { label: "Introduced by", value: introducedAvailable ? contactLink(row.introduced_by_contact_id) : "Not available yet" },
                   ]
                 : []),
@@ -954,7 +1033,7 @@ async function ContactOutreachPanel({ sb, ownerId, row, today }: P) {
       <CardContent className="flex flex-col gap-4">
         <StatGrid className="sm:grid-cols-4">
           <Stat label="Relationship group" value={row.relationship_group ? GROUP_LABELS[row.relationship_group as RelationshipGroup] : "Not set"} />
-          <Stat label="Reach out every" value={status.everyDays ? `${status.everyDays} days` : "Not set"} hint={row.outreach_every_days ? "Set on this contact" : row.relationship_group ? "Group default" : undefined} />
+          <Stat label="Reach out every" value={status.everyDays ? `${status.everyDays} days` : "Not set"} hint={row.outreach_every_days ? "Set on this contact" : row.relationship_group === "other" ? "Other: no set schedule" : row.relationship_group ? "Group default" : undefined} />
           <Stat label="Last contact" value={last ? fmtDate(last, "MMM d") : "Never"} />
           <Stat
             label="Next message due"

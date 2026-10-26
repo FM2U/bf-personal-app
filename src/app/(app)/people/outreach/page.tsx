@@ -58,7 +58,7 @@ export default async function OutreachQueuePage({ searchParams }: { searchParams
     <div>
       <PageHeader
         title="Outreach Queue"
-        description="Contacts due for a message. Deal sources (people who can refer off-market deals) come first; at the same due status, people who introduced deals come next, then the most overdue. Due = the last communication date plus the contact's frequency (close 30, warm 60, professional 90 days unless set on the contact)."
+        description={'Contacts due for a message. Deal sources (people who can refer off-market deals) come first; at the same due status, people who introduced deals come next, then the most overdue. Due = the last communication date plus the contact\'s schedule: close 30, friend 30, warm 60, professional 90 days, unless "Reach out every (days)" is set on the contact. Contacts in the Other group are listed only when that number is set.'}
       />
       <div className="flex flex-col gap-4">
         {sp.notice ? <Notice tone={sp.notice.startsWith("Database update") || sp.notice.startsWith("Not saved") ? "warn" : "success"}>{sp.notice}</Notice> : null}

@@ -210,7 +210,7 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname.startsWith("/storage/v1/")) return send(res, 400, { message: "Storage is not supported by the local mock" });
 
     // RPC
-    const rpc = url.pathname.match(/^\/rest\/v1\/rpc\/([a-z_]+)$/);
+    const rpc = url.pathname.match(/^\/rest\/v1\/rpc\/([a-z0-9_]+)$/);
     if (rpc) {
       const body = (await readBody(req)) || {};
       const keys = Object.keys(body);

@@ -92,17 +92,40 @@ export function withinDates(d: { start_date?: string | null; end_date?: string |
   return true;
 }
 
-export type SignedItem = { status: string; signedStage: boolean; terms: ConsultingTerms | null };
+export type SignedItem = {
+  status: string;
+  signedStage: boolean;
+  terms: ConsultingTerms | null;
+  /** Date of the first payment received (money in linked to the engagement), or null when none yet. */
+  firstPaymentDate?: string | null;
+};
 
 /**
  * Expected monthly income from signed work: open items in a stage marked as signed work (Signed, Active)
- * that are between their start and end dates today. Used by runway when runway_include_signed_consulting = 1.
+ * that are between their start and end dates today. Shown as "Signed work per month".
  */
 export function signedMonthlyIncome(items: SignedItem[], today: string): number {
   return round2(
     items
       .filter((i) => i.status === "open" && i.signedStage && i.terms && withinDates(i.terms, today))
       .reduce((s, i) => s + (expectedMonthlyIncome(i.terms) ?? 0), 0),
+  );
+}
+
+/** True when the engagement's first payment has been received (on or before today). */
+export function hasFirstPayment(i: Pick<SignedItem, "firstPaymentDate">, today: string): boolean {
+  return !!i.firstPaymentDate && i.firstPaymentDate <= today;
+}
+
+/**
+ * Signed consulting income added to runway (input runway_include_signed_consulting = 1): signed work as above, but
+ * only engagements with no payment received yet. After the first payment, the engagement's payments are already in
+ * average monthly income, so adding its expected income too would count it twice.
+ */
+export function runwaySignedIncome(items: SignedItem[], today: string): number {
+  return signedMonthlyIncome(
+    items.filter((i) => !hasFirstPayment(i, today)),
+    today,
   );
 }
 

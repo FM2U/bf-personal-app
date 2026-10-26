@@ -12,8 +12,8 @@ Built from `docs/` in the project: Architecture v2 and the Decisions Log (both a
 | Home | Number tiles (Productivity: tasks done, targets met, pipeline actions due; Accountability: commitment score, days in a row, open misses, next review), runway vs. target, today's plan and tasks, meetings, overdue items, alerts, this month's spending vs. budget |
 | Plan | Initiatives, goals, milestones, decision conditions, Inputs and Assumptions, scenarios (incl. job vs. acquisition), decisions log |
 | Finance | Accounts (Personal or Cyan Arc LLC) and transfers, expenses with categories and recurring charges, CSV import, budget, debt payoff (avalanche and snowball), funding and repayments, income received, savings and financial security |
-| Opportunities | One pipeline system with 6 seeded pipelines (Acquisitions, Jobs, Rosara Co-founder Search, Rosara Investor Outreach, Other Income Opportunities, Consulting); board and list views; stage task lists, stage time limits, required details, stalled items; deal source (proprietary or brokered) and the source chain (Deal came from, Introduced by); consulting engagement terms, expected income, and pipeline value; stage history |
-| People | Contacts, organizations, communication history; follow-up dates create tasks and calendar events; Outreach Queue (contacts due for a message, Log outreach, Draft message) |
+| Opportunities | One pipeline system with 6 seeded pipelines (Acquisitions, Jobs, Rosara Co-founder Search, Rosara Investor Outreach, Other Income Opportunities, Consulting); board and list views; stage task lists, stage time limits, required details, stalled items; deal source (proprietary or brokered) and the source chain (Deal came from: a contact or a typed source; Introduced by); consulting engagement terms, expected income, and pipeline value; stage history |
+| People | Contacts, organizations with their people (link, unlink, add), communication history; follow-up dates create tasks and calendar events; Outreach Queue (contacts due for a message, Log outreach, Draft message) |
 | Productivity | Today's plan with daily target counters, task lists, recurring task templates, calendar time blocks, pipeline next actions |
 | Accountability | Commitments, Daily Targets, missed-commitment flow, daily/weekly/monthly/quarterly reviews, completion scores, accountability partners and reports |
 | Settings | Connections (Google, Plaid, AI), AI usage, imports, partner links, initiatives and pipelines, categories, export, profile, change log |
@@ -26,7 +26,7 @@ Built from `docs/` in the project: Architecture v2 and the Decisions Log (both a
 - **Daily close:** each target for the day shows met or missed; a missed target needs a one-line reason (saved in `target_misses`).
 - **Reviews and partner reports:** target totals vs required, reply rate, meetings booked. Partners see only targets marked "Show to accountability partners", and only when their sections include "Daily targets".
 - **Decision conditions:** measured numbers "Daily target: count in the last N days / N weeks" and "periods met / missed in a row", with details such as `{"target":"Network outreach","days":7}`.
-- **Outreach Queue:** contacts with a relationship group (close 30, warm 60, professional 90 days, or a custom number) are due when the last communication date plus the frequency is today or earlier. Draft message never sends: it creates a Gmail draft after approval, or copies the text.
+- **Outreach Queue:** contacts with a relationship group (close 30, friend 30, warm 60, professional 90 days, or a custom number; Other has no set schedule and is listed only with a custom number) are due when the last communication date plus the frequency is today or earlier. Draft message never sends: it creates a Gmail draft after approval, or copies the text.
 - **Before 0008 is applied,** these screens show "Database update needed" and every existing screen keeps working.
 
 ### Pipeline accountability and deal source (database update 0009)
@@ -62,21 +62,32 @@ Built from `docs/` in the project: Architecture v2 and the Decisions Log (both a
 - **Consulting pipeline:** initiative and pipeline "Consulting" (kind `consulting`), with stage task lists, time limits, required details (Proposal sent: rate type and rate; Signed: rate type, rate, start date; Active: start date), and a chance per stage (10, 20, 30, 50, 70, 100, 100%). Signed and Active are marked "Signed work" (`pipeline_stages.counts_as_signed`).
 - **Engagement terms** (`consulting_details`): rate type (hourly, project, monthly retainer), rate, expected hours per month, project months, start and end dates, probability (empty = stage default). `rate` is the price for the rate type: per hour, the whole project fee, or per month. Expected monthly income is calculated, never typed: hourly = rate x hours; retainer = rate; project = fee / project months (empty: months from start to end date). Pipeline value = sum over open items of expected monthly income x probability (`src/lib/calc/consulting.ts`).
 - **Payments:** a transaction (money in) can be linked to a consulting engagement (`transactions.pipeline_item_id`). The item page shows payments, total, and last payment date. Finance, Income Received shows consulting income this month and last month, signed work per month, pipeline value, and each engagement. Consulting income = money in linked to an engagement or assigned to a consulting income source.
-- **Runway:** input `runway_include_signed_consulting` (0 by default). At 1, expected monthly income from Signed and Active items between their start and end dates is added to income in the runway formula. The runway card says which mode is in use. Payments already received are also in average income, so a paid retainer can count twice while the setting is on.
+- **Runway:** input `runway_include_signed_consulting` (0 by default). At 1, expected monthly income from Signed and Active items between their start and end dates is added to income in the runway formula, but only until the item's first linked payment is received (a payment dated today or earlier). After that the item is not added: its payments are already in average income, so a paid retainer is never counted twice (`runwaySignedIncome` in `src/lib/calc/consulting.ts`). "Signed work per month" still shows every signed engagement. The runway card says which mode is in use.
 - **Scenarios:** inputs `consulting_monthly_income` (0) and `consulting_months` (12) add consulting income to the monthly cash projection. The Bridge comparison on each scenario page: job vs acquisition search with consulting (no salary for `acquisition_search_months_allowed` months, consulting income for `consulting_months`, then the acquisition salary and equity value).
 - **Outreach:** contacts can be marked "Consulting lead" (badge in the Outreach Queue). Outreach purpose `consulting`. Draft message for a consulting lead writes a short note that Bram has time for consulting work.
 - **Reviews:** weekly and monthly reviews show signed or active engagements, consulting income received in the period, pipeline value, and open items by stage.
 - **No consulting daily target** (can be added on the Targets tab later).
-- **Before the update is applied,** consulting features show "Database update needed" naming `supabase/UPDATE_0011_RUN_ONCE.sql`; every existing screen and both scheduled jobs keep working.
+- **Before the update is applied,** consulting features show "Database update needed" naming `supabase/UPDATE_0011_0012_RUN_ONCE.sql`; every existing screen and both scheduled jobs keep working.
+
+### Contacts, organizations, and sources (database update 0012)
+
+- **Organizations and their people:** the organization form (and the "+ New" organization dialog in other forms) has "People at this organization": search to link existing contacts, and add new people in rows (name, email, phone, job title or role, relationship group; "+ Add another person"). Saving sets each contact's organization; Unlink clears it and keeps the contact. The organization page lists its people with Unlink and an "Add people" form (`src/lib/org-people.ts`, `src/components/app/org-people.tsx`).
+- **"+ New" contact dialog:** name, email, phone, organization (with its own search and "+ New"), job title, relationship group, roles. One "+ New" can open inside a dialog (`MAX_CREATE_DEPTH`).
+- **Contact form:** sections in this order: Name and contact details; Relationship and outreach (roles, group, days); Follow-up; Labels in the Outreach Queue (deal source, consulting lead); Notes (`section` on each field in `src/lib/resources.ts`).
+- **Contact options:** role Friend; relationship groups Friend (every 30 days) and Other (no set schedule: in the Outreach Queue only when "Reach out every (days)" is set). Friend and Other appear in forms after update 0012 (the app calls `public.schema_has_0012()` to check); the Friend role needs no update.
+- **"Deal came from" / "Lead came from" is one field:** a contact (search, "+ New"), or "Not a person: type the source", which shows a text box saved in `pipeline_items.source` (examples: BizBuySell listing, Cold email campaign). The separate "Where it came from" field is gone on acquisition and consulting items (other pipeline kinds keep it). Choosing a contact after a typed source clears the text; an item that already had both keeps both and shows "also noted". A typed source gives no Proprietary or Brokered suggestion (`src/lib/calc/source-chain.ts`).
+- **Pipeline and Stage fields:** search only, no "+ New" (pipelines and stages are set up in Settings).
+- **Before the update is applied,** Friend and Other are not offered and contact forms show "Database update needed" naming `supabase/UPDATE_0011_0012_RUN_ONCE.sql`; everything else above works on 0001 to 0010.
 
 ### Shared form and card rules (UI)
 
-- **Unsaved changes:** every form uses `GuardedForm` (`src/components/app/unsaved-changes.tsx`). When a field holds a change that is not saved, an in-app link or the browser Back button shows a dialog: Save and leave, Leave without saving, Stay on this page. Closing or reloading the tab shows the browser's prompt. A value changed back to the original is not a change. Filter forms (`method="get"`) and forms marked `data-unsaved="off"` are not checked.
+- **Unsaved changes:** every form uses `GuardedForm` (`src/components/app/unsaved-changes.tsx`). When a field holds a change that is not saved, an in-app link or the browser Back button shows a dialog: Save and leave, Leave without saving, Stay on this page. Closing or reloading the tab shows the browser's prompt. A value changed back to the original is not a change. Filter forms (`method="get"`) and forms marked `data-unsaved="off"` are not checked. Screens that are not one form report work in progress with `useUnsavedWork` (the CSV import once a file is chosen): the dialog then offers Leave and discard, and Stay on this page.
+- **CSV import:** 3 numbered steps with a step count (Step 1 of 3). Required columns are marked; a missing one is named in the error. Column choices are filled from, in order: this account's unfinished choices (kept in this browser), the layout used by the last import into the account, the saved layout for the account's bank or card, a saved layout whose columns match the file, a guess from the column names (`src/lib/calc/import-layout.ts`). The note under the step title says which.
 - **Form fields:** `FieldGrid` and `FormField` (`src/components/ui/form-field.tsx`): label 6px above its input, 16px to the next field, labels held to 2 lines, inputs aligned across a row.
 - **Reference fields:** type to search; "+ New" opens a short form for that record type (`src/lib/quick-create.ts`), saves it with the same checks as any form, and chooses it. What was typed in the main form stays.
 - **Dropdowns:** one arrow 12px from the right edge, text never runs under it (`globals.css`).
 - **Cards:** a card's one-line description of what it shows sits at the bottom under a thin line (`CardNote`). Instructions needed before using a card stay under the title. Metric labels are dark gray, medium weight (`METRIC_LABEL`); rows of metrics have a thin line between them (`StatGrid`).
-- **Pipelines** open in list view; Board is one click away and the last choice per pipeline is remembered in a cookie. The board fits the page width from 1024px (about 7 stages at 1280px); on narrow screens it scrolls inside its own box.
+- **Pipelines** open in list view; Board is one click away and the last choice per pipeline is remembered in a cookie. Closed stages (and closed items) are shown by default; "Hide closed stages" is one click away and is remembered the same way. The board fits the page width from 1024px (all 9 stages at 1280px, min 6rem per column); on narrow screens it scrolls inside its own box.
 
 ### AI text format
 
@@ -110,11 +121,11 @@ docs/                 SETUP-CHECKLIST.md and screenshots
 
 Exact values to paste are in `docs/SETUP-CHECKLIST.md`. Summary:
 
-1. **Supabase:** create a project. In SQL Editor, paste and run `supabase/ALL_MIGRATIONS_RUN_ONCE.sql` (0001 to 0011),
+1. **Supabase:** create a project. In SQL Editor, paste and run `supabase/ALL_MIGRATIONS_RUN_ONCE.sql` (0001 to 0012),
    or run each file in `supabase/migrations/` in number order. Or with the Supabase CLI: `supabase link` then `supabase db push`.
-   **Live database (has 0001 to 0010):** paste and run `supabase/UPDATE_0011_RUN_ONCE.sql` once (safe to run twice).
+   **Live database (has 0001 to 0010, or 0001 to 0011):** paste and run `supabase/UPDATE_0011_0012_RUN_ONCE.sql` once (0011 then 0012; safe to run twice).
    **Older database (0001 to 0007, 0008, or 0009):** paste and run `supabase/UPDATE_RUN_ONCE.sql` once.
-   It holds 0008 to 0011 and is safe to run twice. (`supabase/UPDATE_0008_RUN_ONCE.sql` is kept for reference only.)
+   It holds 0008 to 0012 and is safe to run twice. (`UPDATE_0008_RUN_ONCE.sql`, `UPDATE_0011_RUN_ONCE.sql`, and `UPDATE_0012_RUN_ONCE.sql` are kept for reference.)
    After changing a migration, regenerate the combined files with `python3 supabase/build_combined.py`.
    In Authentication, turn on "Allow new users to sign up" only until you create your account, then turn it off.
    In Authentication, Multi-Factor, make sure TOTP is enabled.
@@ -147,8 +158,8 @@ npm run lint
 npm run typecheck
 npm run build
 bash supabase/tests/run_local.sh      # applies all migrations to a local Postgres and runs a smoke test
-bash supabase/tests/upgrade_test.sh   # UPDATE_RUN_ONCE on 0001-0007 (twice), 0001-0008, 0001-0009 (twice); UPDATE_0011_RUN_ONCE on 0001-0010 (twice); existing owner
-bash dev-tools/setup-local-db.sh      # local database with demo data (UP_TO=0010 for the live database before update 0011)
+bash supabase/tests/upgrade_test.sh   # UPDATE_RUN_ONCE on 0001-0007 (twice), 0001-0008, 0001-0009 (twice); UPDATE_0011_0012_RUN_ONCE on 0001-0010 and 0001-0011 (twice each); existing owner
+bash dev-tools/setup-local-db.sh      # local database with demo data (UP_TO=0010 or 0011 for the live database before the update)
 bash dev-tools/start-local.sh         # mock Supabase API + the built app on http://localhost:3000
 NODE_PATH=$(npm root -g) node dev-tools/check-pages.cjs   # renders every screen, saves screenshots
 NODE_PATH=$(npm root -g) node dev-tools/check-flows.cjs   # clicks through the main workflows

@@ -10,7 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/app/page-header";
 import { RecordForm } from "@/components/app/record-form";
 import { DbUpdateNotice } from "@/components/app/target-grid";
-import { formRules, stageDefaultNextAction } from "@/lib/form-rules";
+import { formRules, optionExclusions, stageDefaultNextAction } from "@/lib/form-rules";
 import { DB_UPDATE_FILE_0011 } from "@/lib/schema-guard";
 import type { Row } from "@/lib/types";
 
@@ -21,7 +21,12 @@ export default async function NewRecordPage({ params, searchParams }: { params: 
   if (!r || r.noCreate) notFound();
   const { supabase, ownerId } = await requireOwner();
   const ctx = await loadCtx(supabase, ownerId);
-  const refOptions = await loadRefOptions(supabase, [...r.fields.filter((f) => f.ref).map((f) => f.ref!), ...quickCreateRefTables(r.fields)]);
+  const refOptions = await loadRefOptions(supabase, [
+    ...r.fields.filter((f) => f.ref).map((f) => f.ref!),
+    ...quickCreateRefTables(r.fields),
+    // Organizations: "People at this organization" lists contacts and where they work now.
+    ...(table === "organizations" ? ["contacts", "organizations"] : []),
+  ]);
   const initial: Row = {};
   const extraHidden: Record<string, string> = {};
   for (const [k, v] of Object.entries(sp)) {
@@ -49,7 +54,7 @@ export default async function NewRecordPage({ params, searchParams }: { params: 
       initial.next_action_due = initial.next_action_due ?? def.due;
     } else if (!initial.next_action_due) initial.next_action_due = ctx.today;
   }
-  const rules = await formRules(supabase, table, initial);
+  const [rules, excludeOptions] = await Promise.all([formRules(supabase, table, initial), optionExclusions(supabase)]);
   return (
     <div>
       <Link href={r.listHref} className="mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-slate-900">
@@ -58,12 +63,12 @@ export default async function NewRecordPage({ params, searchParams }: { params: 
       <PageHeader title={`Add ${r.singular.toLowerCase()}`} description={r.empty} />
       {rules.updateNeeded && (table === "pipeline_items" || table === "contacts") ? (
         <div className="mb-4 max-w-3xl">
-          <DbUpdateNotice compact file={rules.updateNeeded === "0011" ? DB_UPDATE_FILE_0011 : undefined} />
+          <DbUpdateNotice compact file={rules.updateNeeded === "0009" ? undefined : DB_UPDATE_FILE_0011} />
         </div>
       ) : null}
       <Card className="max-w-3xl">
         <CardContent className="pt-5">
-          <RecordForm table={table} initial={initial} refOptions={refOptions} cancelHref={r.listHref} extraHidden={extraHidden} hide={rules.hide} require={rules.require} text={rules.text} />
+          <RecordForm table={table} initial={initial} refOptions={refOptions} cancelHref={r.listHref} extraHidden={extraHidden} hide={rules.hide} require={rules.require} text={rules.text} excludeOptions={excludeOptions} />
         </CardContent>
       </Card>
     </div>

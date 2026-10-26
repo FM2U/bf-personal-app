@@ -5,6 +5,7 @@ import {
   expectedIncomeGap,
   expectedMonthlyIncome,
   pipelineValue,
+  runwaySignedIncome,
   signedMonthlyIncome,
   withinDates,
 } from "@/lib/calc/consulting";
@@ -38,6 +39,8 @@ export type ConsultingItem = {
   signedStage: boolean;
   /** Signed work that is between its start and end dates today. */
   activeToday: boolean;
+  /** Date of the first payment linked to the engagement (money in), or null. */
+  firstPaymentDate: string | null;
 };
 
 export type ConsultingData = {
@@ -47,15 +50,20 @@ export type ConsultingData = {
   items: ConsultingItem[];
   /** Sum over open items of expected monthly income x probability. */
   pipelineValue: number;
-  /** Expected monthly income of signed work active today (used by runway when the setting is on). */
+  /** Expected monthly income of signed work active today ("Signed work per month"). */
   signedMonthly: number;
+  /**
+   * The part of signedMonthly added to runway when the setting is on: engagements with no payment received yet
+   * (after the first payment, the payments are in average monthly income).
+   */
+  runwaySignedMonthly: number;
   /** Open items in a signed-work stage. */
   activeEngagements: number;
   /** Open items per open stage, in stage order. */
   byStage: { stage_id: string; name: string; count: number }[];
 };
 
-const EMPTY: ConsultingData = { available: false, pipelines: [], stages: [], items: [], pipelineValue: 0, signedMonthly: 0, activeEngagements: 0, byStage: [] };
+const EMPTY: ConsultingData = { available: false, pipelines: [], stages: [], items: [], pipelineValue: 0, signedMonthly: 0, runwaySignedMonthly: 0, activeEngagements: 0, byStage: [] };
 
 export async function loadConsulting(sb: SupabaseClient, opts: { ownerId?: string; today: string }): Promise<ConsultingData> {
   if (!(await hasConsultingUpdate(sb))) return EMPTY;
@@ -78,6 +86,18 @@ export async function loadConsulting(sb: SupabaseClient, opts: { ownerId?: strin
       details = [];
     }
   }
+  // First payment per engagement: money in (not a transfer) linked to the item.
+  const firstPayment: Record<string, string> = {};
+  if (rows.length) {
+    try {
+      const pays = await fetchAll((a, b) =>
+        sb.from("transactions").select("pipeline_item_id,date,amount,is_transfer").in("pipeline_item_id", rows.map((r) => r.id)).gt("amount", 0).order("date").range(a, b),
+      );
+      for (const p of pays) if (!p.is_transfer && p.pipeline_item_id && !firstPayment[p.pipeline_item_id]) firstPayment[p.pipeline_item_id] = String(p.date).slice(0, 10);
+    } catch {
+      // No payment links yet: every signed engagement counts as unpaid.
+    }
+  }
   const stageById = Object.fromEntries(stages.map((s) => [s.id, s]));
   const termsByItem = Object.fromEntries(details.map((d) => [d.item_id, d]));
   const items: ConsultingItem[] = rows.map((item) => {
@@ -93,6 +113,7 @@ export async function loadConsulting(sb: SupabaseClient, opts: { ownerId?: strin
       probabilityPct: effectiveProbability(terms?.probability_pct, stage?.default_probability_pct),
       signedStage,
       activeToday: item.status === "open" && signedStage && !!terms && withinDates(terms, opts.today),
+      firstPaymentDate: firstPayment[item.id] ?? null,
     };
   });
   const open = items.filter((i) => i.item.status === "open");
@@ -103,6 +124,10 @@ export async function loadConsulting(sb: SupabaseClient, opts: { ownerId?: strin
     items,
     pipelineValue: pipelineValue(items.map((i) => ({ status: i.item.status, expectedMonthly: i.expectedMonthly, probabilityPct: i.probabilityPct }))),
     signedMonthly: signedMonthlyIncome(items.map((i) => ({ status: i.item.status, signedStage: i.signedStage, terms: i.terms })), opts.today),
+    runwaySignedMonthly: runwaySignedIncome(
+      items.map((i) => ({ status: i.item.status, signedStage: i.signedStage, terms: i.terms, firstPaymentDate: i.firstPaymentDate })),
+      opts.today,
+    ),
     activeEngagements: open.filter((i) => i.signedStage).length,
     byStage: stages.filter((s) => s.outcome === "open").map((s) => ({ stage_id: s.id, name: s.name, count: open.filter((i) => i.item.stage_id === s.id).length })),
   };

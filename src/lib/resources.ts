@@ -38,6 +38,8 @@ export type Field = {
   default?: string | number | boolean;
   /** Reference fields: a named subset of the referenced records (example: "consulting" = consulting pipeline items only). */
   refSubset?: string;
+  /** Form section heading. Fields with the same section are shown together under it, in field order. */
+  section?: string;
 };
 
 export type Child = { table: string; fk: string; label: string };
@@ -98,6 +100,27 @@ export const PURPOSE_OPTIONS: Option[] = [
   { value: "cim_request", label: "CIM request (on an acquisition item)" },
   { value: "source_contact", label: "Contact with the broker or referral source (on an acquisition item)" },
   { value: "consulting", label: "Consulting (offering consulting work)" },
+];
+
+export const CONTACT_ROLE_OPTIONS: Option[] = [
+  { value: "broker", label: "Broker" },
+  { value: "lender", label: "Lender" },
+  { value: "accountability_partner", label: "Accountability partner" },
+  { value: "candidate", label: "Candidate" },
+  { value: "investor", label: "Investor" },
+  { value: "employer", label: "Employer" },
+  { value: "advisor", label: "Advisor" },
+  { value: "friend", label: "Friend" },
+  { value: "other", label: "Other" },
+];
+
+/** Relationship groups (Outreach Queue). "Friend" and "Other" need database update 0012. */
+export const RELATIONSHIP_GROUP_OPTIONS: Option[] = [
+  { value: "close", label: "Close (every 30 days)" },
+  { value: "friend", label: "Friend (every 30 days)" },
+  { value: "warm", label: "Warm (every 60 days)" },
+  { value: "professional", label: "Professional (every 90 days)" },
+  { value: "other", label: "Other (no set schedule)" },
 ];
 
 export const RATE_TYPE_OPTIONS: Option[] = [
@@ -878,17 +901,17 @@ const R: Resource[] = [
     titleField: "name",
     listHref: "/people/organizations",
     fields: [
-      { name: "name", label: "Name", type: "text", required: true },
-      { name: "kind", label: "Kind", type: "select", options: o("broker", "lender", "employer", "investor", "business", "service_provider", "nonprofit", "other"), default: "other" },
-      { name: "website", label: "Website", type: "url" },
-      { name: "phone", label: "Phone", type: "text" },
-      { name: "notes", label: "Notes", type: "textarea" },
+      { name: "name", label: "Name", type: "text", required: true, section: "Organization" },
+      { name: "kind", label: "Kind", type: "select", options: o("broker", "lender", "employer", "investor", "business", "service_provider", "nonprofit", "other"), default: "other", section: "Organization" },
+      { name: "website", label: "Website", type: "url", section: "Organization" },
+      { name: "phone", label: "Phone", type: "text", section: "Organization" },
+      { name: "notes", label: "Notes", type: "textarea", section: "Organization" },
     ],
     columns: ["name", "kind", "website"],
     order: ["name", true],
     empty: "Add brokers, lenders, employers, investors, and other organizations.",
+    // People are shown and linked in the "People at this organization" panel (src/components/app/org-people.tsx).
     children: [
-      { table: "contacts", fk: "organization_id", label: "People" },
       { table: "communications", fk: "organization_id", label: "Communication history" },
       { table: "pipeline_items", fk: "organization_id", label: "Pipeline items" },
     ],
@@ -900,25 +923,25 @@ const R: Resource[] = [
     titleField: "name",
     listHref: "/people",
     fields: [
-      { name: "name", label: "Name (real name or pseudonym)", type: "text", required: true },
-      { name: "is_pseudonym", label: "Name is a pseudonym", type: "boolean" },
-      { name: "roles", label: "Roles", type: "multiselect", options: o("broker", "lender", "accountability_partner", "candidate", "investor", "employer", "advisor", "other") },
-      { name: "organization_id", label: "Organization", type: "ref", ref: "organizations" },
-      { name: "title", label: "Job title", type: "text" },
-      { name: "email", label: "Email", type: "email" },
-      { name: "phone", label: "Phone", type: "text" },
-      { name: "mailing_address", label: "Mailing address", type: "textarea" },
-      { name: "follow_up_date", label: "Follow-up date", type: "date", help: "On this date a task and a calendar event are created." },
-      { name: "follow_up_note", label: "Follow-up about", type: "text" },
-      { name: "relationship_group", label: "Relationship group (Outreach Queue)", type: "select", options: [
-        { value: "close", label: "Close (every 30 days)" },
-        { value: "warm", label: "Warm (every 60 days)" },
-        { value: "professional", label: "Professional (every 90 days)" },
-      ] },
-      { name: "outreach_every_days", label: "Reach out every (days)", type: "number", help: "Leave empty to use the group default: close 30, warm 60, professional 90." },
-      { name: "is_deal_source", label: "Deal source (can refer off-market deals)", type: "boolean", help: "Owners, operators, accountants, attorneys, bankers. Listed first in the Outreach Queue." },
-      { name: "is_consulting_lead", label: "Consulting lead", type: "boolean", help: "Could hire you or refer consulting work. Shows a Consulting lead label in the Outreach Queue; Draft message offers consulting work." },
-      { name: "notes", label: "Notes", type: "textarea" },
+      // Name and contact details
+      { name: "name", label: "Name (real name or pseudonym)", type: "text", required: true, section: "Name and contact details" },
+      { name: "is_pseudonym", label: "Name is a pseudonym", type: "boolean", section: "Name and contact details" },
+      { name: "organization_id", label: "Organization", type: "ref", ref: "organizations", section: "Name and contact details" },
+      { name: "title", label: "Job title or role there", type: "text", section: "Name and contact details" },
+      { name: "email", label: "Email", type: "email", section: "Name and contact details" },
+      { name: "phone", label: "Phone", type: "text", section: "Name and contact details" },
+      { name: "mailing_address", label: "Mailing address", type: "textarea", section: "Name and contact details" },
+      // Relationship and outreach
+      { name: "roles", label: "Roles", type: "multiselect", options: CONTACT_ROLE_OPTIONS, section: "Relationship and outreach" },
+      { name: "relationship_group", label: "Relationship group (Outreach Queue)", type: "select", options: RELATIONSHIP_GROUP_OPTIONS, section: "Relationship and outreach" },
+      { name: "outreach_every_days", label: "Reach out every (days)", type: "number", help: "Empty = the group's schedule.", section: "Relationship and outreach" },
+      // Follow-up
+      { name: "follow_up_date", label: "Follow-up date", type: "date", help: "Creates a task and a calendar event on this date.", section: "Follow-up" },
+      { name: "follow_up_note", label: "Follow-up about", type: "text", section: "Follow-up" },
+      // Labels
+      { name: "is_deal_source", label: "Deal source (can refer off-market deals)", type: "boolean", help: "Listed first in the Outreach Queue.", section: "Labels in the Outreach Queue" },
+      { name: "is_consulting_lead", label: "Consulting lead (could hire you or refer work)", type: "boolean", help: "Draft message offers consulting work.", section: "Labels in the Outreach Queue" },
+      { name: "notes", label: "Notes", type: "textarea", section: "Notes" },
     ],
     columns: ["name", "organization_id", "roles", "email", "follow_up_date"],
     order: ["name", true],

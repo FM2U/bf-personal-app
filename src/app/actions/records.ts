@@ -12,7 +12,9 @@ import { loadCtx, refreshNextActionAlert } from "@/lib/engine/helpers";
 import { evaluateConditions } from "@/lib/engine/rules";
 import { checkCommitments, releaseSupersededNextActions } from "@/lib/engine/tasks";
 import { nextReportDate } from "@/lib/engine/partners";
-import { DB_UPDATE_NOTICE, isMissingSchemaError, NEW_COLUMNS, NEW_TABLES } from "@/lib/schema-guard";
+import { DB_UPDATE_NOTICE, DB_UPDATE_NOTICE_0011, isCheckViolation, isMissingSchemaError, NEW_COLUMNS, NEW_TABLES, OPTIONS_0012, TABLES_0011 } from "@/lib/schema-guard";
+import { ORG_PEOPLE_FIELD, parseOrgPeople, planOrgPeople, type OrgPeoplePlan } from "@/lib/org-people";
+import { applyOrgPeople, linkedContactIds } from "@/lib/org-people-server";
 import { DETAIL_TABLE, hasPipelineUpdate, missingForStage } from "@/lib/pipeline";
 import type { Row } from "@/lib/types";
 import { canQuickCreate, quickCreateFields } from "@/lib/quick-create";
@@ -184,6 +186,17 @@ async function writeRecord(table: string, fd: FormData, fields: Field[]): Promis
     data.pipeline_item_id = String(fd.get("__link_id") ?? "") || null;
   }
 
+  // Organizations: "People at this organization" (link, unlink, add new people). Checked before anything is saved.
+  let peoplePlan: OrgPeoplePlan | null = null;
+  if (table === "organizations" && fd.has(ORG_PEOPLE_FIELD)) {
+    const draft = parseOrgPeople(String(fd.get(ORG_PEOPLE_FIELD) ?? ""));
+    if (draft) {
+      const plan = planOrgPeople(id ? await linkedContactIds(supabase, id) : [], draft);
+      if ("error" in plan) return { ok: false, error: plan.error };
+      peoplePlan = plan;
+    }
+  }
+
   // "This is a commitment" on a new task: a commitment needs a due date.
   const markCommitmentOnCreate = table === "tasks" && !id && (fd.get("__is_commitment") === "on" || fd.get("__is_commitment") === "true");
   if (markCommitmentOnCreate && !data.due_date) return { ok: false, error: "Set a due date to make this task a commitment." };
@@ -211,10 +224,19 @@ async function writeRecord(table: string, fd: FormData, fields: Field[]): Promis
     result = await write(without);
   }
   if (result.error) {
-    if (isMissingSchemaError(result.error) && NEW_TABLES.includes(table)) return { ok: false, error: DB_UPDATE_NOTICE };
+    if (isMissingSchemaError(result.error) && NEW_TABLES.includes(table)) return { ok: false, error: TABLES_0011.includes(table) ? DB_UPDATE_NOTICE_0011 : DB_UPDATE_NOTICE };
+    // A value allowed only after update 0012 (relationship group Friend or Other).
+    if (isCheckViolation(result.error) && OPTIONS_0012[table]) return { ok: false, error: DB_UPDATE_NOTICE_0011 };
     return { ok: false, error: result.error.message };
   }
   savedId = result.newId;
+
+  if (peoplePlan && savedId) {
+    const peopleError = await applyOrgPeople(supabase, ownerId, savedId, peoplePlan);
+    if (peopleError) {
+      return { ok: false, error: `The organization was saved, but its people were not: ${peopleError}`, link: { href: recordHref(table, savedId), label: "Open the organization" } };
+    }
+  }
 
   // Link a new record to the record it was created from (example: a communication about a deal)
   const linkType = String(fd.get("__link_type") ?? "");

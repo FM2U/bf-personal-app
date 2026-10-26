@@ -6,32 +6,36 @@ Vercel variables go in: Vercel, project bf-personal-app, Settings, Environment V
 ## 1. Supabase (database)
 
 - [ ] Create a Supabase project (sign in with GitHub). Region: US East. Save the database password somewhere safe.
-- [ ] SQL Editor: paste and run `supabase/ALL_MIGRATIONS_RUN_ONCE.sql` (0001 to 0011), or each file from `supabase/migrations/` in order: 0001 to 0011.
+- [ ] SQL Editor: paste and run `supabase/ALL_MIGRATIONS_RUN_ONCE.sql` (0001 to 0012), or each file from `supabase/migrations/` in order: 0001 to 0012.
 - [ ] Authentication, Sign In / Providers, Email: enabled. Multi-Factor: TOTP enabled.
 - [ ] Copy Settings, API, **Project URL** to Vercel `NEXT_PUBLIC_SUPABASE_URL`
 - [ ] Copy Settings, API, **anon public** key to Vercel `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - [ ] Copy Settings, API, **service_role** key to Vercel `SUPABASE_SERVICE_ROLE_KEY` (keep private)
 - [ ] Authentication, URL Configuration: Site URL = your Vercel address (same as `APP_URL`)
 
-## 1a. Database update 0011 (the live database: it has 0001 to 0010)
+## 1a. Database updates 0011 and 0012 (the live database: it has 0001 to 0010, or 0001 to 0011)
 
-Adds the deal source chain ("Deal came from", "Introduced by") and the Consulting pipeline.
+One file runs both updates. Use it whether or not `UPDATE_0011_RUN_ONCE.sql` was already run.
+- **0011:** the deal source chain ("Deal came from", "Introduced by") and the Consulting pipeline.
+- **0012:** relationship groups Friend (every 30 days) and Other (no set schedule); the runway setting text.
 
-- [ ] Open the file `supabase/UPDATE_0011_RUN_ONCE.sql` in the GitHub repository (bf-personal-app), press "Copy raw file"
+- [ ] Open the file `supabase/UPDATE_0011_0012_RUN_ONCE.sql` in the GitHub repository (bf-personal-app), press "Copy raw file"
 - [ ] Supabase, project bf-personal-app, SQL Editor, New query: paste, press **Run**. Expected result: "Success. No rows returned"
 - [ ] Open the app: Opportunities shows a sixth pipeline, **Consulting** (Identified, Contacted, Discovery call, Proposal sent, Negotiating, Signed, Active, Completed, Lost). The "Database update needed" notices naming this file are gone
+- [ ] People, Add contact: Relationship group lists Close, Friend, Warm, Professional, and Other
 - [ ] Settings, Initiatives and pipelines, Consulting: each stage shows its task list, time limit, required details, and chance (10% to 100%). Signed and Active show "Signed work". Edit anything that does not fit
-- [ ] Plan, Inputs and Assumptions: Runway has "Count signed consulting income in runway" (0 = off); Consulting has "Consulting: monthly income" (0) and "Consulting: months of consulting income" (12)
-- [ ] Running the file a second time is safe (nothing is duplicated)
+- [ ] Plan, Inputs and Assumptions: Runway has "Count signed consulting income in runway" (0 = off; at 1, a signed engagement counts until its first payment); Consulting has "Consulting: monthly income" (0) and "Consulting: months of consulting income" (12)
+- [ ] Running the file a second time is safe (nothing is duplicated). `supabase/UPDATE_0011_RUN_ONCE.sql` and `supabase/UPDATE_0012_RUN_ONCE.sql` are kept for reference; this file replaces both
 
 ## 1b. Database update (older database only: one combined file)
 
 Do this once if the database was set up before 0010 (it has 0001 to 0007, 0001 to 0008, or 0001 to 0009).
-It also includes 0011, so step 1a is then not needed. The file holds four updates:
+It also includes 0011 and 0012, so step 1a is then not needed. The file holds five updates:
 - **0008:** Daily Targets, Outreach Queue.
 - **0009:** stage task lists, time limits, required details, stalled items, deal source, Deals sourced and Deals advanced targets.
 - **0010:** commitment rule. Only pipeline next actions, milestones, daily targets, and the reviews are commitments. Regular tasks that are not done move to the next day.
 - **0011:** deal source chain and the Consulting pipeline (see 1a).
+- **0012:** relationship groups Friend and Other; runway setting text (see 1a).
 
 - [ ] Open the file `supabase/UPDATE_RUN_ONCE.sql` in the GitHub repository (bf-personal-app), press "Copy raw file"
 - [ ] Supabase, project bf-personal-app, SQL Editor, New query: paste, press **Run**. Expected result: "Success. No rows returned"
