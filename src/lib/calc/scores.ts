@@ -48,3 +48,46 @@ export function repeatedMisses(misses: { commitment_id: string }[], minimum = 2)
   for (const m of misses) counts[m.commitment_id] = (counts[m.commitment_id] ?? 0) + 1;
   return Object.fromEntries(Object.entries(counts).filter(([, n]) => n >= minimum));
 }
+
+export type ScheduledReview = { kind: "weekly" | "monthly" | "quarterly"; date: string };
+
+/**
+ * The next weekly, monthly, or quarterly review date on or after today.
+ * Weekly reviews fall on the chosen weekday (0 = Sunday); monthly on the 1st; quarterly on Jan, Apr, Jul, Oct 1.
+ * When two fall on the same date, the larger review is named (quarterly, then monthly).
+ */
+export function nextScheduledReview(today: string, weeklyWeekday: number): ScheduledReview {
+  const d = new Date(`${today}T12:00:00`);
+  const toWeekly = (weeklyWeekday - d.getDay() + 7) % 7;
+  const weekly = addDaysISO(today, toWeekly);
+  const monthly = today.slice(8, 10) === "01" ? today : nextFirstOfMonth(today, () => true);
+  const isQuarterMonth = (m: number) => [1, 4, 7, 10].includes(m);
+  const quarterly = today.slice(8, 10) === "01" && isQuarterMonth(Number(today.slice(5, 7))) ? today : nextFirstOfMonth(today, isQuarterMonth);
+  const options: ScheduledReview[] = [
+    { kind: "quarterly", date: quarterly },
+    { kind: "monthly", date: monthly },
+    { kind: "weekly", date: weekly },
+  ];
+  return options.reduce((best, o) => (o.date < best.date ? o : best));
+}
+
+function nextFirstOfMonth(today: string, ok: (month: number) => boolean): string {
+  let y = Number(today.slice(0, 4));
+  let m = Number(today.slice(5, 7));
+  for (let i = 0; i < 13; i++) {
+    m++;
+    if (m > 12) {
+      m = 1;
+      y++;
+    }
+    if (ok(m)) return `${y}-${String(m).padStart(2, "0")}-01`;
+  }
+  return today;
+}
+
+/** Combines a commitment score with target periods marked as commitments (met and missed counts are added). */
+export function combineScores(a: { met: number; missed: number }, b: { met: number; missed: number }) {
+  const met = a.met + b.met;
+  const missed = a.missed + b.missed;
+  return { met, missed, pct: met + missed > 0 ? Math.round((met / (met + missed)) * 100) : null };
+}
