@@ -2,15 +2,19 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDaysISO, addMonthsISO, daysBetween, monthBounds, weekBounds } from "@/lib/calc/dates";
 import { budgetVariance } from "@/lib/calc/savings";
-import { completionScore } from "@/lib/calc/scores";
+import { combineScores, completionScore } from "@/lib/calc/scores";
 import { round2 } from "@/lib/calc/runway";
 import { loadFinanceSnapshot, scoped, type FinanceSnapshot } from "@/lib/finance";
+import { loadTargets, targetCommitmentTally, targetMetric, type TargetsData } from "@/lib/targets";
 import type { Row } from "@/lib/types";
 
 export type MetricContext = {
   values: Record<string, number | null>;
   snapshot: FinanceSnapshot;
   pipelineMetric: (key: string, params: Row) => number | null;
+  /** Daily Targets data (available = false until database update 0008 is applied). */
+  targets: TargetsData;
+  targetMetric: (key: string, params: Row) => number | null;
 };
 
 /** Calculates every measured number used by decision conditions, goals, Home, and partner reports. */
@@ -20,7 +24,9 @@ export async function computeMetrics(sb: SupabaseClient, today: string, ownerId?
   const lastMonth = monthBounds(addDaysISO(monthBounds(today).start, -1));
   const week = weekBounds(today);
 
-  const [budgetsRes, linesRes, reductionsRes, commitmentsRes, missesRes, overdueRes, pipesRes, stagesRes, itemsRes] = await Promise.all([
+  const tz = await ownerTimezone(sb, ownerId);
+  const [targets, budgetsRes, linesRes, reductionsRes, commitmentsRes, missesRes, overdueRes, pipesRes, stagesRes, itemsRes] = await Promise.all([
+    loadTargets(sb, { ownerId, tz, from: addDaysISO(today, -182), to: today }),
     s(sb.from("budgets").select("id").eq("is_active", true)),
     s(sb.from("budget_lines").select("*")),
     s(sb.from("reduction_actions").select("actual_monthly_savings,projected_monthly_savings,status")),
@@ -49,7 +55,11 @@ export async function computeMetrics(sb: SupabaseClient, today: string, ownerId?
       .filter((r) => r.status === "completed")
       .reduce((sum, r) => sum + Number(r.actual_monthly_savings ?? r.projected_monthly_savings ?? 0), 0),
   );
-  const score = completionScore((commitmentsRes.data ?? []) as { due_date: string; status: "open" }[], week.start, week.end);
+  // Commitment score this week: commitments plus target periods marked as commitments (today stays open).
+  const score = combineScores(
+    completionScore((commitmentsRes.data ?? []) as { due_date: string; status: "open" }[], week.start, week.end),
+    targetCommitmentTally(targets, week.start, week.end, addDaysISO(today, -1)),
+  );
 
   let daysUntilDecision: number | null = null;
   const start = snapshot.inputs.text.acquisition_search_start_date;
@@ -99,11 +109,17 @@ export async function computeMetrics(sb: SupabaseClient, today: string, ownerId?
     return null;
   };
 
-  return { values, snapshot, pipelineMetric };
+  return { values, snapshot, pipelineMetric, targets, targetMetric: (key: string, params: Row) => targetMetric(targets, today, key, params) };
 }
 
-/** Value of one metric for a rule or goal, including pipeline metrics with parameters. */
+async function ownerTimezone(sb: SupabaseClient, ownerId?: string): Promise<string> {
+  const { data } = await scoped(sb.from("owner_profile").select("timezone"), ownerId).limit(1).maybeSingle();
+  return (data as Row | null)?.timezone || "America/New_York";
+}
+
+/** Value of one metric for a rule or goal, including pipeline and target metrics with parameters. */
 export function metricValue(ctx: MetricContext, key: string, params: Row | null | undefined): number | null {
   if (key.startsWith("pipeline_")) return ctx.pipelineMetric(key, params ?? {});
+  if (key.startsWith("target_")) return ctx.targetMetric(key, params ?? {});
   return ctx.values[key] ?? null;
 }

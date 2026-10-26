@@ -7,8 +7,26 @@ import { netWorthByMonth } from "@/lib/finance";
 import { tryDraft } from "@/lib/ai/claude";
 import { money, months as fmtMonths } from "@/lib/format";
 import { metricLabel } from "@/lib/metrics-list";
+import { periodResult } from "@/lib/calc/targets";
+import { loadOutreachStats, loadTargets, targetTotals } from "@/lib/targets";
 import type { Row } from "@/lib/types";
 import type { Ctx } from "./helpers";
+
+/** Daily targets for one day of the daily close: count, required, and met or missed (the day is final). */
+export async function dailyCloseTargets(ctx: Ctx, day: string): Promise<{ available: boolean; targets: Row[] }> {
+  const data = await loadTargets(ctx.sb, { ownerId: ctx.ownerId, tz: ctx.tz, from: weekBounds(day).start, to: day });
+  if (!data.available) return { available: false, targets: [] };
+  const isWeekEnd = weekBounds(day).end === day;
+  const targets = data.targets
+    .map((t) => {
+      const r = periodResult(t.def, data.counts[t.id] ?? {}, day, day);
+      const miss = data.misses.find((m) => m.target_id === t.id && m.period_start === r.start);
+      return { id: t.id, name: t.name, period: t.period, is_commitment: t.is_commitment, ...r, reason: miss?.reason ?? null };
+    })
+    // Day targets on their active days; week targets on the last day of the week.
+    .filter((r) => r.status !== "off" && (r.period === "day" || isWeekEnd));
+  return { available: true, targets };
+}
 
 export type ReviewKind = "daily" | "weekly" | "monthly" | "quarterly";
 
@@ -37,7 +55,8 @@ export async function reviewData(ctx: Ctx, kind: ReviewKind, start: string, end:
       sb.from("tasks").select("id,title,status,priority").eq("owner_id", ownerId).eq("due_date", start).order("priority"),
       sb.from("tasks").select("id,title,priority,due_date").eq("owner_id", ownerId).eq("status", "todo").lte("due_date", addDaysISO(start, 1)).order("priority").order("due_date").limit(10),
     ]);
-    return { ...base, tasks: due ?? [], tomorrow_candidates: tomorrow ?? [] };
+    const targets = await dailyCloseTargets(ctx, start);
+    return { ...base, tasks: due ?? [], tomorrow_candidates: tomorrow ?? [], targets: targets.targets, targets_available: targets.available };
   }
   const [changes, misses, commitments, conditions, moves, stages, items, budgets, lines, cats] = await Promise.all([
     sb.from("change_log").select("table_name,action,actor").eq("owner_id", ownerId).gte("created_at", `${start}T00:00:00`).lte("created_at", `${end}T23:59:59`).limit(1000),
@@ -89,6 +108,10 @@ export async function reviewData(ctx: Ctx, kind: ReviewKind, start: string, end:
     budget: { totals: bv.totals, over: bv.rows.filter((r) => r.overBudget).map((r) => ({ category: catName[r.category_id] ?? "Category", actual: r.actual, budget: r.current })) },
     savings_achieved_monthly: metrics.values.savings_achieved_monthly,
   };
+  // Daily targets: totals vs required for the period, and outreach results (empty until update 0008 is applied).
+  const targetData = await loadTargets(sb, { ownerId, tz: ctx.tz, from: addDaysISO(start, -120), to: end });
+  data.targets = targetData.available ? targetTotals(targetData, start, end, end) : [];
+  data.outreach = await loadOutreachStats(sb, { ownerId, tz: ctx.tz, from: start, to: end });
   if (kind === "weekly") {
     const [{ data: next }, { data: drafts }] = await Promise.all([
       sb.from("tasks").select("title,due_date,priority").eq("owner_id", ownerId).eq("status", "todo").gt("due_date", end).lte("due_date", addDaysISO(end, 7)).order("priority").limit(15),
@@ -138,58 +161,92 @@ export async function reviewData(ctx: Ctx, kind: ReviewKind, start: string, end:
   return data;
 }
 
-function list(items: string[], none: string): string {
-  return items.length ? items.map((i) => `- ${i}`).join("\n") : `- ${none}`;
+const bullet = (lead: string, text: string, depth = 0) => `${"  ".repeat(depth)}- **${lead}:** ${text}`;
+
+function section(lines: string[], label: string, items: string[], none: string) {
+  lines.push("", `**${label}**`);
+  if (items.length) lines.push(...items);
+  else lines.push(bullet("None", none));
 }
 
-/** Plain draft used when the AI is not available. */
+function pctText(p: number | null | undefined): string {
+  return p === null || p === undefined ? "not available" : `${p}%`;
+}
+
+/** Plain draft used when the AI is not available, in the same bulleted format the AI uses. */
 export function templateReviewDraft(kind: ReviewKind, d: Row): string {
-  const lines: string[] = [];
-  lines.push(`Runway: ${fmtMonths(d.runway_months)} (target ${d.runway_target ?? "not set"} months). Cash ${money(d.cash)}.`);
+  const lines: string[] = ["**Summary**"];
+  lines.push(bullet("Runway", `${fmtMonths(d.runway_months)} (target ${d.runway_target ?? "not set"} months).`));
+  lines.push(bullet("Cash", money(d.cash), 1));
   if (kind === "daily") {
     const tasks = (d.tasks ?? []) as Row[];
     const done = tasks.filter((t) => t.status === "done");
-    lines.push(`Tasks due today: ${tasks.length}. Done: ${done.length}. Not done: ${tasks.length - done.length}.`);
-    lines.push("Not done (give a reason for each):");
-    lines.push(list(tasks.filter((t) => t.status !== "done").map((t) => t.title), "None"));
-    lines.push("Suggested top 3 for tomorrow:");
-    lines.push(list(((d.tomorrow_candidates ?? []) as Row[]).slice(0, 3).map((t) => t.title), "Add tasks for tomorrow"));
+    lines.push(bullet("Tasks due today", `${tasks.length}. Done ${done.length}. Not done ${tasks.length - done.length}.`));
+    section(lines, "Not done (give a reason for each)", tasks.filter((t) => t.status !== "done").map((t) => bullet("Task", t.title)), "every task due today is done.");
+    const targets = (d.targets ?? []) as Row[];
+    if (targets.length) {
+      section(
+        lines,
+        "Daily targets",
+        targets.map((t) => bullet(t.name, `${t.count} of ${t.required}. ${t.status === "met" ? "Met." : "Missed. Give a one-line reason."}`)),
+        "no targets today.",
+      );
+    }
+    section(lines, "Suggested top 3 for tomorrow", ((d.tomorrow_candidates ?? []) as Row[]).slice(0, 3).map((t, i) => bullet(`Task ${i + 1}`, t.title)), "add tasks for tomorrow.");
     return lines.join("\n");
   }
-  lines.push(`Commitments: ${d.score?.met ?? 0} met, ${d.score?.missed ?? 0} missed (score ${d.score?.pct ?? "not available"}${d.score?.pct !== null && d.score?.pct !== undefined ? "%" : ""}).`);
-  lines.push("Missed commitments:");
-  lines.push(list(((d.missed_commitments ?? []) as Row[]).map((m) => `${m.title} (${m.missed_on})${m.reason ? `: ${m.reason}` : ""}`), "None"));
-  if ((d.repeated_misses ?? []).length) {
-    lines.push("Repeated misses:");
-    lines.push(list((d.repeated_misses as Row[]).map((r) => `${r.title}: missed ${r.misses} times`), "None"));
+  lines.push(bullet("Commitments", `${d.score?.met ?? 0} met, ${d.score?.missed ?? 0} missed (score ${pctText(d.score?.pct)}).`));
+  section(lines, "Missed commitments", ((d.missed_commitments ?? []) as Row[]).map((m) => bullet(m.title, `missed ${m.missed_on}${m.reason ? `. Reason: ${m.reason}` : ""}`)), "no commitments missed.");
+  if ((d.repeated_misses ?? []).length) section(lines, "Repeated misses", (d.repeated_misses as Row[]).map((r) => bullet(r.title, `missed ${r.misses} times`)), "");
+  const targets = (d.targets ?? []) as Row[];
+  if (targets.length) {
+    const items: string[] = [];
+    for (const t of targets) {
+      items.push(bullet(t.name, `${t.total} done of ${t.required} required.`));
+      items.push(bullet(t.period === "week" ? "Weeks" : "Days", `${t.met} met, ${t.missed} missed (${pctText(t.pct)}).`, 1));
+      for (const r of (t.miss_reasons ?? []) as Row[]) items.push(bullet(`Missed ${r.date}`, r.reason, 1));
+    }
+    section(lines, "Daily targets", items, "");
   }
-  lines.push("Decision conditions met:");
-  lines.push(list(((d.conditions_met ?? []) as Row[]).map((c) => `${c.name} (${c.metric}: ${c.value})`), "None"));
-  lines.push("Pipeline movement:");
-  lines.push(list(((d.pipeline_moves ?? []) as Row[]).map((m) => `${m.item} moved to ${m.stage} on ${m.date}`), "No stage changes"));
+  if (d.outreach) {
+    section(
+      lines,
+      "Outreach",
+      [
+        bullet("Sent", String(d.outreach.sent)),
+        bullet("Reply rate", `${pctText(d.outreach.replyRatePct)} (replied, meeting booked, or referral).`),
+        bullet("Meetings booked", String(d.outreach.meetings)),
+        bullet("Referrals", String(d.outreach.referrals)),
+      ],
+      "",
+    );
+  }
+  section(lines, "Decision conditions met", ((d.conditions_met ?? []) as Row[]).map((c) => bullet(c.name, `${c.metric}: ${c.value}`)), "no conditions met.");
+  section(lines, "Pipeline movement", ((d.pipeline_moves ?? []) as Row[]).map((m) => bullet(m.item, `moved to ${m.stage} on ${m.date}`)), "no stage changes.");
   if (d.budget) {
-    lines.push(`Spending vs budget: ${money(d.budget.totals.actual)} spent vs ${money(d.budget.totals.current)} budgeted (difference ${money(d.budget.totals.variance)}).`);
-    if ((d.budget.over ?? []).length) lines.push(list((d.budget.over as Row[]).map((o) => `${o.category}: ${money(o.actual)} vs ${money(o.budget)}`), ""));
+    const items = [bullet("Spent", `${money(d.budget.totals.actual)} vs ${money(d.budget.totals.current)} budgeted (difference ${money(d.budget.totals.variance)}).`)];
+    for (const o of (d.budget.over ?? []) as Row[]) items.push(bullet(o.category, `${money(o.actual)} vs ${money(o.budget)}`, 1));
+    section(lines, "Spending vs budget", items, "");
   }
   if (kind === "weekly") {
-    lines.push("Next week's priorities (from due tasks):");
-    lines.push(list(((d.next_week_tasks ?? []) as Row[]).slice(0, 5).map((t) => `${t.title} (due ${t.due_date})`), "Add next week's tasks"));
-    lines.push(`Partner report drafts waiting: ${d.partner_report_drafts ?? 0}.`);
+    section(lines, "Next week's priorities (from due tasks)", ((d.next_week_tasks ?? []) as Row[]).slice(0, 5).map((t) => bullet(t.title, `due ${t.due_date}`)), "add next week's tasks.");
+    lines.push(bullet("Partner report drafts waiting", String(d.partner_report_drafts ?? 0)));
   }
   if (kind === "monthly" || kind === "quarterly") {
     const nw = (d.net_worth_by_month ?? []) as Row[];
-    if (nw.length >= 2) lines.push(`Net worth: ${money(nw[nw.length - 2].netWorth)} to ${money(nw[nw.length - 1].netWorth)}.`);
-    lines.push(`Emergency fund: ${d.emergency_fund?.pct ?? "not available"}% of target. Retirement: ${d.retirement?.pct ?? "not available"}% of target.`);
-    lines.push(`Debt payments recorded: ${(d.debt_payments ?? []).length} for ${(d.debts ?? []).length} debts. Confirm each one below.`);
-    lines.push(`Google connection: ${d.connections?.google?.status ?? "disconnected"}. Plaid connections: ${(d.connections?.plaid ?? []).length}.`);
-    lines.push("Download the full data export: Settings, Export.");
+    const items: string[] = [];
+    if (nw.length >= 2) items.push(bullet("Net worth", `${money(nw[nw.length - 2].netWorth)} to ${money(nw[nw.length - 1].netWorth)}.`));
+    items.push(bullet("Emergency fund", `${d.emergency_fund?.pct ?? "not available"}% of target.`));
+    items.push(bullet("Retirement", `${d.retirement?.pct ?? "not available"}% of target.`));
+    items.push(bullet("Debt payments", `${(d.debt_payments ?? []).length} recorded for ${(d.debts ?? []).length} debts. Confirm each one.`));
+    items.push(bullet("Connections", `Google ${d.connections?.google?.status ?? "disconnected"}. Plaid institutions: ${(d.connections?.plaid ?? []).length}.`));
+    items.push(bullet("Export", "download the full data export in Settings, Export."));
+    section(lines, kind === "monthly" ? "This month" : "This quarter", items, "");
   }
   if (kind === "quarterly") {
-    lines.push("Goal progress per initiative:");
-    lines.push(list(((d.goals ?? []) as Row[]).map((g) => `${g.initiative}: ${g.title} (current ${g.current ?? "not measured"}, target ${g.target_value ?? "not set"}, ${g.status})`), "No goals"));
-    lines.push("Decision conditions due next quarter:");
-    lines.push(list(((d.conditions_due_next_quarter ?? []) as Row[]).map((c) => `${c.name} (from ${c.check_from})`), "None"));
-    lines.push("Review and update Inputs and Assumptions, then set next quarter's milestones.");
+    section(lines, "Goal progress per initiative", ((d.goals ?? []) as Row[]).map((g) => bullet(g.initiative, `${g.title} (current ${g.current ?? "not measured"}, target ${g.target_value ?? "not set"}, ${g.status})`)), "no goals.");
+    section(lines, "Decision conditions due next quarter", ((d.conditions_due_next_quarter ?? []) as Row[]).map((c) => bullet(c.name, `from ${c.check_from}`)), "none.");
+    lines.push(bullet("Next step", "review Inputs and Assumptions, then set next quarter's milestones."));
   }
   return lines.join("\n");
 }
@@ -203,8 +260,8 @@ export async function ensureReview(ctx: Ctx, kind: ReviewKind, forceDate?: strin
   const data = await reviewData(ctx, kind, p.start, p.end);
   const prompt = `Draft Bram's ${kind} review for ${p.start} to ${p.end}. ${
     kind === "daily"
-      ? "This is the evening daily close check: list tasks done and not done, ask for a reason for each not done, and suggest tomorrow's top 3 tasks."
-      : "Cover each required section in order. Flag missed commitments, slipping milestones, and spending over budget. End with recommended priorities."
+      ? "This is the evening daily close check: list tasks done and not done, ask for a reason for each not done, show each daily target as met or missed (a missed target needs a one-line reason), and suggest tomorrow's top 3 tasks."
+      : "Cover each required section in order, each under a short bold label. Flag missed commitments, slipping milestones, and spending over budget. Include daily target totals vs required, the outreach reply rate, and meetings booked. End with recommended priorities."
   } Keep it under 300 words. Data (JSON):\n${JSON.stringify(data).slice(0, 15000)}`;
   const ai = await tryDraft({ sb, ownerId, purpose: `review_${kind}`, prompt });
   const { data: created } = await sb

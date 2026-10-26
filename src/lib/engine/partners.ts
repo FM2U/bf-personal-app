@@ -7,6 +7,8 @@ import { tryDraft } from "@/lib/ai/claude";
 import { money, months as fmtMonths, date as fmtDate } from "@/lib/format";
 import { decrypt } from "@/lib/crypto";
 import { env } from "@/lib/env";
+import { markdownToPlain } from "@/lib/markdown";
+import { loadTargets, targetTotals } from "@/lib/targets";
 import type { Row } from "@/lib/types";
 import { createAlert, createTask, type Ctx } from "./helpers";
 
@@ -106,16 +108,34 @@ export async function buildPartnerSnapshot(ctx: Ctx, partner: Row, start: string
       };
     });
   }
+  if (sections.includes("targets")) {
+    // Only targets marked "show to accountability partners". Empty until database update 0008 is applied.
+    const data = await loadTargets(sb, { ownerId, tz: ctx.tz, from: addDaysISO(start, -120), to: end });
+    out.targets = data.available
+      ? targetTotals(data, start, end, end, (t) => !!t.show_to_partners).map((t) => ({
+          name: t.name,
+          period: t.period,
+          minimum: t.minimum,
+          total: t.total,
+          required: t.required,
+          met: t.met,
+          missed: t.missed,
+          pct: t.pct,
+          met_in_a_row: t.met_in_a_row,
+        }))
+      : [];
+  }
   return out;
 }
 
 export function templatePartnerSummary(s: Row): string {
   const parts: string[] = [];
-  if (s.runway) parts.push(`Runway is ${fmtMonths(s.runway.months)} against a target of ${s.runway.target_months ?? "not set"} months. Cash is ${money(s.runway.cash)}.`);
-  if (s.milestones) parts.push(`Milestones this period: ${s.milestones.completed.length} completed, ${s.milestones.missed.length} missed.`);
-  if (s.commitments) parts.push(`Commitments: ${s.commitments.score.met} met, ${s.commitments.score.missed} missed.`);
-  if (s.savings) parts.push(`Monthly savings achieved from completed reduction actions: ${money(s.savings.monthly_savings_achieved)}.`);
-  if (s.loans?.length) parts.push(s.loans.map((l: Row) => `Loan from ${l.name}: ${money(l.paid_to_date)} repaid, ${money(l.remaining_principal)} remaining${l.next_payment ? `, next payment ${money(l.next_payment.amount)} on ${fmtDate(l.next_payment.due_date)}` : ""}.`).join(" "));
+  if (s.runway) parts.push(`- **Runway:** ${fmtMonths(s.runway.months)} against a target of ${s.runway.target_months ?? "not set"} months. Cash is ${money(s.runway.cash)}.`);
+  if (s.milestones) parts.push(`- **Milestones:** ${s.milestones.completed.length} completed, ${s.milestones.missed.length} missed this period.`);
+  if (s.commitments) parts.push(`- **Commitments:** ${s.commitments.score.met} met, ${s.commitments.score.missed} missed.`);
+  if (s.targets?.length) for (const t of s.targets as Row[]) parts.push(`- **${t.name}:** ${t.total} done of ${t.required} required. ${t.met} ${t.period === "week" ? "weeks" : "days"} met, ${t.missed} missed.`);
+  if (s.savings) parts.push(`- **Savings:** ${money(s.savings.monthly_savings_achieved)} per month from completed reduction actions.`);
+  if (s.loans?.length) for (const l of s.loans as Row[]) parts.push(`- **Loan from ${l.name}:** ${money(l.paid_to_date)} repaid, ${money(l.remaining_principal)} remaining${l.next_payment ? `. Next payment ${money(l.next_payment.amount)} on ${fmtDate(l.next_payment.due_date)}` : ""}.`);
   return parts.join("\n");
 }
 
@@ -128,7 +148,7 @@ export async function createPartnerReport(ctx: Ctx, partner: Row): Promise<strin
     sb: ctx.sb,
     ownerId: ctx.ownerId,
     purpose: "partner_report_summary",
-    prompt: `Write a short summary (under 120 words) for an accountability partner report covering ${start} to ${end}. Address the reader as "you" and refer to Bram in the first person ("I"). State facts and numbers only. Data (JSON): ${JSON.stringify(snapshot).slice(0, 8000)}`,
+    prompt: `Write a short summary (under 120 words, at most 6 bullets) for an accountability partner report covering ${start} to ${end}. Refer to Bram in the first person ("I"). State facts and numbers only. Data (JSON): ${JSON.stringify(snapshot).slice(0, 8000)}`,
     maxTokens: 400,
   });
   const { data } = await ctx.sb
@@ -179,7 +199,7 @@ export function reportText(partner: Row, report: Row, link: string | null, forma
   const period = `${fmtDate(report.period_start)} to ${fmtDate(report.period_end)}`;
   if (format === "phone") lines.push(`Call script for ${partner.name}. Period: ${period}.`, "");
   else lines.push(`Hello ${partner.name},`, "", `Here is my accountability report for ${period}.`, "");
-  if (report.summary) lines.push(report.summary, "");
+  if (report.summary) lines.push(markdownToPlain(report.summary), "");
   if (s.runway) lines.push(`Runway: ${fmtMonths(s.runway.months)} (target ${s.runway.target_months ?? "not set"} months). Cash: ${money(s.runway.cash)}.`);
   if (s.milestones) {
     lines.push(`Milestones completed: ${s.milestones.completed.map((m: Row) => m.title).join("; ") || "none"}.`);
@@ -189,6 +209,7 @@ export function reportText(partner: Row, report: Row, link: string | null, forma
     lines.push(`Commitment completion: ${s.commitments.score.pct ?? "not available"}${s.commitments.score.pct !== null ? "%" : ""} (${s.commitments.score.met} met, ${s.commitments.score.missed} missed).`);
     if (s.commitments.repeated_misses?.length) lines.push(`Repeated misses: ${s.commitments.repeated_misses.map((r: Row) => `${r.title} (${r.misses})`).join("; ")}.`);
   }
+  if (s.targets?.length) for (const t of s.targets as Row[]) lines.push(`${t.name}: ${t.total} done of ${t.required} required (${t.met} ${t.period === "week" ? "weeks" : "days"} met, ${t.missed} missed).`);
   if (s.savings) lines.push(`Monthly savings achieved: ${money(s.savings.monthly_savings_achieved)}.`);
   if (s.loans?.length) for (const l of s.loans) lines.push(`Loan repayment: ${money(l.paid_to_date)} repaid of ${money(l.amount)}. ${l.overdue_payments ? `${l.overdue_payments} payment(s) overdue.` : "No payments overdue."}`);
   if (format === "phone") lines.push("", "Questions to ask: Do you have any questions about these numbers? Is there anything you want me to report next time?");

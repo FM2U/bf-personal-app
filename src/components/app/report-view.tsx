@@ -1,5 +1,6 @@
 import { date as fmtDate, money, months as fmtMonths } from "@/lib/format";
 import type { Row } from "@/lib/types";
+import { AiText } from "@/components/app/ai-text";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -25,7 +26,7 @@ export function ReportView({ report }: { report: Row }) {
     <div className="flex flex-col gap-4">
       {report.summary ? (
         <Section title="Summary">
-          <p className="whitespace-pre-wrap text-sm leading-relaxed">{report.summary}</p>
+          <AiText text={report.summary} />
         </Section>
       ) : null}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -103,6 +104,28 @@ export function ReportView({ report }: { report: Row }) {
                 </ul>
               </>
             ) : null}
+          </Section>
+        ) : null}
+        {s.targets ? (
+          <Section title="Daily targets">
+            {(s.targets as Row[]).length ? (
+              <div className="flex flex-col divide-y divide-slate-100">
+                {(s.targets as Row[]).map((t, i) => (
+                  <div key={i} className="py-2 first:pt-0 last:pb-0">
+                    <p className="clamp-1 mb-2 text-sm font-medium">
+                      {t.name} <span className="font-normal text-muted-foreground">({t.minimum} per {t.period === "week" ? "week" : "active day"})</span>
+                    </p>
+                    <div className="grid grid-cols-3 gap-3">
+                      <Pair label="Done vs required" value={`${t.total} / ${t.required}`} />
+                      <Pair label={t.period === "week" ? "Weeks met" : "Days met"} value={`${t.met} of ${t.met + t.missed}`} />
+                      <Pair label="Completion rate" value={t.pct === null ? "No data" : `${t.pct}%`} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No daily targets are shared in this report.</p>
+            )}
           </Section>
         ) : null}
         {s.savings ? (

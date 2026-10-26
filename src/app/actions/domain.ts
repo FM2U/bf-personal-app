@@ -8,7 +8,7 @@ import { evaluateConditions, markMilestoneMet } from "@/lib/engine/rules";
 import { checkCommitments, generateFollowUps, generatePipelineTasks, generateRecurringTasks, createTimeBlocks, scheduleReviewEvents } from "@/lib/engine/tasks";
 import { applyCategoryRules, detectAndSaveRecurring } from "@/lib/engine/finance-jobs";
 import { buildMorningPlan } from "@/lib/engine/run";
-import { ensureReview, type ReviewKind } from "@/lib/engine/reviews";
+import { dailyCloseTargets, ensureReview, type ReviewKind } from "@/lib/engine/reviews";
 import { createPartnerReport, reportText, activeLinkFor } from "@/lib/engine/partners";
 import { repaymentSchedule } from "@/lib/calc/savings";
 import { encrypt, randomToken, sha256 } from "@/lib/crypto";
@@ -153,6 +153,27 @@ export async function saveReview(fd: FormData) {
     const stillOpen = ((current ?? []) as Row[]).filter((t) => t.status !== "done");
     const missing = stillOpen.filter((t) => !String(answers[`reason_${t.id}`] ?? "").trim());
     if (missing.length) throw new Error("Give a reason for each task not done before completing the daily close.");
+    // Each daily target missed that day needs a one-line reason, saved on the missed period record.
+    const tctx = await loadCtx(supabase, ownerId);
+    const targets = await dailyCloseTargets(tctx, review.period_start);
+    const missedTargets = targets.targets.filter((t) => t.status === "missed");
+    const noReason = missedTargets.filter((t) => !String(answers[`target_reason_${t.id}`] ?? t.reason ?? "").trim());
+    if (noReason.length) throw new Error("Give a one-line reason for each daily target missed before completing the daily close.");
+    if (missedTargets.length) {
+      await supabase.from("target_misses").upsert(
+        missedTargets.map((t) => ({
+          owner_id: ownerId,
+          target_id: t.id,
+          period_start: t.start,
+          period_end: t.end,
+          actual_count: t.count,
+          required_count: t.required,
+          reason: String(answers[`target_reason_${t.id}`] ?? t.reason ?? "").trim().slice(0, 200),
+        })),
+        { onConflict: "target_id,period_start" },
+      );
+    }
+    answers.targets_at_close = JSON.stringify(targets.targets.map((t) => ({ name: t.name, count: t.count, required: t.required, status: t.status })));
     // Tomorrow's top 3 become high priority tasks due tomorrow
     const ctx = await loadCtx(supabase, ownerId);
     const tomorrow = new Date(`${ctx.today}T12:00:00`);

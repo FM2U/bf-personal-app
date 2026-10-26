@@ -7,6 +7,9 @@ import { env, isAIConfigured, isPlaidConfigured } from "@/lib/env";
 import { tryDraft } from "@/lib/ai/claude";
 import { computeMetrics } from "@/lib/metrics";
 import { money, months as fmtMonths } from "@/lib/format";
+import { describeTarget } from "@/lib/calc/targets";
+import { summarizeTargets } from "@/lib/targets";
+import { loadOutreachQueue } from "@/lib/outreach";
 import type { Row } from "@/lib/types";
 import { createAlert, createTask, loadCtx, type Ctx } from "./helpers";
 import { checkMilestones, evaluateConditions } from "./rules";
@@ -205,6 +208,11 @@ export async function buildMorningPlan(ctx: Ctx, force = false): Promise<string>
   const taskList = (tasks ?? []) as Row[];
   const overdue = taskList.filter((t) => t.due_date < today);
   const dueToday = taskList.filter((t) => t.due_date === today);
+  // Daily targets and the outreach queue (empty until database update 0008 is applied)
+  const targetsToday = summarizeTargets(metrics.targets, today)
+    .filter((s) => s.today.status !== "off")
+    .map((s) => ({ name: s.target.name, rule: describeTarget(s.target.def), done_so_far: s.today.count, required: s.today.required, period: s.target.period, missed_in_a_row: s.missedInARow }));
+  const queue = await loadOutreachQueue(sb, { ownerId, today, tz: ctx.tz }).catch(() => null);
   const data = {
     date: today,
     runway: fmtMonths(metrics.snapshot.runway.months),
@@ -216,12 +224,15 @@ export async function buildMorningPlan(ctx: Ctx, force = false): Promise<string>
     milestones_due_14_days: milestones ?? [],
     open_decisions: decisions ?? [],
     meetings: (meetings ?? []).map((m) => ({ title: m.title, start: m.start })),
+    targets_today: targetsToday,
+    outreach_due: queue?.available ? queue.due.slice(0, 5).map((r) => ({ name: r.name, days_overdue: r.status.daysOverdue, never_contacted: r.status.neverContacted })) : [],
+    outreach_due_count: queue?.available ? queue.due.length : 0,
   };
   const ai = await tryDraft({
     sb,
     ownerId,
     purpose: "morning_plan",
-    prompt: `Write today's morning plan for Bram (${today}). Format: "Top 3" (numbered), then "Also today" (bullets), then "Watch" (alerts, overdue items, milestones due soon, open decisions). Mention any change in runway or spending that needs action. Under 220 words. Data (JSON): ${JSON.stringify(data).slice(0, 12000)}`,
+    prompt: `Write today's morning plan for Bram (${today}). Sections, each a short bold label on its own line followed by bullets: **Top 3** (exactly 3 bullets), **Daily targets** (each target: count needed today, and who in the outreach queue to contact first), **Also today**, **Watch** (alerts, overdue items, milestones due soon, open decisions, any change in runway or spending that needs action). Leave out a section with nothing in it. Under 220 words. Data (JSON): ${JSON.stringify(data).slice(0, 12000)}`,
     maxTokens: 700,
   });
   const content = ai ?? templatePlan(data, metrics.snapshot.cash);
@@ -231,23 +242,34 @@ export async function buildMorningPlan(ctx: Ctx, force = false): Promise<string>
 
 function templatePlan(d: Row, cash: number): string {
   const top = [...d.overdue, ...d.due_today].slice(0, 3) as Row[];
-  const lines = ["Top 3"];
-  if (top.length) top.forEach((t, i) => lines.push(`${i + 1}. ${t.title}${t.due_date < d.date ? " (overdue)" : ""}`));
-  else lines.push("1. No tasks due. Add today's priorities in Productivity.");
+  const lines = ["**Top 3**"];
+  if (top.length) top.forEach((t, i) => lines.push(`- **Task ${i + 1}:** ${t.title}${t.due_date < d.date ? " (overdue)" : ""}`));
+  else lines.push("- **No tasks due:** add today's priorities in Productivity.");
+  const targets = (d.targets_today ?? []) as Row[];
+  if (targets.length) {
+    lines.push("", "**Daily targets**");
+    targets.forEach((t) => lines.push(`- **${t.name}:** ${t.done_so_far} of ${t.required} done${t.period === "week" ? " this week" : " today"}.`));
+    const due = (d.outreach_due ?? []) as Row[];
+    if (due.length) {
+      lines.push(`- **Outreach queue:** ${d.outreach_due_count} contacts due.`);
+      due.slice(0, 3).forEach((c) => lines.push(`  - **${c.name}:** ${c.never_contacted ? "never contacted" : `${c.days_overdue} days overdue`}`));
+    }
+  }
   const rest = [...d.overdue, ...d.due_today].slice(3) as Row[];
   if (rest.length) {
-    lines.push("", "Also today");
-    rest.slice(0, 10).forEach((t) => lines.push(`- ${t.title}`));
+    lines.push("", "**Also today**");
+    rest.slice(0, 10).forEach((t) => lines.push(`- **Task:** ${t.title}`));
   }
   if ((d.meetings ?? []).length) {
-    lines.push("", "Meetings");
-    (d.meetings as Row[]).forEach((m) => lines.push(`- ${m.title}`));
+    lines.push("", "**Meetings**");
+    (d.meetings as Row[]).forEach((m) => lines.push(`- **Meeting:** ${m.title}`));
   }
-  lines.push("", "Watch");
-  lines.push(`- Runway: ${d.runway} (target ${d.runway_target ?? "not set"} months). Cash ${money(cash)}.`);
-  (d.alerts as Row[]).slice(0, 5).forEach((a) => lines.push(`- ${a.message}`));
-  (d.milestones_due_14_days as Row[]).forEach((m) => lines.push(`- Milestone due ${m.due_date}: ${m.title}`));
-  (d.open_decisions as Row[]).forEach((x) => lines.push(`- Open decision: ${x.title}`));
+  lines.push("", "**Watch**");
+  lines.push(`- **Runway:** ${d.runway} (target ${d.runway_target ?? "not set"} months).`);
+  lines.push(`  - **Cash:** ${money(cash)}`);
+  (d.alerts as Row[]).slice(0, 5).forEach((a) => lines.push(`- **Alert:** ${a.message}`));
+  (d.milestones_due_14_days as Row[]).forEach((m) => lines.push(`- **Milestone due ${m.due_date}:** ${m.title}`));
+  (d.open_decisions as Row[]).forEach((x) => lines.push(`- **Open decision:** ${x.title}`));
   return lines.join("\n");
 }
 

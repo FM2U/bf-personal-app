@@ -1,7 +1,8 @@
 import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
 import { addDaysISO, monthBounds, quarterBounds, weekBounds } from "@/lib/calc/dates";
-import { completionScore, consecutiveCompleteDays } from "@/lib/calc/scores";
+import { combineScores, completionScore, consecutiveCompleteDays } from "@/lib/calc/scores";
+import { loadTargets, targetCommitmentTally } from "@/lib/targets";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader, Stat } from "@/components/app/page-header";
 import { BarSeriesChart } from "@/components/app/charts";
@@ -18,6 +19,7 @@ export default async function ScoresPage() {
     supabase.from("commitments").select("due_date,status"),
     supabase.from("tasks").select("due_date,status").gte("due_date", since).lte("due_date", ctx.today).limit(5000),
   ]);
+  const targets = await loadTargets(supabase, { ownerId, tz: ctx.tz, from: quarterBounds(ctx.today).start, to: ctx.today });
   const cs = (commitments ?? []) as { due_date: string; status: "open" }[];
   const ts = (tasks ?? []) as Row[] as { due_date: string; status: string }[];
   const periods = [
@@ -34,10 +36,11 @@ export default async function ScoresPage() {
   });
   return (
     <div>
-      <PageHeader title="Completion scores" description="Percentage of commitments met per day, week, month, and quarter, and the number of consecutive days with every daily task done." />
+      <PageHeader title="Completion scores" description="Percentage of commitments met per day, week, month, and quarter (daily targets marked as commitments count too), and the number of consecutive days with every daily task done." />
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
         {periods.map((p) => {
-          const s = completionScore(cs, p.start, p.end);
+          // Commitments plus daily target periods marked as commitments (today stays open until it is over).
+          const s = combineScores(completionScore(cs, p.start, p.end), targetCommitmentTally(targets, p.start, p.end, addDaysISO(ctx.today, -1)));
           return (
             <Card key={p.label}>
               <CardHeader>

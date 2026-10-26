@@ -45,6 +45,7 @@ export const NAV: NavModule[] = [
       { href: "/people", label: "Contacts" },
       { href: "/people/organizations", label: "Organizations" },
       { href: "/people/communications", label: "Communication history" },
+      { href: "/people/outreach", label: "Outreach Queue" },
     ],
   },
   {
@@ -67,6 +68,7 @@ export const NAV: NavModule[] = [
     icon: "scale",
     tabs: [
       { href: "/accountability", label: "Commitments" },
+      { href: "/accountability/targets", label: "Targets" },
       { href: "/accountability/reviews", label: "Reviews" },
       { href: "/accountability/scores", label: "Completion scores" },
       { href: "/accountability/partners", label: "Accountability partners" },

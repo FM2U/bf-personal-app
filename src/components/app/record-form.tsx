@@ -72,7 +72,8 @@ function FieldInput({ field, value, refOptions }: { field: Field; value: unknown
       );
     }
     case "multiselect": {
-      const selected = new Set(Array.isArray(value) ? (value as string[]) : []);
+      const initial = Array.isArray(value) ? (value as unknown[]) : value === null || value === undefined ? String(field.default ?? "").split(",").filter(Boolean) : [];
+      const selected = new Set(initial.map(String));
       return (
         <div className="flex flex-wrap gap-x-4 gap-y-2 rounded-md border border-input bg-background px-3 py-2">
           {field.options?.map((o) => (

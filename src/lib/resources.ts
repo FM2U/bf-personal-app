@@ -64,6 +64,22 @@ export const SECTION_OPTIONS: Option[] = [
   { value: "commitments", label: "Commitment completion score" },
   { value: "savings", label: "Savings achieved" },
   { value: "loans", label: "Loan repayment status" },
+  { value: "targets", label: "Daily targets (only targets marked to show)" },
+];
+
+export const OUTCOME_OPTIONS: Option[] = [
+  { value: "replied", label: "Replied" },
+  { value: "meeting_booked", label: "Meeting booked" },
+  { value: "referral", label: "Referral" },
+  { value: "no_response", label: "No response" },
+];
+
+export const WEEKDAY_OPTIONS: Option[] = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((d, i) => ({ value: String(i), label: d }));
+
+export const COUNT_SOURCE_OPTIONS: Option[] = [
+  { value: "communications_outreach", label: "Outreach logged (communications marked as outreach)" },
+  { value: "pipeline_items_created", label: "Pipeline items added" },
+  { value: "manual", label: "Manual count (press +1)" },
 ];
 
 const R: Resource[] = [
@@ -558,7 +574,7 @@ const R: Resource[] = [
       { name: "name", label: "Name", type: "text", required: true },
       { name: "initiative_id", label: "Initiative", type: "ref", ref: "initiatives" },
       { name: "metric_key", label: "Measured number", type: "select", options: METRICS.map((m) => ({ value: m.key, label: m.label })), required: true },
-      { name: "metric_params", label: "Measured number details (only for pipeline numbers)", type: "json", help: 'Example: {"pipeline":"Acquisitions","stage":"LOI signed"}' },
+      { name: "metric_params", label: "Measured number details (only for pipeline and daily target numbers)", type: "json", help: 'Examples: {"pipeline":"Acquisitions","stage":"LOI signed"} or {"target":"Network outreach","days":7}' },
       { name: "operator", label: "Comparison", type: "select", options: [
         { value: "lt", label: "is less than" },
         { value: "lte", label: "is less than or equal to" },
@@ -836,6 +852,12 @@ const R: Resource[] = [
       { name: "mailing_address", label: "Mailing address", type: "textarea" },
       { name: "follow_up_date", label: "Follow-up date", type: "date", help: "On this date a task and a calendar event are created." },
       { name: "follow_up_note", label: "Follow-up about", type: "text" },
+      { name: "relationship_group", label: "Relationship group (Outreach Queue)", type: "select", options: [
+        { value: "close", label: "Close (every 30 days)" },
+        { value: "warm", label: "Warm (every 60 days)" },
+        { value: "professional", label: "Professional (every 90 days)" },
+      ] },
+      { name: "outreach_every_days", label: "Reach out every (days)", type: "number", help: "Leave empty to use the group default: close 30, warm 60, professional 90." },
       { name: "notes", label: "Notes", type: "textarea" },
     ],
     columns: ["name", "organization_id", "roles", "email", "follow_up_date"],
@@ -861,6 +883,8 @@ const R: Resource[] = [
       { name: "organization_id", label: "Organization", type: "ref", ref: "organizations" },
       { name: "subject", label: "Subject", type: "text", required: true },
       { name: "summary", label: "Summary", type: "textarea" },
+      { name: "is_outreach", label: "Counts as outreach (Daily Targets)", type: "boolean" },
+      { name: "outcome", label: "Outreach outcome", type: "select", options: OUTCOME_OPTIONS },
     ],
     columns: ["occurred_at", "method", "contact_id", "subject"],
     order: ["occurred_at", false],
@@ -935,6 +959,74 @@ const R: Resource[] = [
     columns: ["starts_at", "title", "kind", "google_event_id"],
     order: ["starts_at", false],
     empty: "Time blocks for priority tasks and reviews are added each morning when Google is connected.",
+  },
+  // Accountability: Daily Targets
+  {
+    table: "targets",
+    singular: "Target",
+    plural: "Targets",
+    titleField: "name",
+    listHref: "/accountability/targets",
+    fields: [
+      { name: "name", label: "Name", type: "text", required: true, help: "Example: Network outreach" },
+      { name: "period", label: "Period", type: "select", options: [
+        { value: "day", label: "Per day" },
+        { value: "week", label: "Per week (Monday to Sunday)" },
+      ], required: true, default: "day" },
+      { name: "minimum_count", label: "Minimum count per period", type: "number", required: true, default: 3 },
+      { name: "active_weekdays", label: "Days it applies (per-day targets only)", type: "multiselect", options: WEEKDAY_OPTIONS, default: "1,2,3,4,5" },
+      { name: "count_source", label: "What is counted", type: "select", options: COUNT_SOURCE_OPTIONS, required: true, default: "communications_outreach" },
+      { name: "pipeline_id", label: "Only this pipeline (for pipeline items added)", type: "ref", ref: "pipelines" },
+      { name: "initiative_id", label: "Initiative", type: "ref", ref: "initiatives" },
+      { name: "start_date", label: "Counting starts on", type: "date", help: "Days before this date are not counted as met or missed. Empty = today." },
+      { name: "is_commitment", label: "Counts as a commitment (included in the commitment score)", type: "boolean", default: true },
+      { name: "show_to_partners", label: "Show to accountability partners (in reports with the Daily targets section)", type: "boolean" },
+      { name: "active", label: "Active", type: "boolean", default: true },
+      { name: "sort_order", label: "Order", type: "number", default: 1 },
+      { name: "notes", label: "Notes", type: "textarea" },
+    ],
+    columns: ["name", "period", "minimum_count", "count_source", "active"],
+    order: ["sort_order", true],
+    empty: "A target is a minimum count of an activity per day or week. Example: 3 outreach messages per weekday.",
+    children: [
+      { table: "target_entries", fk: "target_id", label: "Manual counts" },
+      { table: "target_misses", fk: "target_id", label: "Missed periods and reasons" },
+    ],
+  },
+  {
+    table: "target_entries",
+    singular: "Manual count",
+    plural: "Manual counts",
+    titleField: "entry_date",
+    listHref: "/accountability/targets",
+    fields: [
+      { name: "target_id", label: "Target", type: "ref", ref: "targets", required: true },
+      { name: "entry_date", label: "Date", type: "date", required: true },
+      { name: "count", label: "Count", type: "number", required: true, default: 1 },
+      { name: "note", label: "Note", type: "text" },
+    ],
+    columns: ["entry_date", "target_id", "count", "note"],
+    order: ["entry_date", false],
+    empty: "Manual counts are added with the +1 button on targets that count manually.",
+  },
+  {
+    table: "target_misses",
+    singular: "Missed target period",
+    plural: "Missed target periods",
+    titleField: "period_start",
+    listHref: "/accountability/targets",
+    fields: [
+      { name: "target_id", label: "Target", type: "ref", ref: "targets", readOnly: true },
+      { name: "period_start", label: "Period start", type: "date", readOnly: true },
+      { name: "period_end", label: "Period end", type: "date", readOnly: true },
+      { name: "actual_count", label: "Count", type: "number", readOnly: true },
+      { name: "required_count", label: "Required", type: "number", readOnly: true },
+      { name: "reason", label: "Reason (one line)", type: "text" },
+    ],
+    columns: ["period_start", "target_id", "actual_count", "required_count", "reason"],
+    order: ["period_start", false],
+    empty: "No missed target periods with a reason yet. Reasons are given in the daily close.",
+    noCreate: true,
   },
   // Accountability
   {
@@ -1109,6 +1201,7 @@ export const EXPORT_TABLES = [
   "pipelines", "pipeline_stages", "pipeline_items", "stage_history", "deal_financials", "diligence_items", "job_details", "investor_details",
   "task_templates", "tasks", "calendar_events", "daily_plans",
   "commitments", "missed_commitments", "reviews", "partners", "partner_links", "partner_reports",
+  "targets", "target_entries", "target_misses",
   "ai_conversations", "ai_messages", "ai_proposals", "ai_usage",
   "google_connections", "plaid_items",
 ];

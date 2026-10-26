@@ -9,7 +9,11 @@ import { SubmitButton } from "@/components/app/submit-button";
 import { TaskList } from "@/components/app/task-list";
 import { regeneratePlan, runTodaysJobs } from "@/app/actions/domain";
 import { date as fmtDate } from "@/lib/format";
+import { addDaysISO } from "@/lib/calc/dates";
+import { loadTargets, summarizeTargets } from "@/lib/targets";
+import { TargetCounters } from "@/components/app/target-counters";
 import type { Row } from "@/lib/types";
+import { AiText } from "@/components/app/ai-text";
 
 export const metadata = { title: "Today's plan" };
 
@@ -23,6 +27,7 @@ export default async function TodayPage() {
     supabase.from("tasks").select("*").not("milestone_id", "is", null).eq("status", "todo").order("due_date").limit(10),
     todaysMeetings(ctx),
   ]);
+  const targets = await loadTargets(supabase, { ownerId, tz: ctx.tz, from: addDaysISO(ctx.today, -14), to: ctx.today });
   const list = (tasks ?? []) as Row[];
   return (
     <div>
@@ -45,12 +50,26 @@ export default async function TodayPage() {
         }
       />
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <Card className="lg:col-span-3">
+          <CardHeader className="flex-row items-start justify-between gap-2">
+            <div>
+              <CardTitle>Daily targets</CardTitle>
+              <CardDescription>Today&apos;s count for each target. Outreach counts when you log it in People, Outreach Queue.</CardDescription>
+            </div>
+            <Button asChild size="sm" variant="outline">
+              <Link href="/accountability/targets">All targets</Link>
+            </Button>
+          </CardHeader>
+          <CardContent>
+            <TargetCounters available={targets.available} summaries={summarizeTargets(targets, ctx.today)} back="/productivity" />
+          </CardContent>
+        </Card>
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>Morning plan</CardTitle>
             <CardDescription>{plan ? `Written ${plan.generated_by === "ai" ? "by the AI" : "from your data (AI not available)"}.` : "Written each morning after the bank sync."}</CardDescription>
           </CardHeader>
-          <CardContent>{plan ? <div className="whitespace-pre-wrap text-sm leading-relaxed">{plan.content}</div> : <EmptyState title="No plan written yet today." body='Press "Write plan" to write it now.' />}</CardContent>
+          <CardContent>{plan ? <AiText text={plan.content} /> : <EmptyState title="No plan written yet today." body='Press "Write plan" to write it now.' />}</CardContent>
         </Card>
         <Card>
           <CardHeader>

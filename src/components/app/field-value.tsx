@@ -52,7 +52,7 @@ export function FieldValue({ field, value, labels }: { field: Field | undefined;
         <span className="flex flex-wrap gap-1">
           {arr.map((v) => (
             <Badge key={String(v)} variant="neutral">
-              {field.options?.find((o) => o.value === v)?.label ?? String(v)}
+              {field.options?.find((o) => o.value === String(v))?.label ?? String(v)}
             </Badge>
           ))}
         </span>

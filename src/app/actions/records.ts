@@ -11,6 +11,7 @@ import { loadCtx } from "@/lib/engine/helpers";
 import { evaluateConditions } from "@/lib/engine/rules";
 import { checkCommitments } from "@/lib/engine/tasks";
 import { nextReportDate } from "@/lib/engine/partners";
+import { COLUMNS_0008, DB_UPDATE_NOTICE, isMissingSchemaError, TABLES_0008 } from "@/lib/schema-guard";
 import type { Row } from "@/lib/types";
 
 export type FormState = { ok: boolean; error?: string; message?: string } | null;
@@ -19,6 +20,7 @@ const NUMERIC_SELECTS = new Set(["priority", "weekday"]);
 const CONDITION_TABLES = new Set([
   "accounts", "account_balances", "transactions", "debts", "debt_payments", "inputs", "budget_lines", "budgets",
   "reduction_actions", "pipeline_items", "milestones", "goals", "tasks", "commitments", "funding_sources", "repayment_schedules",
+  "communications", "targets", "target_entries",
 ]);
 
 function fieldSchema(f: Field): z.ZodType {
@@ -112,6 +114,13 @@ export async function saveRecord(_prev: FormState, fd: FormData): Promise<FormSt
   if (table === "partners" && !id && !data.next_report_on) data.next_report_on = nextReportDate(String(data.schedule ?? "weekly"), ctx.today);
   if (table === "decisions" && data.status === "decided" && !data.decided_on) data.decided_on = ctx.today;
   if (table === "reduction_actions" && data.status === "completed" && !data.completed_on) data.completed_on = ctx.today;
+  if (table === "targets") {
+    if (Array.isArray(data.active_weekdays)) data.active_weekdays = (data.active_weekdays as string[]).map(Number).filter((n) => n >= 0 && n <= 6);
+    if (!id && !data.start_date) data.start_date = ctx.today;
+    if ("start_date" in data && !data.start_date) delete data.start_date;
+    if (data.count_source !== "pipeline_items_created" && "pipeline_id" in data) data.pipeline_id = null;
+  }
+  if (table === "communications" && data.outcome && data.is_outreach === false) data.is_outreach = true;
 
   if (!id) {
     for (const k of ["related_type", "related_id"]) {
@@ -121,14 +130,25 @@ export async function saveRecord(_prev: FormState, fd: FormData): Promise<FormSt
   }
 
   let savedId = id;
-  if (id) {
-    const { error } = await supabase.from(table).update(data).eq("id", id);
-    if (error) return { ok: false, error: error.message };
-  } else {
-    const { data: created, error } = await supabase.from(table).insert({ ...data, owner_id: ownerId }).select("id").single();
-    if (error) return { ok: false, error: error.message };
-    savedId = created.id;
+  const write = async (values: Row) => {
+    if (id) {
+      const { error } = await supabase.from(table).update(values).eq("id", id);
+      return { error, newId: id };
+    }
+    const { data: created, error } = await supabase.from(table).insert({ ...values, owner_id: ownerId }).select("id").single();
+    return { error, newId: (created as Row | null)?.id ?? null };
+  };
+  let result = await write(data);
+  // Database update 0008 not applied yet: save without the new columns so existing screens keep working.
+  if (result.error && isMissingSchemaError(result.error) && COLUMNS_0008[table]) {
+    const without = Object.fromEntries(Object.entries(data).filter(([k]) => !COLUMNS_0008[table].includes(k)));
+    result = await write(without);
   }
+  if (result.error) {
+    if (isMissingSchemaError(result.error) && TABLES_0008.includes(table)) return { ok: false, error: DB_UPDATE_NOTICE };
+    return { ok: false, error: result.error.message };
+  }
+  savedId = result.newId;
 
   // Link a new record to the record it was created from (example: a communication about a deal)
   const linkType = String(fd.get("__link_type") ?? "");

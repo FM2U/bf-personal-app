@@ -12,7 +12,7 @@ export const METRICS: { key: string; label: string; unit: "usd" | "months" | "pe
   { key: "emergency_fund_pct", label: "Emergency fund progress (%)", unit: "percent" },
   { key: "retirement_progress_pct", label: "Retirement target progress (%)", unit: "percent" },
   { key: "savings_achieved_monthly", label: "Monthly savings from completed reduction actions", unit: "usd" },
-  { key: "commitment_score_week", label: "Commitment completion score this week (%)", unit: "percent" },
+  { key: "commitment_score_week", label: "Commitment completion score this week (%), including daily targets marked as commitments", unit: "percent" },
   { key: "missed_commitments_30d", label: "Missed commitments in the last 30 days", unit: "count" },
   { key: "overdue_tasks", label: "Overdue tasks", unit: "count" },
   { key: "days_until_acquisition_decision", label: "Days until the acquisition search decision date", unit: "days" },
@@ -23,6 +23,20 @@ export const METRICS: { key: string; label: string; unit: "usd" | "months" | "pe
     params: 'Requires pipeline and stage, for example {"pipeline":"Acquisitions","stage":"LOI signed"}',
   },
   { key: "pipeline_open_items", label: "Open items in a pipeline", unit: "count", params: 'Requires pipeline, for example {"pipeline":"Jobs"}' },
+  {
+    key: "target_count_last_days",
+    label: "Daily target: count in the last N days",
+    unit: "count",
+    params: 'Target name and days, for example {"target":"Network outreach","days":7}',
+  },
+  {
+    key: "target_count_last_weeks",
+    label: "Daily target: count in the last N weeks",
+    unit: "count",
+    params: 'Target name and weeks, for example {"target":"Network outreach","weeks":4}',
+  },
+  { key: "target_missed_in_a_row", label: "Daily target: periods missed in a row", unit: "count", params: 'Target name, for example {"target":"Network outreach"}' },
+  { key: "target_met_in_a_row", label: "Daily target: periods met in a row", unit: "count", params: 'Target name, for example {"target":"Network outreach"}' },
 ];
 
 export const metricLabel = (key: string) => METRICS.find((m) => m.key === key)?.label ?? key;
