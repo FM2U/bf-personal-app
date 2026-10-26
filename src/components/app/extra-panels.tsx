@@ -30,6 +30,15 @@ import { decrypt } from "@/lib/crypto";
 import { env, isAIConfigured } from "@/lib/env";
 import { recordHref } from "@/lib/resources";
 import type { RefOption } from "@/lib/data";
+import { GROUP_LABELS, OUTCOME_LABELS, outreachStatus, type RelationshipGroup } from "@/lib/calc/outreach";
+import { addDaysISO, todayInTz } from "@/lib/calc/dates";
+import { describeTarget } from "@/lib/calc/targets";
+import { isMissingSchemaError } from "@/lib/schema-guard";
+import { loadTargets, summarizeTargets } from "@/lib/targets";
+import { OUTCOME_OPTIONS } from "@/lib/resources";
+import { setOutreachOutcome } from "@/app/actions/targets";
+import { LogOutreachButton } from "@/components/app/outreach-actions";
+import { DbUpdateNotice, TargetDayGrid, TargetLegend, TargetWeekGrid } from "@/components/app/target-grid";
 import type { Row } from "@/lib/types";
 
 type P = { sb: SupabaseClient; ownerId: string; table: string; row: Row; today: string; labels: Record<string, Record<string, string>>; refOptions: Record<string, RefOption[]> };
@@ -52,6 +61,10 @@ export async function ExtraPanels(p: P) {
       return <PartnerLinksPanel {...p} />;
     case "goals":
       return <GoalProgress {...p} />;
+    case "contacts":
+      return <ContactOutreachPanel {...p} />;
+    case "targets":
+      return <TargetHistoryPanel {...p} />;
     default:
       return null;
   }
@@ -562,6 +575,120 @@ async function PartnerLinksPanel({ sb, row }: P) {
           </SubmitButton>
         </form>
         <DetailGrid items={[{ label: "Report schedule", value: row.schedule }, { label: "Next report date", value: fmtDate(row.next_report_on) }]} />
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Contact page: relationship group, outreach frequency, last contact, next due date, and outreach history with outcomes. */
+async function ContactOutreachPanel({ sb, ownerId, row, today }: P) {
+  const back = `/records/contacts/${row.id}`;
+  const [{ data: profile }, comms] = await Promise.all([
+    sb.from("owner_profile").select("timezone").eq("owner_id", ownerId).maybeSingle(),
+    sb.from("communications").select("id,occurred_at,method,subject,summary,is_outreach,outcome").eq("contact_id", row.id).order("occurred_at", { ascending: false }).limit(50),
+  ]);
+  if (comms.error && isMissingSchemaError(comms.error)) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Outreach</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <DbUpdateNotice compact />
+        </CardContent>
+      </Card>
+    );
+  }
+  const tz = (profile as Row | null)?.timezone || "America/New_York";
+  const list = (comms.data ?? []) as Row[];
+  const last = list[0] ? todayInTz(tz, new Date(list[0].occurred_at)) : null;
+  const status = outreachStatus(row, last, today);
+  const outreach = list.filter((c) => c.is_outreach);
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Outreach</CardTitle>
+        <CardDescription>The last contact date comes from the latest communication. Set the relationship group with Edit.</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <Stat label="Relationship group" value={row.relationship_group ? GROUP_LABELS[row.relationship_group as RelationshipGroup] : "Not set"} />
+          <Stat label="Reach out every" value={status.everyDays ? `${status.everyDays} days` : "Not set"} hint={row.outreach_every_days ? "Set on this contact" : row.relationship_group ? "Group default" : undefined} />
+          <Stat label="Last contact" value={last ? fmtDate(last, "MMM d") : "Never"} />
+          <Stat
+            label="Next message due"
+            value={status.neverContacted ? (status.due ? "Now" : "Not set") : status.dueDate ? fmtDate(status.dueDate, "MMM d") : "Not set"}
+            tone={status.due ? "warn" : undefined}
+            hint={status.due && status.daysOverdue ? `${status.daysOverdue} days overdue` : undefined}
+          />
+        </div>
+        <LogOutreachButton contactId={row.id} back={back} />
+        <div>
+          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Outreach history and outcomes</p>
+          {outreach.length ? (
+            <ul className="flex flex-col divide-y divide-slate-100">
+              {outreach.map((c) => (
+                <li key={c.id} className="grid grid-cols-1 items-center gap-2 py-2 sm:grid-cols-[6.5rem_minmax(0,1fr)_12rem]">
+                  <span className="tabular text-xs text-muted-foreground">
+                    {fmtDate(c.occurred_at, "MMM d, yyyy")} . {c.method}
+                  </span>
+                  <Link href={recordHref("communications", c.id)} className="clamp-1 text-sm hover:underline">
+                    {c.summary || c.subject || "Outreach"}
+                  </Link>
+                  <form action={setOutreachOutcome} className="flex items-center gap-1">
+                    <input type="hidden" name="id" value={c.id} />
+                    <input type="hidden" name="back" value={back} />
+                    <NativeSelect name="outcome" defaultValue={c.outcome ?? ""} aria-label="Outcome" className="h-8 text-xs">
+                      <option value="">No outcome yet</option>
+                      {OUTCOME_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                    <SubmitButton size="sm" variant="outline" className="h-8 px-2 text-xs">
+                      Save
+                    </SubmitButton>
+                  </form>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted-foreground">No outreach logged for this contact yet.</p>
+          )}
+          {outreach.some((c) => c.outcome) ? (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Outcomes: {Object.entries(OUTCOME_LABELS).map(([k, l]) => `${l} ${outreach.filter((c) => c.outcome === k).length}`).join(", ")}.
+            </p>
+          ) : null}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Target page: history grid and current numbers. */
+async function TargetHistoryPanel({ sb, ownerId, row, today }: P) {
+  const { data: profile } = await sb.from("owner_profile").select("timezone").eq("owner_id", ownerId).maybeSingle();
+  const data = await loadTargets(sb, { ownerId, tz: (profile as Row | null)?.timezone || "America/New_York", from: addDaysISO(today, -182), to: today, includeInactive: true });
+  const s = summarizeTargets(data, today).find((x) => x.target.id === row.id);
+  if (!s) return null;
+  const unit = s.target.period === "week" ? "Weeks" : "Days";
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>History</CardTitle>
+        <CardDescription>{describeTarget(s.target.def)}.</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <Stat label={s.target.period === "week" ? "This week so far" : "Today"} value={s.today.status === "off" ? "Not counted" : `${s.today.count} of ${s.today.required}`} />
+          <Stat label="Completion rate" value={s.rate.pct === null ? "No data yet" : `${s.rate.pct}%`} />
+          <Stat label={`${unit} met in a row`} value={s.metInARow} />
+          <Stat label={`${unit} missed in a row`} value={s.missedInARow} />
+        </div>
+        {s.target.period === "week" ? <TargetWeekGrid history={s.history} today={today} /> : <TargetDayGrid history={s.history} today={today} />}
+        <TargetLegend />
       </CardContent>
     </Card>
   );
