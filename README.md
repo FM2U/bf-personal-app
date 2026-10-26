@@ -32,7 +32,7 @@ Built from `docs/` in the project: Architecture v2 and the Decisions Log (both a
 ### Pipeline accountability and deal source (database update 0009)
 
 - **Next action required:** every pipeline item form requires a next action and a due date, filled from the stage's default task. Open items without one get a Home alert and the task "Set next action: <item>".
-- **Stage task lists:** each stage has default tasks (Settings, Initiatives and pipelines). Entering a stage, including when an item is created, creates those tasks for the item (once per item and stage task), linked to the item and its initiative, and as commitments when the stage task says so. A database trigger does this, so every way of saving an item gets the same tasks. Closing an item (won or passed) skips its open pipeline tasks.
+- **Stage task lists:** each stage has default tasks (Settings, Initiatives and pipelines). Entering a stage, including when an item is created, creates those tasks for the item (once per item and stage task), linked to the item and its initiative, and as commitments when the stage task says so (by default only the next-action task). A database trigger does this, so every way of saving an item gets the same tasks. Closing an item (won or passed) skips its open pipeline tasks and releases their commitments.
 - **Stage time limits:** `pipeline_stages.max_days_in_stage`. When an open item is in a stage longer than the limit plus any extensions, the morning job opens a decision with three options written in advance: "Advance to next stage", "Pass", "Extend 7 days" (Inputs: `stage_extension_days`). Extend adds days for that item's current stay only (`pipeline_item_stage_extensions`).
 - **Required details:** `pipeline_stages.required_fields`. A move is blocked when the details for the stage, or any earlier stage, are empty; the item page lists what is missing with a link to fill them. Moving to a passed stage never needs details.
 - **Stalled:** an open item with no stage change and no linked communication, completed task, note, or document for `pipeline_stall_days` (Inputs, Opportunities, default 7) days. Shown as a badge, a Home alert, and in the weekly and monthly review.
@@ -40,6 +40,18 @@ Built from `docs/` in the project: Architecture v2 and the Decisions Log (both a
 - **Deal-source contacts:** contacts marked "Deal source" come first in the Outreach Queue; Draft message writes an off-market deal sourcing ask. Outreach has a purpose (general or deal sourcing); the Network outreach target still counts all outreach and shows the deal-sourcing share.
 - **Deal targets:** "Deals sourced" (5 per weekday: new Acquisitions items that day, with proprietary and brokered counts) and "Deals advanced" (1 per weekday: each Acquisitions item counted once per day when it moved into NDA signed or a later stage that day, not counting the stage it was created in, or when "Log deal activity" recorded a CIM request or a contact with the broker or referral source on it that day).
 - **Before the update is applied,** these features show "Database update needed" and every existing screen and both scheduled jobs keep working.
+
+### Commitment rule (database update 0010)
+
+- **Commitments are only:** pipeline next-action tasks (the stage task marked as the next action, and an item's current next action task), milestones, daily targets, and the scheduled reviews (the four "Complete the ... review / daily close" recurring tasks). A task can still be marked by hand ("This is a commitment" on a new task, or Mark as commitment on its page).
+- **Everything else is a regular task:** other stage tasks, other recurring tasks, follow-ups, connection tasks (still high priority), "Set next action" tasks, and new tasks by default.
+- **Regular tasks that are not done move to the next day:** the morning job sets the due date of each overdue open regular task to today and adds 1 to `tasks.times_moved`. The task shows "Moved N times". No reason is needed. Commitments keep their date and go through the missed-commitment flow.
+- **Weekly review:** lists regular tasks moved `task_moved_review_threshold` (Inputs, default 5) or more times, with Done, Reschedule (times moved starts again from 0), and Delete.
+- **Grouped Home alerts:** one alert per kind, updated in place and resolved at 0: "N pipeline items need a next action." and "N pipeline items are stalled." (open a filtered list on Opportunities), "N stage time limits passed." (opens Plan, Decisions; each item keeps its own decision record). Per-item badges stay on the board, list, and item pages. Missed regular tasks create no alert.
+- **Daily close:** missed commitments and missed targets are listed with checkboxes (checked by default) and one shared reason; any item can get its own reason instead. Completing the close needs a reason for every missed item. Reasons are saved on the missed commitment and the missed target period.
+- **Released commitments:** when 0010 runs, open or missed commitments on tasks that are now regular tasks are marked "released" (kept, not counted in scores, reviews, or partner reports). Scores show "No commitments" when nothing was due.
+- **Applied once per owner** (`owner_profile.commitment_rule_applied_at`), so later changes in Settings are kept when the update runs again.
+- **Before the update is applied,** nothing moves to the next day, the grouped alerts still work, and every screen and both scheduled jobs keep working.
 
 ### AI text format
 
@@ -73,10 +85,10 @@ docs/                 SETUP-CHECKLIST.md and screenshots
 
 Exact values to paste are in `docs/SETUP-CHECKLIST.md`. Summary:
 
-1. **Supabase:** create a project. In SQL Editor, paste and run `supabase/ALL_MIGRATIONS_RUN_ONCE.sql` (0001 to 0009),
+1. **Supabase:** create a project. In SQL Editor, paste and run `supabase/ALL_MIGRATIONS_RUN_ONCE.sql` (0001 to 0010),
    or run each file in `supabase/migrations/` in number order. Or with the Supabase CLI: `supabase link` then `supabase db push`.
-   **Existing database (already has 0001 to 0007, or 0001 to 0008):** paste and run `supabase/UPDATE_RUN_ONCE.sql` once.
-   It holds 0008 and 0009 and is safe to run twice. (`supabase/UPDATE_0008_RUN_ONCE.sql` is kept for reference only.)
+   **Existing database (already has 0001 to 0007, 0001 to 0008, or 0001 to 0009):** paste and run `supabase/UPDATE_RUN_ONCE.sql` once.
+   It holds 0008, 0009, and 0010 and is safe to run twice. (`supabase/UPDATE_0008_RUN_ONCE.sql` is kept for reference only.)
    After changing a migration, regenerate the combined files with `python3 supabase/build_combined.py`.
    In Authentication, turn on "Allow new users to sign up" only until you create your account, then turn it off.
    In Authentication, Multi-Factor, make sure TOTP is enabled.
@@ -90,13 +102,13 @@ Vercel Hobby allows jobs that run once a day, so `vercel.json` has two:
 
 | Job | Time (UTC) | Time (New York) | Runs |
 |---|---|---|---|
-| `/api/cron/morning` | 10:00 | 6:00 or 5:00 am | Plaid sync, category rules, recurring charge detection, Google and Plaid connection checks, recurring tasks, pipeline next-action tasks, pipeline checks (missing next action, stage time limits, stalled items), follow-ups, commitment check, missed milestones, decision conditions, weekly/monthly/quarterly review drafts (on their days), partner report drafts, calendar time blocks and review events, morning plan |
+| `/api/cron/morning` | 10:00 | 6:00 or 5:00 am | Plaid sync, category rules, recurring charge detection, Google and Plaid connection checks, recurring tasks, pipeline next-action tasks, pipeline checks (missing next action, stage time limits, stalled items), follow-ups, commitment check, missed regular tasks moved to today, missed milestones, decision conditions, weekly/monthly/quarterly review drafts (on their days), partner report drafts, calendar time blocks and review events, morning plan |
 | `/api/cron/evening` | 00:30 | 8:30 or 7:30 pm | Daily close draft (the AI's evening check), commitment check for the day, decision conditions |
 
 Vercel sends `Authorization: Bearer <CRON_SECRET>`. Any job can also be run alone, for example
 `curl -H "Authorization: Bearer $CRON_SECRET" https://<app>/api/cron/decision-conditions`.
 Jobs: morning, evening, plaid-sync, decision-conditions, connection-checks, recurring-tasks, morning-plan,
-daily-close, weekly-review, monthly-review, quarterly-review, partner-reports, commitments, milestones, pipeline-checks.
+daily-close, weekly-review, monthly-review, quarterly-review, partner-reports, commitments, task-rollover, milestones, pipeline-checks.
 Settings, Connections also has "Run the morning job now" and "Run the evening job now".
 Decision conditions are also checked right after each relevant change in the app.
 
@@ -109,7 +121,7 @@ npm run lint
 npm run typecheck
 npm run build
 bash supabase/tests/run_local.sh      # applies all migrations to a local Postgres and runs a smoke test
-bash supabase/tests/upgrade_test.sh   # UPDATE_RUN_ONCE on 0001-0007 (run twice) and on 0001-0008, with an existing owner
+bash supabase/tests/upgrade_test.sh   # UPDATE_RUN_ONCE on 0001-0007 (run twice), 0001-0008, and 0001-0009 (run twice), with an existing owner
 bash dev-tools/setup-local-db.sh      # local database with demo data (UP_TO=0007 for the database before the update)
 bash dev-tools/start-local.sh         # mock Supabase API + the built app on http://localhost:3000
 NODE_PATH=$(npm root -g) node dev-tools/check-pages.cjs   # renders every screen, saves screenshots

@@ -297,3 +297,24 @@ begin
   -- Count the deal targets from 1 week ago in the demo.
   update targets set start_date = current_date - 7 where owner_id = o and name in ('Deals sourced', 'Deals advanced');
 end $$;
+
+-- Commitment rule demo data (needs migration 0010): several commitments due today for the daily close,
+-- and regular tasks that already moved to the next day several times.
+do $$
+declare
+  o uuid := (select id from auth.users order by created_at limit 1);
+begin
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'tasks' and column_name = 'times_moved') then
+    raise notice 'Skipping commitment rule demo data: database update 0010 is not applied.';
+    return;
+  end if;
+  -- Two pipeline next actions due today (commitments).
+  update tasks set due_date = current_date where owner_id = o and title in ('Demo Plumbing Supply: Request teaser or CIM', 'Demo Machine Shop: Sign NDA');
+  update commitments set due_date = current_date, original_due_date = current_date
+   where owner_id = o and title in ('Demo Plumbing Supply: Request teaser or CIM', 'Demo Machine Shop: Sign NDA');
+  -- Regular tasks that moved to the next day (one is due for the weekly review list).
+  update tasks set times_moved = 6 where owner_id = o and title = 'Call Lender A about early repayment';
+  insert into tasks (owner_id, title, due_date, times_moved) values
+    (o, 'File the receipts from last month', current_date, 2),
+    (o, 'Update the LinkedIn headline', current_date, 5);
+end $$;

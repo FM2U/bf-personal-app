@@ -59,22 +59,64 @@ const expectText = async (page, text) => {
     await expectText(page, "Chosen");
   });
 
-  await step("Complete the daily close (reasons required for tasks not done)", async () => {
+  await step("Home: grouped alerts open the filtered pipeline list", async () => {
+    await page.goto(`${BASE}/`);
+    await expectText(page, "pipeline item");
+    if (await page.locator("#alerts a", { hasText: /^Stalled:|^Set the next action/ }).count()) throw new Error("per-item pipeline alerts still shown");
+    await page.locator("#alerts a", { hasText: /need(s)? a next action/ }).first().click();
+    await page.waitForURL(/filter=needs-next-action/);
+    await expectText(page, "Pipeline items that need a next action");
+    await expectText(page, "Demo Car Wash Co");
+    await page.screenshot({ path: path.join(OUT, "flow-opportunities-filter.png"), fullPage: true });
+  });
+
+  await step("Daily close: one shared reason covers several misses (an unchecked item without a reason blocks completion)", async () => {
     await page.goto(`${BASE}/accountability/reviews`);
     await page.getByRole("button", { name: "Open today's daily close" }).click();
     await page.waitForURL(/\/accountability\/reviews\/.+/);
+    await expectText(page, "One reason for every checked item");
+    const boxes = page.locator('input[name^="a_use_shared_"]');
+    const n = await boxes.count();
+    if (n < 3) throw new Error(`expected several missed items, found ${n}`);
+    if (await page.locator('input[name^="a_reason_t_"], input[name^="a_reason_c_"]').first().isVisible()) throw new Error("own-reason fields should start folded");
+    await page.fill('input[name="a_shared_reason"]', "The broker call ran all afternoon.");
     await page.screenshot({ path: path.join(OUT, "flow-daily-close.png"), fullPage: true });
-    for (const input of await page.locator('input[name^="a_reason_"], input[name^="a_target_reason_"]').all()) if (await input.isEnabled()) await input.fill("Ran out of time.");
+    // Uncheck one item with no reason of its own: completion is refused and what was typed is kept.
+    const key = (await boxes.first().getAttribute("name")).replace("a_use_shared_", "");
+    await boxes.first().uncheck();
+    await page.getByRole("button", { name: "Complete review" }).click();
+    await page.waitForURL(/missing=/);
+    await expectText(page, "Not completed. Give a reason for");
+    if ((await page.inputValue('input[name="a_shared_reason"]')) !== "The broker call ran all afternoon.") throw new Error("shared reason not kept");
+    if (await page.locator(`input[name="a_use_shared_${key}"]`).isChecked()) throw new Error("unchecked item came back checked");
+    await page.screenshot({ path: path.join(OUT, "flow-daily-close-refused.png"), fullPage: true });
+    // Give that item its own reason (its field is open) and complete.
+    await page.locator(`input[name="a_reason_${key}"]`).fill("Waited for the owner to reply.");
     await page.getByRole("button", { name: "Complete review" }).click();
     await expectText(page, "Completed");
+    await page.screenshot({ path: path.join(OUT, "flow-daily-close-completed.png"), fullPage: true });
   });
 
-  await step("Weekly review draft renders", async () => {
+  await step("Commitments page shows the shared reason on today's misses", async () => {
+    await page.goto(`${BASE}/accountability`);
+    const values = await page.locator('input[name="reason"]').evaluateAll((els) => els.map((e) => e.value));
+    if (!values.some((v) => v.includes("broker call ran all afternoon"))) throw new Error(`reasons: ${values.join(" | ")}`);
+  });
+
+  await step("Weekly review draft renders and lists tasks moved 5 or more times (reschedule one)", async () => {
     await page.goto(`${BASE}/accountability/reviews`);
     await page.getByRole("button", { name: "Open the latest weekly review" }).click();
     await page.waitForURL(/\/accountability\/reviews\/.+/);
     await expectText(page, "Next week's priorities");
+    await expectText(page, "Tasks moved 5 or more times");
+    await expectText(page, "Update the LinkedIn headline");
     await page.screenshot({ path: path.join(OUT, "flow-weekly-review.png"), fullPage: true });
+    const row = page.locator('li:has(input[name="task_id"])', { hasText: "Update the LinkedIn headline" });
+    await row.locator('input[name="due_date"]').fill(new Date(Date.now() + 5 * 864e5).toISOString().slice(0, 10));
+    await row.getByRole("button", { name: "Reschedule" }).click();
+    await page.waitForLoadState("networkidle");
+    await page.waitForTimeout(800);
+    if (await page.locator('li:has(input[name="task_id"])', { hasText: "Update the LinkedIn headline" }).count()) throw new Error("rescheduled task still listed");
   });
 
   let publicLink = null;
@@ -176,6 +218,15 @@ const expectText = async (page, text) => {
     if (!first.includes("Quinn Demo")) throw new Error(`first contact is ${first}`);
     await page.getByRole("button", { name: "Draft message" }).first().click();
     await expectText(page, "off-market");
+  });
+
+  await step("Add a task marked as a commitment", async () => {
+    await page.goto(`${BASE}/records/tasks/new?due_date=${new Date().toISOString().slice(0, 10)}`);
+    await page.fill('input[name="title"]', "Flow test commitment");
+    await page.locator('input[name="__is_commitment"]').check();
+    await page.getByRole("button", { name: "Add task" }).click();
+    await page.waitForURL(/\/records\/tasks\/[0-9a-f-]{36}$/);
+    await expectText(page, "Marked as a commitment");
   });
 
   await step("Add a task through the form", async () => {
