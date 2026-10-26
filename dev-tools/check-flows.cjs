@@ -20,6 +20,8 @@ const cookie = { name: "sb-localhost-auth-token", value: `base64-${Buffer.from(J
 
 const results = [];
 async function step(name, fn) {
+  // FLOWS=<regular expression> runs only the matching steps (for example FLOWS="Send|Google").
+  if (process.env.FLOWS && !new RegExp(process.env.FLOWS).test(name)) return;
   try {
     await fn();
     results.push(["ok  ", name]);
@@ -650,6 +652,172 @@ const expectText = async (page, text) => {
     await homeLink().click();
     await page.waitForURL(`${BASE}/`);
   });
+
+
+  // ---------- Send email from the app (Google stand-in on :54329, see dev-tools/mock-supabase.mjs) ----------
+  const GMOCK = process.env.GOOGLE_API_MOCK_URL || "http://localhost:54329";
+  const gpost = async (pathName, body = {}) => (await fetch(`${GMOCK}${pathName}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
+  const gsent = async () => (await fetch(`${GMOCK}/__sent`)).json();
+  const pg = new (require("pg").Client)({ connectionString: process.env.DATABASE_URL || "postgres://postgres:postgres@127.0.0.1:5432/bf_dev" });
+  await pg.connect();
+  const one = async (sql, params = []) => (await pg.query(sql, params)).rows[0];
+  const outreachCount = async () => {
+    const text = await page.locator("body").innerText();
+    const m = text.match(/Network outreach today\s*(\d+) of (\d+)/);
+    if (!m) throw new Error("Network outreach today not shown");
+    return Number(m[1]);
+  };
+  const phone = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  await phone.addCookies([cookie]);
+  const ph = await phone.newPage();
+
+  await step("Google connected before sending was asked for: Settings shows Reconnect", async () => {
+    await gpost("/__reset");
+    await gpost("/__mode", { grantSend: false });
+    await page.goto(`${BASE}/api/google/connect`);
+    await page.waitForURL(/\/settings\?google=connected_no_send/);
+    await expectText(page, "Reconnect Google to allow sending from the app (1 minute)");
+    if ((await one("select count(*)::int n from google_connections")).n !== 1) throw new Error("expected one connection row");
+    if ((await one("select scopes from google_connections")).scopes.includes("gmail.send")) throw new Error("scopes should not include gmail.send");
+    await page.goto(`${BASE}/settings`);
+    await page.screenshot({ path: path.join(OUT, "flow-settings-reconnect-send.png"), fullPage: true });
+    await ph.goto(`${BASE}/settings`);
+    await ph.screenshot({ path: path.join(OUT, "phone-settings-reconnect-send.png"), fullPage: true });
+  });
+
+  await step("Send now without the send permission shows Reconnect and sends nothing", async () => {
+    await page.goto(`${BASE}/people/outreach`);
+    await page.getByRole("button", { name: "Draft message" }).first().click();
+    await page.getByTestId("send-now").click();
+    await page.getByTestId("send-reconnect").waitFor();
+    await expectText(page, "Sending from the app is not allowed yet");
+    if (await page.getByRole("dialog").count()) throw new Error("the confirmation dialog opened");
+    if ((await page.getByTestId("send-reconnect").getByRole("link", { name: "Reconnect Google" }).getAttribute("href")) !== "/api/google/connect") throw new Error("Reconnect link");
+    if ((await gsent()).length) throw new Error("an email was sent");
+  });
+
+  await step("Reconnect Google keeps the same connection row and allows sending", async () => {
+    const before = (await one("select id from google_connections")).id;
+    await gpost("/__mode", { grantSend: true });
+    await page.goto(`${BASE}/settings`);
+    await page.getByTestId("send-reconnect").getByRole("link", { name: "Reconnect Google" }).click();
+    await page.waitForURL(/\/settings\?google=connected$/);
+    await expectText(page, "Sending from the app");
+    await expectText(page, "Allowed");
+    const rows = await pg.query("select id, scopes from google_connections");
+    if (rows.rows.length !== 1 || rows.rows[0].id !== before) throw new Error("connection row was not kept");
+    if (!rows.rows[0].scopes.includes("https://www.googleapis.com/auth/gmail.send")) throw new Error("gmail.send not saved");
+    if (await page.getByTestId("send-reconnect").count()) throw new Error("Reconnect still shown");
+    await page.goto(`${BASE}/settings`);
+    await page.screenshot({ path: path.join(OUT, "flow-settings-send-allowed.png"), fullPage: true });
+    await ph.goto(`${BASE}/settings`);
+    await ph.screenshot({ path: path.join(OUT, "phone-settings-send-allowed.png"), fullPage: true });
+  });
+
+  await step("Send now: confirmation dialog, Edit returns to the editor, Send email sends once, logs outreach, target +1", async () => {
+    await page.goto(`${BASE}/people/outreach`);
+    const before = await outreachCount();
+    const first = (await page.locator("a[href^='/records/contacts/']").first().innerText()).trim();
+    await page.getByRole("button", { name: "Draft message" }).first().click();
+    const box = page.locator("textarea");
+    await box.waitFor();
+    await page.locator('label:has-text("Subject") input').fill("Café check-in ✓");
+    await box.fill("Hi Quinn,\n\nDoes anyone come to mind?\n- Owner-operated\n- No broker yet\n\nThanks,\nBram");
+    await page.getByTestId("send-now").click();
+    const dlg = page.getByRole("dialog", { name: "Send this email?" });
+    await dlg.waitFor();
+    const shown = await dlg.innerText();
+    for (const t of ["To", "quinn@example.com", "Subject", "Café check-in ✓", "Does anyone come to mind?", "Send email", "Edit"]) if (!shown.includes(t)) throw new Error(`dialog is missing ${t}`);
+    const pre = await page.getByTestId("send-preview-body").innerText();
+    if (!pre.includes("Hi Quinn,\n\nDoes anyone come to mind?\n- Owner-operated")) throw new Error(`line breaks not kept: ${JSON.stringify(pre)}`);
+    await page.screenshot({ path: path.join(OUT, "flow-send-confirm.png") });
+    await page.getByTestId("send-edit").click();
+    await dlg.waitFor({ state: "hidden" });
+    if (!(await box.evaluate((el) => el === document.activeElement))) throw new Error("Edit did not return to the message");
+    if ((await gsent()).length) throw new Error("sent before confirming");
+    await page.getByTestId("send-now").click();
+    await dlg.waitFor();
+    await page.getByTestId("send-confirm").dblclick();
+    await page.waitForURL(/notice=Sent/);
+    await expectText(page, "It is in Gmail, Sent.");
+    await expectText(page, `Logged as outreach to ${first}`);
+    await page.screenshot({ path: path.join(OUT, "flow-send-success.png"), fullPage: true });
+    const sent = await gsent();
+    if (sent.length !== 1) throw new Error(`expected 1 email, Gmail got ${sent.length}`);
+    if (sent[0].to !== "quinn@example.com" || sent[0].subject !== "Café check-in ✓") throw new Error(`headers: ${sent[0].to} / ${sent[0].subject}`);
+    if (!sent[0].body.includes("Hi Quinn,\r\n\r\nDoes anyone come to mind?\r\n- Owner-operated")) throw new Error("body line breaks");
+    const comm = await one("select * from communications where gmail_message_id = $1", [sent[0].id]);
+    if (!comm) throw new Error("no communication with the Gmail id");
+    if (!comm.is_outreach || comm.purpose !== "deal_sourcing" || comm.method !== "email" || comm.direction !== "outgoing" || comm.subject !== "Café check-in ✓") throw new Error(`communication: ${JSON.stringify(comm)}`);
+    if ((await one("select name from contacts where id = $1", [comm.contact_id])).name !== first) throw new Error("not linked to the contact");
+    const log = await one("select * from change_log where field = 'email_sent' and record_id = $1", [comm.id]);
+    if (!log || log.actor !== "owner" || log.new_value.gmail_message_id !== sent[0].id) throw new Error("change log entry");
+    const after = await outreachCount();
+    if (after !== before + 1) throw new Error(`target count ${before} to ${after}`);
+  });
+
+  await step("Send failure: plain English error, text kept, Save to Gmail drafts offered", async () => {
+    await gpost("/__mode", { sendError: "server" });
+    await page.goto(`${BASE}/people/outreach`);
+    await page.getByRole("button", { name: "Draft message" }).first().click();
+    const box = page.locator("textarea");
+    await box.waitFor();
+    await box.fill("Kept text after a failure.\nSecond line.");
+    await page.getByTestId("send-now").click();
+    await page.getByTestId("send-confirm").click();
+    await page.getByTestId("send-failed").waitFor();
+    await expectText(page, "Not sent. Gmail had a problem on its side.");
+    await expectText(page, "Google said: Backend Error");
+    if ((await box.inputValue()) !== "Kept text after a failure.\nSecond line.") throw new Error("text not kept");
+    await page.screenshot({ path: path.join(OUT, "flow-send-failed.png"), fullPage: true });
+    await page.getByTestId("save-draft").click();
+    await expectText(page, "Gmail draft created for");
+    if ((await gsent()).length !== 1) throw new Error("a failed send was recorded");
+    await gpost("/__mode", { sendError: null });
+  });
+
+  await step("Phone: confirmation dialog and Sent", async () => {
+    await ph.goto(`${BASE}/people/outreach`);
+    await ph.getByRole("button", { name: "Draft message" }).first().click();
+    await ph.locator("textarea").waitFor();
+    await ph.getByTestId("send-now").click();
+    await ph.getByRole("dialog", { name: "Send this email?" }).waitFor();
+    await ph.screenshot({ path: path.join(OUT, "phone-send-confirm.png") });
+    await ph.getByTestId("send-confirm").click();
+    await ph.waitForURL(/notice=Sent/);
+    await ph.screenshot({ path: path.join(OUT, "phone-send-success.png"), fullPage: true });
+    if ((await gsent()).length !== 2) throw new Error("expected a second email");
+  });
+
+  await step("Partner report: Send now marks the report sent with the date and logs the communication", async () => {
+    await page.goto(`${BASE}/accountability/reports`);
+    const id = (await one("select id from partner_reports where status = 'finalized' order by finalized_at desc limit 1")).id;
+    await page.goto(`${BASE}/accountability/reports/${id}`);
+    await page.getByTestId("send-now").click();
+    const dlg = page.getByRole("dialog", { name: "Send this email?" });
+    await dlg.waitFor();
+    const shown = await dlg.innerText();
+    if (!shown.includes("partner-one@example.com") || !shown.includes("Cancel") || shown.includes("Edit")) throw new Error("report dialog");
+    await page.screenshot({ path: path.join(OUT, "flow-report-send-confirm.png") });
+    await page.getByTestId("send-confirm").click();
+    await page.getByTestId("send-success").waitFor();
+    await expectText(page, "Sent from the app on");
+    await page.screenshot({ path: path.join(OUT, "flow-report-sent.png"), fullPage: true });
+    const r = await one("select sent_at, gmail_message_id, delivered_via from partner_reports where id = $1", [id]);
+    if (!r.sent_at || !r.gmail_message_id || !r.delivered_via.includes("gmail_sent")) throw new Error(`report: ${JSON.stringify(r)}`);
+    const comm = await one("select * from communications where gmail_message_id = $1", [r.gmail_message_id]);
+    if (!comm || comm.is_outreach) throw new Error("report communication");
+    if (!(await one("select 1 x from record_links where from_type = 'communications' and from_id = $1 and to_type = 'partners'", [comm.id]))) throw new Error("not linked to the partner");
+    if (!(await one("select 1 x from change_log where field = 'email_sent' and table_name = 'partner_reports' and record_id = $1 and actor = 'owner'", [id]))) throw new Error("change log");
+  });
+
+  await step("Change log lists the sends", async () => {
+    await page.goto(`${BASE}/settings/change-log`);
+    await expectText(page, "Email sent from the app");
+  });
+
+  await phone.close();
+  await pg.end();
 
   await browser.close();
   for (const r of results) console.log(r.join(" "));

@@ -303,3 +303,92 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => console.log(`Mock Supabase listening on http://localhost:${PORT}`));
+
+// ---------- Google stand-in (LOCAL TESTING ONLY) ----------
+// The app talks to it when GOOGLE_API_MOCK_URL=http://localhost:54329 (dev-tools/local.env); the app honors that
+// variable only for a localhost address. Sign-in returns at once, tokens are fake, nothing leaves this machine.
+// Test controls: POST /__mode {"grantSend": false} (the next sign-in grants no gmail.send, like the old connection),
+// {"sendError": "scope" | "server" | null}; GET /__sent lists the emails "sent" (decoded); POST /__reset clears both.
+const GOOGLE_PORT = Number(process.env.MOCK_GOOGLE_PORT || 54329);
+const BASE_SCOPES = ["openid", "email", "https://www.googleapis.com/auth/gmail.compose", "https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/calendar.readonly"];
+const SEND = "https://www.googleapis.com/auth/gmail.send";
+let gmode = { grantSend: true, sendError: null };
+let gsent = [];
+let gdrafts = 0;
+let gEvents = 0;
+
+async function readRaw(req) {
+  const chunks = [];
+  for await (const c of req) chunks.push(c);
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+function decodeRaw(raw) {
+  const text = Buffer.from(String(raw || ""), "base64url").toString("utf8");
+  const [head, ...rest] = text.split("\r\n\r\n");
+  const headers = {};
+  let last = null;
+  for (const line of head.split("\r\n")) {
+    if (/^\s/.test(line) && last) headers[last] += line.slice(1);
+    else {
+      const i = line.indexOf(":");
+      last = line.slice(0, i).toLowerCase();
+      headers[last] = line.slice(i + 1).trim();
+    }
+  }
+  const subject = (headers.subject || "").replace(/=\?UTF-8\?B\?([^?]*)\?=/g, (_, b) => Buffer.from(b, "base64").toString("utf8"));
+  const bodyRaw = rest.join("\r\n\r\n");
+  const body = headers["content-transfer-encoding"] === "base64" ? Buffer.from(bodyRaw.replace(/\r\n/g, ""), "base64").toString("utf8") : bodyRaw;
+  return { to: headers.to, subject, body, headers };
+}
+
+const google = http.createServer(async (req, res) => {
+  const url = new URL(req.url, `http://localhost:${GOOGLE_PORT}`);
+  const p = url.pathname;
+  try {
+    if (p === "/__mode" && req.method === "POST") {
+      gmode = { ...gmode, ...JSON.parse((await readRaw(req)) || "{}") };
+      return send(res, 200, gmode);
+    }
+    if (p === "/__reset" && req.method === "POST") {
+      gmode = { grantSend: true, sendError: null };
+      gsent = [];
+      return send(res, 200, { ok: true });
+    }
+    if (p === "/__sent") return send(res, 200, gsent);
+    if (p === "/o/oauth2/v2/auth") {
+      const back = new URL(url.searchParams.get("redirect_uri"));
+      back.searchParams.set("code", gmode.grantSend ? "mock-code-send" : "mock-code-nosend");
+      back.searchParams.set("state", url.searchParams.get("state") || "");
+      res.writeHead(302, { Location: back.toString() });
+      return res.end();
+    }
+    if (p === "/token" && req.method === "POST") {
+      const form = new URLSearchParams(await readRaw(req));
+      const scopes = gmode.grantSend ? [...BASE_SCOPES, SEND] : BASE_SCOPES;
+      if (form.get("grant_type") === "authorization_code") {
+        const granted = form.get("code") === "mock-code-send" ? [...BASE_SCOPES, SEND] : BASE_SCOPES;
+        return send(res, 200, { access_token: "mock-access", refresh_token: "mock-refresh-token", scope: granted.join(" "), expires_in: 3600, token_type: "Bearer" });
+      }
+      return send(res, 200, { access_token: "mock-access", scope: scopes.join(" "), expires_in: 3600, token_type: "Bearer" });
+    }
+    if (p === "/gmail/v1/users/me/messages/send" && req.method === "POST") {
+      if (gmode.sendError === "scope") return send(res, 403, { error: { code: 403, message: "Request had insufficient authentication scopes.", status: "PERMISSION_DENIED" } });
+      if (gmode.sendError === "server") return send(res, 500, { error: { code: 500, message: "Backend Error", status: "INTERNAL" } });
+      const body = JSON.parse((await readRaw(req)) || "{}");
+      const id = `mock-msg-${gsent.length + 1}-${Date.now().toString(36)}`;
+      gsent.push({ id, threadId: body.threadId || `thread-${id}`, ...decodeRaw(body.raw) });
+      return send(res, 200, { id, threadId: body.threadId || `thread-${id}`, labelIds: ["SENT"] });
+    }
+    if (p === "/gmail/v1/users/me/drafts" && req.method === "POST") return send(res, 200, { id: `mock-draft-${++gdrafts}`, message: { id: `mock-draft-msg-${gdrafts}` } });
+    if (p.startsWith("/calendar/v3/calendars/primary/events")) {
+      if (req.method === "POST") return send(res, 200, { id: `mock-event-${++gEvents}` });
+      return send(res, 200, { items: [] });
+    }
+    if (p.startsWith("/calendar/v3/users/me/calendarList")) return send(res, 200, { items: [] });
+    return send(res, 404, { error: { code: 404, message: `Not in the Google mock: ${req.method} ${p}` } });
+  } catch (e) {
+    return send(res, 500, { error: { code: 500, message: e.message } });
+  }
+});
+google.listen(GOOGLE_PORT, () => console.log(`Mock Google listening on http://localhost:${GOOGLE_PORT}`));

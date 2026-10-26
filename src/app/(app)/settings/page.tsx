@@ -13,11 +13,15 @@ import { disconnectGoogle, disconnectPlaidItem, plaidSyncNow, runEveningNow, run
 import { dateTime, money } from "@/lib/format";
 import type { Row } from "@/lib/types";
 import { GuardedForm } from "@/components/app/unsaved-changes";
+import { ReconnectGoogle } from "@/components/app/send-email";
+import { sendPermission } from "@/lib/google-scopes";
+import { StatusText } from "@/components/ui/badge";
 
 export const metadata = { title: "Connections" };
 
 const GOOGLE_MESSAGES: Record<string, string> = {
-  connected: "Google is connected.",
+  connected: "Google is connected. Sending from the app is allowed.",
+  connected_no_send: "Google is connected, but sending from the app was not allowed on Google's screen. Press Reconnect Google and leave \"Send email on your behalf\" checked.",
   denied: "Google access was not granted.",
   state_mismatch: "The Google sign-in could not be verified. Try again.",
   no_refresh_token: "Google did not return offline access. Remove the app in your Google account permissions, then connect again.",
@@ -31,6 +35,7 @@ export default async function ConnectionsPage({ searchParams }: { searchParams: 
   const [google, budget, { data: items }] = await Promise.all([getGoogleConnection(supabase, ownerId), aiBudget(supabase, ownerId), supabase.from("plaid_items").select("*").order("created_at")]);
   const plaidItems = (items ?? []) as Row[];
   const gStatus = google?.status ?? "disconnected";
+  const sendPerm = isGoogleConfigured() ? sendPermission(google) : "not_connected";
   return (
     <div>
       <PageHeader title="Connections" description="Google (Gmail and Calendar), Plaid, and the Anthropic API. Connections are checked every day; a failure creates an alert and a reconnect task." />
@@ -45,21 +50,25 @@ export default async function ConnectionsPage({ searchParams }: { searchParams: 
             <CardTitle className="flex items-center justify-between">
               Google <Badge variant={gStatus === "connected" ? "success" : gStatus === "error" ? "danger" : "neutral"}>{gStatus === "connected" ? "Connected" : gStatus === "error" ? "Failed" : "Not connected"}</Badge>
             </CardTitle>
-            <CardDescription>Creates Gmail drafts (you press send), adds calendar events, and reads today&apos;s meetings.</CardDescription>
+            <CardDescription>Sends an email only after you confirm it, creates Gmail drafts, adds calendar events, and reads today&apos;s meetings.</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <DetailGrid
               items={[
                 { label: "Account", value: google?.google_email ?? "None" },
                 { label: "Last checked", value: google?.last_checked_at ? dateTime(google.last_checked_at) : "Never" },
+                ...(sendPerm === "allowed" ? [{ label: "Sending from the app", value: <StatusText status="met">Allowed</StatusText> }] : []),
                 ...(google?.last_error ? [{ label: "Last error", value: <span className="text-status-missed">{google.last_error}</span> }] : []),
               ]}
             />
             {!isGoogleConfigured() ? <Notice tone="warn">Not set up on the server yet. See docs/SETUP-CHECKLIST.md, step Google.</Notice> : null}
+            {sendPerm === "reconnect" ? <ReconnectGoogle stacked /> : null}
             <div className="flex flex-wrap gap-2">
-              <Button asChild size="sm" disabled={!isGoogleConfigured()}>
-                <a href="/api/google/connect">{gStatus === "disconnected" ? "Connect Google" : "Reconnect Google"}</a>
-              </Button>
+              {sendPerm === "reconnect" ? null : (
+                <Button asChild size="sm" disabled={!isGoogleConfigured()}>
+                  <a href="/api/google/connect">{gStatus === "disconnected" ? "Connect Google" : "Reconnect Google"}</a>
+                </Button>
+              )}
               {gStatus !== "disconnected" ? (
                 <GuardedForm action={disconnectGoogle}>
                   <SubmitButton size="sm" variant="outline">

@@ -81,3 +81,11 @@ export function isMissingSchemaError(e: PgError): boolean {
 export function isCheckViolation(e: PgError): boolean {
   return String(e?.code ?? "") === "23514";
 }
+
+/** Database update 0013 (send email from the app): Gmail ids on communications, partner reports marked sent. */
+export const DB_UPDATE_FILE_0013 = "supabase/UPDATE_0013_RUN_ONCE.sql";
+export const DB_UPDATE_NOTICE_0013 = `Database update needed: paste ${DB_UPDATE_FILE_0013} into the Supabase SQL Editor and run it.`;
+export const COLUMNS_0013: Record<string, string[]> = {
+  communications: ["gmail_message_id", "gmail_thread_id"],
+  partner_reports: ["sent_at", "gmail_message_id"],
+};

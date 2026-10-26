@@ -7,7 +7,8 @@
 #   (f) 0001 to 0010 (the live database on 2026-10-26) plus an owner and data, then UPDATE_0011_0012_RUN_ONCE.sql twice
 #   (g) 0001 to 0011 plus an owner and data (UPDATE_0011 was run first), then UPDATE_0011_0012_RUN_ONCE.sql twice
 #   (h) 0001 to 0011, then UPDATE_0012_RUN_ONCE.sql twice
-# Every UPDATE_RUN_ONCE.sql path also checks 0012.
+#   (i) 0001 to 0012 (the live database on 2026-10-26, evening) plus an owner and data, then UPDATE_0013_RUN_ONCE.sql twice
+# Every UPDATE_RUN_ONCE.sql path also checks 0012 and 0013.
 # Usage: bash supabase/tests/upgrade_test.sh
 set -euo pipefail
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -172,6 +173,20 @@ select '0012 checks passed' as result;
 SQL
 }
 
+check13() { # $1 = database: 0013 applied, existing rows kept with empty Gmail ids
+  su postgres -c "$PSQL -d $1" <<'SQL'
+\set ON_ERROR_STOP 1
+do $$ begin
+  assert to_regprocedure('public.schema_has_0013()') is not null, '0013 check function';
+  assert (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'communications' and column_name in ('gmail_message_id', 'gmail_thread_id')) = 2, 'communications Gmail ids';
+  assert (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'partner_reports' and column_name in ('sent_at', 'gmail_message_id')) = 2, 'partner report sent columns';
+  assert (select gmail_message_id from public.communications where subject = 'Existing call') is null, 'existing communication has no Gmail id';
+  assert (select count(*) from pg_indexes where indexname = 'communications_gmail_message_idx') = 1, 'one Gmail id index';
+end $$;
+select '0013 checks passed' as result;
+SQL
+}
+
 # Existing owner edited the runway setting text: 0012 keeps the edit.
 edited_text() { # $1 = database
   su postgres -c "$PSQL -d $1 -c \"update public.inputs set description = 'My own note' where key = 'runway_include_signed_consulting'\""
@@ -246,7 +261,18 @@ do $$ begin
 end $$;
 SQL
 
-for db in bf_upgrade_b bf_upgrade_c bf_upgrade_d; do check12 $db; done
+for db in bf_upgrade_b bf_upgrade_c bf_upgrade_d; do check12 $db; check13 $db; done
+
+# (i) Live state: 0001 to 0012 applied, then UPDATE_0013_RUN_ONCE.sql twice.
+setup bf_upgrade_i 0012
+for run in 1 2; do
+  echo "[bf_upgrade_i] Applying UPDATE_0013_RUN_ONCE.sql (run $run)"
+  su postgres -c "$PSQL -d bf_upgrade_i -f $DIR/UPDATE_0013_RUN_ONCE.sql"
+done
+check11 bf_upgrade_i
+check12 bf_upgrade_i
+check13 bf_upgrade_i
 
 echo "Upgrade paths passed: 0001-0007 + update twice, 0001-0008 + update, 0001-0009 + update twice, 0001-0010 + 0011 update twice,"
-echo "0001-0010 + 0011_0012 update twice, 0001-0011 + 0011_0012 update twice, 0001-0011 + 0012 update twice (edited text kept)."
+echo "0001-0010 + 0011_0012 update twice, 0001-0011 + 0011_0012 update twice, 0001-0011 + 0012 update twice (edited text kept),"
+echo "0001-0012 + 0013 update twice."

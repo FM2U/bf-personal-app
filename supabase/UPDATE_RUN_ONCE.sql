@@ -1,4 +1,4 @@
--- BF Personal App: database update (0008, 0009, 0010, 0011, and 0012).
+-- BF Personal App: database update (0008, 0009, 0010, 0011, 0012, and 0013).
 --   0008: Daily Targets and Outreach Queue.
 --   0009: Stage task lists, stage time limits, required details, stalled items, deal source (proprietary or brokered),
 --         deal-source contacts, and the Deals sourced and Deals advanced targets.
@@ -6,7 +6,8 @@
 --         regular tasks that are not done move to the next day; the weekly review lists tasks moved 5 or more times.
 --   0011: Deal source chain (Deal came from, Introduced by) and the Consulting initiative and pipeline.
 --   0012: Relationship groups Friend and Other; runway setting text (signed work counts until its first payment).
--- For a database that already has 0001 to 0007 (or 0001 to 0008, 0009, 0010, or 0011). Paste this whole file into the
+--   0013: Send email from the app: Gmail message ids on communications; partner reports marked sent with the date.
+-- For a database that already has 0001 to 0007 (or 0001 to 0008, 0009, 0010, 0011, or 0012). Paste this whole file into the
 -- Supabase SQL Editor and press Run. Safe to run more than once: nothing is duplicated.
 -- Generated from supabase/migrations by supabase/build_combined.py.
 
@@ -1066,3 +1067,32 @@ as $$ select true $$;
 
 revoke execute on function public.schema_has_0012() from public, anon;
 grant execute on function public.schema_has_0012() to authenticated, service_role;
+
+-- ===== supabase/migrations/0013_gmail_send.sql =====
+-- 0013: Send email from the app, with confirmation (approved 2026-10-26).
+-- Depends on 0005 (communications, partner_reports). Safe to run more than once: every statement checks first.
+--
+-- What it adds (all columns are nullable; nothing existing changes):
+--   1. communications.gmail_message_id and communications.gmail_thread_id: the Gmail message an email sent from the
+--      app became (users.messages.send). No existing column fits: communications had no external id.
+--   2. partner_reports.sent_at and partner_reports.gmail_message_id: a partner report sent from the app is marked
+--      sent with the date. (A finalized report still never changes; these are delivery details, like gmail_draft_id.)
+--   3. public.schema_has_0013(): the app calls it to check that this update is applied.
+-- Before this update runs, the app still sends: it saves the communication without the Gmail ids and records the
+-- send (with the Gmail id and date) in the change log.
+
+alter table public.communications add column if not exists gmail_message_id text;
+alter table public.communications add column if not exists gmail_thread_id text;
+create index if not exists communications_gmail_message_idx on public.communications (gmail_message_id) where gmail_message_id is not null;
+
+alter table public.partner_reports add column if not exists sent_at timestamptz;
+alter table public.partner_reports add column if not exists gmail_message_id text;
+
+create or replace function public.schema_has_0013()
+returns boolean
+language sql
+stable
+as $$ select true $$;
+
+revoke execute on function public.schema_has_0013() from public, anon;
+grant execute on function public.schema_has_0013() to authenticated, service_role;

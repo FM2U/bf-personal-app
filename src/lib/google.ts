@@ -4,17 +4,34 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { decrypt } from "@/lib/crypto";
 import { env, isGoogleConfigured } from "@/lib/env";
 import type { Row } from "@/lib/types";
+import { gmailRaw } from "@/lib/gmail-mime";
+import { sendPermission, type SendPermission } from "@/lib/google-scopes";
 
-export const GOOGLE_SCOPES = [
-  "openid",
-  "email",
-  "https://www.googleapis.com/auth/gmail.compose",
-  "https://www.googleapis.com/auth/calendar.events",
-  "https://www.googleapis.com/auth/calendar.readonly",
-];
+export { GOOGLE_SCOPES, GMAIL_SEND_SCOPE } from "@/lib/google-scopes";
+
+/**
+ * LOCAL TESTING ONLY: GOOGLE_API_MOCK_URL points every Google call (sign-in, token, Gmail, Calendar) at the
+ * stand-in in dev-tools/mock-supabase.mjs. It is honored only for a localhost address, so it can never redirect
+ * production traffic.
+ */
+function mockBase(): string | null {
+  const raw = process.env.GOOGLE_API_MOCK_URL ?? "";
+  return /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(raw) ? raw.replace(/\/+$/, "") : null;
+}
+
+function apiOptions(): { rootUrl?: string } {
+  const m = mockBase();
+  return m ? { rootUrl: `${m}/` } : {};
+}
 
 export function oauthClient() {
-  return new google.auth.OAuth2(env.googleClientId, env.googleClientSecret, `${env.appUrl}/api/google/callback`);
+  const m = mockBase();
+  return new google.auth.OAuth2({
+    clientId: env.googleClientId,
+    clientSecret: env.googleClientSecret,
+    redirectUri: `${env.appUrl}/api/google/callback`,
+    ...(m ? { endpoints: { oauth2AuthBaseUrl: `${m}/o/oauth2/v2/auth`, oauth2TokenUrl: `${m}/token`, oauth2RevokeUrl: `${m}/revoke` } } : {}),
+  });
 }
 
 export async function getGoogleConnection(sb: SupabaseClient, ownerId: string): Promise<Row | null> {
@@ -49,14 +66,39 @@ export function localDateTime(dateIso: string, hour: number, minute: number, tz:
 export async function createGmailDraft(sb: SupabaseClient, ownerId: string, msg: { to: string; subject: string; body: string }): Promise<string | null> {
   const auth = await authed(sb, ownerId);
   if (!auth) return null;
-  const gmail = google.gmail({ version: "v1", auth });
-  const encodedSubject = `=?UTF-8?B?${Buffer.from(msg.subject, "utf8").toString("base64")}?=`;
-  const raw = [`To: ${msg.to}`, `Subject: ${encodedSubject}`, "MIME-Version: 1.0", "Content-Type: text/plain; charset=UTF-8", "", msg.body].join("\r\n");
+  const gmail = google.gmail({ version: "v1", auth, ...apiOptions() });
   const res = await gmail.users.drafts.create({
     userId: "me",
-    requestBody: { message: { raw: Buffer.from(raw, "utf8").toString("base64url") } },
+    requestBody: { message: { raw: gmailRaw(msg, { requireValidTo: false }) } },
   });
   return res.data.id ?? null;
+}
+
+/** "Sending from the app" for the saved connection: allowed, reconnect needed (no gmail.send yet), or not connected. */
+export async function getSendPermission(sb: SupabaseClient, ownerId: string): Promise<SendPermission> {
+  if (!isGoogleConfigured()) return "not_connected";
+  return sendPermission(await getGoogleConnection(sb, ownerId));
+}
+
+/**
+ * Sends one email from the connected Gmail account (users.messages.send). Gmail puts it in Sent.
+ * Called only after Bram confirms in the "Send email" dialog. Returns null when Google is not connected.
+ * Throws Google's error (explain it with explainGoogleError).
+ */
+export async function sendGmailMessage(
+  sb: SupabaseClient,
+  ownerId: string,
+  msg: { to: string; subject: string; body: string; threadId?: string | null; inReplyTo?: string | null },
+): Promise<{ id: string; threadId: string | null } | null> {
+  const auth = await authed(sb, ownerId);
+  if (!auth) return null;
+  const gmail = google.gmail({ version: "v1", auth, ...apiOptions() });
+  const res = await gmail.users.messages.send({
+    userId: "me",
+    requestBody: { raw: gmailRaw(msg), ...(msg.threadId ? { threadId: msg.threadId } : {}) },
+  });
+  if (!res.data.id) throw new Error("Gmail did not return a message id.");
+  return { id: res.data.id, threadId: res.data.threadId ?? null };
 }
 
 export async function createCalendarEvent(
@@ -66,7 +108,7 @@ export async function createCalendarEvent(
 ): Promise<string | null> {
   const auth = await authed(sb, ownerId);
   if (!auth) return null;
-  const calendar = google.calendar({ version: "v3", auth });
+  const calendar = google.calendar({ version: "v3", auth, ...apiOptions() });
   const res = await calendar.events.insert({
     calendarId: "primary",
     requestBody: { summary: ev.summary, description: ev.description, start: { dateTime: ev.start }, end: { dateTime: ev.end } },
@@ -79,7 +121,7 @@ export type MeetingItem = { id: string; title: string; start: string | null; end
 export async function listEventsForDay(sb: SupabaseClient, ownerId: string, dateIso: string, tz: string): Promise<MeetingItem[] | null> {
   const auth = await authed(sb, ownerId);
   if (!auth) return null;
-  const calendar = google.calendar({ version: "v3", auth });
+  const calendar = google.calendar({ version: "v3", auth, ...apiOptions() });
   const res = await calendar.events.list({
     calendarId: "primary",
     timeMin: localDateTime(dateIso, 0, 0, tz),
@@ -107,7 +149,7 @@ export async function checkGoogle(sb: SupabaseClient, ownerId: string): Promise<
     const auth = await authed(sb, ownerId);
     if (!auth) return { ok: false, error: "No saved Google access." };
     await auth.getAccessToken();
-    const calendar = google.calendar({ version: "v3", auth });
+    const calendar = google.calendar({ version: "v3", auth, ...apiOptions() });
     await calendar.calendarList.list({ maxResults: 1 });
     return { ok: true };
   } catch (e) {

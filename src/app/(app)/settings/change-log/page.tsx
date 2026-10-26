@@ -67,13 +67,17 @@ export default async function ChangeLogPage({ searchParams }: { searchParams: Pr
                           {r.singular}
                         </Link>
                       ) : (
-                        r?.singular ?? c.table_name
+                        r?.singular ?? (c.table_name === "partner_reports" ? "Partner report" : c.table_name)
                       )}
                     </TD>
                     <TD className="max-w-md text-sm">
                       {c.action === "update" ? (
                         <>
                           <span className="font-medium">{r?.fields.find((f) => f.name === c.field)?.label ?? c.field}</span>: {show(c.old_value)} to {show(c.new_value)}
+                        </>
+                      ) : c.field === "email_sent" ? (
+                        <>
+                          <span className="font-medium">Email sent from the app</span> to {show((c.new_value as Row | null)?.to)}: {show((c.new_value as Row | null)?.subject)}
                         </>
                       ) : c.action === "insert" ? (
                         "Created"

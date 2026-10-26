@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { format } from "date-fns";
 import Link from "next/link";
 import { Check, Copy, Mail, PenLine, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,6 +11,9 @@ import { SubmitButton } from "@/components/app/submit-button";
 import { Notice } from "@/components/app/page-header";
 import { createOutreachGmailDraft, draftOutreachMessage, logOutreach, type DraftResult } from "@/app/actions/targets";
 import { markdownToPlain } from "@/lib/markdown";
+import { prepareOutreachEmail } from "@/lib/calc/sent-email";
+import { sendOutreachEmail } from "@/app/actions/email";
+import { SendOrSaveButtons } from "@/components/app/send-email";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { GuardedForm } from "@/components/app/unsaved-changes";
@@ -119,13 +124,19 @@ export function LogOutreachForm({
   );
 }
 
-/** "Draft message": the AI drafts, Bram edits and approves. Approval creates a Gmail draft or copies the text. Never sends. */
-export function DraftMessagePanel({ contactId, onClose }: { contactId: string; onClose: () => void }) {
+/**
+ * "Draft message": the AI drafts, Bram edits and approves. Then: Send now (a dialog shows the exact email; only
+ * "Send email" sends, one email per click), Save to Gmail drafts, or copy the text.
+ */
+export function DraftMessagePanel({ contactId, onClose, back = "/people/outreach" }: { contactId: string; onClose: () => void; back?: string }) {
+  const router = useRouter();
   const [draft, setDraft] = useState<DraftResult | null>(null);
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [status, setStatus] = useState<{ ok: boolean; message: string } | null>(null);
+  const [savedDraft, setSavedDraft] = useState(false);
   const [pending, start] = useTransition();
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     start(async () => {
@@ -148,8 +159,10 @@ export function DraftMessagePanel({ contactId, onClose }: { contactId: string; o
     }
   }
 
+  const showSend = !!draft?.ok && !!draft.email && draft.sendPermission !== "not_connected";
+
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+    <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-medium">Draft message (review before sending)</p>
         <Button type="button" size="sm" variant="ghost" onClick={onClose} aria-label="Close draft">
@@ -167,33 +180,72 @@ export function DraftMessagePanel({ contactId, onClose }: { contactId: string; o
           </label>
           <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
             Message
-            <Textarea value={body} onChange={(e) => setBody(e.target.value)} rows={8} />
+            <Textarea ref={bodyRef} value={body} onChange={(e) => setBody(e.target.value)} rows={8} />
           </label>
-          <div className="flex flex-wrap gap-2">
-            {draft.canGmail ? (
-              <Button
-                type="button"
-                size="sm"
-                disabled={pending || !body.trim()}
-                onClick={() =>
-                  start(async () => {
-                    setStatus(await createOutreachGmailDraft(contactId, subject, body));
-                  })
+          {showSend ? (
+            <SendOrSaveButtons
+              permission={draft.sendPermission}
+              fromEmail={draft.fromEmail}
+              disabled={!body.trim()}
+              preview={() => ({ to: draft.email ?? "", ...prepareOutreachEmail(subject, body) })}
+              send={async (requestId) => {
+                const r = await sendOutreachEmail({ contactId, subject, body, requestId });
+                if (r.ok) {
+                  const when = format(new Date(r.sentAt), "MMM d, yyyy 'at' h:mm a");
+                  const msg = r.alreadySent
+                    ? `Already sent to ${draft.email} on ${when}. It was not sent again.`
+                    : `Sent to ${draft.email} on ${when}. It is in Gmail, Sent. ${r.note ?? ""}${savedDraft ? " A Gmail draft of this message was saved earlier: delete it in Gmail so it is not sent twice." : ""}`;
+                  const clean = back.replace(/([?&])notice=[^&]*/g, "$1").replace(/[?&]$/, "");
+                  router.replace(`${clean}${clean.includes("?") ? "&" : "?"}notice=${encodeURIComponent(msg.trim())}`, { scroll: true });
                 }
-              >
-                <Mail /> {pending ? "Creating..." : "Approve and create Gmail draft"}
+                return r;
+              }}
+              saveDraft={
+                draft.canGmail
+                  ? async () => {
+                      const r = await createOutreachGmailDraft(contactId, subject, body);
+                      if (r.ok) setSavedDraft(true);
+                      return r;
+                    }
+                  : undefined
+              }
+              onEdit={() => bodyRef.current?.focus()}
+              afterSendNote={savedDraft ? "A Gmail draft of this message was saved earlier. Delete it in Gmail so it is not sent twice." : null}
+              extra={
+                <Button type="button" size="sm" variant="outline" onClick={copy} disabled={!body.trim()}>
+                  <Copy /> Copy to clipboard
+                </Button>
+              }
+            />
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {draft.canGmail ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={pending || !body.trim()}
+                  onClick={() =>
+                    start(async () => {
+                      setStatus(await createOutreachGmailDraft(contactId, subject, body));
+                    })
+                  }
+                >
+                  <Mail /> {pending ? "Saving..." : "Save to Gmail drafts"}
+                </Button>
+              ) : null}
+              <Button type="button" size="sm" variant={draft.canGmail ? "outline" : "default"} onClick={copy} disabled={!body.trim()}>
+                <Copy /> Copy to clipboard
               </Button>
-            ) : null}
-            <Button type="button" size="sm" variant={draft.canGmail ? "outline" : "default"} onClick={copy} disabled={!body.trim()}>
-              <Copy /> Approve and copy to clipboard
-            </Button>
-          </div>
+            </div>
+          )}
           <p className="text-xs text-muted-foreground">
-            {draft.canGmail
-              ? `The Gmail draft goes to ${draft.email}. Nothing is sent until you press send in Gmail.`
-              : draft.email
-                ? "Google is not connected, so the message is copied instead. Nothing is sent by the app."
-                : "This contact has no email address, so the message is copied instead. Nothing is sent by the app."}
+            {showSend
+              ? `Send now shows the email to ${draft.email} first; it is sent only when you press Send email, then logged as outreach. Save to Gmail drafts sends nothing.`
+              : draft.canGmail
+                ? `The Gmail draft goes to ${draft.email}. Nothing is sent until you press send in Gmail.`
+                : draft.email
+                  ? "Google is not connected, so the message is copied instead. Nothing is sent by the app."
+                  : "This contact has no email address, so the message is copied instead. Nothing is sent by the app."}
           </p>
         </>
       ) : null}
@@ -252,7 +304,7 @@ export function OutreachQueueRow({ item, back, purposeAvailable = false, consult
           defaultPurpose={item.isConsultingLead && consultingAvailable ? "consulting" : item.isDealSource ? "deal_sourcing" : "general"}
         />
       ) : null}
-      {mode === "draft" ? <DraftMessagePanel contactId={item.id} onClose={() => setMode("none")} /> : null}
+      {mode === "draft" ? <DraftMessagePanel contactId={item.id} back={back} onClose={() => setMode("none")} /> : null}
     </div>
   );
 }

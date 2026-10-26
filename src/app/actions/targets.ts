@@ -7,10 +7,11 @@ import { loadCtx } from "@/lib/engine/helpers";
 import { evaluateConditions } from "@/lib/engine/rules";
 import { AI_SYSTEM_MESSAGE, AIUnavailable, callClaude, cleanText, parseJsonFromText, textOf } from "@/lib/ai/claude";
 import { createGmailDraft, getGoogleConnection } from "@/lib/google";
-import { markdownToPlain } from "@/lib/markdown";
 import { DB_UPDATE_NOTICE, isCheckViolation, isMissingSchemaError } from "@/lib/schema-guard";
 import { GROUP_LABELS, OUTCOME_LABELS, type RelationshipGroup } from "@/lib/calc/outreach";
 import { isGoogleConfigured } from "@/lib/env";
+import { sendPermission, type SendPermission } from "@/lib/google-scopes";
+import { outreachPurpose, prepareOutreachEmail } from "@/lib/calc/sent-email";
 import type { Row } from "@/lib/types";
 
 const OUTREACH_METHODS = ["email", "call", "text", "meeting", "other"];
@@ -91,14 +92,7 @@ export async function logOutreach(fd: FormData) {
   if (contactId) contact = ((await supabase.from("contacts").select("*").eq("id", contactId).maybeSingle()).data as Row | null) ?? null;
   const methodLabel = method === "other" ? "Outreach" : `Outreach ${method}`;
   // Purpose: as chosen; otherwise deal sourcing for deal-source contacts (database update 0009).
-  const purposeRaw = String(fd.get("purpose") ?? "");
-  const purpose = ["general", "deal_sourcing", "consulting"].includes(purposeRaw)
-    ? purposeRaw
-    : contact?.is_consulting_lead
-      ? "consulting"
-      : contact?.is_deal_source
-        ? "deal_sourcing"
-        : "general";
+  const purpose = outreachPurpose(contact, String(fd.get("purpose") ?? ""));
   const row: Row = {
     owner_id: ownerId,
     occurred_at: new Date().toISOString(),
@@ -135,7 +129,19 @@ export async function setOutreachOutcome(fd: FormData) {
 }
 
 export type DraftResult =
-  | { ok: true; subject: string; body: string; source: "ai" | "template"; note?: string; canGmail: boolean; email: string | null }
+  | {
+      ok: true;
+      subject: string;
+      body: string;
+      source: "ai" | "template";
+      note?: string;
+      canGmail: boolean;
+      email: string | null;
+      /** Send now: allowed (gmail.send granted), reconnect (saved before sending was asked for), or not connected. */
+      sendPermission: SendPermission;
+      /** The connected Gmail account the email is sent from. */
+      fromEmail: string | null;
+    }
   | { ok: false; error: string };
 
 /** Drafts a short outreach message for a contact. Shown for approval; never sent automatically. */
@@ -149,6 +155,7 @@ export async function draftOutreachMessage(contactId: string): Promise<DraftResu
     getGoogleConnection(supabase, ownerId),
   ]);
   const canGmail = !!c.email && isGoogleConfigured() && google?.status === "connected";
+  const sendInfo = { sendPermission: isGoogleConfigured() ? sendPermission(google) : ("not_connected" as SendPermission), fromEmail: (google?.google_email as string | null) ?? null };
   const first = String(c.name ?? "").split(/\s+/)[0] || "there";
   // A consulting lead gets a consulting availability message; otherwise a deal source gets the deal sourcing ask.
   const consultingLead = !!c.is_consulting_lead;
@@ -182,7 +189,7 @@ export async function draftOutreachMessage(contactId: string): Promise<DraftResu
     });
     const parsed = parseJsonFromText<{ subject?: string; body?: string }>(textOf(msg));
     if (!parsed?.body) return { ok: false, error: "The AI reply could not be read. Try again." };
-    return { ok: true, subject: cleanText(String(parsed.subject ?? (consultingLead ? "Consulting availability" : dealSource ? "A quick ask" : "Checking in"))), body: cleanText(String(parsed.body)), source: "ai", canGmail, email: c.email ?? null };
+    return { ok: true, subject: cleanText(String(parsed.subject ?? (consultingLead ? "Consulting availability" : dealSource ? "A quick ask" : "Checking in"))), body: cleanText(String(parsed.body)), source: "ai", canGmail, email: c.email ?? null, ...sendInfo };
   } catch (e) {
     const note = e instanceof AIUnavailable ? e.message : "The AI request failed.";
     if (consultingLead) {
@@ -194,6 +201,7 @@ export async function draftOutreachMessage(contactId: string): Promise<DraftResu
         note: `${note} A plain template is shown instead.`,
         canGmail,
         email: c.email ?? null,
+        ...sendInfo,
       };
     }
     if (dealSource) {
@@ -205,6 +213,7 @@ export async function draftOutreachMessage(contactId: string): Promise<DraftResu
         note: `${note} A plain template is shown instead.`,
         canGmail,
         email: c.email ?? null,
+        ...sendInfo,
       };
     }
     return {
@@ -215,6 +224,7 @@ export async function draftOutreachMessage(contactId: string): Promise<DraftResu
       note: `${note} A plain template is shown instead.`,
       canGmail,
       email: c.email ?? null,
+      ...sendInfo,
     };
   }
 }
@@ -225,7 +235,7 @@ export async function createOutreachGmailDraft(contactId: string, subject: strin
   const { data: c } = await supabase.from("contacts").select("name,email").eq("id", contactId).maybeSingle();
   if (!c?.email) return { ok: false, message: "This contact has no email address. Copy the message instead." };
   try {
-    const id = await createGmailDraft(supabase, ownerId, { to: c.email, subject: cleanText(subject).slice(0, 200), body: markdownToPlain(cleanText(body)) });
+    const id = await createGmailDraft(supabase, ownerId, { to: c.email, ...prepareOutreachEmail(subject, body) });
     if (!id) return { ok: false, message: "Google is not connected. Copy the message instead, or connect Google in Settings." };
     return { ok: true, message: `Gmail draft created for ${c.name}. Open Gmail to review and send it. After sending, press Log outreach.` };
   } catch (e) {

@@ -313,7 +313,9 @@ export async function HistoryPanel({ sb, table, id, labels = {} }: { sb: Supabas
                     <span className="font-medium">{r?.fields.find((f) => f.name === c.field)?.label ?? c.field}</span>: {show(c.old_value, c.field)} to {show(c.new_value, c.field)}
                   </p>
                 ) : (
-                  <p className="mt-0.5">{c.action === "insert" ? "Created" : "Deleted"}</p>
+                  <p className="mt-0.5">
+                    {c.field === "email_sent" ? `Email sent from the app to ${showRaw((c.new_value as Row | null)?.to)}` : c.action === "insert" ? "Created" : "Deleted"}
+                  </p>
                 )}
               </li>
             ))}

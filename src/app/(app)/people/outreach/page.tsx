@@ -105,7 +105,7 @@ export default async function OutreachQueuePage({ searchParams }: { searchParams
                 <div className="min-w-0">
                   <CardTitle className="flex items-center gap-2">Due now {queue.due.length ? <Badge variant="warning">{queue.due.length}</Badge> : null}</CardTitle>
                   <CardDescription>
-                    Log outreach after you send a message or make a call. It counts toward the Network outreach target. For a deal source, Draft message writes an off-market deal sourcing ask; for a consulting lead, a short note that you have time for consulting work. Draft message never sends anything.
+                    Log outreach after you send a message or make a call. It counts toward the Network outreach target. For a deal source, Draft message writes an off-market deal sourcing ask; for a consulting lead, a short note that you have time for consulting work. Draft message sends nothing on its own: Send now shows the email first, and only Send email sends it and logs the outreach.
                   </CardDescription>
                 </div>
               </CardHeader>

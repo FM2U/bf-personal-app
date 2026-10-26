@@ -14,10 +14,12 @@ import { ReportView } from "@/components/app/report-view";
 import { createGmailDraftForReport, finalizeReport, saveReportSummary } from "@/app/actions/domain";
 import { date as fmtDate, dateTime } from "@/lib/format";
 import { AiText } from "@/components/app/ai-text";
+import { ReportSendButtons } from "@/components/app/send-email";
+import { getGoogleConnection, getSendPermission } from "@/lib/google";
 
 export default async function ReportPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { supabase } = await requireOwner();
+  const { supabase, ownerId } = await requireOwner();
   const { data: report } = await supabase.from("partner_reports").select("*").eq("id", id).maybeSingle();
   if (!report) notFound();
   const { data: partner } = await supabase.from("partners").select("*").eq("id", report.partner_id).single();
@@ -25,6 +27,20 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
   const draft = report.status === "draft";
   const methods: string[] = partner?.delivery_methods ?? [];
   const script = partner ? reportText(partner, report, link, "phone").body : "";
+  const emailText = partner ? reportText(partner, report, link, "email") : null;
+  const [permission, google] = await Promise.all([getSendPermission(supabase, ownerId), getGoogleConnection(supabase, ownerId)]);
+  const delivered = (report.delivered_via ?? []) as string[];
+  // Sent from the app: the date is on the report after update 0013; before it, the change log has it.
+  let sentAt: string | null = (report.sent_at as string | null | undefined) ?? null;
+  if (!sentAt && delivered.includes("gmail_sent")) {
+    const { data: logRow } = await supabase.from("change_log").select("created_at").eq("table_name", "partner_reports").eq("record_id", report.id).eq("field", "email_sent").order("created_at", { ascending: false }).limit(1).maybeSingle();
+    sentAt = (logRow?.created_at as string | undefined) ?? null;
+  }
+  const deliveredText = delivered.length
+    ? delivered
+        .map((d) => (d === "gmail_draft" ? "Gmail draft created" : d === "gmail_sent" ? `Sent from the app${sentAt ? ` on ${dateTime(sentAt)}` : ""}` : d))
+        .join(", ")
+    : "Not yet";
   return (
     <div>
       <Link href="/accountability/reports" className="mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-slate-900">
@@ -78,23 +94,38 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
           <Card>
             <CardHeader>
               <CardTitle>Delivery</CardTitle>
-              <CardDescription>Automatic sending is off. The app creates a Gmail draft and you press send.</CardDescription>
+              <CardDescription>Nothing is sent automatically. Send now shows the email first and sends it only when you press Send email. Save to Gmail drafts sends nothing.</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
               <DetailGrid
                 items={[
-                  { label: "Methods", value: methods.length ? methods.map((m) => (m === "email" ? "Gmail draft" : m === "phone" ? "Phone call" : "Printed letter")).join(", ") : "None chosen" },
-                  { label: "Delivered", value: (report.delivered_via ?? []).length ? (report.delivered_via as string[]).join(", ").replace("gmail_draft", "Gmail draft created") : "Not yet" },
+                  { label: "Methods", value: methods.length ? methods.map((m) => (m === "email" ? "Email" : m === "phone" ? "Phone call" : "Printed letter")).join(", ") : "None chosen" },
+                  { label: "Delivered", value: deliveredText },
                   { label: "Private link", value: link ? <span className="break-all font-mono text-xs">{link}</span> : "No active link. Create one on the partner's page." },
                 ]}
               />
-              {!draft && methods.includes("email") ? (
-                <GuardedForm action={createGmailDraftForReport}>
-                  <input type="hidden" name="id" value={report.id} />
-                  <SubmitButton size="sm" variant="outline" className="w-full" pendingText="Creating draft...">
-                    {report.gmail_draft_id ? "Create another Gmail draft" : "Create Gmail draft"}
-                  </SubmitButton>
-                </GuardedForm>
+              {!draft && methods.includes("email") && emailText ? (
+                partner?.email ? (
+                  permission === "not_connected" ? (
+                    <GuardedForm action={createGmailDraftForReport}>
+                      <input type="hidden" name="id" value={report.id} />
+                      <SubmitButton size="sm" variant="outline" className="w-full" pendingText="Creating draft...">
+                        {report.gmail_draft_id ? "Create another Gmail draft" : "Create Gmail draft"}
+                      </SubmitButton>
+                    </GuardedForm>
+                  ) : (
+                    <ReportSendButtons
+                      reportId={report.id}
+                      permission={permission}
+                      fromEmail={(google?.google_email as string | null) ?? null}
+                      preview={{ to: partner.email, subject: emailText.subject, body: emailText.body }}
+                      alreadySent={delivered.includes("gmail_sent")}
+                      hasDraft={!!report.gmail_draft_id}
+                    />
+                  )
+                ) : (
+                  <Notice tone="warn">Add an email address to the accountability partner to send this report.</Notice>
+                )
               ) : null}
               {!draft && methods.includes("mail") ? (
                 <Button asChild size="sm" variant="outline">

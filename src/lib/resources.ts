@@ -1229,7 +1229,7 @@ const R: Resource[] = [
         { value: "monthly", label: "Monthly" },
       ], default: "weekly" },
       { name: "delivery_methods", label: "Delivery", type: "multiselect", options: [
-        { value: "email", label: "Gmail draft (you press send)" },
+        { value: "email", label: "Email (Send now after you confirm, or a Gmail draft)" },
         { value: "phone", label: "Phone call script" },
         { value: "mail", label: "Printed letter" },
       ] },
