@@ -106,6 +106,45 @@ export default async function ReviewPage({ params, searchParams }: { params: Pro
             </StatGrid>
 </CardContent>
           </Card>
+          {d.consulting ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Consulting this period</CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-3">
+                <StatGrid>
+                  <Stat label="Signed or active engagements" value={(d.consulting.active_engagements ?? []).length} />
+                  <Stat label="Consulting income received" value={money(d.consulting.income_received)} tone={d.consulting.income_received ? "good" : undefined} />
+                  <Stat label="Pipeline value per month" value={money(d.consulting.pipeline_value)} />
+                  <Stat label="Signed work per month" value={money(d.consulting.signed_monthly)} />
+                </StatGrid>
+                <p className="text-xs text-slate-700">
+                  <span className="text-muted-foreground">Open items by stage: </span>
+                  {((d.consulting.by_stage ?? []) as Row[]).map((s) => `${s.stage} ${s.count}`).join(", ") || "none"}
+                </p>
+              </CardContent>
+              <CardNote>Numbers at the time of the draft. Pipeline value = expected monthly income x probability, open items.</CardNote>
+            </Card>
+          ) : null}
+          {(d.top_introducers ?? []).length ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Top contacts by deals introduced</CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col divide-y divide-slate-100">
+                {(d.top_introducers as Row[]).map((t) => (
+                  <div key={t.contact_id} className="grid grid-cols-[minmax(0,1fr)_5rem_5.5rem] items-center gap-3 py-2 first:pt-0">
+                    <Link href={`/records/contacts/${t.contact_id}`} className="clamp-2 text-sm font-medium hover:underline">
+                      {t.name}
+                    </Link>
+                    <Stat label="Deals" value={t.deals} />
+                    <Stat label="This period" value={t.deals_this_period} />
+                  </div>
+                ))}
+              </CardContent>
+              <CardNote>Deals where the contact is &quot;Deal came from&quot; or &quot;Introduced by&quot;, all time.</CardNote>
+            </Card>
+          ) : null}
           {review.kind !== "daily" && (d.targets ?? []).length ? (
             <Card>
               <CardHeader>

@@ -11,6 +11,7 @@ import { PageHeader } from "@/components/app/page-header";
 import { RecordForm } from "@/components/app/record-form";
 import { DbUpdateNotice } from "@/components/app/target-grid";
 import { formRules, stageDefaultNextAction } from "@/lib/form-rules";
+import { DB_UPDATE_FILE_0011 } from "@/lib/schema-guard";
 import type { Row } from "@/lib/types";
 
 export default async function NewRecordPage({ params, searchParams }: { params: Promise<{ table: string }>; searchParams: Promise<Record<string, string>> }) {
@@ -57,12 +58,12 @@ export default async function NewRecordPage({ params, searchParams }: { params: 
       <PageHeader title={`Add ${r.singular.toLowerCase()}`} description={r.empty} />
       {rules.updateNeeded && (table === "pipeline_items" || table === "contacts") ? (
         <div className="mb-4 max-w-3xl">
-          <DbUpdateNotice compact />
+          <DbUpdateNotice compact file={rules.updateNeeded === "0011" ? DB_UPDATE_FILE_0011 : undefined} />
         </div>
       ) : null}
       <Card className="max-w-3xl">
         <CardContent className="pt-5">
-          <RecordForm table={table} initial={initial} refOptions={refOptions} cancelHref={r.listHref} extraHidden={extraHidden} hide={rules.hide} require={rules.require} />
+          <RecordForm table={table} initial={initial} refOptions={refOptions} cancelHref={r.listHref} extraHidden={extraHidden} hide={rules.hide} require={rules.require} text={rules.text} />
         </CardContent>
       </Card>
     </div>

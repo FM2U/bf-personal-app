@@ -6,20 +6,32 @@ Vercel variables go in: Vercel, project bf-personal-app, Settings, Environment V
 ## 1. Supabase (database)
 
 - [ ] Create a Supabase project (sign in with GitHub). Region: US East. Save the database password somewhere safe.
-- [ ] SQL Editor: paste and run `supabase/ALL_MIGRATIONS_RUN_ONCE.sql` (0001 to 0010), or each file from `supabase/migrations/` in order: 0001 to 0010.
+- [ ] SQL Editor: paste and run `supabase/ALL_MIGRATIONS_RUN_ONCE.sql` (0001 to 0011), or each file from `supabase/migrations/` in order: 0001 to 0011.
 - [ ] Authentication, Sign In / Providers, Email: enabled. Multi-Factor: TOTP enabled.
 - [ ] Copy Settings, API, **Project URL** to Vercel `NEXT_PUBLIC_SUPABASE_URL`
 - [ ] Copy Settings, API, **anon public** key to Vercel `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - [ ] Copy Settings, API, **service_role** key to Vercel `SUPABASE_SERVICE_ROLE_KEY` (keep private)
 - [ ] Authentication, URL Configuration: Site URL = your Vercel address (same as `APP_URL`)
 
-## 1b. Database update (existing database only: one combined file)
+## 1a. Database update 0011 (the live database: it has 0001 to 0010)
+
+Adds the deal source chain ("Deal came from", "Introduced by") and the Consulting pipeline.
+
+- [ ] Open the file `supabase/UPDATE_0011_RUN_ONCE.sql` in the GitHub repository (bf-personal-app), press "Copy raw file"
+- [ ] Supabase, project bf-personal-app, SQL Editor, New query: paste, press **Run**. Expected result: "Success. No rows returned"
+- [ ] Open the app: Opportunities shows a sixth pipeline, **Consulting** (Identified, Contacted, Discovery call, Proposal sent, Negotiating, Signed, Active, Completed, Lost). The "Database update needed" notices naming this file are gone
+- [ ] Settings, Initiatives and pipelines, Consulting: each stage shows its task list, time limit, required details, and chance (10% to 100%). Signed and Active show "Signed work". Edit anything that does not fit
+- [ ] Plan, Inputs and Assumptions: Runway has "Count signed consulting income in runway" (0 = off); Consulting has "Consulting: monthly income" (0) and "Consulting: months of consulting income" (12)
+- [ ] Running the file a second time is safe (nothing is duplicated)
+
+## 1b. Database update (older database only: one combined file)
 
 Do this once if the database was set up before 0010 (it has 0001 to 0007, 0001 to 0008, or 0001 to 0009).
-The file holds three updates:
+It also includes 0011, so step 1a is then not needed. The file holds four updates:
 - **0008:** Daily Targets, Outreach Queue.
 - **0009:** stage task lists, time limits, required details, stalled items, deal source, Deals sourced and Deals advanced targets.
 - **0010:** commitment rule. Only pipeline next actions, milestones, daily targets, and the reviews are commitments. Regular tasks that are not done move to the next day.
+- **0011:** deal source chain and the Consulting pipeline (see 1a).
 
 - [ ] Open the file `supabase/UPDATE_RUN_ONCE.sql` in the GitHub repository (bf-personal-app), press "Copy raw file"
 - [ ] Supabase, project bf-personal-app, SQL Editor, New query: paste, press **Run**. Expected result: "Success. No rows returned"
@@ -79,6 +91,10 @@ The file holds three updates:
 - [ ] Accountability, Accountability partners: add partners, then create a private link on each partner page
 - [ ] People, Contacts: open each person to keep in touch with, press Edit, set the relationship group (close, warm, or professional)
 - [ ] People, Contacts: for each person who can refer off-market deals (owners, operators, accountants, attorneys, bankers), press Edit and turn on "Deal source"
-- [ ] Opportunities, Acquisitions: open each existing deal, press Edit, and set the deal source (proprietary or brokered)
+- [ ] Opportunities, Acquisitions: open each existing deal, press Edit, and set the deal source (proprietary or brokered), "Deal came from", and "Introduced by" when a friend started the chain
+- [ ] People, Contacts: for each person who could hire you or refer consulting work, press Edit and turn on "Consulting lead"
+- [ ] Opportunities, Consulting: add each client or lead. On the item page, fill the engagement terms (rate type, rate, hours or project length, dates)
+- [ ] Finance, Expenses: open each consulting payment (money in), press Edit, and choose its "Consulting engagement"
+- [ ] Optional: Plan, Inputs and Assumptions: set "Count signed consulting income in runway" to 1 to add expected income from signed work to runway
 - [ ] Accountability, Accountability partners: to share daily targets, add "Daily targets" to the partner's sections, and on the target turn on "Show to accountability partners"
 - [ ] Monthly: Settings, Export, Download full export

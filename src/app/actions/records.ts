@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireOwner } from "@/lib/auth";
-import { ACQUISITION_ONLY_FIELDS, getResource, recordHref, RESOURCES, type Field } from "@/lib/resources";
+import { getResource, recordHref, RESOURCES, type Field } from "@/lib/resources";
+import { hiddenForKind } from "@/lib/pipeline-labels";
 import { dedupeHash, merchantFromDescription, normalizeDescription } from "@/lib/calc/csv";
 import { tzOffset } from "@/lib/google";
 import { loadCtx, refreshNextActionAlert } from "@/lib/engine/helpers";
@@ -12,7 +13,7 @@ import { evaluateConditions } from "@/lib/engine/rules";
 import { checkCommitments, releaseSupersededNextActions } from "@/lib/engine/tasks";
 import { nextReportDate } from "@/lib/engine/partners";
 import { DB_UPDATE_NOTICE, isMissingSchemaError, NEW_COLUMNS, NEW_TABLES } from "@/lib/schema-guard";
-import { hasPipelineUpdate, missingForStage } from "@/lib/pipeline";
+import { DETAIL_TABLE, hasPipelineUpdate, missingForStage } from "@/lib/pipeline";
 import type { Row } from "@/lib/types";
 import { canQuickCreate, quickCreateFields } from "@/lib/quick-create";
 import { safeLeaveTarget } from "@/lib/form-dirty";
@@ -146,8 +147,10 @@ async function writeRecord(table: string, fd: FormData, fields: Field[]): Promis
   if (table === "pipeline_items") {
     const merged = { ...(before ?? {}), ...data };
     const { data: pipe } = await supabase.from("pipelines").select("kind").eq("id", merged.pipeline_id).maybeSingle();
-    const isAcquisition = (pipe as Row | null)?.kind === "acquisition";
-    if (!isAcquisition) for (const k of ACQUISITION_ONLY_FIELDS) delete data[k];
+    const kind = (pipe as Row | null)?.kind ?? null;
+    const isAcquisition = kind === "acquisition";
+    // Fields that do not apply to this pipeline kind are not saved (example: deal source on a job item).
+    for (const k of hiddenForKind(kind)) delete data[k];
     // Acquisition items need the deal source (after database update 0009 adds the field).
     if (isAcquisition && "deal_source_type" in data && !data.deal_source_type && (await hasPipelineUpdate(supabase))) {
       return { ok: false, error: "Deal source is required for acquisitions: choose Proprietary (off-market) or Brokered." };
@@ -251,7 +254,8 @@ async function clearNextActionReminders(sb: Awaited<ReturnType<typeof requireOwn
 
 async function ensurePipelineDetails(sb: Awaited<ReturnType<typeof requireOwner>>["supabase"], ownerId: string, itemId: string, pipelineId: string) {
   const { data: p } = await sb.from("pipelines").select("kind").eq("id", pipelineId).maybeSingle();
-  const table = p?.kind === "acquisition" ? "deal_financials" : p?.kind === "job" ? "job_details" : p?.kind === "investor" ? "investor_details" : null;
+  const table = DETAIL_TABLE[String(p?.kind ?? "")] ?? null;
+  // Consulting details exist only after database update 0011; an error here never blocks the save.
   if (table) await sb.from(table).insert({ owner_id: ownerId, item_id: itemId });
 }
 

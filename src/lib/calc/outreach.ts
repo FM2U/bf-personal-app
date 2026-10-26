@@ -56,13 +56,16 @@ export function outreachStatus(
 }
 
 /**
- * Deal-source contacts first (people who can refer off-market deals), then never-contacted contacts (by name),
- * then most days overdue first.
+ * Deal-source contacts first (people who can refer off-market deals), then never-contacted contacts.
+ * Within the same due status, contacts who introduced deals or consulting leads come first (most introduced first),
+ * then most days overdue, then name.
  */
-export function sortQueue<T extends { name: string; status: OutreachStatus; isDealSource?: boolean }>(rows: T[]): T[] {
+export function sortQueue<T extends { name: string; status: OutreachStatus; isDealSource?: boolean; introducedCount?: number }>(rows: T[]): T[] {
   return [...rows].sort((a, b) => {
     if (!!a.isDealSource !== !!b.isDealSource) return a.isDealSource ? -1 : 1;
     if (a.status.neverContacted !== b.status.neverContacted) return a.status.neverContacted ? -1 : 1;
+    const intro = (b.introducedCount ?? 0) - (a.introducedCount ?? 0);
+    if (intro !== 0) return intro;
     const d = (b.status.daysOverdue ?? 0) - (a.status.daysOverdue ?? 0);
     return d !== 0 ? d : a.name.localeCompare(b.name);
   });

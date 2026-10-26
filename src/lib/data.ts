@@ -14,7 +14,7 @@ export function titleOf(table: string, row: Row | null | undefined, refLabels?: 
   if (table === "reviews") return `${cap(row.kind)} review, ${row.period_start}${row.period_end !== row.period_start ? ` to ${row.period_end}` : ""}`;
   if (table === "partner_reports") return `Report for ${row.period_start} to ${row.period_end}`;
   if (table === "account_balances") return `Balance on ${row.as_of}`;
-  if (table === "deal_financials" || table === "job_details" || table === "investor_details") return r?.singular ?? table;
+  if (table === "deal_financials" || table === "job_details" || table === "investor_details" || table === "consulting_details") return r?.singular ?? table;
   const v = r ? row[r.titleField] : row.name ?? row.title;
   const tf = r?.fields.find((f) => f.name === r.titleField);
   if (v && tf?.type === "date") return fmtDate(String(v));
@@ -36,6 +36,12 @@ export async function loadRefOptions(sb: SupabaseClient, tables: string[]): Prom
       out[t] = (data ?? []).map((row: Row) => ({ id: row.id, label: titleOf(t, row), extra: row }));
     }),
   );
+  // Named subsets for reference fields with refSubset (src/lib/resources.ts): "pipeline_items:consulting" = consulting items.
+  if (out.pipeline_items) {
+    const { data: pipes } = await sb.from("pipelines").select("id,kind");
+    const consulting = new Set(((pipes ?? []) as Row[]).filter((p) => p.kind === "consulting").map((p) => p.id));
+    out["pipeline_items:consulting"] = out.pipeline_items.filter((o) => consulting.has(o.extra?.pipeline_id));
+  }
   if (out.budget_lines || out.pipeline_stages) {
     // add context to labels that are not unique on their own
     if (out.pipeline_stages) {

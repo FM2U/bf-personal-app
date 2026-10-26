@@ -23,7 +23,13 @@ export type QueueItem = {
   lastOutcome: string;
   lastContact: string;
   isDealSource?: boolean;
+  /** Marked "Consulting lead" (database update 0011). */
+  isConsultingLead?: boolean;
+  /** "Introduced 2 deals" when the contact is "Deal came from" or "Introduced by" on deals or consulting leads. */
+  introducedNote?: string | null;
 };
+
+type Purpose = "general" | "deal_sourcing" | "consulting";
 
 const METHODS = [
   { value: "email", label: "Email" },
@@ -47,13 +53,16 @@ export function LogOutreachForm({
   back,
   onCancel,
   purposeAvailable = false,
+  consultingAvailable = false,
   defaultPurpose = "general",
 }: {
   contactId: string | null;
   back: string;
   onCancel?: () => void;
   purposeAvailable?: boolean;
-  defaultPurpose?: "general" | "deal_sourcing";
+  /** The consulting purpose (database update 0011). */
+  consultingAvailable?: boolean;
+  defaultPurpose?: Purpose;
 }) {
   return (
     <GuardedForm
@@ -78,6 +87,7 @@ export function LogOutreachForm({
           <NativeSelect name="purpose" defaultValue={defaultPurpose} aria-label="Purpose">
             <option value="general">General</option>
             <option value="deal_sourcing">Deal sourcing</option>
+            {consultingAvailable ? <option value="consulting">Consulting</option> : null}
           </NativeSelect>
         </label>
       ) : null}
@@ -193,7 +203,7 @@ export function DraftMessagePanel({ contactId, onClose }: { contactId: string; o
 }
 
 /** One row of the Outreach Queue, with the two actions. Columns line up with the header row on desktop. */
-export function OutreachQueueRow({ item, back, purposeAvailable = false }: { item: QueueItem; back: string; purposeAvailable?: boolean }) {
+export function OutreachQueueRow({ item, back, purposeAvailable = false, consultingAvailable = false }: { item: QueueItem; back: string; purposeAvailable?: boolean; consultingAvailable?: boolean }) {
   const [mode, setMode] = useState<"none" | "log" | "draft">("none");
   return (
     <div className="flex flex-col gap-2 py-3">
@@ -208,7 +218,13 @@ export function OutreachQueueRow({ item, back, purposeAvailable = false }: { ite
                 Deal source
               </Badge>
             ) : null}
+            {item.isConsultingLead ? (
+              <Badge variant="default" className="shrink-0" title="Could hire you or refer consulting work">
+                Consulting lead
+              </Badge>
+            ) : null}
           </span>
+          {item.introducedNote ? <p className="clamp-1 text-xs font-medium text-teal-800">{item.introducedNote}</p> : null}
           <p className="text-xs text-muted-foreground md:hidden"><span className="clamp-1">{item.organization ?? "No organization"}</span></p>
         </div>
         <span className="hidden text-sm text-slate-700 md:block"><span className="clamp-1">{item.organization ?? "None"}</span></span>
@@ -227,7 +243,14 @@ export function OutreachQueueRow({ item, back, purposeAvailable = false }: { ite
         </div>
       </div>
       {mode === "log" ? (
-        <LogOutreachForm contactId={item.id} back={back} onCancel={() => setMode("none")} purposeAvailable={purposeAvailable} defaultPurpose={item.isDealSource ? "deal_sourcing" : "general"} />
+        <LogOutreachForm
+          contactId={item.id}
+          back={back}
+          onCancel={() => setMode("none")}
+          purposeAvailable={purposeAvailable}
+          consultingAvailable={consultingAvailable}
+          defaultPurpose={item.isConsultingLead && consultingAvailable ? "consulting" : item.isDealSource ? "deal_sourcing" : "general"}
+        />
       ) : null}
       {mode === "draft" ? <DraftMessagePanel contactId={item.id} onClose={() => setMode("none")} /> : null}
     </div>
@@ -249,17 +272,19 @@ export function LogOutreachButton({
   back,
   label = "Log outreach",
   purposeAvailable = false,
+  consultingAvailable = false,
   defaultPurpose = "general",
 }: {
   contactId: string | null;
   back: string;
   label?: string;
   purposeAvailable?: boolean;
-  defaultPurpose?: "general" | "deal_sourcing";
+  consultingAvailable?: boolean;
+  defaultPurpose?: Purpose;
 }) {
   const [open, setOpen] = useState(false);
   return open ? (
-    <LogOutreachForm contactId={contactId} back={back} onCancel={() => setOpen(false)} purposeAvailable={purposeAvailable} defaultPurpose={defaultPurpose} />
+    <LogOutreachForm contactId={contactId} back={back} onCancel={() => setOpen(false)} purposeAvailable={purposeAvailable} consultingAvailable={consultingAvailable} defaultPurpose={defaultPurpose} />
   ) : (
     <Button type="button" size="sm" variant="outline" onClick={() => setOpen(true)} className="self-start">
       <Check /> {label}

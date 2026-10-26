@@ -3,19 +3,25 @@
  * 0010 (commitment rule: tasks.times_moved, released commitments) may not be applied yet on the live database.
  * Every query that reads or writes the new tables or columns checks for "does not exist" errors with
  * isMissingSchemaError and shows DB_UPDATE_NOTICE (or skips the step) instead of failing.
- * All three updates are in one file: supabase/UPDATE_RUN_ONCE.sql.
+ * All updates are in one file: supabase/UPDATE_RUN_ONCE.sql (0008 to 0011).
+ * Update 0011 (deal source chain and Consulting) is also in supabase/UPDATE_0011_RUN_ONCE.sql, the file for the
+ * live database (which has 0001 to 0010). Features from 0011 name that file in their notice.
  */
 
 export const DB_UPDATE_FILE = "supabase/UPDATE_RUN_ONCE.sql";
 export const DB_UPDATE_NOTICE = `Database update needed: paste ${DB_UPDATE_FILE} into the Supabase SQL Editor and run it.`;
 
-/** Columns added by 0008 and 0009 to tables that already existed. Saving drops them when the update is not applied yet. */
+export const DB_UPDATE_FILE_0011 = "supabase/UPDATE_0011_RUN_ONCE.sql";
+export const DB_UPDATE_NOTICE_0011 = `Database update needed: paste ${DB_UPDATE_FILE_0011} into the Supabase SQL Editor and run it.`;
+
+/** Columns added by 0008, 0009, and 0011 to tables that already existed. Saving drops them when the update is not applied yet. */
 export const NEW_COLUMNS: Record<string, string[]> = {
-  contacts: ["relationship_group", "outreach_every_days", "is_deal_source"],
+  contacts: ["relationship_group", "outreach_every_days", "is_deal_source", "is_consulting_lead"],
   communications: ["is_outreach", "outcome", "purpose", "pipeline_item_id"],
-  pipeline_items: ["deal_source_type", "source_contact_id", "source_notes"],
-  pipeline_stages: ["max_days_in_stage", "required_fields"],
+  pipeline_items: ["deal_source_type", "source_contact_id", "source_notes", "introduced_by_contact_id"],
+  pipeline_stages: ["max_days_in_stage", "required_fields", "default_probability_pct", "counts_as_signed"],
   targets: ["stage_id"],
+  transactions: ["pipeline_item_id"],
 };
 
 /** Kept for existing imports. */
@@ -30,7 +36,18 @@ export const COLUMNS_0009: Record<string, string[]> = {
   targets: ["stage_id"],
 };
 
-export const NEW_TABLES = ["targets", "target_entries", "target_misses", "stage_tasks", "pipeline_item_stage_extensions"];
+/** Columns added by 0011. Forms leave them out until the update is applied. */
+export const COLUMNS_0011: Record<string, string[]> = {
+  contacts: ["is_consulting_lead"],
+  pipeline_items: ["introduced_by_contact_id"],
+  pipeline_stages: ["default_probability_pct", "counts_as_signed"],
+  transactions: ["pipeline_item_id"],
+};
+
+export const NEW_TABLES = ["targets", "target_entries", "target_misses", "stage_tasks", "pipeline_item_stage_extensions", "consulting_details"];
+
+/** Tables added by 0011. */
+export const TABLES_0011 = ["consulting_details"];
 
 /** Kept for existing imports. */
 export const TABLES_0008 = NEW_TABLES;

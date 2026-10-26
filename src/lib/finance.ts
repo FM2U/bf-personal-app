@@ -6,6 +6,7 @@ import { CASH_KINDS, emergencyFundProgress, netWorth, requiredMonthlySavings, re
 import type { DebtInput } from "@/lib/calc/debt";
 import type { Row } from "@/lib/types";
 import { fetchAll } from "@/lib/data";
+import { loadConsulting } from "@/lib/consulting";
 
 export type Inputs = { num: Record<string, number | null>; text: Record<string, string | null>; rows: Row[] };
 
@@ -42,6 +43,8 @@ export type FinanceSnapshot = {
   lastMonthSpending: number;
   transactions: Row[];
   includeBusiness: boolean;
+  /** Runway setting runway_include_signed_consulting is on (signed consulting income is added to income). */
+  includeSignedConsulting: boolean;
 };
 
 /**
@@ -87,11 +90,22 @@ export async function loadFinanceSnapshot(sb: SupabaseClient, today: string, own
     .filter((t) => runwayAccountIds.has(t.account_id))
     .map((t) => ({ date: t.date, amount: Number(t.amount), is_transfer: t.is_transfer }));
   const averages = monthlyAverages(runwayTxns, today, lookback);
+  // Input runway_include_signed_consulting (update 0011): add expected income from signed consulting work.
+  const includeSignedConsulting = (inputs.num.runway_include_signed_consulting ?? 0) >= 1;
+  let signedConsultingMonthly = 0;
+  if (includeSignedConsulting) {
+    try {
+      signedConsultingMonthly = (await loadConsulting(sb, { ownerId, today })).signedMonthly;
+    } catch {
+      signedConsultingMonthly = 0;
+    }
+  }
   const runway = computeRunway({
     cash,
     avgSpending: averages.avgSpending,
     avgIncome: averages.avgIncome,
     subtractIncome: (inputs.num.runway_subtract_income ?? 1) >= 1,
+    signedConsultingMonthly,
   });
 
   const debtsRaw = (debtsRes.data ?? []) as Row[];
@@ -159,6 +173,7 @@ export async function loadFinanceSnapshot(sb: SupabaseClient, today: string, own
     lastMonthSpending: spentBetween(lastMonth.start, lastMonth.end),
     transactions,
     includeBusiness,
+    includeSignedConsulting,
   };
 }
 

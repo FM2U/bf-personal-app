@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { todayInTz } from "@/lib/calc/dates";
 import { outreachStatus, sortQueue, type OutreachStatus } from "@/lib/calc/outreach";
+import { creditByContact, introducedNote, type ContactCredit } from "@/lib/calc/source-chain";
 import { fetchAll } from "@/lib/data";
 import { scoped } from "@/lib/finance";
 import { isMissingSchemaError } from "@/lib/schema-guard";
@@ -17,6 +18,13 @@ export type QueueRow = {
   lastOutcome: string | null;
   /** Can refer off-market deals (database update 0009). Listed first. */
   isDealSource: boolean;
+  /** Marked "Consulting lead" (database update 0011). */
+  isConsultingLead: boolean;
+  /** Deals and consulting leads where the contact is "Deal came from" or "Introduced by". */
+  credit: ContactCredit | null;
+  /** Deals plus consulting leads credited (used to sort within the same due status). */
+  introducedCount: number;
+  introducedNote: string | null;
   status: OutreachStatus;
 };
 
@@ -31,14 +39,28 @@ export async function loadOutreachQueue(
 ): Promise<{ available: boolean; all: QueueRow[]; due: QueueRow[]; error?: string }> {
   const read = (cols: string) => scoped(sb.from("contacts").select(cols), opts.ownerId).order("name");
   const base = "id,name,email,organization_id,relationship_group,outreach_every_days";
-  let { data, error } = await read(`${base},is_deal_source`);
-  // Before database update 0009 there is no is_deal_source column: read without it.
+  let { data, error } = await read(`${base},is_deal_source,is_consulting_lead`);
+  // Before database update 0011 there is no is_consulting_lead column; before 0009 no is_deal_source column.
+  if (error && isMissingSchemaError(error)) ({ data, error } = await read(`${base},is_deal_source`));
   if (error && isMissingSchemaError(error)) ({ data, error } = await read(base));
   if (error) return { available: !isMissingSchemaError(error), all: [], due: [], error: error.message };
   const contacts = ((data ?? []) as unknown as Row[]).filter((c) => c.relationship_group || c.outreach_every_days);
   if (!contacts.length) return { available: true, all: [], due: [] };
   let comms: Row[] = [];
   let orgs: Row[] = [];
+  let chain: Row[] = [];
+  let pipes: Row[] = [];
+  try {
+    // Pipeline items for credit ("Deal came from", "Introduced by"). select("*") works before and after update 0011.
+    [chain, pipes] = await Promise.all([
+      fetchAll((a, b) => scoped(sb.from("pipeline_items").select("*"), opts.ownerId).range(a, b)),
+      fetchAll((a, b) => scoped(sb.from("pipelines").select("id,kind"), opts.ownerId).range(a, b)),
+    ]);
+  } catch {
+    chain = [];
+  }
+  const kindOf = Object.fromEntries(pipes.map((p) => [p.id, p.kind]));
+  const credit = creditByContact(chain.map((i) => ({ id: i.id, kind: kindOf[i.pipeline_id], source_contact_id: i.source_contact_id, introduced_by_contact_id: i.introduced_by_contact_id })));
   try {
     [comms, orgs] = await Promise.all([
       fetchAll((a, b) =>
@@ -69,6 +91,10 @@ export async function loadOutreachQueue(
     lastContactDate: last[c.id] ?? null,
     lastOutcome: outcome[c.id] ?? null,
     isDealSource: !!c.is_deal_source,
+    isConsultingLead: !!c.is_consulting_lead,
+    credit: credit[c.id] ?? null,
+    introducedCount: (credit[c.id]?.deals ?? 0) + (credit[c.id]?.consultingLeads ?? 0),
+    introducedNote: introducedNote(credit[c.id]),
     status: outreachStatus(c, last[c.id] ?? null, opts.today),
   }));
   return { available: true, all, due: sortQueue(all.filter((r) => r.status.due)) };

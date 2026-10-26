@@ -81,6 +81,10 @@ export default async function InitiativesSettingsPage({ searchParams }: { search
                           <span className="tabular w-5 shrink-0 text-xs text-muted-foreground">{s.position}.</span>
                           <span className="clamp-1 font-medium text-slate-900">{s.name}</span>
                           <Badge variant={s.outcome === "open" ? "outline" : "neutral"}>{OUTCOME[s.outcome] ?? s.outcome}</Badge>
+                          {s.counts_as_signed ? <Badge variant="success">Signed work</Badge> : null}
+                          {s.default_probability_pct !== null && s.default_probability_pct !== undefined ? (
+                            <span className="tabular shrink-0 text-xs text-muted-foreground">{s.default_probability_pct}% chance</span>
+                          ) : null}
                         </div>
                         {s.outcome === "open" ? (
                           <GuardedForm action={saveStageLimit} className="flex items-center gap-2">

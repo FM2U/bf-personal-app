@@ -45,24 +45,33 @@ export type RunwayResult = {
   cash: number;
   avgSpending: number;
   avgIncome: number;
+  /** Signed consulting income added to income (0 when the runway setting is off). */
+  signedConsultingMonthly: number;
   netMonthlyBurn: number;
 };
 
-/** Default formula: available cash / (average monthly spending - average monthly income). */
+/**
+ * Default formula: available cash / (average monthly spending - average monthly income).
+ * `signedConsultingMonthly` (input runway_include_signed_consulting = 1): expected monthly income from signed consulting
+ * work, added to average monthly income (it is added even when average income is not subtracted).
+ */
 export function computeRunway(params: {
   cash: number;
   avgSpending: number;
   avgIncome: number;
   subtractIncome?: boolean;
+  signedConsultingMonthly?: number;
 }): RunwayResult {
   const subtract = params.subtractIncome ?? true;
-  const burn = params.avgSpending - (subtract ? params.avgIncome : 0);
+  const consulting = Math.max(0, params.signedConsultingMonthly ?? 0);
+  const burn = params.avgSpending - (subtract ? params.avgIncome : 0) - consulting;
   const months = burn > 0 ? round1(Math.max(0, params.cash) / burn) : null;
   return {
     months,
     cash: round2(params.cash),
     avgSpending: params.avgSpending,
     avgIncome: params.avgIncome,
+    signedConsultingMonthly: round2(consulting),
     netMonthlyBurn: round2(burn),
   };
 }
@@ -72,4 +81,22 @@ export function round2(n: number): number {
 }
 export function round1(n: number): number {
   return Math.round((n + Number.EPSILON) * 10) / 10;
+}
+
+/**
+ * Plain explanation of the runway formula in use, including whether signed consulting income is counted
+ * (input runway_include_signed_consulting). Shown under the runway figure.
+ */
+export function runwayExplanation(p: { lookbackMonths: number; subtractIncome: boolean; includeSignedConsulting: boolean; signedConsultingMonthly: number; settingAvailable?: boolean }): string {
+  const months = Math.max(1, Math.round(p.lookbackMonths));
+  const base = p.subtractIncome
+    ? `Cash divided by (average monthly spending minus average monthly income), last ${months} months.`
+    : `Cash divided by average monthly spending, last ${months} months (income not subtracted).`;
+  const usd = `$${Math.round(p.signedConsultingMonthly).toLocaleString("en-US")}`;
+  const consulting = p.includeSignedConsulting
+    ? ` Signed consulting income is counted: ${usd} per month expected from Signed and Active consulting work is added to income.`
+    : p.settingAvailable === false
+      ? ""
+      : " Signed consulting income is not counted (Inputs: Count signed consulting income in runway = 0).";
+  return base + consulting;
 }

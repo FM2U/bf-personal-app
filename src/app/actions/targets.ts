@@ -8,7 +8,7 @@ import { evaluateConditions } from "@/lib/engine/rules";
 import { AI_SYSTEM_MESSAGE, AIUnavailable, callClaude, cleanText, parseJsonFromText, textOf } from "@/lib/ai/claude";
 import { createGmailDraft, getGoogleConnection } from "@/lib/google";
 import { markdownToPlain } from "@/lib/markdown";
-import { DB_UPDATE_NOTICE, isMissingSchemaError } from "@/lib/schema-guard";
+import { DB_UPDATE_NOTICE, isCheckViolation, isMissingSchemaError } from "@/lib/schema-guard";
 import { GROUP_LABELS, OUTCOME_LABELS, type RelationshipGroup } from "@/lib/calc/outreach";
 import { isGoogleConfigured } from "@/lib/env";
 import type { Row } from "@/lib/types";
@@ -92,7 +92,13 @@ export async function logOutreach(fd: FormData) {
   const methodLabel = method === "other" ? "Outreach" : `Outreach ${method}`;
   // Purpose: as chosen; otherwise deal sourcing for deal-source contacts (database update 0009).
   const purposeRaw = String(fd.get("purpose") ?? "");
-  const purpose = ["general", "deal_sourcing"].includes(purposeRaw) ? purposeRaw : contact?.is_deal_source ? "deal_sourcing" : "general";
+  const purpose = ["general", "deal_sourcing", "consulting"].includes(purposeRaw)
+    ? purposeRaw
+    : contact?.is_consulting_lead
+      ? "consulting"
+      : contact?.is_deal_source
+        ? "deal_sourcing"
+        : "general";
   const row: Row = {
     owner_id: ownerId,
     occurred_at: new Date().toISOString(),
@@ -106,6 +112,8 @@ export async function logOutreach(fd: FormData) {
     outcome,
   };
   let { error } = await supabase.from("communications").insert({ ...row, purpose });
+  // Before update 0011 the consulting purpose is not allowed yet: save it as general.
+  if (error && isCheckViolation(error) && purpose === "consulting") ({ error } = await supabase.from("communications").insert({ ...row, purpose: "general" }));
   // Before update 0009 there is no purpose column: save without it.
   if (error && isMissingSchemaError(error)) ({ error } = await supabase.from("communications").insert(row));
   if (error) back(fd, isMissingSchemaError(error) ? DB_UPDATE_NOTICE : `Not saved: ${error.message}`, "/people/outreach");
@@ -142,7 +150,9 @@ export async function draftOutreachMessage(contactId: string): Promise<DraftResu
   ]);
   const canGmail = !!c.email && isGoogleConfigured() && google?.status === "connected";
   const first = String(c.name ?? "").split(/\s+/)[0] || "there";
-  const dealSource = !!c.is_deal_source;
+  // A consulting lead gets a consulting availability message; otherwise a deal source gets the deal sourcing ask.
+  const consultingLead = !!c.is_consulting_lead;
+  const dealSource = !consultingLead && !!c.is_deal_source;
   const context = {
     name: c.name,
     title: c.title,
@@ -161,7 +171,9 @@ export async function draftOutreachMessage(contactId: string): Promise<DraftResu
       messages: [
         {
           role: "user",
-          content: dealSource
+          content: consultingLead
+            ? `Draft a short message (under 120 words) from Bram to ${c.name} letting them know Bram has time open for consulting work. ${c.name} is a consulting lead: someone who could hire Bram or refer consulting work to him. Structure: a one-line greeting and personal opener (mention one specific thing from the recent communications or notes when there is one); then one or two sentences saying Bram has availability for consulting projects in the coming months; then 2 or 3 short "- " bullets on the kinds of help Bram can offer, taken only from the contact notes or communications when they say what help is relevant (otherwise use general bullets: a short project, ongoing monthly help, or a second opinion on a decision); then one simple ask: is there a project where this would help, or someone they know who needs this. Do not invent past work, clients, or results. Conversational, direct, Bram's voice. Return only JSON: {"subject": "short subject line", "body": "message text, starting with a greeting using the first name"}. Contact (JSON): ${JSON.stringify(context).slice(0, 6000)}`
+            : dealSource
             ? `Draft a short message (under 140 words) from Bram to ${c.name} asking for off-market deal referrals. ${c.name} is a deal source: someone who may know business owners thinking about selling (for example an owner, operator, accountant, attorney, or banker). Bram is buying one small business to run as owner-operator. Structure: a one-line greeting and personal opener (mention one specific thing from the recent communications or notes when there is one); then 2 to 4 short "- " bullets on what Bram is looking for (owner-operated business, steady profits, an owner thinking about retirement or a transition, no broker involved yet); then one simple ask: does any client or contact come to mind, and would they make a warm introduction. Conversational, direct, Bram's voice. Return only JSON: {"subject": "short subject line", "body": "message text, starting with a greeting using the first name"}. Contact (JSON): ${JSON.stringify(context).slice(0, 6000)}`
             : `Draft a short outreach message (under 110 words) from Bram to ${c.name} to stay in touch. Mention one specific thing from the recent communications or notes when there is one. End with one simple, low-effort question or ask. Return only JSON: {"subject": "short subject line", "body": "message text, starting with a greeting using the first name"}. Contact (JSON): ${JSON.stringify(context).slice(0, 6000)}`,
         },
@@ -170,9 +182,20 @@ export async function draftOutreachMessage(contactId: string): Promise<DraftResu
     });
     const parsed = parseJsonFromText<{ subject?: string; body?: string }>(textOf(msg));
     if (!parsed?.body) return { ok: false, error: "The AI reply could not be read. Try again." };
-    return { ok: true, subject: cleanText(String(parsed.subject ?? (dealSource ? "A quick ask" : "Checking in"))), body: cleanText(String(parsed.body)), source: "ai", canGmail, email: c.email ?? null };
+    return { ok: true, subject: cleanText(String(parsed.subject ?? (consultingLead ? "Consulting availability" : dealSource ? "A quick ask" : "Checking in"))), body: cleanText(String(parsed.body)), source: "ai", canGmail, email: c.email ?? null };
   } catch (e) {
     const note = e instanceof AIUnavailable ? e.message : "The AI request failed.";
+    if (consultingLead) {
+      return {
+        ok: true,
+        subject: "Consulting availability in the next few months",
+        body: `Hi ${first},\n\nI hope things are going well. I have some time open for consulting work over the next few months and wanted to let you know.\n\nWhat I can help with:\n- A short, defined project\n- Ongoing help each month\n- A second opinion on a decision you are working through\n\nIs there a project where this would help, or someone you know who could use it? Happy to set up a short call.\n\nThanks,\nBram`,
+        source: "template",
+        note: `${note} A plain template is shown instead.`,
+        canGmail,
+        email: c.email ?? null,
+      };
+    }
     if (dealSource) {
       return {
         ok: true,

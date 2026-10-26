@@ -17,6 +17,7 @@ import { dismissAlert } from "@/app/actions/records";
 import { regeneratePlan } from "@/app/actions/domain";
 import { date as fmtDate, money, months as fmtMonths } from "@/lib/format";
 import { addDaysISO } from "@/lib/calc/dates";
+import { runwayExplanation } from "@/lib/calc/runway";
 import { consecutiveCompleteDays, nextScheduledReview } from "@/lib/calc/scores";
 import { scoreText } from "@/lib/calc/commitment-rule";
 import { summarizeTargets } from "@/lib/targets";
@@ -142,7 +143,17 @@ export default async function HomePage() {
               <EmptyState title="Add an account and its balance to calculate runway." action={<Button asChild size="sm"><Link href="/records/accounts/new">Add account</Link></Button>} />
             )}
           </CardContent>
-          {hasAccounts ? <CardNote>Cash divided by (average monthly spending minus average monthly income), last {snap.inputs.num.runway_lookback_months ?? 3} months.</CardNote> : null}
+          {hasAccounts ? (
+            <CardNote>
+              {runwayExplanation({
+                lookbackMonths: snap.inputs.num.runway_lookback_months ?? 3,
+                subtractIncome: (snap.inputs.num.runway_subtract_income ?? 1) >= 1,
+                includeSignedConsulting: snap.includeSignedConsulting,
+                signedConsultingMonthly: snap.runway.signedConsultingMonthly,
+                settingAvailable: "runway_include_signed_consulting" in snap.inputs.num,
+              })}
+            </CardNote>
+          ) : null}
         </Card>
 
         <Card>

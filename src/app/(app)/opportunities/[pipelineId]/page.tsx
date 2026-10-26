@@ -18,6 +18,10 @@ import type { Row } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { pipelineViewCookie, resolvePipelineView } from "@/lib/pipeline-view";
 import { RememberPipelineView } from "@/components/app/remember-view";
+import { Stat, StatGrid } from "@/components/app/page-header";
+import { loadConsulting, loadConsultingIncome, type ConsultingData } from "@/lib/consulting";
+import { monthBounds } from "@/lib/calc/dates";
+import { DB_UPDATE_FILE_0011 } from "@/lib/schema-guard";
 
 export default async function PipelinePage({ params, searchParams }: { params: Promise<{ pipelineId: string }>; searchParams: Promise<{ closed?: string; view?: string }> }) {
   const { pipelineId } = await params;
@@ -37,13 +41,18 @@ export default async function PipelinePage({ params, searchParams }: { params: P
   const itemIds = new Set(items.map((i) => i.id));
   const orgName = Object.fromEntries(((orgs ?? []) as Row[]).map((o) => [o.id, o.name]));
   let extra: Record<string, Row> = {};
-  const detailTable = pipe.kind === "acquisition" ? "deal_financials_calculated" : pipe.kind === "job" ? "job_details" : pipe.kind === "investor" ? "investor_details" : null;
+  const detailTable = pipe.kind === "acquisition" ? "deal_financials_calculated" : pipe.kind === "job" ? "job_details" : pipe.kind === "investor" ? "investor_details" : pipe.kind === "consulting" ? "consulting_details" : null;
   if (detailTable && itemIds.size) {
     const { data } = await supabase.from(detailTable).select("*").in("item_id", [...itemIds]);
     extra = Object.fromEntries(((data ?? []) as Row[]).map((d) => [d.item_id, d]));
   }
   const status = await loadPipelineStatus(supabase, items, { ownerId, tz: ctx.tz, today: ctx.today, stages: allStages });
   const isAcq = pipe.kind === "acquisition";
+  const isConsulting = pipe.kind === "consulting";
+  const consulting = isConsulting ? await loadConsulting(supabase, { ownerId, today: ctx.today }) : null;
+  const cItem = Object.fromEntries((consulting?.items ?? []).map((c) => [c.item.id, c]));
+  const month = monthBounds(ctx.today);
+  const incomeThisMonth = isConsulting && consulting?.available ? await loadConsultingIncome(supabase, { ownerId, from: month.start, to: month.end, itemIds: consulting.items.map((c) => c.item.id) }) : null;
   const showClosed = sp.closed === "1";
   const viewCookie = pipelineViewCookie(pipelineId);
   const view = resolvePipelineView(sp.view, (await cookies()).get(viewCookie)?.value);
@@ -98,6 +107,7 @@ export default async function PipelinePage({ params, searchParams }: { params: P
       <RememberPipelineView cookie={viewCookie} view={view} />
       <div className="mb-4 flex flex-col gap-4">
         {!status.available ? <DbUpdateNotice compact /> : null}
+        {isConsulting && consulting ? <ConsultingStrip data={consulting} incomeThisMonth={incomeThisMonth?.total ?? 0} pipelineId={pipelineId} /> : null}
         {isAcq ? <DealSourceStrip items={items} stages={allStages.filter((s) => s.outcome === "open")} tz={ctx.tz} today={ctx.today} available={status.available} /> : null}
         {stalledCount || overCount ? (
           <p className="text-sm text-muted-foreground">
@@ -114,13 +124,14 @@ export default async function PipelinePage({ params, searchParams }: { params: P
               <Table className="min-w-[60rem] table-fixed">
                 <THead>
                   <TR className="hover:bg-transparent">
-                    <TH className="w-[20%]">Item</TH>
+                    <TH className={isConsulting ? "w-[22%]" : "w-[20%]"}>{isConsulting ? "Item and client" : "Item"}</TH>
                     {isAcq ? <TH className="w-[8.5rem]">Source</TH> : null}
+                    {isConsulting ? <TH className="w-[6.5rem] text-right">Per month</TH> : null}
                     <TH className="w-[8.5rem]">Stage</TH>
                     <TH className="w-[7.5rem] text-right">Days in stage</TH>
                     <TH>Next action</TH>
                     <TH className="w-[5.5rem]">Due</TH>
-                    <TH className="w-[11rem]">Flags</TH>
+                    <TH className={isConsulting ? "w-[9rem]" : "w-[11rem]"}>Flags</TH>
                   </TR>
                 </THead>
                 <TBody>
@@ -133,10 +144,23 @@ export default async function PipelinePage({ params, searchParams }: { params: P
                           <Link href={`/records/pipeline_items/${i.id}`} className="clamp-2 font-medium hover:underline">
                             {i.name}
                           </Link>
+                          {isConsulting ? <span className="clamp-1 text-xs text-muted-foreground">{i.organization_id ? orgName[i.organization_id] : "Client not set"}</span> : null}
                         </TD>
                         {isAcq ? (
                           <TD>
                             <DealSourceBadge type={i.deal_source_type} showUnset />
+                          </TD>
+                        ) : null}
+                        {isConsulting ? (
+                          <TD className="tabular text-right">
+                            {cItem[i.id]?.expectedMonthly === null || cItem[i.id]?.expectedMonthly === undefined ? (
+                              <span className="text-muted-foreground">Not set</span>
+                            ) : (
+                              <span className="flex flex-col items-end leading-tight">
+                                {money(cItem[i.id].expectedMonthly)}
+                                <span className="text-[11px] text-muted-foreground">{cItem[i.id].probabilityPct}% chance</span>
+                              </span>
+                            )}
                           </TD>
                         ) : null}
                         <TD>
@@ -198,7 +222,9 @@ export default async function PipelinePage({ params, searchParams }: { params: P
                               ? d.amount_committed
                                 ? `Committed ${money(d.amount_committed)}`
                                 : `Discussed ${money(d.amount_discussed)}`
-                              : null;
+                              : isConsulting && cItem[i.id]?.expectedMonthly !== null && cItem[i.id]?.expectedMonthly !== undefined
+                                ? `${money(cItem[i.id].expectedMonthly)} per month, ${cItem[i.id].probabilityPct}%`
+                                : null;
                       return (
                         <Link key={i.id} href={`/records/pipeline_items/${i.id}`} className="flex min-w-0 flex-col gap-1 rounded-lg border border-border bg-white p-2 shadow-xs hover:border-teal-600">
                           <span className="clamp-2 text-[13px] font-medium leading-4 text-slate-900">{i.name}</span>
@@ -302,5 +328,51 @@ function DealSourceStrip({ items, stages, tz, today, available }: { items: Row[]
       </CardContent>
       <CardNote>Proprietary = off-market, found directly. Brokered = listed by a broker.</CardNote>
     </Card>
+  );
+}
+
+/** Consulting pipeline: pipeline value, signed income, active engagements, income received this month, items by stage. */
+function ConsultingStrip({ data, incomeThisMonth, pipelineId }: { data: ConsultingData; incomeThisMonth: number; pipelineId: string }) {
+  if (!data.available) return <DbUpdateNotice compact file={DB_UPDATE_FILE_0011} />;
+  return (
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle>Consulting income</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <StatGrid className="grid-cols-2 sm:grid-cols-4">
+            <Stat label="Pipeline value per month" value={money(data.pipelineValue)} hint="Weighted by chance" />
+            <Stat label="Signed work per month" value={money(data.signedMonthly)} hint="Signed and Active" />
+            <Stat label="Signed or active engagements" value={data.activeEngagements} />
+            <Stat label="Received this month" value={money(incomeThisMonth)} tone={incomeThisMonth ? "good" : undefined} />
+          </StatGrid>
+        </CardContent>
+        <CardNote>
+          Expected monthly income is calculated from each item&apos;s rate type and rate. Payments are linked in{" "}
+          <Link href="/finance/income" className="underline">
+            Finance, Income Received
+          </Link>
+          .
+        </CardNote>
+      </Card>
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle>Open items by stage</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ul className="grid grid-cols-2 gap-x-4 divide-slate-100 text-sm">
+            {data.byStage
+              .filter((s) => data.pipelines.some((p) => p.id === pipelineId) && data.stages.some((st) => st.id === s.stage_id && st.pipeline_id === pipelineId))
+              .map((s) => (
+                <li key={s.stage_id} className="flex items-center justify-between gap-2 border-b border-slate-100 py-1.5">
+                  <span className="clamp-1 text-slate-700">{s.name}</span>
+                  <span className="tabular font-semibold">{s.count}</span>
+                </li>
+              ))}
+          </ul>
+        </CardContent>
+      </Card>
+    </div>
   );
 }

@@ -82,6 +82,8 @@ export function applyOverrides(base: Baseline, o: ScenarioOverrides) {
     contribution: o.monthly_investment_contribution ?? 0,
     oneTimeAmount: o.one_time_amount ?? 0,
     oneTimeMonth: o.one_time_month ?? 0,
+    consultingMonthly: Math.max(0, inputs.consulting_monthly_income ?? 0),
+    consultingMonths: Math.max(0, Math.round(inputs.consulting_months ?? 0)),
   };
 }
 
@@ -102,6 +104,8 @@ export function projectScenario(base: Baseline, overrides: ScenarioOverrides, ho
     const debtPayment = debtRow ? debtRow.payment : 0;
     const debtBalance = debtRow ? debtRow.totalBalance : payoff.feasible ? 0 : startDebt;
     cash += s.income - s.spending - debtPayment - s.contribution;
+    // Consulting income (Inputs: consulting_monthly_income for consulting_months months, starting next month).
+    if (m <= s.consultingMonths) cash += s.consultingMonthly;
     if (m === Math.round(s.oneTimeMonth)) cash += s.oneTimeAmount;
     investments = investments * (1 + r) + s.contribution;
     if (cash < 0 && cashRunsOutMonth === null) cashRunsOutMonth = m;
@@ -195,4 +199,80 @@ export function jobVsAcquisition(inputs: Record<string, number | null>): {
     });
   }
   return { rows, crossoverYear, missing };
+}
+
+export type BridgeRow = {
+  year: number;
+  jobCumulative: number;
+  /** Take-home consulting income received so far (during the search and after, for consulting_months). */
+  consultingCumulative: number;
+  /** Take-home acquisition salary received so far (starts after the search). */
+  acquisitionSalaryCumulative: number;
+  acquisitionEquityValue: number;
+  /** Consulting + acquisition salary + equity value. */
+  bridgeTotal: number;
+  /** The same path without consulting income: acquisition salary + equity value. */
+  withoutConsultingTotal: number;
+  difference: number;
+};
+
+/**
+ * Bridge comparison: a job, versus an acquisition search with consulting income during the search.
+ * Month by month over comparison_years:
+ *   Job: (job salary + bonus) / 12 after tax, every month.
+ *   Bridge: no salary during the search (acquisition_search_months_allowed months), then acquisition salary / 12 after tax;
+ *           plus consulting_monthly_income after tax for the first consulting_months months;
+ *           plus equity value from the acquisition on (same equity formula as jobVsAcquisition, years counted from the acquisition).
+ * Rows are given at the end of each year (year 0 = today).
+ */
+export function bridgeComparison(inputs: Record<string, number | null>): { rows: BridgeRow[]; crossoverYear: number | null; missing: string[]; searchMonths: number; consultingMonths: number; consultingMonthly: number } {
+  const required = ["job_salary", "acquisition_salary", "acquisition_equity_pct", "acquisition_business_value"];
+  const missing = required.filter((k) => inputs[k] === null || inputs[k] === undefined);
+  const tax = (inputs.effective_tax_rate_pct ?? 0) / 100;
+  const years = Math.max(1, Math.round(inputs.comparison_years ?? 10));
+  const searchMonths = Math.max(0, Math.round(inputs.acquisition_search_months_allowed ?? 12));
+  const consultingMonthly = Math.max(0, inputs.consulting_monthly_income ?? 0);
+  const consultingMonths = Math.max(0, Math.round(inputs.consulting_months ?? 12));
+  const jobMonthly = (((inputs.job_salary ?? 0) + (inputs.job_bonus ?? 0)) * (1 - tax)) / 12;
+  const acqMonthly = ((inputs.acquisition_salary ?? 0) * (1 - tax)) / 12;
+  const consultingNet = consultingMonthly * (1 - tax);
+  const equity = (inputs.acquisition_equity_pct ?? 0) / 100;
+  const value0 = inputs.acquisition_business_value ?? 0;
+  const debt0 = inputs.acquisition_debt ?? 0;
+  const debtYears = Math.max(1, inputs.acquisition_debt_years ?? 10);
+  const g = (inputs.acquisition_value_growth_pct ?? 0) / 100;
+  const equityAt = (month: number) => {
+    if (month <= searchMonths) return 0;
+    const ys = (month - searchMonths) / 12;
+    const remainingDebt = Math.max(0, debt0 - (debt0 / debtYears) * ys);
+    return equity * Math.max(0, value0 * Math.pow(1 + g, ys) - remainingDebt);
+  };
+  const rows: BridgeRow[] = [];
+  let job = 0;
+  let consulting = 0;
+  let salary = 0;
+  let crossoverYear: number | null = null;
+  const push = (y: number, month: number) => {
+    const eq = equityAt(month);
+    const total = consulting + salary + eq;
+    if (crossoverYear === null && y > 0 && total > job) crossoverYear = y;
+    rows.push({
+      year: y,
+      jobCumulative: round2(job),
+      consultingCumulative: round2(consulting),
+      acquisitionSalaryCumulative: round2(salary),
+      acquisitionEquityValue: round2(eq),
+      bridgeTotal: round2(total),
+      withoutConsultingTotal: round2(salary + eq),
+      difference: round2(total - job),
+    });
+  };
+  push(0, 0);
+  for (let m = 1; m <= years * 12; m++) {
+    job += jobMonthly;
+    if (m <= consultingMonths) consulting += consultingNet;
+    if (m > searchMonths) salary += acqMonthly;
+    if (m % 12 === 0) push(m / 12, m);
+  }
+  return { rows, crossoverYear, missing, searchMonths, consultingMonths, consultingMonthly };
 }

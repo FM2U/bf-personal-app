@@ -4,7 +4,9 @@ import { createContext, useContext, useEffect, useId, useMemo, useRef, useState 
 import Link from "next/link";
 import { ChevronDown, Plus, Trash2 } from "lucide-react";
 import { createRecordInline, saveRecord, type FormState } from "@/app/actions/records";
-import { getResource, type Field } from "@/lib/resources";
+import { DEAL_SOURCE_OPTIONS, getResource, type Field } from "@/lib/resources";
+import { suggestDealSourceType } from "@/lib/calc/source-chain";
+import type { FieldText } from "@/lib/pipeline-labels";
 import { addCreatedOption, canQuickCreate, filterOptions, quickCreateFields, type RefOption } from "@/lib/quick-create";
 import { Input, NativeSelect, Textarea } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -99,7 +101,9 @@ function FieldInput({ field, value, idPrefix = "f_" }: { field: Field; value: un
  */
 function RefPicker({ field, id, initial }: { field: Field; id: string; initial: string }) {
   const ctx = useContext(RefContext);
-  const options = useMemo(() => ctx.options[field.ref!] ?? [], [ctx.options, field.ref]);
+  // A field with refSubset lists only that subset (example: consulting items), loaded as "<table>:<subset>".
+  const optionsKey = field.refSubset ? `${field.ref}:${field.refSubset}` : field.ref!;
+  const options = useMemo(() => ctx.options[optionsKey] ?? ctx.options[field.ref!] ?? [], [ctx.options, optionsKey, field.ref]);
   const [selected, setSelected] = useState(initial);
   const labelOf = (v: string) => options.find((o) => o.id === v)?.label ?? "";
   const [text, setText] = useState(() => labelOf(initial));
@@ -145,7 +149,7 @@ function RefPicker({ field, id, initial }: { field: Field; id: string; initial: 
     }
   };
 
-  const canCreate = ctx.allowCreate && canQuickCreate(field.ref);
+  const canCreate = ctx.allowCreate && !field.refSubset && canQuickCreate(field.ref);
   const singular = getResource(field.ref!)?.singular.toLowerCase() ?? "record";
 
   return (
@@ -371,6 +375,7 @@ export function RecordForm({
   hide,
   require,
   allowCreate = true,
+  text,
 }: {
   table: string;
   id?: string | null;
@@ -388,6 +393,8 @@ export function RecordForm({
   require?: string[];
   /** "+ New" next to reference fields. */
   allowCreate?: boolean;
+  /** Labels and help that depend on the record (example: "Client" for the organization of a consulting item). */
+  text?: Record<string, FieldText>;
 }) {
   const resource = getResource(table)!;
   const [state, setState] = useState<FormState>(null);
@@ -400,7 +407,9 @@ export function RecordForm({
   const ctx = useMemo<RefCtx>(() => ({ options, allowCreate, add: (t, o) => setAdded((a) => ({ ...a, [t]: [...(a[t] ?? []), o] })) }), [options, allowCreate]);
   const fields = resource.fields
     .filter((f) => !f.hideOnForm && !f.readOnly && (!only || only.includes(f.name)) && !hide?.includes(f.name))
-    .map((f) => (require?.includes(f.name) ? { ...f, required: true } : f));
+    .map((f) => (require?.includes(f.name) ? { ...f, required: true } : f))
+    .map((f) => (text?.[f.name] ? { ...f, label: text[f.name].label ?? f.label, help: text[f.name].help ?? f.help } : f));
+  const suggestType = table === "pipeline_items" && fields.some((f) => f.name === "deal_source_type") && fields.some((f) => f.name === "source_contact_id");
   return (
     <RefContext.Provider value={ctx}>
       <GuardedForm action={(fd: FormData) => saveRecord(null, fd)} onResult={(r) => setState(r as FormState)} leaveTo className="flex flex-col gap-4">
@@ -425,7 +434,14 @@ export function RecordForm({
         ) : null}
         <FieldGrid>
           {fields.map((f) => (
-            <FormField key={f.name} label={f.label} htmlFor={`f_${f.name}`} required={f.required} help={f.help} wide={["textarea", "actions", "multiselect"].includes(f.type)}>
+            <FormField
+              key={f.name}
+              label={f.label}
+              htmlFor={`f_${f.name}`}
+              required={f.required}
+              help={suggestType && f.name === "deal_source_type" ? <DealSourceHint initialContact={initial.source_contact_id ?? ""} fallback={f.help} /> : f.help}
+              wide={["textarea", "actions", "multiselect"].includes(f.type)}
+            >
               <input type="hidden" name={`${f.name}__present`} value="1" />
               <FieldInput field={f} value={initial[f.name]} />
             </FormField>
@@ -456,5 +472,58 @@ export function RecordForm({
         </div>
       </GuardedForm>
     </RefContext.Provider>
+  );
+}
+
+type ContactOption = RefOption & { extra?: Row };
+
+/**
+ * Under "Deal source": the suggested type for the "Deal came from" contact (Brokered when that contact is a broker,
+ * otherwise Proprietary), with a button to use it. Never changes a value the owner chose.
+ */
+function DealSourceHint({ initialContact, fallback }: { initialContact: string; fallback?: string }) {
+  const ctx = useContext(RefContext);
+  const anchor = useRef<HTMLSpanElement>(null);
+  const [contactId, setContactId] = useState(initialContact);
+  const [current, setCurrent] = useState<string>("");
+  useEffect(() => {
+    const form = anchor.current?.closest("form");
+    if (!form) return;
+    const read = () => {
+      const c = form.elements.namedItem("source_contact_id") as HTMLInputElement | null;
+      const t = form.elements.namedItem("deal_source_type") as HTMLSelectElement | null;
+      setContactId(c?.value ?? "");
+      setCurrent(t?.value ?? "");
+    };
+    read();
+    form.addEventListener("change", read);
+    form.addEventListener("input", read);
+    return () => {
+      form.removeEventListener("change", read);
+      form.removeEventListener("input", read);
+    };
+  }, []);
+  const contact = (ctx.options.contacts ?? []).find((o) => o.id === contactId) as ContactOption | undefined;
+  const org = contact?.extra?.organization_id ? ((ctx.options.organizations ?? []).find((o) => o.id === contact.extra?.organization_id) as ContactOption | undefined) : undefined;
+  const suggestion = contact ? suggestDealSourceType({ roles: contact.extra?.roles, organizationKind: org?.extra?.kind }) : null;
+  const label = DEAL_SOURCE_OPTIONS.find((o) => o.value === suggestion)?.label.split(" (")[0];
+  const use = () => {
+    const form = anchor.current?.closest("form");
+    const t = form?.elements.namedItem("deal_source_type") as HTMLSelectElement | null;
+    if (!t || !suggestion) return;
+    t.value = suggestion;
+    t.dispatchEvent(new Event("change", { bubbles: true }));
+  };
+  if (!suggestion || !contact) return <span ref={anchor}>{fallback ?? "Choose \"Deal came from\" to see a suggestion."}</span>;
+  const why = suggestion === "brokered" ? `${contact.label} is marked as a broker` : `${contact.label} is not marked as a broker`;
+  return (
+    <span ref={anchor} data-testid="deal-source-suggestion">
+      Suggested: {label} ({why}).{" "}
+      {current === suggestion ? null : (
+        <button type="button" onClick={use} className="font-medium text-teal-800 underline">
+          Use {label}
+        </button>
+      )}
+    </span>
   );
 }

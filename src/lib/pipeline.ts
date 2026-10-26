@@ -152,7 +152,7 @@ export async function loadDealTypes(sb: SupabaseClient, ownerId?: string): Promi
   return Object.fromEntries(((data ?? []) as Row[]).map((r) => [r.id, r.deal_source_type]));
 }
 
-export const DETAIL_TABLE: Record<string, string> = { acquisition: "deal_financials", job: "job_details", investor: "investor_details" };
+export const DETAIL_TABLE: Record<string, string> = { acquisition: "deal_financials", job: "job_details", investor: "investor_details", consulting: "consulting_details" };
 
 /**
  * Details missing before the item can enter the stage. Empty when nothing is missing,

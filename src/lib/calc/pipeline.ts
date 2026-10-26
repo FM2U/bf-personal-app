@@ -13,7 +13,7 @@ export type RequiredFieldDef = {
   key: string;
   label: string;
   /** Where the value is stored: the item itself, or its detail record. */
-  table: "pipeline_items" | "deal_financials" | "job_details" | "investor_details";
+  table: "pipeline_items" | "deal_financials" | "job_details" | "investor_details" | "consulting_details";
   /** Pipeline kinds the field applies to. Empty = every pipeline. */
   kinds: string[];
 };
@@ -29,6 +29,9 @@ export const REQUIRED_FIELD_DEFS: RequiredFieldDef[] = [
   { key: "bonus", label: "Bonus", table: "job_details", kinds: ["job"] },
   { key: "amount_discussed", label: "Amount discussed", table: "investor_details", kinds: ["investor"] },
   { key: "amount_committed", label: "Amount committed", table: "investor_details", kinds: ["investor"] },
+  { key: "rate_type", label: "Rate type (hourly, project, or monthly retainer)", table: "consulting_details", kinds: ["consulting"] },
+  { key: "rate", label: "Rate", table: "consulting_details", kinds: ["consulting"] },
+  { key: "start_date", label: "Start date", table: "consulting_details", kinds: ["consulting"] },
   { key: "primary_contact_id", label: "Main contact", table: "pipeline_items", kinds: [] },
   { key: "organization_id", label: "Organization", table: "pipeline_items", kinds: [] },
 ];

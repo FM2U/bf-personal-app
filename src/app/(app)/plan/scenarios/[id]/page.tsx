@@ -41,6 +41,7 @@ export default async function ScenarioPage({ params }: { params: Promise<{ id: s
     one_time_month: 0,
   };
   const jva = sc.jobVsAcquisition;
+  const bridge = sc.bridge;
   const showJva = scenario.kind === "job_vs_acquisition";
   const cashData = mergeSeries([{ key: "current", result: current.result }, { key: "scenario", result: sc.result }], "cash");
   const nwData = mergeSeries([{ key: "current", result: current.result }, { key: "scenario", result: sc.result }], "netWorth");
@@ -124,6 +125,55 @@ export default async function ScenarioPage({ params }: { params: Promise<{ id: s
                       <TD className="tabular text-right">{money(r.acquisitionSalaryCumulative)}</TD>
                       <TD className="tabular text-right">{money(r.acquisitionEquityValue)}</TD>
                       <TD className="tabular text-right">{money(r.acquisitionTotal)}</TD>
+                      <TD className={`tabular text-right ${r.difference < 0 ? "text-red-700" : "text-emerald-700"}`}>{money(r.difference)}</TD>
+                    </TR>
+                  ))}
+                </TBody>
+              </Table>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Bridge: job vs acquisition search with consulting income</CardTitle>
+              <CardDescription>
+                The job, compared with an acquisition search that pays no salary for {bridge.searchMonths} months (Months allowed for the acquisition search), plus consulting income of {money(bridge.consultingMonthly)} per month for {bridge.consultingMonths} months, then the acquisition salary and equity value. Take-home amounts after the effective tax rate.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              {bridge.missing.length ? <Notice tone="warn">Set these numbers (below or in Inputs) to complete the comparison: {bridge.missing.map((k) => inputs.find((i: Row) => i.key === k)?.label ?? k).join(", ")}.</Notice> : null}
+              {!bridge.consultingMonthly ? <Notice>Consulting income is 0. Set &quot;Consulting: monthly income&quot; below or in Inputs to see the bridge.</Notice> : null}
+              <LineSeriesChart
+                data={bridge.rows.map((r) => ({ year: `Year ${r.year}`, job: r.jobCumulative, bridge: r.bridgeTotal, without: r.withoutConsultingTotal }))}
+                xKey="year"
+                series={[
+                  { key: "job", label: "Job: cumulative take-home pay", color: "#64748b" },
+                  { key: "bridge", label: "Search with consulting, then acquisition", color: "#0f766e" },
+                  { key: "without", label: "Search without consulting, then acquisition", color: "#5eead4" },
+                ]}
+              />
+              <p className="text-sm">{bridge.crossoverYear ? `The bridge path is ahead from year ${bridge.crossoverYear}.` : "The bridge path does not pass the job path within the years compared."}</p>
+              <p className="text-xs text-muted-foreground">Salary = acquisition salary after the search. Equity = equity value. Total = consulting plus salary plus equity. All cumulative.</p>
+              <Table>
+                <THead>
+                  <TR className="hover:bg-transparent">
+                    <TH>Year</TH>
+                    <TH className="text-right">Job</TH>
+                    <TH className="text-right">Consulting</TH>
+                    <TH className="text-right">Salary</TH>
+                    <TH className="text-right">Equity</TH>
+                    <TH className="text-right">Total</TH>
+                    <TH className="text-right">Difference</TH>
+                  </TR>
+                </THead>
+                <TBody>
+                  {bridge.rows.map((r) => (
+                    <TR key={r.year}>
+                      <TD>{r.year}</TD>
+                      <TD className="tabular text-right">{money(r.jobCumulative)}</TD>
+                      <TD className="tabular text-right">{money(r.consultingCumulative)}</TD>
+                      <TD className="tabular text-right">{money(r.acquisitionSalaryCumulative)}</TD>
+                      <TD className="tabular text-right">{money(r.acquisitionEquityValue)}</TD>
+                      <TD className="tabular text-right">{money(r.bridgeTotal)}</TD>
                       <TD className={`tabular text-right ${r.difference < 0 ? "text-red-700" : "text-emerald-700"}`}>{money(r.difference)}</TD>
                     </TR>
                   ))}

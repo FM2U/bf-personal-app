@@ -69,9 +69,9 @@ export default async function RecordPage({ params, searchParams }: { params: Pro
             </CardHeader>
             <CardContent>
               {editing ? (
-                <RecordForm table={table} id={id} initial={row} refOptions={refOptions} cancelHref="?" showSaveRule={table === "transactions"} hide={rules.hide} require={rules.require} />
+                <RecordForm table={table} id={id} initial={row} refOptions={refOptions} cancelHref="?" showSaveRule={table === "transactions"} hide={rules.hide} require={rules.require} text={rules.text} />
               ) : (
-                <DetailGrid cols={2} items={r.fields.filter((f) => !rules.hide.includes(f.name)).map((f) => ({ label: f.label, value: <FieldValue field={f} value={row[f.name]} labels={labels} /> }))} />
+                <DetailGrid cols={2} items={r.fields.filter((f) => !rules.hide.includes(f.name)).map((f) => ({ label: rules.text[f.name]?.label ?? f.label, value: <FieldValue field={f} value={row[f.name]} labels={labels} /> }))} />
               )}
             </CardContent>
           </Card>

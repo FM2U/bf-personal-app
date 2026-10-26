@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 /**
  * Grid of form fields. Each field takes three rows of the grid (label, input, help), shared across the row,
  * so labels sit directly above their inputs (6px) and inputs stay aligned when a label in the row wraps.
- * Labels are held to 2 lines. Space between one field and the next label: 16px.
+ * Labels are held to 2 lines, help text to 3 lines. Space between one field and the next label: 16px.
  */
 export function FieldGrid({ cols = 2, className, children }: { cols?: 1 | 2 | 3; className?: string; children: React.ReactNode }) {
   return (
@@ -39,7 +39,7 @@ export function FormField({
         </span>
       </label>
       <div className="min-w-0">{children}</div>
-      <div className="pb-4">{help ? <p className="clamp-2 mt-1 text-xs text-muted-foreground">{help}</p> : null}</div>
+      <div className="pb-4">{help ? <p className="clamp-3 mt-1 text-xs text-muted-foreground">{help}</p> : null}</div>
     </div>
   );
 }

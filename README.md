@@ -12,7 +12,7 @@ Built from `docs/` in the project: Architecture v2 and the Decisions Log (both a
 | Home | Number tiles (Productivity: tasks done, targets met, pipeline actions due; Accountability: commitment score, days in a row, open misses, next review), runway vs. target, today's plan and tasks, meetings, overdue items, alerts, this month's spending vs. budget |
 | Plan | Initiatives, goals, milestones, decision conditions, Inputs and Assumptions, scenarios (incl. job vs. acquisition), decisions log |
 | Finance | Accounts (Personal or Cyan Arc LLC) and transfers, expenses with categories and recurring charges, CSV import, budget, debt payoff (avalanche and snowball), funding and repayments, income received, savings and financial security |
-| Opportunities | One pipeline system with 5 seeded pipelines; board and list views; stage task lists, stage time limits, required details, stalled items; deal source (proprietary or brokered) on acquisitions, proprietary first; stage history |
+| Opportunities | One pipeline system with 6 seeded pipelines (Acquisitions, Jobs, Rosara Co-founder Search, Rosara Investor Outreach, Other Income Opportunities, Consulting); board and list views; stage task lists, stage time limits, required details, stalled items; deal source (proprietary or brokered) and the source chain (Deal came from, Introduced by); consulting engagement terms, expected income, and pipeline value; stage history |
 | People | Contacts, organizations, communication history; follow-up dates create tasks and calendar events; Outreach Queue (contacts due for a message, Log outreach, Draft message) |
 | Productivity | Today's plan with daily target counters, task lists, recurring task templates, calendar time blocks, pipeline next actions |
 | Accountability | Commitments, Daily Targets, missed-commitment flow, daily/weekly/monthly/quarterly reviews, completion scores, accountability partners and reports |
@@ -52,6 +52,22 @@ Built from `docs/` in the project: Architecture v2 and the Decisions Log (both a
 - **Released commitments:** when 0010 runs, open or missed commitments on tasks that are now regular tasks are marked "released" (kept, not counted in scores, reviews, or partner reports). Scores show "No commitments" when nothing was due.
 - **Applied once per owner** (`owner_profile.commitment_rule_applied_at`), so later changes in Settings are kept when the update runs again.
 - **Before the update is applied,** nothing moves to the next day, the grouped alerts still work, and every screen and both scheduled jobs keep working.
+
+### Deal source chain and Consulting (database update 0011)
+
+- **Source chain:** "Deal came from" (`source_contact_id`: who handed you the deal directly: broker, owner, or a friend who knows the owner) and "Introduced by" (`introduced_by_contact_id`: the person in your network who started the chain). Middle steps go in Source notes. Consulting items show the same two fields ("Lead came from", "Introduced by").
+- **Deal type suggestion:** under Deal source, the form suggests Brokered when the "Deal came from" contact has the Broker role (or works at an organization of kind broker), otherwise Proprietary, with a "Use" button. It never changes a value you chose (`src/lib/calc/source-chain.ts`).
+- **Credit to your network:** contact pages show "Deals from this contact" (deals and consulting leads where the contact is "Deal came from" or "Introduced by", each item once). The Outreach Queue shows "Introduced N deals" and, within the same due status, lists those contacts first. Weekly and monthly reviews list the top 5 contacts by deals introduced.
+- **Organization label per pipeline kind** (`src/lib/pipeline-labels.ts`): Company being acquired, Employer, Current company, Investor firm, Organization, Client.
+- **Consulting pipeline:** initiative and pipeline "Consulting" (kind `consulting`), with stage task lists, time limits, required details (Proposal sent: rate type and rate; Signed: rate type, rate, start date; Active: start date), and a chance per stage (10, 20, 30, 50, 70, 100, 100%). Signed and Active are marked "Signed work" (`pipeline_stages.counts_as_signed`).
+- **Engagement terms** (`consulting_details`): rate type (hourly, project, monthly retainer), rate, expected hours per month, project months, start and end dates, probability (empty = stage default). `rate` is the price for the rate type: per hour, the whole project fee, or per month. Expected monthly income is calculated, never typed: hourly = rate x hours; retainer = rate; project = fee / project months (empty: months from start to end date). Pipeline value = sum over open items of expected monthly income x probability (`src/lib/calc/consulting.ts`).
+- **Payments:** a transaction (money in) can be linked to a consulting engagement (`transactions.pipeline_item_id`). The item page shows payments, total, and last payment date. Finance, Income Received shows consulting income this month and last month, signed work per month, pipeline value, and each engagement. Consulting income = money in linked to an engagement or assigned to a consulting income source.
+- **Runway:** input `runway_include_signed_consulting` (0 by default). At 1, expected monthly income from Signed and Active items between their start and end dates is added to income in the runway formula. The runway card says which mode is in use. Payments already received are also in average income, so a paid retainer can count twice while the setting is on.
+- **Scenarios:** inputs `consulting_monthly_income` (0) and `consulting_months` (12) add consulting income to the monthly cash projection. The Bridge comparison on each scenario page: job vs acquisition search with consulting (no salary for `acquisition_search_months_allowed` months, consulting income for `consulting_months`, then the acquisition salary and equity value).
+- **Outreach:** contacts can be marked "Consulting lead" (badge in the Outreach Queue). Outreach purpose `consulting`. Draft message for a consulting lead writes a short note that Bram has time for consulting work.
+- **Reviews:** weekly and monthly reviews show signed or active engagements, consulting income received in the period, pipeline value, and open items by stage.
+- **No consulting daily target** (can be added on the Targets tab later).
+- **Before the update is applied,** consulting features show "Database update needed" naming `supabase/UPDATE_0011_RUN_ONCE.sql`; every existing screen and both scheduled jobs keep working.
 
 ### Shared form and card rules (UI)
 
@@ -94,10 +110,11 @@ docs/                 SETUP-CHECKLIST.md and screenshots
 
 Exact values to paste are in `docs/SETUP-CHECKLIST.md`. Summary:
 
-1. **Supabase:** create a project. In SQL Editor, paste and run `supabase/ALL_MIGRATIONS_RUN_ONCE.sql` (0001 to 0010),
+1. **Supabase:** create a project. In SQL Editor, paste and run `supabase/ALL_MIGRATIONS_RUN_ONCE.sql` (0001 to 0011),
    or run each file in `supabase/migrations/` in number order. Or with the Supabase CLI: `supabase link` then `supabase db push`.
-   **Existing database (already has 0001 to 0007, 0001 to 0008, or 0001 to 0009):** paste and run `supabase/UPDATE_RUN_ONCE.sql` once.
-   It holds 0008, 0009, and 0010 and is safe to run twice. (`supabase/UPDATE_0008_RUN_ONCE.sql` is kept for reference only.)
+   **Live database (has 0001 to 0010):** paste and run `supabase/UPDATE_0011_RUN_ONCE.sql` once (safe to run twice).
+   **Older database (0001 to 0007, 0008, or 0009):** paste and run `supabase/UPDATE_RUN_ONCE.sql` once.
+   It holds 0008 to 0011 and is safe to run twice. (`supabase/UPDATE_0008_RUN_ONCE.sql` is kept for reference only.)
    After changing a migration, regenerate the combined files with `python3 supabase/build_combined.py`.
    In Authentication, turn on "Allow new users to sign up" only until you create your account, then turn it off.
    In Authentication, Multi-Factor, make sure TOTP is enabled.
@@ -130,8 +147,8 @@ npm run lint
 npm run typecheck
 npm run build
 bash supabase/tests/run_local.sh      # applies all migrations to a local Postgres and runs a smoke test
-bash supabase/tests/upgrade_test.sh   # UPDATE_RUN_ONCE on 0001-0007 (run twice), 0001-0008, and 0001-0009 (run twice), with an existing owner
-bash dev-tools/setup-local-db.sh      # local database with demo data (UP_TO=0007 for the database before the update)
+bash supabase/tests/upgrade_test.sh   # UPDATE_RUN_ONCE on 0001-0007 (twice), 0001-0008, 0001-0009 (twice); UPDATE_0011_RUN_ONCE on 0001-0010 (twice); existing owner
+bash dev-tools/setup-local-db.sh      # local database with demo data (UP_TO=0010 for the live database before update 0011)
 bash dev-tools/start-local.sh         # mock Supabase API + the built app on http://localhost:3000
 NODE_PATH=$(npm root -g) node dev-tools/check-pages.cjs   # renders every screen, saves screenshots
 NODE_PATH=$(npm root -g) node dev-tools/check-flows.cjs   # clicks through the main workflows

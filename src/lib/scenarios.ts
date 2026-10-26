@@ -1,6 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { jobVsAcquisition, projectScenario, type Baseline } from "@/lib/calc/scenario";
+import { bridgeComparison, jobVsAcquisition, projectScenario, type Baseline } from "@/lib/calc/scenario";
 import type { FinanceSnapshot } from "@/lib/finance";
 import type { Row } from "@/lib/types";
 
@@ -31,5 +31,6 @@ export async function loadScenario(sb: SupabaseClient, id: string): Promise<{ sc
 export function runScenario(base: Baseline, overrides: Record<string, number>, horizon: number) {
   const result = projectScenario(base, overrides, horizon);
   const jva = jobVsAcquisition({ ...base.inputs, ...overrides });
-  return { result, jobVsAcquisition: jva };
+  const bridge = bridgeComparison({ ...base.inputs, ...overrides });
+  return { result, jobVsAcquisition: jva, bridge };
 }

@@ -40,7 +40,13 @@ import { setOutreachOutcome } from "@/app/actions/targets";
 import { LogOutreachButton } from "@/components/app/outreach-actions";
 import { DbUpdateNotice, TargetDayGrid, TargetLegend, TargetWeekGrid } from "@/components/app/target-grid";
 import type { Row } from "@/lib/types";
-import { loadPipelineStatus, missingForStage, hasPipelineUpdate } from "@/lib/pipeline";
+import { DETAIL_TABLE, loadPipelineStatus, missingForStage, hasPipelineUpdate } from "@/lib/pipeline";
+import { effectiveProbability, expectedIncomeGap, expectedMonthlyIncome, paymentSummary, RATE_TYPE_LABELS, type RateType } from "@/lib/calc/consulting";
+import { creditByContact, introducedNote } from "@/lib/calc/source-chain";
+import { fieldTextForKind } from "@/lib/pipeline-labels";
+import { DB_UPDATE_FILE_0011 } from "@/lib/schema-guard";
+import { hasConsultingUpdate } from "@/lib/consulting";
+import { fetchAll } from "@/lib/data";
 import { DealSourceBadge, ItemStatusBadges } from "@/components/app/pipeline-badges";
 import { TaskList } from "@/components/app/task-list";
 import { logDealActivity } from "@/app/actions/pipeline";
@@ -76,7 +82,12 @@ export async function ExtraPanels(p: P) {
     case "goals":
       return <GoalProgress {...p} />;
     case "contacts":
-      return <ContactOutreachPanel {...p} />;
+      return (
+        <>
+          <ContactCreditPanel {...p} />
+          <ContactOutreachPanel {...p} />
+        </>
+      );
     case "targets":
       return <TargetHistoryPanel {...p} />;
     default:
@@ -250,20 +261,39 @@ async function PipelineItemPanels({ sb, ownerId, row, refOptions, today }: P) {
   const { data: stageTasksData } = await sb.from("tasks").select("*").eq("pipeline_item_id", row.id).like("source_key", `stage-task:${row.id}:%`).order("due_date");
   const stageTasks = ((stageTasksData ?? []) as Row[]).filter((t) => t.status !== "skipped");
   const isAcq = pipe?.kind === "acquisition";
+  const isConsulting = pipe?.kind === "consulting";
   const stageName = Object.fromEntries(stageList.map((s) => [s.id, s.name]));
-  const detailTable = pipe?.kind === "acquisition" ? "deal_financials" : pipe?.kind === "job" ? "job_details" : pipe?.kind === "investor" ? "investor_details" : null;
+  const detailTable = DETAIL_TABLE[String(pipe?.kind ?? "")] ?? null;
   let detail: Row | null = null;
   if (detailTable) {
     const view = detailTable === "deal_financials" ? "deal_financials_calculated" : detailTable;
     detail = ((await sb.from(view).select("*").eq("item_id", row.id).maybeSingle()).data as Row | null) ?? null;
+    // An item created before its details row existed (example: right after update 0011) gets one now.
+    if (!detail && detailTable === "consulting_details" && (await hasConsultingUpdate(sb))) {
+      detail = ((await sb.from("consulting_details").insert({ owner_id: ownerId, item_id: row.id }).select("*").maybeSingle()).data as Row | null) ?? null;
+    }
   }
+  const text = fieldTextForKind(pipe?.kind);
   const scenarios = refOptions.scenarios ?? ((await sb.from("scenarios").select("id,name")).data ?? []).map((s: Row) => ({ id: s.id, label: s.name }));
   const limitText = !st?.limit
     ? "No time limit for this stage"
     : st.limit.limit === null
       ? `${st.limit.daysInStage} days. No time limit for this stage`
       : `Day ${st.limit.daysInStage} of ${st.limit.limit}${st.limit.extensionDays ? ` (stage limit ${current?.max_days_in_stage} plus ${st.limit.extensionDays} extension days)` : ""}`;
-  const sourceContact = row.source_contact_id ? ((await sb.from("contacts").select("id,name").eq("id", row.source_contact_id).maybeSingle()).data as Row | null) : null;
+  const chainIds = [row.source_contact_id, row.introduced_by_contact_id].filter(Boolean) as string[];
+  const chainContacts = chainIds.length ? (((await sb.from("contacts").select("id,name").in("id", chainIds)).data ?? []) as Row[]) : [];
+  const contactLink = (id: string | null | undefined) => {
+    const c = chainContacts.find((x) => x.id === id);
+    return c ? (
+      <Link href={recordHref("contacts", c.id)} className="hover:underline">
+        {c.name}
+      </Link>
+    ) : (
+      "None"
+    );
+  };
+  const showChain = isAcq || isConsulting;
+  const introducedAvailable = row.introduced_by_contact_id !== undefined;
   return (
     <>
       <Card>
@@ -308,9 +338,12 @@ async function PipelineItemPanels({ sb, ownerId, row, refOptions, today }: P) {
                 value: !nextStage || row.status !== "open" ? "No later stage" : nextMissing.length ? <span className="font-medium text-amber-800">{nextMissing.map((m) => m.label).join(", ")}</span> : "Nothing missing",
               },
               ...(isAcq
+                ? [{ label: "Deal source", value: row.deal_source_type ? <DealSourceBadge type={row.deal_source_type} /> : status.available ? <Link href="?edit=1" className="text-amber-700 underline">Not set</Link> : "Not available yet" }]
+                : []),
+              ...(showChain
                 ? [
-                    { label: "Deal source", value: row.deal_source_type ? <DealSourceBadge type={row.deal_source_type} /> : status.available ? <Link href="?edit=1" className="text-amber-700 underline">Not set</Link> : "Not available yet" },
-                    { label: "Broker or referral person", value: sourceContact ? <Link href={recordHref("contacts", sourceContact.id)} className="hover:underline">{sourceContact.name}</Link> : "None" },
+                    { label: text.source_contact_id?.label ?? "Deal came from", value: contactLink(row.source_contact_id) },
+                    { label: "Introduced by", value: introducedAvailable ? contactLink(row.introduced_by_contact_id) : "Not available yet" },
                   ]
                 : []),
             ]}
@@ -369,7 +402,10 @@ async function PipelineItemPanels({ sb, ownerId, row, refOptions, today }: P) {
         </CardContent>
         <CardNote>The date the item entered each stage is recorded, so the app shows how long each stage takes.</CardNote>
       </Card>
-      {detailTable && detail ? (
+      {detailTable === "consulting_details" ? (
+        detail ? <ConsultingTermsPanel sb={sb} row={row} detail={detail} stage={current ?? null} /> : <Card id="item-details"><CardContent className="pt-5"><DbUpdateNotice compact file={DB_UPDATE_FILE_0011} /></CardContent></Card>
+      ) : null}
+      {detailTable && detailTable !== "consulting_details" && detail ? (
         <Card id="item-details">
           <CardHeader>
             <CardTitle>{detailTable === "deal_financials" ? "Deal financials and your equity terms" : detailTable === "job_details" ? "Compensation" : "Investment amounts"}</CardTitle>
@@ -405,6 +441,78 @@ async function PipelineItemPanels({ sb, ownerId, row, refOptions, today }: P) {
         </Card>
       ) : null}
       {detailTable === "deal_financials" ? <DiligenceList sb={sb} itemId={row.id} /> : null}
+    </>
+  );
+}
+
+/** Consulting item: engagement terms (rate type, rate, hours, dates, probability), calculated income, and payments received. */
+async function ConsultingTermsPanel({ sb, row, detail, stage }: { sb: SupabaseClient; row: Row; detail: Row; stage: Row | null }) {
+  const expected = expectedMonthlyIncome(detail);
+  const gap = expectedIncomeGap(detail);
+  const prob = effectiveProbability(detail.probability_pct, stage?.default_probability_pct);
+  const probSource = detail.probability_pct !== null && detail.probability_pct !== undefined ? "Set on this item" : stage?.default_probability_pct !== null && stage?.default_probability_pct !== undefined ? `Stage default (${stage?.name})` : "No default for this stage";
+  let payments: Row[] = [];
+  try {
+    payments = await fetchAll((a, b) => sb.from("transactions").select("id,date,amount,description,merchant_name").eq("pipeline_item_id", row.id).order("date", { ascending: false }).range(a, b));
+  } catch {
+    payments = [];
+  }
+  const paid = paymentSummary(payments.map((p) => ({ date: p.date, amount: p.amount })));
+  return (
+    <>
+      <Card id="item-details">
+        <CardHeader>
+          <CardTitle>Engagement terms</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <StatGrid className="sm:grid-cols-3">
+            <Stat label="Expected monthly income (calculated)" value={expected === null ? "Not calculated" : money(expected)} hint={gap ?? (detail.rate_type ? RATE_TYPE_LABELS[detail.rate_type as RateType] : undefined)} tone={expected === null ? "warn" : undefined} />
+            <Stat label="Probability it becomes paid work" value={`${prob}%`} hint={probSource} />
+            <Stat label="Weighted monthly value" value={expected === null ? "Not calculated" : money(Math.round(expected * prob) / 100)} hint="Expected monthly income x probability" />
+          </StatGrid>
+          <RecordForm
+            table="consulting_details"
+            id={detail.id}
+            initial={detail}
+            refOptions={{ pipeline_items: [{ id: row.id, label: row.name }] }}
+            redirectTo={recordHref("pipeline_items", row.id)}
+            only={["rate_type", "rate", "expected_hours_per_month", "project_months", "start_date", "end_date", "probability_pct", "scope_notes"]}
+            submitLabel="Save terms"
+          />
+        </CardContent>
+        <CardNote>Hourly: rate x hours per month. Monthly retainer: the rate. Project: the fee divided by the project months (or the months from start to end date).</CardNote>
+      </Card>
+      <Card>
+        <CardHeader className="flex-row flex-wrap items-start justify-between gap-2">
+          <CardTitle>Payments received</CardTitle>
+          <Button asChild size="sm" variant="outline">
+            <Link href={`/records/transactions/new?pipeline_item_id=${row.id}&description=${encodeURIComponent(`Payment: ${row.name}`)}`}>Record a payment</Link>
+          </Button>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <StatGrid className="sm:grid-cols-3">
+            <Stat label="Payments" value={paid.count} />
+            <Stat label="Total received" value={money(paid.total)} tone={paid.total ? "good" : undefined} />
+            <Stat label="Last payment" value={paid.lastDate ? fmtDate(paid.lastDate) : "None yet"} />
+          </StatGrid>
+          {payments.length ? (
+            <ul className="flex flex-col divide-y divide-slate-100">
+              {payments.slice(0, 12).map((t) => (
+                <li key={t.id} className="grid grid-cols-[6rem_minmax(0,1fr)_auto] items-center gap-2 py-1.5 text-sm">
+                  <span className="tabular text-xs text-muted-foreground">{fmtDate(t.date, "MMM d, yyyy")}</span>
+                  <Link href={recordHref("transactions", t.id)} className="clamp-1 hover:underline">
+                    {t.merchant_name || t.description}
+                  </Link>
+                  <span className={`tabular ${Number(t.amount) > 0 ? "text-emerald-700" : "text-slate-700"}`}>{money(t.amount, true)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted-foreground">No payments linked yet. Open a transaction (money in) and choose this item as its consulting engagement, or press Record a payment.</p>
+          )}
+        </CardContent>
+        <CardNote>Money received linked to this engagement (Finance, Income Received).</CardNote>
+      </Card>
     </>
   );
 }
@@ -747,6 +855,68 @@ async function PartnerLinksPanel({ sb, row }: P) {
   );
 }
 
+/** Contact page: deals and consulting leads this contact handed over ("Deal came from") or started ("Introduced by"). */
+async function ContactCreditPanel({ sb, row }: P) {
+  const [from, intro, pipes, stages] = await Promise.all([
+    sb.from("pipeline_items").select("*").eq("source_contact_id", row.id),
+    sb.from("pipeline_items").select("*").eq("introduced_by_contact_id", row.id),
+    sb.from("pipelines").select("id,name,kind"),
+    sb.from("pipeline_stages").select("id,name"),
+  ]);
+  const available = !(intro.error && isMissingSchemaError(intro.error));
+  const kindOf = Object.fromEntries(((pipes.data ?? []) as Row[]).map((p) => [p.id, p.kind]));
+  const pipeName = Object.fromEntries(((pipes.data ?? []) as Row[]).map((p) => [p.id, p.name]));
+  const stageName = Object.fromEntries(((stages.data ?? []) as Row[]).map((st) => [st.id, st.name]));
+  const byId = new Map<string, Row>();
+  for (const it of [...((from.data ?? []) as Row[]), ...(available ? ((intro.data ?? []) as Row[]) : [])]) byId.set(it.id, it);
+  const items = [...byId.values()].filter((i) => ["acquisition", "consulting"].includes(kindOf[i.pipeline_id]));
+  const credit = creditByContact(items.map((i) => ({ id: i.id, kind: kindOf[i.pipeline_id], source_contact_id: i.source_contact_id, introduced_by_contact_id: i.introduced_by_contact_id })))[row.id] ?? {
+    deals: 0,
+    dealsCameFrom: 0,
+    dealsIntroduced: 0,
+    consultingLeads: 0,
+  };
+  const role = (i: Row) =>
+    [i.source_contact_id === row.id ? (kindOf[i.pipeline_id] === "consulting" ? "Lead came from" : "Deal came from") : null, i.introduced_by_contact_id === row.id ? "Introduced by" : null].filter(Boolean).join(", ");
+  return (
+    <Card id="deal-credit">
+      <CardHeader>
+        <CardTitle className="flex flex-wrap items-center gap-2">
+          Deals from this contact
+          {introducedNote(credit) ? <Badge variant="success">{introducedNote(credit)}</Badge> : null}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        {!available ? <DbUpdateNotice compact file={DB_UPDATE_FILE_0011} /> : null}
+        <StatGrid className="sm:grid-cols-4">
+          <Stat label="Deals (came from or introduced)" value={credit.deals} tone={credit.deals ? "good" : undefined} />
+          <Stat label="Deals: came from this contact" value={credit.dealsCameFrom} />
+          <Stat label="Deals: introduced by this contact" value={available ? credit.dealsIntroduced : "Not yet"} />
+          <Stat label="Consulting leads" value={available ? credit.consultingLeads : "Not yet"} />
+        </StatGrid>
+        {items.length ? (
+          <ul className="flex flex-col divide-y divide-slate-100">
+            {items.map((i) => (
+              <li key={i.id} className="grid grid-cols-1 gap-1 py-2 text-sm sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)] sm:items-center sm:gap-3">
+                <Link href={recordHref("pipeline_items", i.id)} className="clamp-1 font-medium hover:underline">
+                  {i.name}
+                </Link>
+                <span className="clamp-1 text-slate-700">
+                  {pipeName[i.pipeline_id]}: {stageName[i.stage_id] ?? "No stage"}
+                </span>
+                <span className="clamp-1 text-xs text-muted-foreground">{role(i)}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-muted-foreground">No deals or consulting leads list this contact yet.</p>
+        )}
+      </CardContent>
+      <CardNote>Counts acquisition deals and consulting leads where this contact is &quot;Deal came from&quot; (or &quot;Lead came from&quot;) or &quot;Introduced by&quot;. Each item counts once.</CardNote>
+    </Card>
+  );
+}
+
 /** Contact page: relationship group, outreach frequency, last contact, next due date, and outreach history with outcomes. */
 async function ContactOutreachPanel({ sb, ownerId, row, today }: P) {
   const back = `/records/contacts/${row.id}`;
@@ -777,6 +947,7 @@ async function ContactOutreachPanel({ sb, ownerId, row, today }: P) {
         <CardTitle className="flex flex-wrap items-center gap-2">
           Outreach
           {row.is_deal_source ? <Badge variant="success">Deal source</Badge> : null}
+          {row.is_consulting_lead ? <Badge variant="default">Consulting lead</Badge> : null}
         </CardTitle>
         <CardDescription>The last contact date comes from the latest communication. Set the relationship group, and whether this person can refer off-market deals, with Edit.</CardDescription>
       </CardHeader>
@@ -792,7 +963,13 @@ async function ContactOutreachPanel({ sb, ownerId, row, today }: P) {
             hint={status.due && status.daysOverdue ? `${status.daysOverdue} days overdue` : undefined}
           />
         </StatGrid>
-        <LogOutreachButton contactId={row.id} back={back} purposeAvailable={row.is_deal_source !== undefined} defaultPurpose={row.is_deal_source ? "deal_sourcing" : "general"} />
+        <LogOutreachButton
+          contactId={row.id}
+          back={back}
+          purposeAvailable={row.is_deal_source !== undefined}
+          consultingAvailable={row.is_consulting_lead !== undefined}
+          defaultPurpose={row.is_consulting_lead ? "consulting" : row.is_deal_source ? "deal_sourcing" : "general"}
+        />
         <div>
           <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Outreach history and outcomes</p>
           {outreach.length ? (

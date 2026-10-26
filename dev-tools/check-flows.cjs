@@ -427,6 +427,88 @@ const expectText = async (page, text) => {
     await expectText(page, "Call the owner about the CIM");
   });
 
+  await step("Consulting: add an item, a move is blocked until rate type and rate are set, then it moves", async () => {
+    await page.goto(`${BASE}/opportunities`);
+    await page.getByRole("link", { name: "Consulting", exact: true }).first().click();
+    await page.waitForURL(/\/opportunities\/[0-9a-f-]{36}/);
+    await expectText(page, "Pipeline value per month");
+    await page.getByRole("link", { name: "Add item" }).click();
+    await page.fill('input[name="name"]', "Flow Consulting Client: strategy project");
+    await page.getByRole("button", { name: "Add pipeline item" }).click();
+    await page.waitForURL(/\/records\/pipeline_items\/[0-9a-f-]{36}$/);
+    await expectText(page, "Engagement terms");
+    await expectText(page, "Research the client and their need");
+    await page.locator('select[name="stage_id"]').selectOption({ label: "4. Proposal sent" });
+    await page.getByRole("button", { name: "Move to stage" }).click();
+    await expectText(page, "Not moved to Proposal sent");
+    await expectText(page, "Rate type");
+    const terms = page.locator("#item-details");
+    await terms.locator('select[name="rate_type"]').selectOption("project");
+    await terms.locator('input[name="rate"]').fill("9000");
+    await terms.locator('input[name="project_months"]').fill("3");
+    await terms.getByRole("button", { name: "Save terms" }).click();
+    await page.waitForLoadState("networkidle");
+    await expectText(page, "$3,000");
+    await page.locator('select[name="stage_id"]').selectOption({ label: "4. Proposal sent" });
+    await page.getByRole("button", { name: "Move to stage" }).click();
+    await page.waitForLoadState("networkidle");
+    await expectText(page, "Follow up on the proposal");
+    await page.screenshot({ path: path.join(OUT, "flow-consulting-item.png"), fullPage: true });
+  });
+
+  await step("Introduced by: credit shows on the contact page", async () => {
+    await page.goto(`${BASE}/opportunities`);
+    await page.getByRole("link", { name: "Open pipeline" }).first().click();
+    await page.getByRole("link", { name: "Demo Sign Shop" }).first().click();
+    await page.waitForURL(/\/records\/pipeline_items\/[0-9a-f-]{36}/);
+    await page.goto(`${page.url().split("?")[0]}?edit=1`);
+    await page.locator("#f_introduced_by_contact_id").fill("riley");
+    await page.locator("[role=option]", { hasText: "Riley Test" }).first().click();
+    await page.getByRole("button", { name: "Save changes" }).click();
+    await page.waitForURL(/\/records\/pipeline_items\/[0-9a-f-]{36}$/);
+    await page.getByRole("link", { name: "Riley Test" }).first().click();
+    await page.waitForURL(/\/records\/contacts\//);
+    await expectText(page, "Introduced 1 deal");
+    await expectText(page, "Demo Sign Shop");
+  });
+
+  await step("Acquisition form suggests the deal type from the Deal came from contact", async () => {
+    await page.goto(`${BASE}/records/pipeline_items/new?pipeline_id=${await (async () => {
+      await page.goto(`${BASE}/opportunities`);
+      await page.getByRole("link", { name: "Open pipeline" }).first().click();
+      await page.waitForURL(/\/opportunities\/[0-9a-f-]{36}/);
+      return page.url().match(/opportunities\/([0-9a-f-]{36})/)[1];
+    })()}`);
+    await page.locator("#f_source_contact_id").fill("alex");
+    await page.locator("[role=option]", { hasText: "Alex Example" }).first().click();
+    await expectText(page, "Suggested: Brokered");
+    await page.getByRole("button", { name: "Use Brokered" }).click();
+    if ((await page.inputValue('select[name="deal_source_type"]')) !== "brokered") throw new Error("suggestion not applied");
+    await page.locator("#f_source_contact_id").fill("pat");
+    await page.locator("[role=option]", { hasText: "Pat Example" }).first().click();
+    await expectText(page, "Suggested: Proprietary");
+    if ((await page.inputValue('select[name="deal_source_type"]')) !== "brokered") throw new Error("the chosen value was changed");
+    await page.goto(`${BASE}/`);
+    const leave = page.getByTestId("unsaved-leave");
+    if (await leave.count()) await leave.click();
+  });
+
+  await step("Runway: counting signed consulting income changes runway and its explanation", async () => {
+    await page.goto(`${BASE}/`);
+    await expectText(page, "Signed consulting income is not counted");
+    const before = await page.evaluate(() => [...document.querySelectorAll("p")].find((e) => e.textContent.trim() === "Runway")?.nextElementSibling?.textContent ?? "");
+    await page.goto(`${BASE}/plan/inputs`);
+    const form = page.locator("form:has(input[aria-label^='Count signed consulting income in runway'])");
+    await form.locator("input[name='value']").fill("1");
+    await form.getByRole("button", { name: "Save" }).click();
+    await page.waitForLoadState("networkidle");
+    await page.goto(`${BASE}/`);
+    await expectText(page, "Signed consulting income is counted");
+    const after = await page.evaluate(() => [...document.querySelectorAll("p")].find((e) => e.textContent.trim() === "Runway")?.nextElementSibling?.textContent ?? "");
+    if (before === after) throw new Error(`runway did not change (${before})`);
+    await page.screenshot({ path: path.join(OUT, "flow-runway-consulting.png"), fullPage: true });
+  });
+
   await browser.close();
   for (const r of results) console.log(r.join(" "));
   if (results.some((r) => r[0] === "FAIL")) process.exit(1);

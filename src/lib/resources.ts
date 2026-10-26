@@ -36,6 +36,8 @@ export type Field = {
   hideOnForm?: boolean;
   readOnly?: boolean;
   default?: string | number | boolean;
+  /** Reference fields: a named subset of the referenced records (example: "consulting" = consulting pipeline items only). */
+  refSubset?: string;
 };
 
 export type Child = { table: string; fk: string; label: string };
@@ -95,10 +97,17 @@ export const PURPOSE_OPTIONS: Option[] = [
   { value: "deal_sourcing", label: "Deal sourcing (asking about off-market deals)" },
   { value: "cim_request", label: "CIM request (on an acquisition item)" },
   { value: "source_contact", label: "Contact with the broker or referral source (on an acquisition item)" },
+  { value: "consulting", label: "Consulting (offering consulting work)" },
 ];
 
-/** pipeline_items fields shown only on acquisition items. */
-export const ACQUISITION_ONLY_FIELDS = ["deal_source_type", "source_contact_id", "source_notes"];
+export const RATE_TYPE_OPTIONS: Option[] = [
+  { value: "hourly", label: "Hourly" },
+  { value: "project", label: "Project (fixed fee)" },
+  { value: "monthly_retainer", label: "Monthly retainer" },
+];
+
+/** pipeline_items fields shown only on acquisition items (see src/lib/pipeline-labels.ts for every kind). */
+export const ACQUISITION_ONLY_FIELDS = ["deal_source_type", "source_notes"];
 
 const R: Resource[] = [
   // Owner and entities
@@ -321,6 +330,7 @@ const R: Resource[] = [
       { name: "merchant_name", label: "Merchant", type: "text" },
       { name: "category_id", label: "Category", type: "ref", ref: "categories" },
       { name: "income_source_id", label: "Income source", type: "ref", ref: "income_sources" },
+      { name: "pipeline_item_id", label: "Consulting engagement (money received)", type: "ref", ref: "pipeline_items", refSubset: "consulting", help: "Links a payment to a consulting item. The item page shows payments received." },
       { name: "is_transfer", label: "Transfer between own accounts", type: "boolean" },
       { name: "source", label: "Source", type: "select", options: o("manual", "csv", "plaid"), default: "manual", readOnly: true },
       { name: "pending", label: "Pending", type: "boolean", readOnly: true },
@@ -694,7 +704,7 @@ const R: Resource[] = [
     fields: [
       { name: "name", label: "Name", type: "text", required: true },
       { name: "initiative_id", label: "Initiative", type: "ref", ref: "initiatives", required: true },
-      { name: "kind", label: "Kind (sets the extra fields on each item)", type: "select", options: o("acquisition", "job", "investor", "cofounder", "other"), required: true },
+      { name: "kind", label: "Kind (sets the extra fields on each item)", type: "select", options: o("acquisition", "job", "investor", "cofounder", "consulting", "other"), required: true },
       { name: "sort_order", label: "Order", type: "number", default: 10 },
       { name: "is_active", label: "Active", type: "boolean", default: true },
     ],
@@ -723,6 +733,8 @@ const R: Resource[] = [
       ], default: "open" },
       { name: "max_days_in_stage", label: "Time limit (days in this stage)", type: "number", help: "When an open item is in this stage longer, a decision opens: advance, pass, or extend. Empty = no limit." },
       { name: "required_fields", label: "Details required before an item can enter this stage", type: "multiselect", options: REQUIRED_FIELD_DEFS.map((d) => ({ value: d.key, label: d.label })) },
+      { name: "default_probability_pct", label: "Chance an item in this stage becomes paid work (%)", type: "percent", help: "Consulting: the default probability for pipeline value. An item can set its own." },
+      { name: "counts_as_signed", label: "Signed work (consulting)", type: "boolean", help: "Items in this stage count as signed engagements, and in runway when that setting is on." },
     ],
     columns: ["position", "name", "outcome"],
     order: ["position", true],
@@ -741,11 +753,12 @@ const R: Resource[] = [
       { name: "next_action", label: "Next action", type: "text", required: true, help: "Filled from the stage's default task. Change it if needed." },
       { name: "next_action_due", label: "Next action due", type: "date", required: true },
       { name: "deal_source_type", label: "Deal source", type: "select", options: DEAL_SOURCE_OPTIONS },
-      { name: "source_contact_id", label: "Broker or referral person", type: "ref", ref: "contacts" },
+      { name: "source_contact_id", label: "Deal came from", type: "ref", ref: "contacts", help: "Who handed you this deal directly: the broker, the owner, or a friend who knows the owner." },
+      { name: "introduced_by_contact_id", label: "Introduced by", type: "ref", ref: "contacts", help: "The person in your network who started the chain, for example the friend who introduced you to the broker." },
       { name: "organization_id", label: "Organization", type: "ref", ref: "organizations" },
       { name: "primary_contact_id", label: "Main contact", type: "ref", ref: "contacts" },
       { name: "source", label: "Where it came from", type: "text" },
-      { name: "source_notes", label: "Source notes", type: "textarea", help: "How the deal was found, who referred it, and what was said." },
+      { name: "source_notes", label: "Source notes", type: "textarea", help: "Middle steps in the chain, for example a friend's colleague." },
       { name: "status", label: "Status", type: "select", options: o("open", "won", "lost"), readOnly: true },
       { name: "notes", label: "Notes", type: "textarea" },
     ],
@@ -835,6 +848,28 @@ const R: Resource[] = [
     empty: "",
     noCreate: true,
   },
+  {
+    table: "consulting_details",
+    singular: "Engagement terms",
+    plural: "Engagement terms",
+    titleField: "item_id",
+    listHref: "/opportunities",
+    fields: [
+      { name: "item_id", label: "Pipeline item", type: "ref", ref: "pipeline_items", required: true },
+      { name: "rate_type", label: "Rate type", type: "select", options: RATE_TYPE_OPTIONS },
+      { name: "rate", label: "Rate (per hour, whole project fee, or per month)", type: "money", help: "Hourly: price per hour. Project: the whole fee. Monthly retainer: price per month." },
+      { name: "expected_hours_per_month", label: "Expected hours per month (hourly only)", type: "number" },
+      { name: "project_months", label: "Project length in months (project only)", type: "number", help: "Empty = the months from the start date to the end date." },
+      { name: "start_date", label: "Start date", type: "date" },
+      { name: "end_date", label: "End date", type: "date", help: "Empty = no end date set." },
+      { name: "probability_pct", label: "Probability it becomes paid work (%)", type: "percent", help: "Empty = the stage default." },
+      { name: "scope_notes", label: "Scope", type: "textarea" },
+    ],
+    columns: ["rate_type", "rate", "start_date", "end_date"],
+    order: ["created_at", true],
+    empty: "",
+    noCreate: true,
+  },
   // People
   {
     table: "organizations",
@@ -882,6 +917,7 @@ const R: Resource[] = [
       ] },
       { name: "outreach_every_days", label: "Reach out every (days)", type: "number", help: "Leave empty to use the group default: close 30, warm 60, professional 90." },
       { name: "is_deal_source", label: "Deal source (can refer off-market deals)", type: "boolean", help: "Owners, operators, accountants, attorneys, bankers. Listed first in the Outreach Queue." },
+      { name: "is_consulting_lead", label: "Consulting lead", type: "boolean", help: "Could hire you or refer consulting work. Shows a Consulting lead label in the Outreach Queue; Draft message offers consulting work." },
       { name: "notes", label: "Notes", type: "textarea" },
     ],
     columns: ["name", "organization_id", "roles", "email", "follow_up_date"],
@@ -1263,7 +1299,7 @@ export const EXPORT_TABLES = [
   "funding_sources", "repayment_schedules", "reduction_actions", "savings_targets",
   "initiatives", "goals", "milestones", "milestone_options", "decision_conditions", "decisions", "decision_options",
   "scenarios", "scenario_input_changes",
-  "pipelines", "pipeline_stages", "pipeline_items", "stage_history", "deal_financials", "diligence_items", "job_details", "investor_details",
+  "pipelines", "pipeline_stages", "pipeline_items", "stage_history", "deal_financials", "diligence_items", "job_details", "investor_details", "consulting_details",
   "stage_tasks", "pipeline_item_stage_extensions",
   "task_templates", "tasks", "calendar_events", "daily_plans",
   "commitments", "missed_commitments", "reviews", "partners", "partner_links", "partner_reports",
