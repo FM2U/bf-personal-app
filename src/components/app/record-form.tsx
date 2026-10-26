@@ -224,6 +224,15 @@ export function RecordForm({
           );
         })}
       </div>
+      {table === "tasks" && !id ? (
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" name="__is_commitment" className="mt-0.5 h-4 w-4 shrink-0 accent-teal-700" />
+          <span>
+            <span className="font-medium text-slate-800">This is a commitment</span>
+            <span className="block text-xs text-muted-foreground">Checked against its due date; a miss needs a reason. Unchecked: a regular task, which moves to the next day if it is not done.</span>
+          </span>
+        </label>
+      ) : null}
       {showSaveRule ? (
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" name="save_rule" defaultChecked className="h-4 w-4 accent-teal-700" />

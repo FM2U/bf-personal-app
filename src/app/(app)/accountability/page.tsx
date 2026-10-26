@@ -28,10 +28,13 @@ export default async function CommitmentsPage({ searchParams }: { searchParams: 
   const pending = ((misses ?? []) as Row[]).filter((m) => m.resolution === "pending");
   const resolved = ((misses ?? []) as Row[]).filter((m) => m.resolution !== "pending");
   const open = list.filter((c) => c.status === "open");
-  const repeated = list.filter((c) => c.miss_count >= 2);
+  const repeated = list.filter((c) => c.miss_count >= 2 && c.status !== "released");
   return (
     <div>
-      <PageHeader title="Commitments" description="Any task, milestone, or goal marked as a commitment, with a due date. A miss is recorded, needs a one-line reason, and then a new date or a decision record." />
+      <PageHeader
+        title="Commitments"
+        description="Commitments are pipeline next actions, milestones, daily targets, and the scheduled reviews (plus any task marked as a commitment). A miss needs a one-line reason, then a new date or a decision. Other tasks are regular tasks: if not done, they move to the next day automatically."
+      />
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <Card className="xl:col-span-2">
           <CardHeader>
@@ -54,7 +57,7 @@ export default async function CommitmentsPage({ searchParams }: { searchParams: 
                       </p>
                     </div>
                     <div className="flex flex-col gap-2">
-                      <Input name="reason" placeholder="One-line reason (required)" required maxLength={200} aria-label="Reason" />
+                      <Input name="reason" defaultValue={m.reason ?? ""} placeholder="One-line reason (required)" required maxLength={200} aria-label="Reason" />
                       <div className="flex flex-wrap items-center gap-3 text-sm">
                         <label className="flex items-center gap-1">
                           <input type="radio" name="resolution" value="new_date" defaultChecked className="accent-teal-700" /> New date
@@ -132,7 +135,7 @@ export default async function CommitmentsPage({ searchParams }: { searchParams: 
                 </TBody>
               </Table>
             ) : (
-              <EmptyState title="No open commitments." body="Open a task, milestone, or goal and press Mark as commitment. Recurring templates marked as commitments create them automatically." />
+              <EmptyState title="No open commitments." body="Pipeline next actions and the review tasks create them automatically. To add one, open a task or milestone and press Mark as commitment." />
             )}
           </CardContent>
         </Card>
@@ -158,7 +161,9 @@ export default async function CommitmentsPage({ searchParams }: { searchParams: 
                       <TD>{byId[m.commitment_id]?.title}</TD>
                       <TD className="max-w-sm">{m.reason}</TD>
                       <TD>
-                        {m.resolution === "new_date" ? (
+                        {m.resolution === "released" ? (
+                          "No longer a commitment"
+                        ) : m.resolution === "new_date" ? (
                           `New date ${fmtDate(m.new_due_date)}`
                         ) : m.decision_id ? (
                           <Link href={`/records/decisions/${m.decision_id}`} className="underline">

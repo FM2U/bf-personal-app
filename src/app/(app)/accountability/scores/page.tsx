@@ -2,6 +2,7 @@ import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
 import { addDaysISO, monthBounds, quarterBounds, weekBounds } from "@/lib/calc/dates";
 import { combineScores, completionScore, consecutiveCompleteDays } from "@/lib/calc/scores";
+import { scoreText } from "@/lib/calc/commitment-rule";
 import { loadTargets, targetCommitmentTally } from "@/lib/targets";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader, Stat } from "@/components/app/page-header";
@@ -36,7 +37,7 @@ export default async function ScoresPage() {
   });
   return (
     <div>
-      <PageHeader title="Completion scores" description="Percentage of commitments met per day, week, month, and quarter (daily targets marked as commitments count too), and the number of consecutive days with every daily task done." />
+      <PageHeader title="Completion scores" description="Percentage of commitments met per day, week, month, and quarter, and the number of consecutive days with every daily task done. Commitments are pipeline next actions, milestones marked as commitments, daily targets, and the scheduled reviews." />
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
         {periods.map((p) => {
           // Commitments plus daily target periods marked as commitments (today stays open until it is over).
@@ -45,7 +46,7 @@ export default async function ScoresPage() {
             <Card key={p.label}>
               <CardHeader>
                 <CardDescription>{p.label}</CardDescription>
-                <CardTitle className="tabular text-3xl">{s.pct === null ? "No data" : `${s.pct}%`}</CardTitle>
+                <CardTitle className="tabular text-3xl">{scoreText(s.pct)}</CardTitle>
               </CardHeader>
               <CardContent className="grid grid-cols-2 gap-3">
                 <Stat label="Met" value={s.met} />

@@ -104,7 +104,7 @@ export default async function TodayPage() {
           <CardHeader className="flex-row items-start justify-between gap-2">
             <div>
               <CardTitle>Due today and overdue</CardTitle>
-              <CardDescription>{fmtDate(ctx.today, "EEEE, MMMM d")}</CardDescription>
+              <CardDescription>{fmtDate(ctx.today, "EEEE, MMMM d")}. Regular tasks not done move to the next day; commitments keep their date.</CardDescription>
             </div>
             <Button asChild size="sm" variant="outline">
               <Link href={`/records/tasks/new?due_date=${ctx.today}`}>Add task</Link>

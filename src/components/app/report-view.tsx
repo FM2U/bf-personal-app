@@ -88,7 +88,7 @@ export function ReportView({ report }: { report: Row }) {
         {s.commitments ? (
           <Section title="Commitment completion score">
             <div className="grid grid-cols-3 gap-3">
-              <Pair label="Score" value={s.commitments.score.pct === null ? "No commitments due" : `${s.commitments.score.pct}%`} />
+              <Pair label="Score" value={s.commitments.score.pct === null ? "No commitments" : `${s.commitments.score.pct}%`} />
               <Pair label="Met" value={s.commitments.score.met} />
               <Pair label="Missed" value={s.commitments.score.missed} />
             </div>

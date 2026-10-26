@@ -8,8 +8,8 @@ import { startReview } from "@/app/actions/domain";
 export const metadata = { title: "Reviews" };
 
 const KINDS = [
-  { kind: "daily", title: "Daily close", body: "About 3 minutes, evening. Today's tasks done or not done, a reason for each one not done, tomorrow's top 3 tasks." },
-  { kind: "weekly", title: "Weekly review", body: "What changed, missed commitments, decision conditions met, pipeline movement, spending vs. budget, next week's priorities, partner report draft." },
+  { kind: "daily", title: "Daily close", body: "About 3 minutes, evening. Check off today's tasks, one reason for the commitments and targets missed today (or one per item), tomorrow's top 3 tasks." },
+  { kind: "weekly", title: "Weekly review", body: "What changed, missed commitments, tasks moved 5 or more times, pipeline movement, spending vs. budget, next week's priorities, partner report draft." },
   { kind: "monthly", title: "Monthly review", body: "Budget vs. actual, net worth change, savings progress, debt payments confirmed, milestone status, connection status, full data export downloaded." },
   { kind: "quarterly", title: "Quarterly review", body: "Goal progress per initiative, decision conditions due this quarter, Inputs and Assumptions reviewed, next quarter's milestones set." },
 ];

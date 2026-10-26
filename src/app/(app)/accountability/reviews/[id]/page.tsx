@@ -3,23 +3,25 @@ import { notFound } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
-import { dailyCloseTargets } from "@/lib/engine/reviews";
+import { dailyCloseCommitments, dailyCloseTargets, movedTasksForReview } from "@/lib/engine/reviews";
 import { DbUpdateNotice } from "@/components/app/target-grid";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Textarea } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Notice, PageHeader, Stat } from "@/components/app/page-header";
-import { SubmitButton } from "@/components/app/submit-button";
+import { ConfirmSubmit, SubmitButton } from "@/components/app/submit-button";
 import { TaskList } from "@/components/app/task-list";
-import { saveReview } from "@/app/actions/domain";
+import { handleMovedTask, saveReview } from "@/app/actions/domain";
+import { movedNote } from "@/lib/calc/commitment-rule";
 import { date as fmtDate, dateTime, money, months as fmtMonths } from "@/lib/format";
 import type { Row } from "@/lib/types";
 import { AiText } from "@/components/app/ai-text";
 
 const TITLE: Record<string, string> = { daily: "Daily close", weekly: "Weekly review", monthly: "Monthly review", quarterly: "Quarterly review" };
 
-export default async function ReviewPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ReviewPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ missing?: string }> }) {
   const { id } = await params;
+  const sp = await searchParams;
   const { supabase, ownerId } = await requireOwner();
   const { data: review } = await supabase.from("reviews").select("*").eq("id", id).maybeSingle();
   if (!review) notFound();
@@ -31,8 +33,22 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
     const { data } = await supabase.from("tasks").select("*").in("id", (d.tasks as Row[]).map((t) => t.id));
     liveTasks = (data ?? []) as Row[];
   }
-  // Daily close: each daily target for that day, met or missed, counted live from the records.
-  const closeTargets = review.kind === "daily" ? await dailyCloseTargets(await loadCtx(supabase, ownerId), review.period_start) : null;
+  // Daily close: each daily target for that day, met or missed, counted live from the records,
+  // and the commitments due that day that were not met.
+  const ctx = await loadCtx(supabase, ownerId);
+  const closeTargets = review.kind === "daily" ? await dailyCloseTargets(ctx, review.period_start) : null;
+  const closeCommitments = review.kind === "daily" ? await dailyCloseCommitments(ctx, review.period_start) : [];
+  const misses = [
+    ...closeCommitments.map((c) => ({ key: `c_${c.id}`, label: c.title as string, kind: "Commitment", detail: c.record_type === "tasks" ? "Task not done" : c.record_type === "milestones" ? "Milestone not met" : "Goal not met", saved: (c.reason as string | null) ?? null })),
+    ...(closeTargets?.targets ?? [])
+      .filter((t) => t.status === "missed")
+      .map((t) => ({ key: `t_${t.id}`, label: t.name as string, kind: "Target", detail: `${t.count} of ${t.required} done`, saved: (a[`target_reason_${t.id}`] as string | undefined) ?? (t.reason as string | null) ?? null })),
+  ];
+  const metTargets = (closeTargets?.targets ?? []).filter((t) => t.status === "met");
+  const closeSaved = a.close_saved === "1";
+  const missingLabels = new Set((sp.missing ?? "").split("|").filter(Boolean));
+  // Weekly review: regular tasks moved to the next day many times.
+  const moved = review.kind === "weekly" && !done ? await movedTasksForReview(ctx) : null;
   const check = (name: string, label: string) => (
     <label className="flex items-start gap-2 text-sm">
       <input type="checkbox" name={`a_${name}`} value="yes" defaultChecked={a[name] === "yes"} disabled={done} className="mt-0.5 h-4 w-4 accent-teal-700" />
@@ -75,7 +91,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
               <Stat label="Cash" value={money(d.cash)} />
               <Stat label="Average monthly spending" value={money(d.avg_spending)} />
               <Stat label="Average monthly income" value={money(d.avg_income)} />
-              {d.score ? <Stat label="Commitment score" value={d.score.pct === null ? "No commitments due" : `${d.score.pct}%`} /> : null}
+              {d.score ? <Stat label="Commitment score" value={d.score.pct === null ? "No commitments" : `${d.score.pct}%`} /> : null}
               {d.budget ? <Stat label="Spent vs. budget" value={`${money(d.budget.totals.actual)} / ${money(d.budget.totals.current)}`} /> : null}
               {d.outreach ? <Stat label="Outreach reply rate" value={d.outreach.replyRatePct === null ? "No outreach" : `${d.outreach.replyRatePct}%`} hint={`${d.outreach.sent} sent`} /> : null}
               {d.outreach ? <Stat label="Meetings booked from outreach" value={d.outreach.meetings} /> : null}
@@ -105,54 +121,87 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
             </Card>
           ) : null}
         </div>
-        <Card className="lg:col-span-3">
+        <div className="flex flex-col gap-4 lg:col-span-3">
+        <Card>
           <CardHeader>
             <CardTitle>Your review</CardTitle>
           </CardHeader>
           <CardContent>
             <form action={saveReview} className="flex flex-col gap-4">
               <input type="hidden" name="id" value={review.id} />
+              {sp.missing && !done ? (
+                <Notice tone="error">
+                  Not completed. Give a reason for: {sp.missing.split("|").join(", ")}. Check the item to use the shared reason, or give it its own reason.
+                </Notice>
+              ) : null}
               {review.kind === "daily" ? (
                 <>
                   <div>
-                    <p className="mb-2 text-sm font-medium">Today&apos;s tasks (check off what is done)</p>
+                    <p className="text-sm font-medium">Today&apos;s tasks (check off what is done)</p>
+                    <p className="mb-2 text-xs text-muted-foreground">Regular tasks that are not done move to tomorrow automatically. No reason needed.</p>
                     {liveTasks.length ? <TaskList tasks={liveTasks} today={review.period_start} showDue={false} /> : <p className="text-sm text-muted-foreground">No tasks were due today.</p>}
                   </div>
-                  {liveTasks.filter((t) => t.status !== "done").length ? (
-                    <div className="flex flex-col gap-2">
-                      <p className="text-sm font-medium">A reason for each task not done</p>
-                      {liveTasks
-                        .filter((t) => t.status !== "done")
-                        .map((t) => (
-                          <label key={t.id} className="grid grid-cols-1 gap-1 text-sm sm:grid-cols-[minmax(0,14rem)_1fr] sm:items-center">
-                            <span className="clamp-2">{t.title}</span>
-                            <Input name={`a_reason_${t.id}`} defaultValue={a[`reason_${t.id}`] ?? ""} placeholder="One-line reason" disabled={done} />
-                          </label>
-                        ))}
-                    </div>
-                  ) : null}
                   <div className="flex flex-col gap-2">
-                    <p className="text-sm font-medium">Daily targets today (a missed target needs a one-line reason)</p>
+                    <input type="hidden" name="a_close_saved" value="1" />
+                    <p className="flex items-center justify-between gap-2 text-sm font-medium">
+                      <span className="clamp-2 min-w-0">Missed today: commitments and daily targets</span>
+                      {misses.length ? <Badge variant="danger">{misses.length}</Badge> : null}
+                    </p>
                     {closeTargets && !closeTargets.available ? <DbUpdateNotice compact /> : null}
-                    {closeTargets?.available && !closeTargets.targets.length ? <p className="text-sm text-muted-foreground">No daily targets apply today.</p> : null}
-                    {closeTargets?.targets.map((t) => (
-                      <div key={t.id} className="grid grid-cols-[minmax(0,1fr)_3.5rem_4.5rem] items-center gap-x-2 gap-y-1 text-sm sm:grid-cols-[minmax(0,10rem)_3.5rem_4.5rem_minmax(0,1fr)]">
-                        <span className="clamp-2">{t.name}</span>
-                        <span className="tabular text-muted-foreground">
-                          {t.count} of {t.required}
-                        </span>
-                        <span>
-                          <Badge variant={t.status === "met" ? "success" : "danger"}>{t.status === "met" ? "Met" : "Missed"}</Badge>
-                        </span>
-                        <div className="col-span-3 sm:col-span-1">
-                          {t.status === "missed" ? (
-                            <Input name={`a_target_reason_${t.id}`} defaultValue={a[`target_reason_${t.id}`] ?? t.reason ?? ""} placeholder="One-line reason (required)" maxLength={200} disabled={done} aria-label={`Reason for ${t.name}`} />
-                          ) : (
-                            <span className="text-xs text-muted-foreground">{t.period === "week" ? "Weekly minimum reached." : "Minimum reached."}</span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
+                    {misses.length ? (
+                      <>
+                        <label className="flex flex-col gap-1 text-sm">
+                          <span className="font-medium text-slate-800">One reason for every checked item</span>
+                          <Input name="a_shared_reason" defaultValue={a.shared_reason ?? ""} placeholder="Example: the broker call ran all afternoon" maxLength={200} disabled={done} />
+                        </label>
+                        <ul className="flex flex-col divide-y divide-slate-100 rounded-lg border border-border">
+                          {misses.map((m) => {
+                            const own = (a[`reason_${m.key}`] as string | undefined) ?? "";
+                            const checked = closeSaved ? a[`use_shared_${m.key}`] === "yes" : true;
+                            return (
+                              <li key={m.key} className="grid grid-cols-[1.25rem_minmax(0,1fr)_5.5rem] items-start gap-x-2 gap-y-1 px-3 py-2 text-sm">
+                                <input
+                                  type="checkbox"
+                                  name={`a_use_shared_${m.key}`}
+                                  value="yes"
+                                  defaultChecked={checked}
+                                  disabled={done}
+                                  aria-label={`Use the shared reason for ${m.label}`}
+                                  className="mt-0.5 h-4 w-4 accent-teal-700"
+                                />
+                                <span className="min-w-0">
+                                  <span className="clamp-2 font-medium text-slate-900">{m.label}</span>
+                                  <span className="block text-xs text-muted-foreground">{m.detail}</span>
+                                </span>
+                                <span className="justify-self-end">
+                                  <Badge variant={m.kind === "Commitment" ? "warning" : "danger"}>{m.kind}</Badge>
+                                </span>
+                                <details className="col-start-2 col-end-4" open={Boolean(own || (m.saved && !a.shared_reason) || missingLabels.has(m.label))}>
+                                  <summary className="cursor-pointer text-xs text-teal-800">Give this item its own reason</summary>
+                                  <Input
+                                    name={`a_reason_${m.key}`}
+                                    defaultValue={own || (a.shared_reason ? "" : m.saved ?? "")}
+                                    placeholder="Its own reason (used instead of the shared one)"
+                                    maxLength={200}
+                                    disabled={done}
+                                    className="mt-1"
+                                    aria-label={`Reason for ${m.label}`}
+                                  />
+                                </details>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                        <p className="text-xs text-muted-foreground">Every item needs a reason to complete the close: the shared reason when it is checked, or its own reason.</p>
+                      </>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">No commitment or daily target was missed today.</p>
+                    )}
+                    {metTargets.length ? (
+                      <p className="text-xs text-muted-foreground">
+                        Targets met: {metTargets.map((t) => `${t.name} (${t.count} of ${t.required})`).join(", ")}.
+                      </p>
+                    ) : null}
                   </div>
                   <div className="flex flex-col gap-2">
                     <p className="text-sm font-medium">Tomorrow&apos;s top 3 tasks (created as high-priority tasks due tomorrow)</p>
@@ -209,6 +258,52 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
             </form>
           </CardContent>
         </Card>
+        {moved ? (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                Tasks moved {moved.threshold} or more times {moved.tasks.length ? <Badge variant="warning">{moved.tasks.length}</Badge> : null}
+              </CardTitle>
+              <CardDescription>Regular tasks that keep moving to the next day. Do each one, give it a new date, or delete it. No reason needed.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {!moved.available ? (
+                <DbUpdateNotice compact />
+              ) : moved.tasks.length ? (
+                <ul className="flex flex-col divide-y divide-slate-100">
+                  {moved.tasks.map((t) => (
+                    <li key={t.id}>
+                      <form action={handleMovedTask} className="grid grid-cols-1 items-center gap-2 py-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                        <input type="hidden" name="task_id" value={t.id} />
+                        <span className="min-w-0">
+                          <Link href={`/records/tasks/${t.id}`} className="clamp-2 text-sm font-medium hover:underline">
+                            {t.title}
+                          </Link>
+                          <span className="block text-xs text-amber-700">{movedNote(t.times_moved)}</span>
+                        </span>
+                        <span className="flex flex-wrap items-center gap-1.5">
+                          <SubmitButton size="sm" name="op" value="done" className="h-8">
+                            Done
+                          </SubmitButton>
+                          <Input type="date" name="due_date" defaultValue={t.due_date ?? ""} className="h-8 w-36" aria-label={`New date for ${t.title}`} />
+                          <SubmitButton size="sm" variant="outline" name="op" value="reschedule" className="h-8">
+                            Reschedule
+                          </SubmitButton>
+                          <ConfirmSubmit size="sm" variant="ghost" name="op" value="delete" className="h-8 text-red-700" message={`Delete the task "${t.title}"?`}>
+                            Delete
+                          </ConfirmSubmit>
+                        </span>
+                      </form>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-muted-foreground">No task has moved {moved.threshold} or more times. The number is set in Plan, Inputs and Assumptions.</p>
+              )}
+            </CardContent>
+          </Card>
+        ) : null}
+        </div>
       </div>
     </div>
   );
