@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardNote, CardTitle } from "@/components/ui/card";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import { PageHeader, Stat } from "@/components/app/page-header";
+import { PageHeader, Stat, StatGrid } from "@/components/app/page-header";
 import { ListCard } from "@/components/app/list-card";
 import { date as fmtDate, money } from "@/lib/format";
 import type { Row } from "@/lib/types";
@@ -28,17 +28,18 @@ export default async function FundingPage() {
           <CardHeader>
             <CardTitle>Totals</CardTitle>
           </CardHeader>
-          <CardContent className="grid grid-cols-2 gap-4">
+          <CardContent>
+<StatGrid>
             <Stat label="Received" value={money(received)} />
             <Stat label="Offered or accepted, not yet received" value={money(offered)} />
             <Stat label="Repayments still due" value={money(unpaid.reduce((s, r) => s + Number(r.amount_due) - Number(r.paid_amount), 0))} />
             <Stat label="Overdue repayments" value={unpaid.filter((r) => r.due_date < ctx.today).length} tone={unpaid.some((r) => r.due_date < ctx.today) ? "bad" : undefined} />
-          </CardContent>
+          </StatGrid>
+</CardContent>
         </Card>
         <Card className="xl:col-span-2">
           <CardHeader>
             <CardTitle>Upcoming repayments</CardTitle>
-            <CardDescription>Payments due, oldest first. Open one to record the amount paid.</CardDescription>
           </CardHeader>
           <CardContent>
             {unpaid.length ? (
@@ -70,6 +71,7 @@ export default async function FundingPage() {
               <p className="text-sm text-muted-foreground">No repayments due. Create a schedule from a loan&apos;s page.</p>
             )}
           </CardContent>
+          <CardNote>Payments due, oldest first. Open one to record the amount paid.</CardNote>
         </Card>
       </div>
       <div className="mt-4 flex flex-col gap-4">

@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { cookies } from "next/headers";
 import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
 import { daysBetween, todayInTz, weekBounds } from "@/lib/calc/dates";
 import { compareDeals } from "@/lib/calc/pipeline";
 import { loadPipelineStatus, type ItemStatus } from "@/lib/pipeline";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardNote, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
@@ -15,6 +16,8 @@ import { DbUpdateNotice } from "@/components/app/target-grid";
 import { date as fmtDate, money } from "@/lib/format";
 import type { Row } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { pipelineViewCookie, resolvePipelineView } from "@/lib/pipeline-view";
+import { RememberPipelineView } from "@/components/app/remember-view";
 
 export default async function PipelinePage({ params, searchParams }: { params: Promise<{ pipelineId: string }>; searchParams: Promise<{ closed?: string; view?: string }> }) {
   const { pipelineId } = await params;
@@ -42,7 +45,9 @@ export default async function PipelinePage({ params, searchParams }: { params: P
   const status = await loadPipelineStatus(supabase, items, { ownerId, tz: ctx.tz, today: ctx.today, stages: allStages });
   const isAcq = pipe.kind === "acquisition";
   const showClosed = sp.closed === "1";
-  const listView = sp.view === "list";
+  const viewCookie = pipelineViewCookie(pipelineId);
+  const view = resolvePipelineView(sp.view, (await cookies()).get(viewCookie)?.value);
+  const listView = view === "list";
   const stageList = allStages.filter((s) => showClosed || s.outcome === "open");
   const stageName = Object.fromEntries(allStages.map((s) => [s.id, s.name]));
   const hist = ((history ?? []) as Row[]).filter((h) => itemIds.has(h.item_id));
@@ -56,7 +61,7 @@ export default async function PipelinePage({ params, searchParams }: { params: P
   const stalledCount = items.filter((i) => status.byItem[i.id]?.stalled).length;
   const overCount = items.filter((i) => status.byItem[i.id]?.limit?.over).length;
   const href = (p: Record<string, string>) => {
-    const q = new URLSearchParams({ ...(showClosed ? { closed: "1" } : {}), ...(listView ? { view: "list" } : {}), ...p });
+    const q = new URLSearchParams({ ...(showClosed ? { closed: "1" } : {}), view, ...p });
     for (const [k, v] of [...q.entries()]) if (!v) q.delete(k);
     const s = q.toString();
     return `/opportunities/${pipelineId}${s ? `?${s}` : ""}`;
@@ -70,11 +75,15 @@ export default async function PipelinePage({ params, searchParams }: { params: P
         actions={
           <>
             <div className="flex rounded-md border border-border bg-white p-0.5" role="group" aria-label="View">
-              <Button asChild size="sm" variant={listView ? "ghost" : "default"} className="h-7">
-                <Link href={href({ view: "" })}>Board</Link>
-              </Button>
               <Button asChild size="sm" variant={listView ? "default" : "ghost"} className="h-7">
-                <Link href={href({ view: "list" })}>List</Link>
+                <Link href={href({ view: "list" })} aria-current={listView ? "page" : undefined}>
+                  List
+                </Link>
+              </Button>
+              <Button asChild size="sm" variant={listView ? "ghost" : "default"} className="h-7">
+                <Link href={href({ view: "board" })} aria-current={listView ? undefined : "page"}>
+                  Board
+                </Link>
               </Button>
             </div>
             <Button asChild size="sm" variant="outline">
@@ -86,6 +95,7 @@ export default async function PipelinePage({ params, searchParams }: { params: P
           </>
         }
       />
+      <RememberPipelineView cookie={viewCookie} view={view} />
       <div className="mb-4 flex flex-col gap-4">
         {!status.available ? <DbUpdateNotice compact /> : null}
         {isAcq ? <DealSourceStrip items={items} stages={allStages.filter((s) => s.outcome === "open")} tz={ctx.tz} today={ctx.today} available={status.available} /> : null}
@@ -150,55 +160,70 @@ export default async function PipelinePage({ params, searchParams }: { params: P
           </CardContent>
         </Card>
       ) : (
-        <div className="-mx-4 overflow-x-auto px-4 pb-4 sm:mx-0 sm:px-0">
-          <div className="grid auto-cols-[17rem] grid-flow-col gap-3">
+        // Board: all stage columns share the page width on desktop (1024px and up, min 6.75rem each);
+        // on narrow screens the board scrolls sideways inside this box, never the page.
+        <div className="-mx-4 overflow-x-auto px-4 pb-3 sm:mx-0 sm:px-0" role="region" aria-label={`${pipe.name} board`} tabIndex={0}>
+          <div
+            className="grid gap-2 [--col-min:13rem] lg:[--col-min:6.75rem]"
+            style={{ gridTemplateColumns: `repeat(${stageList.length}, minmax(var(--col-min), 1fr))` }}
+          >
             {stageList.map((s) => {
               const its = items.filter((i) => i.stage_id === s.id);
               const avg = avgDays(s.id);
               return (
-                <Card key={s.id} className="bg-slate-50/80">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="flex items-center justify-between text-sm">
-                      <span className="clamp-1">{s.name}</span>
-                      <Badge variant={s.outcome === "won" ? "success" : s.outcome === "lost" ? "neutral" : "outline"}>{its.length}</Badge>
-                    </CardTitle>
-                    <p className="clamp-1 text-xs text-muted-foreground">
+                <section key={s.id} className="flex min-w-0 flex-col rounded-xl border border-border bg-slate-50/80" aria-label={s.name}>
+                  <div className="flex flex-col gap-0.5 border-b border-slate-200 px-2 py-2">
+                    <div className="flex items-start justify-between gap-1">
+                      <h3 className="clamp-2 min-h-8 text-xs font-semibold leading-4 text-slate-900">{s.name}</h3>
+                      <Badge variant={s.outcome === "won" ? "success" : s.outcome === "lost" ? "neutral" : "outline"} className="px-1.5">
+                        {its.length}
+                      </Badge>
+                    </div>
+                    <p className="clamp-2 min-h-8 text-[11px] leading-4 text-muted-foreground">
                       {s.max_days_in_stage ? `Limit ${s.max_days_in_stage} days. ` : ""}
                       {avg === null ? "No completed stays yet" : `Average ${avg} days`}
                     </p>
-                  </CardHeader>
-                  <CardContent className="flex flex-col gap-2">
+                  </div>
+                  <div className="flex flex-col gap-1.5 p-1.5">
                     {its.map((i) => {
                       const overdue = i.next_action_due && i.next_action_due < ctx.today;
                       const d = extra[i.id];
                       const st = status.byItem[i.id];
+                      const money1 =
+                        d && isAcq && d.asking_price
+                          ? `Asking ${money(d.asking_price)}${d.ebitda_multiple ? `, ${Number(d.ebitda_multiple).toFixed(1)}x` : ""}`
+                          : d && pipe.kind === "job" && d.salary
+                            ? `Salary ${money(d.salary)}`
+                            : d && pipe.kind === "investor" && (d.amount_committed || d.amount_discussed)
+                              ? d.amount_committed
+                                ? `Committed ${money(d.amount_committed)}`
+                                : `Discussed ${money(d.amount_discussed)}`
+                              : null;
                       return (
-                        <Link key={i.id} href={`/records/pipeline_items/${i.id}`} className="flex flex-col gap-1 rounded-lg border border-border bg-white p-3 text-sm shadow-xs hover:border-teal-600">
-                          <span className="clamp-2 font-medium">{i.name}</span>
-                          {i.organization_id ? <span className="clamp-1 text-xs text-muted-foreground">{orgName[i.organization_id]}</span> : null}
-                          {d && isAcq && d.asking_price ? (
-                            <span className="text-xs text-slate-600">
-                              Asking {money(d.asking_price)}
-                              {d.ebitda_multiple ? `, ${Number(d.ebitda_multiple).toFixed(1)}x EBITDA` : ""}
-                            </span>
-                          ) : null}
-                          {d && pipe.kind === "job" && d.salary ? <span className="text-xs text-slate-600">Salary {money(d.salary)}</span> : null}
-                          {d && pipe.kind === "investor" && (d.amount_committed || d.amount_discussed) ? <span className="text-xs text-slate-600">{d.amount_committed ? `Committed ${money(d.amount_committed)}` : `Discussed ${money(d.amount_discussed)}`}</span> : null}
+                        <Link key={i.id} href={`/records/pipeline_items/${i.id}`} className="flex min-w-0 flex-col gap-1 rounded-lg border border-border bg-white p-2 shadow-xs hover:border-teal-600">
+                          <span className="clamp-2 text-[13px] font-medium leading-4 text-slate-900">{i.name}</span>
+                          {i.organization_id ? <span className="clamp-1 text-[11px] leading-4 text-muted-foreground">{orgName[i.organization_id]}</span> : null}
+                          {money1 ? <span className="clamp-1 text-[11px] leading-4 text-slate-600">{money1}</span> : null}
                           {(isAcq && i.deal_source_type) || st?.stalled || st?.limit?.over ? (
-                            <span className="flex flex-wrap gap-1 pt-0.5">
+                            <span className="flex flex-wrap gap-1 [&_span]:whitespace-normal [&_span]:rounded-md [&_span]:px-1.5 [&_span]:text-[11px] [&_span]:leading-4">
                               {isAcq ? <DealSourceBadge type={i.deal_source_type} /> : null}
                               <ItemStatusBadges status={st} itemStatus={i.status} />
                             </span>
                           ) : null}
-                          <span className={`clamp-2 text-xs ${overdue ? "font-medium text-red-700" : i.next_action ? "text-slate-700" : "font-medium text-amber-700"}`}>
-                            {i.next_action ? `${i.next_action}${i.next_action_due ? ` (${fmtDate(i.next_action_due, "MMM d")})` : ""}` : "Set the next action"}
+                          <span className={cn("clamp-2 text-[11px] leading-4", overdue ? "font-medium text-red-700" : i.next_action ? "text-slate-700" : "font-medium text-amber-700")}>
+                            {i.next_action ?? "Set the next action"}
                           </span>
+                          {i.next_action_due ? (
+                            <span className={cn("tabular clamp-1 text-[11px] leading-4", overdue ? "font-medium text-red-700" : "text-muted-foreground")}>
+                              {overdue ? "Overdue:" : "Due"} {fmtDate(i.next_action_due, "MMM d")}
+                            </span>
+                          ) : null}
                         </Link>
                       );
                     })}
-                    {!its.length ? <p className="py-2 text-center text-xs text-muted-foreground">No items</p> : null}
-                  </CardContent>
-                </Card>
+                    {!its.length ? <p className="py-2 text-center text-[11px] text-muted-foreground">No items</p> : null}
+                  </div>
+                </section>
               );
             })}
           </div>
@@ -236,7 +261,6 @@ function DealSourceStrip({ items, stages, tz, today, available }: { items: Row[]
       <CardHeader className="flex-row flex-wrap items-start justify-between gap-2 pb-2">
         <div className="min-w-0">
           <CardTitle>Deal source</CardTitle>
-          <CardDescription>Proprietary = off-market, found directly. Brokered = listed by a broker.</CardDescription>
         </div>
         <p className="text-sm text-slate-700">
           Proprietary share of open deals: <span className="tabular font-semibold">{share === null ? "No open deals" : `${share}%`}</span>
@@ -276,6 +300,7 @@ function DealSourceStrip({ items, stages, tz, today, available }: { items: Row[]
           </table>
         </div>
       </CardContent>
+      <CardNote>Proprietary = off-market, found directly. Brokered = listed by a broker.</CardNote>
     </Card>
   );
 }

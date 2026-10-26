@@ -3,7 +3,7 @@ import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { EmptyState, PageHeader, Stat } from "@/components/app/page-header";
+import { EmptyState, PageHeader, Stat, StatGrid } from "@/components/app/page-header";
 import { date as fmtDate } from "@/lib/format";
 import type { Row } from "@/lib/types";
 import { loadPipelineStatus } from "@/lib/pipeline";
@@ -139,12 +139,12 @@ export default async function OpportunitiesPage({ searchParams }: { searchParams
                   <CardDescription>{initName[p.initiative_id] ?? "No initiative"}</CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-4">
-                  <div className="grid grid-cols-4 gap-3">
+                  <StatGrid className="grid-cols-4">
                     <Stat label="Open items" value={open.length} />
                     <Stat label="Next actions due" value={due.length} tone={due.length ? "warn" : undefined} />
                     <Stat label="Stalled" value={open.filter((i) => status.byItem[i.id]?.stalled).length} tone={open.some((i) => status.byItem[i.id]?.stalled) ? "warn" : undefined} />
                     <Stat label="Closed won" value={its.filter((i) => i.status === "won").length} />
-                  </div>
+                  </StatGrid>
                   <div className="flex h-2 overflow-hidden rounded-full bg-slate-100">
                     {st
                       .filter((s) => s.outcome === "open")

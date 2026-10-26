@@ -4,11 +4,11 @@ import { loadCtx } from "@/lib/engine/helpers";
 import { loadFinanceSnapshot } from "@/lib/finance";
 import { debtPayoff } from "@/lib/calc/debt";
 import { addMonthsISO } from "@/lib/calc/dates";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardNote, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import { EmptyState, PageHeader, Stat } from "@/components/app/page-header";
+import { EmptyState, PageHeader, Stat, StatGrid } from "@/components/app/page-header";
 import { LineSeriesChart } from "@/components/app/charts";
 import { ListCard } from "@/components/app/list-card";
 import { date as fmtDate, money, pct } from "@/lib/format";
@@ -51,12 +51,14 @@ export default async function DebtPage() {
               <CardHeader>
                 <CardTitle>Totals</CardTitle>
               </CardHeader>
-              <CardContent className="grid grid-cols-2 gap-4">
+              <CardContent>
+<StatGrid>
                 <Stat label="Total balance" value={money(total)} />
                 <Stat label="Minimum payments per month" value={money(minTotal)} />
                 <Stat label="Extra payment per month" value={money(extra)} hint={inputId ? undefined : ""} />
                 <Stat label="Payoff order in use" value={chosen === "avalanche" ? "Highest interest first" : "Smallest balance first"} />
-                <Link href="/plan/inputs" className="col-span-2 text-xs text-teal-800 hover:underline">
+              </StatGrid>
+                <Link href="/plan/inputs" className="mt-3 inline-block text-xs text-teal-800 hover:underline">
                   Change the extra payment or payoff order in Inputs and Assumptions
                 </Link>
               </CardContent>
@@ -67,14 +69,16 @@ export default async function DebtPage() {
                   <CardTitle className="flex items-center gap-2">
                     {r.method === "avalanche" ? "Highest interest first" : "Smallest balance first"} {r.method === chosen ? <Badge>In use</Badge> : null}
                   </CardTitle>
-                  <CardDescription>{r.method === "avalanche" ? "Pays the least interest overall." : "Closes individual debts sooner."}</CardDescription>
                 </CardHeader>
-                <CardContent className="grid grid-cols-2 gap-4">
+                <CardContent>
+<StatGrid>
                   <Stat label="Debt-free date" value={r.feasible ? fmtDate(addMonthsISO(ctx.today, r.months), "MMM yyyy") : "Not paid off"} tone={r.feasible ? undefined : "bad"} />
                   <Stat label="Months" value={r.feasible ? r.months : "Payments do not cover interest"} />
                   <Stat label="Total interest" value={money(r.totalInterest)} />
                   <Stat label="Total paid" value={money(r.totalPaid)} />
-                </CardContent>
+                </StatGrid>
+</CardContent>
+                <CardNote>{r.method === "avalanche" ? "Pays the least interest overall." : "Closes individual debts sooner."}</CardNote>
               </Card>
             ))}
           </div>

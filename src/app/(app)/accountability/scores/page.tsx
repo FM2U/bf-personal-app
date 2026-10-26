@@ -4,8 +4,8 @@ import { addDaysISO, monthBounds, quarterBounds, weekBounds } from "@/lib/calc/d
 import { combineScores, completionScore, consecutiveCompleteDays } from "@/lib/calc/scores";
 import { scoreText } from "@/lib/calc/commitment-rule";
 import { loadTargets, targetCommitmentTally } from "@/lib/targets";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { PageHeader, Stat } from "@/components/app/page-header";
+import { Card, CardContent, CardDescription, CardHeader, CardNote, CardTitle } from "@/components/ui/card";
+import { PageHeader, Stat, StatGrid } from "@/components/app/page-header";
 import { BarSeriesChart } from "@/components/app/charts";
 import { date as fmtDate } from "@/lib/format";
 import type { Row } from "@/lib/types";
@@ -48,21 +48,23 @@ export default async function ScoresPage() {
                 <CardDescription>{p.label}</CardDescription>
                 <CardTitle className="tabular text-3xl">{scoreText(s.pct)}</CardTitle>
               </CardHeader>
-              <CardContent className="grid grid-cols-2 gap-3">
+              <CardContent>
+<StatGrid>
                 <Stat label="Met" value={s.met} />
                 <Stat label="Missed" value={s.missed} tone={s.missed ? "bad" : undefined} />
-              </CardContent>
+              </StatGrid>
+</CardContent>
             </Card>
           );
         })}
         <Card>
           <CardHeader>
-            <CardDescription>Consecutive days with every task done</CardDescription>
             <CardTitle className="tabular text-3xl">{streak}</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-xs text-muted-foreground">Days with no tasks due do not break the count.</p>
           </CardContent>
+          <CardNote>Consecutive days with every task done</CardNote>
         </Card>
         <Card className="md:col-span-2 xl:col-span-5">
           <CardHeader>

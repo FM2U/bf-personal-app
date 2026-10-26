@@ -2,7 +2,7 @@ import Link from "next/link";
 import { requireOwner } from "@/lib/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { EmptyState, PageHeader, Stat } from "@/components/app/page-header";
+import { EmptyState, PageHeader, Stat, StatGrid } from "@/components/app/page-header";
 import type { Row } from "@/lib/types";
 
 export const metadata = { title: "Initiatives" };
@@ -43,12 +43,12 @@ export default async function InitiativesPage() {
                 <CardDescription className="clamp-2 min-h-10">{i.description ?? "No description."}</CardDescription>
               </CardHeader>
               <CardContent className="flex flex-col gap-4">
-                <div className="grid grid-cols-4 gap-3">
+                <StatGrid className="grid-cols-4">
                   <Stat label="Active goals" value={count(goals, i.id, (g) => g.status === "active")} />
                   <Stat label="Open milestones" value={((ms ?? []) as Row[]).filter((m) => goalInit[m.goal_id] === i.id && ["planned", "active"].includes(m.status)).length} />
                   <Stat label="Conditions met" value={count(conds, i.id, (c) => c.currently_met && c.is_active)} tone={count(conds, i.id, (c) => c.currently_met && c.is_active) ? "warn" : undefined} />
                   <Stat label="Open tasks" value={count(tasks, i.id)} />
-                </div>
+                </StatGrid>
                 <div className="flex flex-wrap gap-2">
                   {((pipes ?? []) as Row[])
                     .filter((p) => p.initiative_id === i.id)

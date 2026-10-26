@@ -4,11 +4,11 @@ import { loadCtx } from "@/lib/engine/helpers";
 import { loadFinanceSnapshot } from "@/lib/finance";
 import { budgetVariance } from "@/lib/calc/savings";
 import { monthBounds, previousMonthKeys } from "@/lib/calc/dates";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardNote, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/input";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import { EmptyState, PageHeader, Stat } from "@/components/app/page-header";
+import { EmptyState, PageHeader, Stat, StatGrid } from "@/components/app/page-header";
 import { BarSeriesChart } from "@/components/app/charts";
 import { ListCard } from "@/components/app/list-card";
 import { date as fmtDate, money } from "@/lib/format";
@@ -89,12 +89,12 @@ export default async function BudgetPage({ searchParams }: { searchParams: Promi
                 </Button>
               </form>
             </div>
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            <StatGrid className="md:grid-cols-4">
               <Stat label="Current budget" value={money(v.totals.current)} />
               <Stat label="Target budget" value={money(v.totals.target)} />
               <Stat label="Actual" value={money(v.totals.actual)} tone={v.totals.actual > v.totals.current && v.totals.current > 0 ? "bad" : undefined} />
               <Stat label="Difference to close (current minus target)" value={money(v.totals.gapToTarget)} />
-            </div>
+            </StatGrid>
           </CardHeader>
           <CardContent>
             {v.rows.length ? (
@@ -141,14 +141,16 @@ export default async function BudgetPage({ searchParams }: { searchParams: Promi
           <Card>
             <CardHeader>
               <CardTitle>Reduction actions</CardTitle>
-              <CardDescription>Projected and actual monthly savings from chosen actions.</CardDescription>
             </CardHeader>
-            <CardContent className="grid grid-cols-2 gap-4">
+            <CardContent>
+<StatGrid>
               <Stat label="Projected monthly savings" value={money(projected)} />
               <Stat label="Actual monthly savings (completed)" value={money(actual)} tone="good" />
               <Stat label="Difference still to close" value={money(Math.max(0, v.totals.gapToTarget - projected))} />
               <Stat label="Open actions" value={red.filter((r) => r.status === "chosen" || r.status === "in_progress").length} />
-            </CardContent>
+            </StatGrid>
+</CardContent>
+            <CardNote>Projected and actual monthly savings from chosen actions.</CardNote>
           </Card>
           <Card>
             <CardHeader>
