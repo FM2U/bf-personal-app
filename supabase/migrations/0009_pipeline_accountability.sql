@@ -36,7 +36,7 @@ create table if not exists public.stage_tasks (
   due_in_days int not null default 2 check (due_in_days between 0 and 365),
   sort_order int not null default 1,
   is_next_action_default boolean not null default false,
-  is_commitment boolean not null default true,
+  is_commitment boolean not null default false, -- only the next-action task is a commitment by default (0010)
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -201,6 +201,7 @@ create trigger pipeline_items_stage_defaults before insert or update on public.p
 
 -- 10. Entering a stage creates the stage's tasks for the item (once per item and stage task),
 -- linked to the item and its initiative, and marked as commitments where the stage task says so.
+-- (0010 replaces this function: closing an item releases those commitments instead of counting them as missed.)
 -- Closing an item (won or passed) skips its open pipeline tasks and closes their commitments.
 create or replace function public.pipeline_item_stage_tasks()
 returns trigger
@@ -311,8 +312,9 @@ begin
    where p.id = s.pipeline_id and p.owner_id = p_owner and p.name = v.pipeline and s.name = v.stage;
 
   -- Stage task lists. A stage that already has tasks keeps its list.
-  insert into stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default)
-  select p_owner, s.id, v.title, v.due, v.ord, v.is_default
+  -- Only the next-action task of each stage is a commitment (commitment rule, 0010).
+  insert into stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment)
+  select p_owner, s.id, v.title, v.due, v.ord, v.is_default, v.is_default
     from (values
       ('Acquisitions', 'Sourced', 'Request teaser or CIM', 2, 1, true),
       ('Acquisitions', 'Sourced', 'Identify owner or decision maker', 3, 2, false),

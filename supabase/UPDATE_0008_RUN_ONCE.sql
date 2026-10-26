@@ -1,4 +1,4 @@
--- USE supabase/UPDATE_RUN_ONCE.sql INSTEAD. That file includes this update (0008) and the next one (0009).
+-- USE supabase/UPDATE_RUN_ONCE.sql INSTEAD. That file includes this update (0008) and the next ones (0009, 0010).
 -- This file is kept for reference only.
 --
 -- BF Personal App: database update 0008 (Daily Targets and Outreach Queue).

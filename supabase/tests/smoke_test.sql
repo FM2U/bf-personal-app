@@ -220,7 +220,8 @@ do $$ begin
   assert (select next_action from public.pipeline_items where name = 'Playbook deal') = 'Request teaser or CIM', 'default next action';
   assert (select next_action_due from public.pipeline_items where name = 'Playbook deal') = (now() at time zone 'America/New_York')::date + 2, 'default next action due';
   assert (select count(*) from public.tasks where title like 'Playbook deal: %') = 2, 'Sourced stage tasks created';
-  assert (select count(*) from public.commitments where title like 'Playbook deal: %') = 2, 'stage tasks are commitments';
+  assert (select count(*) from public.commitments where title like 'Playbook deal: %') = 1, 'only the next-action stage task is a commitment';
+  assert (select count(*) from public.commitments where title = 'Playbook deal: Request teaser or CIM') = 1, 'next-action task is the commitment';
   assert (select initiative_id is not null from public.tasks where title = 'Playbook deal: Request teaser or CIM'), 'task linked to initiative';
 end $$;
 update public.pipeline_items set stage_id = (
@@ -229,6 +230,7 @@ update public.pipeline_items set stage_id = (
 do $$ begin
   assert (select next_action from public.pipeline_items where name = 'Playbook deal') = 'Sign NDA', 'next action follows the new stage';
   assert (select count(*) from public.tasks where title like 'Playbook deal: %') = 4, 'Screened stage tasks added';
+  assert (select count(*) from public.commitments where title like 'Playbook deal: %') = 2, 'one commitment per stage (Sign NDA added)';
 end $$;
 -- Back to Sourced and forward again: no duplicate tasks. A next action typed by hand is kept.
 update public.pipeline_items set stage_id = (
@@ -241,13 +243,14 @@ do $$ begin
   assert (select count(*) from public.tasks where title like 'Playbook deal: %') = 4, 'stage tasks not duplicated on re-entry';
   assert (select next_action from public.pipeline_items where name = 'Playbook deal') = 'Call the owner directly', 'typed next action kept';
 end $$;
--- Passing the item skips its open pipeline tasks and closes their commitments.
+-- Passing the item skips its open pipeline tasks and releases their commitments (not counted as missed).
 update public.pipeline_items set stage_id = (
   select s.id from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.name = 'Acquisitions' and s.name = 'Passed'
 ) where name = 'Playbook deal';
 do $$ begin
   assert (select count(*) from public.tasks where title like 'Playbook deal: %' and status = 'todo') = 1, 'only the Passed stage task stays open';
-  assert (select count(*) from public.commitments where title like 'Playbook deal: %' and status = 'open') = 1, 'commitments closed except the new one';
+  assert (select count(*) from public.commitments where title like 'Playbook deal: %' and status = 'open') = 0, 'no open commitments (the Passed task is a regular task)';
+  assert (select count(*) from public.commitments where title like 'Playbook deal: %' and status = 'released') = 2, 'commitments released, not missed';
 end $$;
 -- Purpose defaults to deal_sourcing for deal-source contacts; the new count sources are accepted.
 insert into public.contacts (name, is_deal_source) values ('Deal source CPA', true);
@@ -284,5 +287,33 @@ do $$ begin
   end;
 end $$;
 reset role;
+
+-- 15. Commitment rule (0010): times moved, released status, input, template and stage task defaults, run twice.
+do $$ begin
+  assert exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'tasks' and column_name = 'times_moved'), 'tasks.times_moved';
+  assert (select value_number from public.inputs where key = 'task_moved_review_threshold') = 5, 'moved threshold input';
+  assert (select count(*) from public.task_templates where is_commitment) = 4, 'only the 4 review templates are commitments';
+  assert (select bool_and(is_commitment) from public.task_templates where public.is_review_template_title(title)), 'review templates are commitments';
+  assert not (select is_commitment from public.task_templates where title like 'Download the full data export%'), 'export template is a regular task';
+  assert (select count(*) from public.stage_tasks where is_commitment <> is_next_action_default) = 0, 'only next-action stage tasks are commitments';
+  assert (select count(*) from public.stage_tasks where is_commitment) = 23, 'one next-action task per open stage (23)';
+  assert (select commitment_rule_applied_at is not null from public.owner_profile limit 1), 'rule applied to the owner';
+end $$;
+-- The owner's later choice in Settings is kept when the rule runs again.
+update public.task_templates set is_commitment = true where title = 'Categorize new transactions';
+select public.seed_owner_commitment_rule('00000000-0000-0000-0000-000000000001');
+do $$ begin
+  assert (select is_commitment from public.task_templates where title = 'Categorize new transactions'), 'owner change kept';
+  assert (select count(*) from public.inputs where key = 'task_moved_review_threshold') = 1, 'input not duplicated';
+end $$;
+update public.task_templates set is_commitment = false where title = 'Categorize new transactions';
+do $$ begin
+  begin
+    insert into public.commitments (owner_id, title, record_type, record_id, due_date, status)
+    values ('00000000-0000-0000-0000-000000000001', 'Bad status', 'tasks', gen_random_uuid(), current_date, 'forgotten');
+    raise exception 'invalid commitment status allowed';
+  exception when check_violation then null;
+  end;
+end $$;
 
 select 'smoke test passed' as result;
