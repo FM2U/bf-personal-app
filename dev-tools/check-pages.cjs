@@ -30,9 +30,9 @@ const cookieValue = `base64-${Buffer.from(JSON.stringify(session)).toString("bas
 const PAGES = (process.env.PAGES || [
   "/", "/plan", "/plan/goals", "/plan/milestones", "/plan/conditions", "/plan/inputs", "/plan/scenarios", "/plan/decisions",
   "/finance", "/finance/expenses", "/finance/import", "/finance/budget", "/finance/debt", "/finance/funding", "/finance/income", "/finance/savings",
-  "/opportunities", "/people", "/people/organizations", "/people/communications",
+  "/opportunities", "/people", "/people/organizations", "/people/communications", "/people/outreach",
   "/productivity", "/productivity/tasks", "/productivity/recurring", "/productivity/calendar", "/productivity/pipeline-actions",
-  "/accountability", "/accountability/reviews", "/accountability/scores", "/accountability/partners", "/accountability/reports",
+  "/accountability", "/accountability/targets", "/accountability/reviews", "/accountability/scores", "/accountability/partners", "/accountability/reports",
   "/settings", "/settings/ai", "/settings/imports", "/settings/partner-access", "/settings/initiatives", "/settings/categories", "/settings/export", "/settings/profile", "/settings/change-log",
   "/proposals", "/records/tasks/new", "/records/decision_conditions/new",
 ].join(",")).split(",");
@@ -50,7 +50,7 @@ const PAGES = (process.env.PAGES || [
     page.on("console", (m) => {
       if (m.type() === "error") errors.push(m.text());
     });
-    const list = vpName === "desktop" ? PAGES : (process.env.PHONE_PAGES || "/,/finance/expenses,/opportunities,/plan/inputs").split(",");
+    const list = vpName === "desktop" ? PAGES : (process.env.PHONE_PAGES || "/,/finance/expenses,/opportunities,/plan/inputs,/accountability/targets,/people/outreach,/productivity").split(",");
     for (const p of list) {
       errors.length = 0;
       const res = await page.goto(BASE + p, { waitUntil: "networkidle" }).catch((e) => ({ status: () => 0, err: e }));

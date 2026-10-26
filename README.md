@@ -9,14 +9,30 @@ Built from `docs/` in the project: Architecture v2 and the Decisions Log (both a
 
 | Module | What it does |
 |---|---|
-| Home | Runway vs. target, today's plan and tasks, today's meetings, overdue items, alerts, this month's spending vs. budget |
+| Home | Number tiles (Productivity: tasks done, targets met, pipeline actions due; Accountability: commitment score, days in a row, open misses, next review), runway vs. target, today's plan and tasks, meetings, overdue items, alerts, this month's spending vs. budget |
 | Plan | Initiatives, goals, milestones, decision conditions, Inputs and Assumptions, scenarios (incl. job vs. acquisition), decisions log |
 | Finance | Accounts (Personal or Cyan Arc LLC) and transfers, expenses with categories and recurring charges, CSV import, budget, debt payoff (avalanche and snowball), funding and repayments, income received, savings and financial security |
 | Opportunities | One pipeline system with 5 seeded pipelines and stages; acquisition, job, and investor fields; stage history |
-| People | Contacts, organizations, communication history; follow-up dates create tasks and calendar events |
-| Productivity | Today's plan, task lists, recurring task templates, calendar time blocks, pipeline next actions |
-| Accountability | Commitments, missed-commitment flow, daily/weekly/monthly/quarterly reviews, completion scores, accountability partners and reports |
+| People | Contacts, organizations, communication history; follow-up dates create tasks and calendar events; Outreach Queue (contacts due for a message, Log outreach, Draft message) |
+| Productivity | Today's plan with daily target counters, task lists, recurring task templates, calendar time blocks, pipeline next actions |
+| Accountability | Commitments, Daily Targets, missed-commitment flow, daily/weekly/monthly/quarterly reviews, completion scores, accountability partners and reports |
 | Settings | Connections (Google, Plaid, AI), AI usage, imports, partner links, initiatives and pipelines, categories, export, profile, change log |
+
+### Daily Targets and Outreach Queue (database update 0008)
+
+- **Target:** a minimum count per day (on chosen weekdays) or per week. Example: "Network outreach", 3 per weekday.
+- **Counts are never typed in** for automatic sources: outreach = communications marked as outreach; pipeline items added; or manual taps (+1).
+- **Logging outreach** = one communication with "Counts as outreach" on, plus an optional outcome (replied, meeting booked, referral, no response).
+- **Daily close:** each target for the day shows met or missed; a missed target needs a one-line reason (saved in `target_misses`).
+- **Reviews and partner reports:** target totals vs required, reply rate, meetings booked. Partners see only targets marked "Show to accountability partners", and only when their sections include "Daily targets".
+- **Decision conditions:** measured numbers "Daily target: count in the last N days / N weeks" and "periods met / missed in a row", with details such as `{"target":"Network outreach","days":7}`.
+- **Outreach Queue:** contacts with a relationship group (close 30, warm 60, professional 90 days, or a custom number) are due when the last communication date plus the frequency is today or earlier. Draft message never sends: it creates a Gmail draft after approval, or copies the text.
+- **Before 0008 is applied,** these screens show "Database update needed" and every existing screen keeps working.
+
+### AI text format
+
+All AI features share one output rule (`src/lib/ai/claude.ts`): bulleted outline, bold lead-in per bullet, short lines, answer first, no em dashes.
+Email and message drafts use a conversational voice. Every AI text is shown with a small safe renderer (`src/components/app/ai-text.tsx`), so raw `**` or `#` never appear.
 
 Every record page shows its next required action, linked records, documents, notes, and change history.
 The AI chat panel is on every screen. The AI can read data and can only propose changes; you approve them on the
@@ -45,8 +61,10 @@ docs/                 SETUP-CHECKLIST.md and screenshots
 
 Exact values to paste are in `docs/SETUP-CHECKLIST.md`. Summary:
 
-1. **Supabase:** create a project. In SQL Editor, run each file in `supabase/migrations/` in number order
-   (0001 to 0007). Or with the Supabase CLI: `supabase link` then `supabase db push`.
+1. **Supabase:** create a project. In SQL Editor, paste and run `supabase/ALL_MIGRATIONS_RUN_ONCE.sql` (0001 to 0008),
+   or run each file in `supabase/migrations/` in number order. Or with the Supabase CLI: `supabase link` then `supabase db push`.
+   **Existing database (already has 0001 to 0007):** paste and run `supabase/UPDATE_0008_RUN_ONCE.sql` once. It is safe to run twice.
+   After changing a migration, regenerate both combined files with `python3 supabase/build_combined.py`.
    In Authentication, turn on "Allow new users to sign up" only until you create your account, then turn it off.
    In Authentication, Multi-Factor, make sure TOTP is enabled.
 2. **Vercel:** import the GitHub repository `bf-personal-app`. Add every variable from `.env.example`. Deploy.
@@ -78,6 +96,7 @@ npm run lint
 npm run typecheck
 npm run build
 bash supabase/tests/run_local.sh      # applies all migrations to a local Postgres and runs a smoke test
+bash supabase/tests/upgrade_test.sh   # 0001-0007 plus an owner, then UPDATE_0008 twice (upgrade path)
 bash dev-tools/setup-local-db.sh      # local database with demo data
 bash dev-tools/start-local.sh         # mock Supabase API + the built app on http://localhost:3000
 NODE_PATH=$(npm root -g) node dev-tools/check-pages.cjs   # renders every screen, saves screenshots
