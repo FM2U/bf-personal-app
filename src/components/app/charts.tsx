@@ -32,15 +32,16 @@ export function LineSeriesChart({ data, xKey, series, height = 220, zeroLine = f
   );
 }
 
-export function BarSeriesChart({ data, xKey, series, height = 220 }: { data: Record<string, unknown>[]; xKey: string; series: Series[]; height?: number }) {
+export function BarSeriesChart({ data, xKey, series, height = 220, valueFormat = "money" }: { data: Record<string, unknown>[]; xKey: string; series: Series[]; height?: number; valueFormat?: "money" | "count" }) {
+  const tick = valueFormat === "money" ? fmtMoney : (v: number) => String(v);
   return (
     <div style={{ height }} className="w-full">
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
           <CartesianGrid stroke="#e2e8f0" vertical={false} />
           <XAxis dataKey={xKey} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
-          <YAxis tickFormatter={fmtMoney} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} width={56} />
-          <Tooltip formatter={(v) => fmtFull(v)} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+          <YAxis tickFormatter={tick} allowDecimals={valueFormat === "money"} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} width={56} />
+          <Tooltip formatter={(v) => (valueFormat === "money" ? fmtFull(v) : String(v))} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
           {series.length > 1 ? <Legend wrapperStyle={{ fontSize: 12 }} /> : null}
           {series.map((s) => (
             <Bar key={s.key} dataKey={s.key} name={s.label} fill={s.color} radius={[3, 3, 0, 0]} isAnimationActive={false} />

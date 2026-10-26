@@ -1,0 +1,161 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { ChevronLeft } from "lucide-react";
+import { requireOwner } from "@/lib/auth";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input, Textarea } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Notice, PageHeader, Stat } from "@/components/app/page-header";
+import { SubmitButton } from "@/components/app/submit-button";
+import { TaskList } from "@/components/app/task-list";
+import { saveReview } from "@/app/actions/domain";
+import { date as fmtDate, dateTime, money, months as fmtMonths } from "@/lib/format";
+import type { Row } from "@/lib/types";
+
+const TITLE: Record<string, string> = { daily: "Daily close", weekly: "Weekly review", monthly: "Monthly review", quarterly: "Quarterly review" };
+
+export default async function ReviewPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const { supabase } = await requireOwner();
+  const { data: review } = await supabase.from("reviews").select("*").eq("id", id).maybeSingle();
+  if (!review) notFound();
+  const d = (review.data_snapshot ?? {}) as Row;
+  const a = (review.answers ?? {}) as Row;
+  const done = review.status === "completed";
+  let liveTasks: Row[] = [];
+  if (review.kind === "daily" && (d.tasks ?? []).length) {
+    const { data } = await supabase.from("tasks").select("*").in("id", (d.tasks as Row[]).map((t) => t.id));
+    liveTasks = (data ?? []) as Row[];
+  }
+  const check = (name: string, label: string) => (
+    <label className="flex items-start gap-2 text-sm">
+      <input type="checkbox" name={`a_${name}`} value="yes" defaultChecked={a[name] === "yes"} disabled={done} className="mt-0.5 h-4 w-4 accent-teal-700" />
+      <span>{label}</span>
+    </label>
+  );
+  const text = (name: string, label: string, rows = 3) => (
+    <label className="flex flex-col gap-1 text-sm font-medium">
+      {label}
+      <Textarea name={`a_${name}`} rows={rows} defaultValue={a[name] ?? ""} disabled={done} />
+    </label>
+  );
+  return (
+    <div>
+      <Link href="/accountability/reviews" className="mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-slate-900">
+        <ChevronLeft className="h-4 w-4" /> Reviews
+      </Link>
+      <PageHeader
+        title={`${TITLE[review.kind]}: ${fmtDate(review.period_start)}${review.period_end !== review.period_start ? ` to ${fmtDate(review.period_end)}` : ""}`}
+        description={done ? `Completed ${dateTime(review.completed_at)}.` : "Drafted from your data. Read the draft, answer each section, and complete the review."}
+        actions={<Badge variant={done ? "success" : "warning"}>{done ? "Completed" : "Draft"}</Badge>}
+      />
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
+        <div className="flex flex-col gap-4 lg:col-span-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>Draft {review.draft_source === "ai" ? "(AI)" : "(from your data)"}</CardTitle>
+              <CardDescription>{review.draft_source === "ai" ? "Written by the AI from the numbers below." : "The AI was not available, so this draft lists the numbers directly."}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="whitespace-pre-wrap text-sm leading-relaxed">{review.ai_draft}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Numbers at the time of the draft</CardTitle>
+            </CardHeader>
+            <CardContent className="grid grid-cols-2 gap-4">
+              <Stat label="Runway" value={fmtMonths(d.runway_months)} />
+              <Stat label="Cash" value={money(d.cash)} />
+              <Stat label="Average monthly spending" value={money(d.avg_spending)} />
+              <Stat label="Average monthly income" value={money(d.avg_income)} />
+              {d.score ? <Stat label="Commitment score" value={d.score.pct === null ? "No commitments due" : `${d.score.pct}%`} /> : null}
+              {d.budget ? <Stat label="Spent vs. budget" value={`${money(d.budget.totals.actual)} / ${money(d.budget.totals.current)}`} /> : null}
+            </CardContent>
+          </Card>
+        </div>
+        <Card className="lg:col-span-3">
+          <CardHeader>
+            <CardTitle>Your review</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form action={saveReview} className="flex flex-col gap-4">
+              <input type="hidden" name="id" value={review.id} />
+              {review.kind === "daily" ? (
+                <>
+                  <div>
+                    <p className="mb-2 text-sm font-medium">Today&apos;s tasks (check off what is done)</p>
+                    {liveTasks.length ? <TaskList tasks={liveTasks} today={review.period_start} showDue={false} /> : <p className="text-sm text-muted-foreground">No tasks were due today.</p>}
+                  </div>
+                  {liveTasks.filter((t) => t.status !== "done").length ? (
+                    <div className="flex flex-col gap-2">
+                      <p className="text-sm font-medium">A reason for each task not done</p>
+                      {liveTasks
+                        .filter((t) => t.status !== "done")
+                        .map((t) => (
+                          <label key={t.id} className="grid grid-cols-1 gap-1 text-sm sm:grid-cols-[minmax(0,14rem)_1fr] sm:items-center">
+                            <span className="clamp-2">{t.title}</span>
+                            <Input name={`a_reason_${t.id}`} defaultValue={a[`reason_${t.id}`] ?? ""} placeholder="One-line reason" disabled={done} />
+                          </label>
+                        ))}
+                    </div>
+                  ) : null}
+                  <div className="flex flex-col gap-2">
+                    <p className="text-sm font-medium">Tomorrow&apos;s top 3 tasks (created as high-priority tasks due tomorrow)</p>
+                    {[1, 2, 3].map((n) => (
+                      <Input key={n} name={`a_top_${n}`} defaultValue={a[`top_${n}`] ?? (d.tomorrow_candidates?.[n - 1]?.title ?? "")} placeholder={`Task ${n}`} disabled={done} />
+                    ))}
+                  </div>
+                </>
+              ) : null}
+              {review.kind === "weekly" ? (
+                <>
+                  {text("changes", "What changed this week")}
+                  {(d.missed_commitments ?? []).length ? <Notice tone="warn">{(d.missed_commitments as Row[]).length} commitments were missed this week. Each needs a reason and a new date or decision on the Commitments page.</Notice> : null}
+                  {text("pipeline", "Pipeline movement and next steps")}
+                  {text("spending", "Spending vs. budget: what to change")}
+                  {text("priorities", "Next week's priorities")}
+                  {check("partner_report_reviewed", "Partner report drafts reviewed (Accountability, Partner reports)")}
+                </>
+              ) : null}
+              {review.kind === "monthly" ? (
+                <>
+                  {text("budget", "Budget vs. actual: notes")}
+                  {text("net_worth", "Net worth change and savings progress: notes")}
+                  {(d.debts ?? []).length ? (
+                    <div className="flex flex-col gap-2">
+                      <p className="text-sm font-medium">Debt payments confirmed</p>
+                      {(d.debts as Row[]).map((debt) => check(`debt_${debt.id}`, `${debt.name}: payment made this month (minimum ${money(debt.minimum)})`))}
+                    </div>
+                  ) : null}
+                  {check("milestones_reviewed", "Milestone status reviewed")}
+                  {check("connections_ok", `Connections checked (Google: ${d.connections?.google?.status ?? "not connected"}; Plaid: ${(d.connections?.plaid ?? []).length} institutions)`)}
+                  {check("export_downloaded", "Full data export downloaded (Settings, Export)")}
+                </>
+              ) : null}
+              {review.kind === "quarterly" ? (
+                <>
+                  {text("goals", "Goal progress per initiative: notes", 4)}
+                  {text("conditions", "Decision conditions due this quarter: notes")}
+                  {check("inputs_reviewed", "Inputs and Assumptions reviewed and updated")}
+                  {check("milestones_set", "Next quarter's milestones set (Plan, Milestones)")}
+                </>
+              ) : null}
+              {text("notes", "Other notes", 2)}
+              {!done ? (
+                <div className="flex flex-wrap gap-2">
+                  <SubmitButton name="complete" value="1" pendingText="Completing...">
+                    Complete review
+                  </SubmitButton>
+                  <SubmitButton variant="outline" pendingText="Saving...">
+                    Save without completing
+                  </SubmitButton>
+                </div>
+              ) : null}
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,124 @@
+import Link from "next/link";
+import { requireOwner } from "@/lib/auth";
+import { loadCtx } from "@/lib/engine/helpers";
+import { todaysMeetings } from "@/lib/engine/run";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { EmptyState, PageHeader } from "@/components/app/page-header";
+import { SubmitButton } from "@/components/app/submit-button";
+import { TaskList } from "@/components/app/task-list";
+import { regeneratePlan, runTodaysJobs } from "@/app/actions/domain";
+import { date as fmtDate } from "@/lib/format";
+import type { Row } from "@/lib/types";
+
+export const metadata = { title: "Today's plan" };
+
+export default async function TodayPage() {
+  const { supabase, ownerId } = await requireOwner();
+  const ctx = await loadCtx(supabase, ownerId);
+  const [{ data: plan }, { data: tasks }, { data: actions }, { data: msTasks }, meetings] = await Promise.all([
+    supabase.from("daily_plans").select("*").eq("plan_date", ctx.today).maybeSingle(),
+    supabase.from("tasks").select("*").lte("due_date", ctx.today).or(`status.eq.todo,due_date.eq.${ctx.today}`).order("priority").order("due_date"),
+    supabase.from("pipeline_items").select("id,name,next_action,next_action_due").eq("status", "open").not("next_action", "is", null).lte("next_action_due", ctx.today).order("next_action_due"),
+    supabase.from("tasks").select("*").not("milestone_id", "is", null).eq("status", "todo").order("due_date").limit(10),
+    todaysMeetings(ctx),
+  ]);
+  const list = (tasks ?? []) as Row[];
+  return (
+    <div>
+      <PageHeader
+        title="Today's plan"
+        description="The AI's morning plan, built from due tasks, pipeline next actions, milestone tasks, and calendar meetings."
+        actions={
+          <>
+            <form action={runTodaysJobs}>
+              <SubmitButton size="sm" variant="outline" pendingText="Creating...">
+                Create today&apos;s recurring tasks now
+              </SubmitButton>
+            </form>
+            <form action={regeneratePlan}>
+              <SubmitButton size="sm" pendingText="Writing...">
+                {plan ? "Rewrite plan" : "Write plan"}
+              </SubmitButton>
+            </form>
+          </>
+        }
+      />
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>Morning plan</CardTitle>
+            <CardDescription>{plan ? `Written ${plan.generated_by === "ai" ? "by the AI" : "from your data (AI not available)"}.` : "Written each morning after the bank sync."}</CardDescription>
+          </CardHeader>
+          <CardContent>{plan ? <div className="whitespace-pre-wrap text-sm leading-relaxed">{plan.content}</div> : <EmptyState title="No plan written yet today." body='Press "Write plan" to write it now.' />}</CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Meetings</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {meetings === null ? (
+              <p className="text-sm text-muted-foreground">
+                Google is not connected. <Link href="/settings" className="underline">Connect Google</Link>.
+              </p>
+            ) : meetings.length ? (
+              <ul className="flex flex-col gap-2 text-sm">
+                {meetings.map((m) => (
+                  <li key={m.id} className="grid grid-cols-[4.5rem_1fr] gap-2">
+                    <span className="tabular text-muted-foreground">{m.allDay ? "All day" : new Date(m.start ?? "").toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: ctx.tz })}</span>
+                    <span className="clamp-2">{m.title}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">No meetings today.</p>
+            )}
+          </CardContent>
+        </Card>
+        <Card className="lg:col-span-2">
+          <CardHeader className="flex-row items-start justify-between gap-2">
+            <div>
+              <CardTitle>Due today and overdue</CardTitle>
+              <CardDescription>{fmtDate(ctx.today, "EEEE, MMMM d")}</CardDescription>
+            </div>
+            <Button asChild size="sm" variant="outline">
+              <Link href={`/records/tasks/new?due_date=${ctx.today}`}>Add task</Link>
+            </Button>
+          </CardHeader>
+          <CardContent>{list.length ? <TaskList tasks={list} today={ctx.today} /> : <EmptyState title="Nothing due today." body="Add a task, or create today's recurring tasks now." />}</CardContent>
+        </Card>
+        <div className="flex flex-col gap-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Pipeline next actions due</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {(actions ?? []).length ? (
+                <ul className="flex flex-col gap-2 text-sm">
+                  {((actions ?? []) as Row[]).map((a) => (
+                    <li key={a.id}>
+                      <Link href={`/records/pipeline_items/${a.id}`} className="font-medium hover:underline">
+                        {a.name}
+                      </Link>
+                      <span className="block text-xs text-muted-foreground">
+                        {a.next_action} ({fmtDate(a.next_action_due, "MMM d")})
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-muted-foreground">No pipeline next actions due.</p>
+              )}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Milestone tasks</CardTitle>
+            </CardHeader>
+            <CardContent>{(msTasks ?? []).length ? <TaskList tasks={(msTasks ?? []) as Row[]} today={ctx.today} /> : <p className="text-sm text-muted-foreground">No open milestone tasks.</p>}</CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
