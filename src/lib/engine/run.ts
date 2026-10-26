@@ -13,7 +13,7 @@ import { loadOutreachQueue } from "@/lib/outreach";
 import type { Row } from "@/lib/types";
 import { createAlert, createTask, loadCtx, type Ctx } from "./helpers";
 import { checkMilestones, evaluateConditions } from "./rules";
-import { checkCommitments, createTimeBlocks, generateFollowUps, generatePipelineTasks, generateRecurringTasks, scheduleReviewEvents } from "./tasks";
+import { checkCommitments, createTimeBlocks, generateFollowUps, generatePipelineTasks, generateRecurringTasks, releaseSupersededNextActions, rolloverRegularTasks, scheduleReviewEvents } from "./tasks";
 import { applyCategoryRules, detectAndSaveRecurring } from "./finance-jobs";
 import { ensureReview } from "./reviews";
 import { schedulePartnerReports } from "./partners";
@@ -280,7 +280,7 @@ function templatePlan(d: Row, cash: number): string {
   return lines.join("\n");
 }
 
-/** Morning job: sync, checks, task generation, reviews due, partner reports, time blocks, then the morning plan. */
+/** Morning job: sync, checks, task generation, missed regular tasks moved to today, reviews due, partner reports, time blocks, then the morning plan. */
 export async function runMorning(sb: SupabaseClient, ownerId: string) {
   const ctx = await loadCtx(sb, ownerId);
   const log: StepResult[] = [];
@@ -294,6 +294,7 @@ export async function runMorning(sb: SupabaseClient, ownerId: string) {
   await step("pipeline_accountability", () => checkPipelineAccountability(ctx), log);
   await step("follow_ups", () => generateFollowUps(ctx), log);
   await step("commitments", () => checkCommitments(ctx, false), log);
+  await step("task_rollover", () => rolloverRegularTasks(ctx), log);
   await step("milestones", () => checkMilestones(ctx), log);
   await step("decision_conditions", () => evaluateConditions(ctx), log);
   if (d.getDay() === Number(ctx.profile.weekly_review_weekday ?? 0)) await step("weekly_review", () => ensureReview(ctx, "weekly"), log);
@@ -313,6 +314,7 @@ export async function runEvening(sb: SupabaseClient, ownerId: string) {
   const ctx = await loadCtx(sb, ownerId);
   const log: StepResult[] = [];
   await step("daily_close", () => ensureReview(ctx, "daily"), log);
+  await step("next_actions", () => releaseSupersededNextActions(ctx), log);
   await step("commitments", () => checkCommitments(ctx, true), log);
   await step("decision_conditions", () => evaluateConditions(ctx), log);
   return { date: ctx.today, log };

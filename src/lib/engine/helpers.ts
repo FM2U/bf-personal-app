@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { insertIgnoreDuplicate } from "@/lib/data";
 import { todayInTz } from "@/lib/calc/dates";
 import type { Row } from "@/lib/types";
+import { GROUPED_ALERTS, groupedAlertStep, type GroupedAlertKind } from "@/lib/calc/commitment-rule";
 
 export type Ctx = { sb: SupabaseClient; ownerId: string; today: string; tz: string; profile: Row };
 
@@ -18,6 +19,38 @@ export async function createAlert(
   a: { kind: string; message: string; severity?: string; related_type?: string; related_id?: string; href?: string; dedupe_key?: string },
 ) {
   return insertIgnoreDuplicate(ctx.sb, "alerts", { owner_id: ctx.ownerId, severity: "warning", ...a });
+}
+
+/**
+ * One Home alert per kind (example: "3 pipeline items are stalled."), updated in place when the count changes
+ * and resolved (dismissed) when the count reaches 0.
+ */
+export async function syncGroupedAlert(ctx: Pick<Ctx, "sb" | "ownerId">, kind: GroupedAlertKind, count: number) {
+  const def = GROUPED_ALERTS[kind];
+  const { data } = await ctx.sb.from("alerts").select("id,message").eq("owner_id", ctx.ownerId).eq("status", "open").eq("dedupe_key", def.dedupeKey).limit(1);
+  const open = ((data ?? []) as Row[])[0] ?? null;
+  const step = groupedAlertStep(kind, open ? { id: open.id, message: open.message } : null, count);
+  if (step.action === "insert") {
+    await insertIgnoreDuplicate(ctx.sb, "alerts", { owner_id: ctx.ownerId, kind: "other", severity: "warning", message: step.message, href: def.href, dedupe_key: def.dedupeKey });
+  } else if (step.action === "update") {
+    await ctx.sb.from("alerts").update({ message: step.message, href: def.href }).eq("id", step.id);
+  } else if (step.action === "resolve") {
+    await ctx.sb.from("alerts").update({ status: "dismissed", dismissed_at: new Date().toISOString() }).eq("id", step.id);
+  }
+  return step.action;
+}
+
+/** Recounts open pipeline items without a next action and updates the grouped Home alert. */
+export async function refreshNextActionAlert(ctx: Pick<Ctx, "sb" | "ownerId">) {
+  const { data } = await ctx.sb.from("pipeline_items").select("id,next_action").eq("owner_id", ctx.ownerId).eq("status", "open");
+  const count = ((data ?? []) as Row[]).filter((i) => !String(i.next_action ?? "").trim()).length;
+  return syncGroupedAlert(ctx, "next_action", count);
+}
+
+/** Recounts open stage time limit decisions and updates the grouped Home alert. */
+export async function refreshStageLimitAlert(ctx: Pick<Ctx, "sb" | "ownerId">) {
+  const { count } = await ctx.sb.from("decisions").select("id", { count: "exact", head: true }).eq("owner_id", ctx.ownerId).eq("status", "open").eq("source", "pipeline_stage");
+  return syncGroupedAlert(ctx, "stage_limit", count ?? 0);
 }
 
 export async function createTask(

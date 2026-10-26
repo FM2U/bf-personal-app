@@ -3,12 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireOwner } from "@/lib/auth";
-import { loadCtx } from "@/lib/engine/helpers";
+import { loadCtx, refreshNextActionAlert, refreshStageLimitAlert } from "@/lib/engine/helpers";
 import { evaluateConditions, markMilestoneMet } from "@/lib/engine/rules";
-import { checkCommitments, generateFollowUps, generatePipelineTasks, generateRecurringTasks, createTimeBlocks, scheduleReviewEvents } from "@/lib/engine/tasks";
+import { checkCommitments, generateFollowUps, generatePipelineTasks, generateRecurringTasks, createTimeBlocks, releaseSupersededNextActions, rolloverRegularTasks, scheduleReviewEvents } from "@/lib/engine/tasks";
 import { applyCategoryRules, detectAndSaveRecurring } from "@/lib/engine/finance-jobs";
 import { buildMorningPlan } from "@/lib/engine/run";
-import { dailyCloseTargets, ensureReview, type ReviewKind } from "@/lib/engine/reviews";
+import { dailyCloseCommitments, dailyCloseTargets, ensureReview, type ReviewKind } from "@/lib/engine/reviews";
+import { resolveCloseReasons, type CloseMiss } from "@/lib/calc/commitment-rule";
 import { createPartnerReport, reportText, activeLinkFor } from "@/lib/engine/partners";
 import { repaymentSchedule } from "@/lib/calc/savings";
 import { encrypt, randomToken, sha256 } from "@/lib/crypto";
@@ -32,7 +33,10 @@ export async function moveStage(fd: FormData) {
   if (!item || item.stage_id === stageId) return done();
   const { missing } = await moveItemToStage(supabase, item as Row, stageId);
   if (missing.length) return done(`/records/pipeline_items/${id}?blocked=${stageId}`);
-  await evaluateConditions(await loadCtx(supabase, ownerId));
+  const ctx = await loadCtx(supabase, ownerId);
+  await releaseSupersededNextActions(ctx, id);
+  await refreshNextActionAlert(ctx);
+  await evaluateConditions(ctx);
   done(`/records/pipeline_items/${id}`);
 }
 
@@ -80,6 +84,8 @@ export async function chooseOption(fd: FormData) {
     .update({ status: "decided", chosen_option_id: String(fd.get("option_id")), decided_on: ctx.today, outcome: String(fd.get("outcome") ?? "") || null })
     .eq("id", String(fd.get("decision_id")));
   await supabase.from("alerts").update({ status: "dismissed", dismissed_at: new Date().toISOString() }).eq("related_id", String(fd.get("decision_id"))).eq("status", "open");
+  // The grouped "stage time limits passed" alert on Home shows the new count (resolved at 0).
+  if (decision?.source === "pipeline_stage") await refreshStageLimitAlert(ctx);
   done();
 }
 
@@ -115,6 +121,7 @@ export async function runTodaysJobs() {
   await generatePipelineTasks(ctx);
   await generateFollowUps(ctx);
   await checkCommitments(ctx, false);
+  await rolloverRegularTasks(ctx);
   await evaluateConditions(ctx);
   done();
 }
@@ -163,18 +170,32 @@ export async function saveReview(fd: FormData) {
   const { data: review } = await supabase.from("reviews").select("*").eq("id", id).single();
   if (!review) return;
   if (complete && review.kind === "daily") {
-    // Each task not done needs a reason
-    const tasks = ((review.data_snapshot?.tasks ?? []) as Row[]).filter((t) => t.status !== "done");
-    const { data: current } = tasks.length ? await supabase.from("tasks").select("id,status").in("id", tasks.map((t) => t.id)) : { data: [] };
-    const stillOpen = ((current ?? []) as Row[]).filter((t) => t.status !== "done");
-    const missing = stillOpen.filter((t) => !String(answers[`reason_${t.id}`] ?? "").trim());
-    if (missing.length) throw new Error("Give a reason for each task not done before completing the daily close.");
-    // Each daily target missed that day needs a one-line reason, saved on the missed period record.
-    const tctx = await loadCtx(supabase, ownerId);
-    const targets = await dailyCloseTargets(tctx, review.period_start);
+    // Regular tasks not done need no reason (they move to tomorrow). Each missed commitment and each missed
+    // daily target needs a reason: its own, or the shared reason when it is checked.
+    const ctx = await loadCtx(supabase, ownerId);
+    const day = review.period_start as string;
+    const [commitmentsDue, targets] = await Promise.all([dailyCloseCommitments(ctx, day), dailyCloseTargets(ctx, day)]);
     const missedTargets = targets.targets.filter((t) => t.status === "missed");
-    const noReason = missedTargets.filter((t) => !String(answers[`target_reason_${t.id}`] ?? t.reason ?? "").trim());
-    if (noReason.length) throw new Error("Give a one-line reason for each daily target missed before completing the daily close.");
+    const items: CloseMiss[] = [
+      ...commitmentsDue.map((c) => ({ key: `c_${c.id}`, label: c.title, existingReason: c.reason })),
+      ...missedTargets.map((t) => ({ key: `t_${t.id}`, label: t.name, existingReason: answers[`target_reason_${t.id}`] ?? t.reason })),
+    ];
+    const { reasons, missing } = resolveCloseReasons(items, answers);
+    if (missing.length) {
+      // Keep what was typed, and show which items still need a reason.
+      await supabase.from("reviews").update({ answers }).eq("id", id);
+      revalidatePath("/", "layout");
+      redirect(`/accountability/reviews/${id}?missing=${encodeURIComponent(missing.map((m) => m.label).join("|"))}`);
+    }
+    // Completing the close completes its own task first, so it is never counted as missed.
+    await supabase.from("tasks").update({ status: "done" }).eq("owner_id", ownerId).eq("title", "Complete the daily close").eq("status", "todo").lte("due_date", day);
+    // The day is over: commitments still open are recorded as missed, then each miss gets its reason.
+    if (commitmentsDue.some((c) => c.status === "open")) await checkCommitments(ctx, day >= ctx.today);
+    for (const c of commitmentsDue) {
+      const reason = reasons[`c_${c.id}`];
+      const { data: updated } = await supabase.from("missed_commitments").update({ reason }).eq("commitment_id", c.id).eq("missed_on", day).select("id");
+      if (!updated?.length) await supabase.from("missed_commitments").insert({ owner_id: ownerId, commitment_id: c.id, missed_on: day, reason, resolution: "pending" });
+    }
     if (missedTargets.length) {
       await supabase.from("target_misses").upsert(
         missedTargets.map((t) => ({
@@ -184,14 +205,14 @@ export async function saveReview(fd: FormData) {
           period_end: t.end,
           actual_count: t.count,
           required_count: t.required,
-          reason: String(answers[`target_reason_${t.id}`] ?? t.reason ?? "").trim().slice(0, 200),
+          reason: reasons[`t_${t.id}`],
         })),
         { onConflict: "target_id,period_start" },
       );
     }
+    answers.misses_at_close = JSON.stringify(items.map((i) => ({ item: i.label, reason: reasons[i.key] })));
     answers.targets_at_close = JSON.stringify(targets.targets.map((t) => ({ name: t.name, count: t.count, required: t.required, status: t.status })));
     // Tomorrow's top 3 become high priority tasks due tomorrow
-    const ctx = await loadCtx(supabase, ownerId);
     const tomorrow = new Date(`${ctx.today}T12:00:00`);
     tomorrow.setDate(tomorrow.getDate() + 1);
     const t = tomorrow.toISOString().slice(0, 10);
@@ -209,6 +230,25 @@ export async function saveReview(fd: FormData) {
     await supabase.from("tasks").update({ status: "done" }).eq("title", kindTitle[review.kind]).eq("status", "todo").lte("due_date", review.period_end > review.period_start ? new Date().toISOString().slice(0, 10) : review.period_end);
     await checkCommitments(await loadCtx(supabase, ownerId), false);
   }
+  done();
+}
+
+/**
+ * Weekly review: a regular task moved to the next day many times is done, rescheduled (times moved starts
+ * again from 0), or deleted. No reason is needed.
+ */
+export async function handleMovedTask(fd: FormData) {
+  const { supabase, ownerId } = await requireOwner();
+  const id = String(fd.get("task_id"));
+  const op = String(fd.get("op"));
+  if (op === "done") await supabase.from("tasks").update({ status: "done" }).eq("id", id);
+  else if (op === "delete") await supabase.from("tasks").delete().eq("id", id);
+  else if (op === "reschedule") {
+    const date = String(fd.get("due_date") ?? "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Choose a new date.");
+    await supabase.from("tasks").update({ due_date: date, times_moved: 0 }).eq("id", id);
+  }
+  if (op === "done") await checkCommitments(await loadCtx(supabase, ownerId), false);
   done();
 }
 

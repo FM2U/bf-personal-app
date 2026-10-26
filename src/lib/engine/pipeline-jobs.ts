@@ -1,19 +1,22 @@
 import "server-only";
 import { addDaysISO } from "@/lib/calc/dates";
 import { stageLimitDedupeKey } from "@/lib/calc/pipeline";
+import { isReplacedPerItemAlert } from "@/lib/calc/commitment-rule";
 import { loadPipelineStatus } from "@/lib/pipeline";
 import { isMissingSchemaError } from "@/lib/schema-guard";
 import type { Row } from "@/lib/types";
-import { createAlert, createTask, linkRecords, openDecision, type Ctx } from "./helpers";
+import { createTask, linkRecords, openDecision, refreshStageLimitAlert, syncGroupedAlert, type Ctx } from "./helpers";
 
 export const STAGE_LIMIT_OPTIONS = { advance: "Advance to next stage", pass: "Pass" } as const;
 export const extendLabel = (days: number) => `Extend ${days} days`;
 
 /**
  * Daily pipeline accountability check (all pipelines):
- *   1. Open items without a next action: Home alert and the task "Set next action: <item>".
+ *   1. Open items without a next action: the task "Set next action: <item>" (a regular task).
  *   2. Items longer in a stage than the stage time limit (plus extensions): a decision with options written in advance.
- *   3. Stalled items (no stage change and no linked activity for pipeline_stall_days): Home alert.
+ *   3. Stalled items (no stage change and no linked activity for pipeline_stall_days).
+ * Home gets one grouped alert per kind ("3 pipeline items are stalled."), updated in place and resolved at 0.
+ * Per-item badges stay on the board, list, and item pages. Earlier per-item alerts of these kinds are dismissed.
  * Works before database update 0009 (steps 1 and 3); step 2 needs the update and is skipped without it.
  */
 export async function checkPipelineAccountability(ctx: Ctx) {
@@ -22,7 +25,7 @@ export async function checkPipelineAccountability(ctx: Ctx) {
   const [{ data: itemsData, error }, { data: pipes }, { data: alertRows }] = await Promise.all([
     sb.from("pipeline_items").select("*").eq("owner_id", ownerId).eq("status", "open"),
     sb.from("pipelines").select("id,name,initiative_id").eq("owner_id", ownerId),
-    sb.from("alerts").select("id,dedupe_key").eq("owner_id", ownerId).eq("status", "open").or("dedupe_key.like.pipeline-next-action:*,dedupe_key.like.pipeline-stalled:*"),
+    sb.from("alerts").select("id,dedupe_key,related_type,related_id").eq("owner_id", ownerId).eq("status", "open").like("dedupe_key", "%:%"),
   ]);
   if (error) throw new Error(error.message);
   const items = (itemsData ?? []) as Row[];
@@ -37,14 +40,6 @@ export async function checkPipelineAccountability(ctx: Ctx) {
     const pipe = pipeById[it.pipeline_id];
     if (it.next_action && String(it.next_action).trim()) continue;
     out.missingNextAction++;
-    await createAlert(ctx, {
-      kind: "other",
-      message: `Set the next action and due date for ${it.name}${pipe ? ` (${pipe.name})` : ""}.`,
-      related_type: "pipeline_items",
-      related_id: it.id,
-      href: `/records/pipeline_items/${it.id}?edit=1`,
-      dedupe_key: `pipeline-next-action:${it.id}`,
-    });
     await createTask(ctx, {
       title: `Set next action: ${it.name}`,
       due_date: today,
@@ -59,7 +54,7 @@ export async function checkPipelineAccountability(ctx: Ctx) {
     });
   }
   const hasNext = new Set(items.filter((i) => i.next_action && String(i.next_action).trim()).map((i) => i.id));
-  await dismiss(openAlerts.filter((a) => a.dedupe_key?.startsWith("pipeline-next-action:") && hasNext.has(a.dedupe_key.split(":")[1])).map((a) => a.id));
+  await syncGroupedAlert(ctx, "next_action", out.missingNextAction);
   // A "Set next action" task is done once the item has a next action.
   const { data: setTasks } = await sb.from("tasks").select("id,pipeline_item_id").eq("owner_id", ownerId).eq("status", "todo").like("source_key", "set-next-action:%");
   const doneIds = ((setTasks ?? []) as Row[]).filter((t) => hasNext.has(t.pipeline_item_id)).map((t) => t.id);
@@ -100,15 +95,6 @@ export async function checkPipelineAccountability(ctx: Ctx) {
         if (id) {
           out.decisionsOpened++;
           await linkRecords(ctx, "pipeline_items", it.id, "decisions", id, "time limit");
-          await createAlert(ctx, {
-            kind: "other",
-            severity: "warning",
-            message: `Decision required: ${it.name} is over the ${stage?.name ?? "stage"} time limit.`,
-            href: `/records/decisions/${id}`,
-            related_type: "decisions",
-            related_id: id,
-            dedupe_key: `decision:${id}`,
-          });
         }
       } catch (e) {
         if (!isMissingSchemaError(e as { message?: string })) throw e;
@@ -116,23 +102,18 @@ export async function checkPipelineAccountability(ctx: Ctx) {
     }
   }
 
+  // The decision records stay per item (they are where Advance, Pass, or Extend is chosen); Home shows one alert.
+  out.stageLimitAlert = await refreshStageLimitAlert(ctx);
+
   // 3. Stalled items.
-  const stalledKeys = new Set<string>();
-  for (const it of items) {
-    const st = status.byItem[it.id];
-    if (!st?.stalled) continue;
-    out.stalled++;
-    const key = `pipeline-stalled:${it.id}:${st.lastActivity}`;
-    stalledKeys.add(key);
-    await createAlert(ctx, {
-      kind: "other",
-      message: `Stalled: ${it.name} has had no stage change or activity for ${st.daysSinceActivity} days.`,
-      related_type: "pipeline_items",
-      related_id: it.id,
-      href: `/records/pipeline_items/${it.id}`,
-      dedupe_key: key,
-    });
-  }
-  await dismiss(openAlerts.filter((a) => a.dedupe_key?.startsWith("pipeline-stalled:") && !stalledKeys.has(a.dedupe_key)).map((a) => a.id));
+  for (const it of items) if (status.byItem[it.id]?.stalled) out.stalled++;
+  await syncGroupedAlert(ctx, "stalled", out.stalled);
+
+  // Per-item alerts of these kinds (from before grouping) are dismissed.
+  const { data: limitDecisions } = await sb.from("decisions").select("id").eq("owner_id", ownerId).eq("source", "pipeline_stage");
+  const limitIds = new Set(((limitDecisions ?? []) as Row[]).map((d) => d.id));
+  const replaced = openAlerts.filter((a) => isReplacedPerItemAlert(a, limitIds)).map((a) => a.id);
+  await dismiss(replaced);
+  out.perItemAlertsDismissed = replaced.length;
   return out;
 }

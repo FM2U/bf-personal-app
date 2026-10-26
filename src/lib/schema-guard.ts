@@ -1,8 +1,9 @@
 /**
- * Database updates 0008 (Daily Targets and Outreach Queue) and 0009 (pipeline accountability and deal source)
- * may not be applied yet on the live database. Every query that reads or writes the new tables or columns checks
- * for "does not exist" errors with isMissingSchemaError and shows DB_UPDATE_NOTICE instead of failing.
- * Both updates are in one file: supabase/UPDATE_RUN_ONCE.sql.
+ * Database updates 0008 (Daily Targets and Outreach Queue), 0009 (pipeline accountability and deal source), and
+ * 0010 (commitment rule: tasks.times_moved, released commitments) may not be applied yet on the live database.
+ * Every query that reads or writes the new tables or columns checks for "does not exist" errors with
+ * isMissingSchemaError and shows DB_UPDATE_NOTICE (or skips the step) instead of failing.
+ * All three updates are in one file: supabase/UPDATE_RUN_ONCE.sql.
  */
 
 export const DB_UPDATE_FILE = "supabase/UPDATE_RUN_ONCE.sql";

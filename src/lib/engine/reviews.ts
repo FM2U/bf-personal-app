@@ -13,6 +13,8 @@ import type { Row } from "@/lib/types";
 
 import { sourcedBreakdownByDay, sumBreakdown } from "@/lib/calc/pipeline";
 import { loadPipelineStatus } from "@/lib/pipeline";
+import { tasksToReview } from "@/lib/calc/commitment-rule";
+import { isMissingSchemaError } from "@/lib/schema-guard";
 import type { Ctx } from "./helpers";
 
 /** Daily targets for one day of the daily close: count, required, and met or missed (the day is final). */
@@ -29,6 +31,49 @@ export async function dailyCloseTargets(ctx: Ctx, day: string): Promise<{ availa
     // Day targets on their active days; week targets on the last day of the week.
     .filter((r) => r.status !== "off" && (r.period === "day" || isWeekEnd));
   return { available: true, targets };
+}
+
+/**
+ * Commitments due on `day` that were not met (open or already marked missed), for the daily close.
+ * Each has the reason given so far (from the missed commitment record), if any.
+ */
+export async function dailyCloseCommitments(ctx: Pick<Ctx, "sb" | "ownerId">, day: string): Promise<Row[]> {
+  const { sb, ownerId } = ctx;
+  const { data } = await sb.from("commitments").select("*").eq("owner_id", ownerId).eq("due_date", day).in("status", ["open", "missed"]);
+  const list = (data ?? []) as Row[];
+  if (!list.length) return [];
+  const ids = (type: string) => list.filter((c) => c.record_type === type).map((c) => c.record_id);
+  const [tasks, milestones, goals, misses] = await Promise.all([
+    ids("tasks").length ? sb.from("tasks").select("id,status").in("id", ids("tasks")) : Promise.resolve({ data: [] }),
+    ids("milestones").length ? sb.from("milestones").select("id,status").in("id", ids("milestones")) : Promise.resolve({ data: [] }),
+    ids("goals").length ? sb.from("goals").select("id,status").in("id", ids("goals")) : Promise.resolve({ data: [] }),
+    sb.from("missed_commitments").select("commitment_id,reason").eq("owner_id", ownerId).eq("missed_on", day).in("commitment_id", list.map((c) => c.id)),
+  ]);
+  const status: Record<string, string> = {};
+  for (const r of [...((tasks.data ?? []) as Row[]), ...((milestones.data ?? []) as Row[]), ...((goals.data ?? []) as Row[])]) status[r.id] = r.status;
+  const reason = Object.fromEntries(((misses.data ?? []) as Row[]).map((m) => [m.commitment_id, m.reason]));
+  return list
+    .filter((c) => {
+      // The daily close task is met by completing the close itself.
+      if (/daily close/i.test(String(c.title ?? ""))) return false;
+      const s = status[c.record_id];
+      return c.record_type === "tasks" ? s !== "done" : s !== "met";
+    })
+    .map((c) => ({ id: c.id, title: c.title, record_type: c.record_type, record_id: c.record_id, status: c.status, reason: reason[c.id] ?? null }));
+}
+
+/** Regular tasks moved to the next day at least the set number of times (Inputs: task_moved_review_threshold). */
+export async function movedTasksForReview(ctx: Pick<Ctx, "sb" | "ownerId">): Promise<{ available: boolean; threshold: number; tasks: Row[] }> {
+  const { sb, ownerId } = ctx;
+  const { data: input } = await sb.from("inputs").select("value_number").eq("owner_id", ownerId).eq("key", "task_moved_review_threshold").maybeSingle();
+  const raw = Number((input as Row | null)?.value_number);
+  const threshold = Number.isFinite(raw) && raw > 0 ? Math.round(raw) : 5;
+  const { data, error } = await sb.from("tasks").select("id,title,status,due_date,times_moved,priority").eq("owner_id", ownerId).eq("status", "todo").gte("times_moved", threshold).limit(200);
+  if (error) {
+    if (isMissingSchemaError(error)) return { available: false, threshold, tasks: [] };
+    throw new Error(error.message);
+  }
+  return { available: true, threshold, tasks: tasksToReview((data ?? []) as { status: string; times_moved: number }[], threshold) as Row[] };
 }
 
 export type ReviewKind = "daily" | "weekly" | "monthly" | "quarterly";
@@ -59,11 +104,19 @@ export async function reviewData(ctx: Ctx, kind: ReviewKind, start: string, end:
       sb.from("tasks").select("id,title,priority,due_date").eq("owner_id", ownerId).eq("status", "todo").lte("due_date", addDaysISO(start, 1)).order("priority").order("due_date").limit(10),
     ]);
     const targets = await dailyCloseTargets(ctx, start);
-    return { ...base, tasks: due ?? [], tomorrow_candidates: tomorrow ?? [], targets: targets.targets, targets_available: targets.available };
+    const commitmentsDue = await dailyCloseCommitments(ctx, start);
+    return {
+      ...base,
+      tasks: due ?? [],
+      tomorrow_candidates: tomorrow ?? [],
+      targets: targets.targets,
+      targets_available: targets.available,
+      commitments_not_met: commitmentsDue.map((c) => ({ title: c.title })),
+    };
   }
   const [changes, misses, commitments, conditions, moves, stages, items, budgets, lines, cats] = await Promise.all([
     sb.from("change_log").select("table_name,action,actor").eq("owner_id", ownerId).gte("created_at", `${start}T00:00:00`).lte("created_at", `${end}T23:59:59`).limit(1000),
-    sb.from("missed_commitments").select("id,commitment_id,missed_on,reason,resolution").eq("owner_id", ownerId).gte("missed_on", start).lte("missed_on", end),
+    sb.from("missed_commitments").select("id,commitment_id,missed_on,reason,resolution").eq("owner_id", ownerId).neq("resolution", "released").gte("missed_on", start).lte("missed_on", end),
     sb.from("commitments").select("id,title,due_date,status,miss_count").eq("owner_id", ownerId),
     sb.from("decision_conditions").select("id,name,metric_key,last_value,last_triggered_at,check_from,currently_met").eq("owner_id", ownerId),
     sb.from("stage_history").select("item_id,stage_id,entered_at").eq("owner_id", ownerId).gte("entered_at", `${start}T00:00:00`).lte("entered_at", `${end}T23:59:59`),
@@ -81,7 +134,7 @@ export async function reviewData(ctx: Ctx, kind: ReviewKind, start: string, end:
   const allCommitments = (commitments.data ?? []) as Row[];
   const commitmentTitle = Object.fromEntries(allCommitments.map((c) => [c.id, c.title]));
   const missList = ((misses.data ?? []) as Row[]).map((m) => ({ ...m, title: commitmentTitle[m.commitment_id] ?? "Commitment" }));
-  const repeated = Object.entries(repeatedMisses(((await sb.from("missed_commitments").select("commitment_id").eq("owner_id", ownerId)).data ?? []) as { commitment_id: string }[])).map(([id, n]) => ({
+  const repeated = Object.entries(repeatedMisses(((await sb.from("missed_commitments").select("commitment_id").eq("owner_id", ownerId).neq("resolution", "released")).data ?? []) as { commitment_id: string }[])).map(([id, n]) => ({
     title: commitmentTitle[id] ?? id,
     misses: n,
   }));
@@ -124,6 +177,10 @@ export async function reviewData(ctx: Ctx, kind: ReviewKind, start: string, end:
     ]);
     data.next_week_tasks = next ?? [];
     data.partner_report_drafts = (drafts ?? []).length;
+    // Regular tasks moved to the next day many times: do, reschedule, or delete (no reasons needed).
+    const moved = await movedTasksForReview(ctx);
+    data.moved_tasks_threshold = moved.threshold;
+    data.moved_tasks = moved.tasks.map((t) => ({ title: t.title, times_moved: t.times_moved }));
   }
   if (kind === "monthly" || kind === "quarterly") {
     const nw = await netWorthByMonth(sb, ctx.today, 4, ownerId);
@@ -222,7 +279,9 @@ export function templateReviewDraft(kind: ReviewKind, d: Row): string {
     const tasks = (d.tasks ?? []) as Row[];
     const done = tasks.filter((t) => t.status === "done");
     lines.push(bullet("Tasks due today", `${tasks.length}. Done ${done.length}. Not done ${tasks.length - done.length}.`));
-    section(lines, "Not done (give a reason for each)", tasks.filter((t) => t.status !== "done").map((t) => bullet("Task", t.title)), "every task due today is done.");
+    section(lines, "Not done (regular tasks move to tomorrow, no reason needed)", tasks.filter((t) => t.status !== "done").map((t) => bullet("Task", t.title)), "every task due today is done.");
+    const notMet = (d.commitments_not_met ?? []) as Row[];
+    if (notMet.length) section(lines, "Commitments not met today (a reason is needed)", notMet.map((c) => bullet("Commitment", c.title)), "");
     const targets = (d.targets ?? []) as Row[];
     if (targets.length) {
       section(
@@ -294,6 +353,12 @@ export function templateReviewDraft(kind: ReviewKind, d: Row): string {
   if (kind === "weekly") {
     section(lines, "Next week's priorities (from due tasks)", ((d.next_week_tasks ?? []) as Row[]).slice(0, 5).map((t) => bullet(t.title, `due ${t.due_date}`)), "add next week's tasks.");
     lines.push(bullet("Partner report drafts waiting", String(d.partner_report_drafts ?? 0)));
+    section(
+      lines,
+      `Tasks moved ${d.moved_tasks_threshold ?? 5} or more times (do, reschedule, or delete)`,
+      ((d.moved_tasks ?? []) as Row[]).map((t) => bullet(t.title, `moved ${t.times_moved} times`)),
+      "no task moved that often.",
+    );
   }
   if (kind === "monthly" || kind === "quarterly") {
     const nw = (d.net_worth_by_month ?? []) as Row[];
@@ -323,8 +388,8 @@ export async function ensureReview(ctx: Ctx, kind: ReviewKind, forceDate?: strin
   const data = await reviewData(ctx, kind, p.start, p.end);
   const prompt = `Draft Bram's ${kind} review for ${p.start} to ${p.end}. ${
     kind === "daily"
-      ? "This is the evening daily close check: list tasks done and not done, ask for a reason for each not done, show each daily target as met or missed (a missed target needs a one-line reason), and suggest tomorrow's top 3 tasks."
-      : "Cover each required section in order, each under a short bold label. Flag missed commitments, slipping milestones, and spending over budget. Include daily target totals vs required, the outreach reply rate, and meetings booked. Report deals sourced split proprietary vs brokered with the proprietary share, and list stalled pipeline items. End with recommended priorities."
+      ? "This is the evening daily close check: list tasks done and not done (regular tasks not done move to tomorrow automatically and need no reason), list commitments not met today (each needs a reason; one reason can cover several), show each daily target as met or missed (a missed target needs a reason), and suggest tomorrow's top 3 tasks."
+      : "Cover each required section in order, each under a short bold label. Flag missed commitments, slipping milestones, and spending over budget. Include daily target totals vs required, the outreach reply rate, and meetings booked. Report deals sourced split proprietary vs brokered with the proprietary share, and list stalled pipeline items. In the weekly review, list regular tasks moved to the next day many times (moved_tasks) so they can be done, rescheduled, or deleted. End with recommended priorities."
   } Keep it under 300 words. Data (JSON):\n${JSON.stringify(data).slice(0, 15000)}`;
   const ai = await tryDraft({ sb, ownerId, purpose: `review_${kind}`, prompt });
   const { data: created } = await sb

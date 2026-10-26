@@ -3,6 +3,8 @@ import { addDaysISO, parseDate } from "@/lib/calc/dates";
 import { createCalendarEvent, localDateTime } from "@/lib/google";
 import { insertIgnoreDuplicate } from "@/lib/data";
 import type { Row } from "@/lib/types";
+import { groupMovesByCount, planRollover } from "@/lib/calc/commitment-rule";
+import { isMissingSchemaError } from "@/lib/schema-guard";
 import { createAlert, createTask, type Ctx } from "./helpers";
 
 /** True when a recurring template is due on the given date. */
@@ -23,7 +25,10 @@ export function templateDueOn(t: Row, today: string): boolean {
   }
 }
 
-/** Creates today's tasks from recurring templates (daily, weekly, monthly, quarterly). */
+/**
+ * Creates today's tasks from recurring templates (daily, weekly, monthly, quarterly).
+ * A template marked "Counts as a commitment" (by default only the reviews) also creates a commitment.
+ */
 export async function generateRecurringTasks(ctx: Ctx): Promise<{ created: number }> {
   const { sb, ownerId, today } = ctx;
   const { data } = await sb.from("task_templates").select("*").eq("owner_id", ownerId).eq("is_active", true);
@@ -50,9 +55,13 @@ export async function generateRecurringTasks(ctx: Ctx): Promise<{ created: numbe
   return { created };
 }
 
-/** Every pipeline item's next action appears in the task list on its due date. */
+/**
+ * Every pipeline item's next action appears in the task list on its due date.
+ * An item's current next action is a commitment (commitment rule), so each new next-action task gets one.
+ */
 export async function generatePipelineTasks(ctx: Ctx): Promise<{ created: number }> {
   const { sb, ownerId, today } = ctx;
+  await releaseSupersededNextActions(ctx);
   const { data } = await sb
     .from("pipeline_items")
     .select("id,name,next_action,next_action_due,pipeline_id")
@@ -77,9 +86,66 @@ export async function generatePipelineTasks(ctx: Ctx): Promise<{ created: number
       related_type: "pipeline_items",
       related_id: it.id,
     });
-    if (id) created++;
+    if (id) {
+      created++;
+      await insertIgnoreDuplicate(sb, "commitments", {
+        owner_id: ownerId,
+        title: `${it.name}: ${it.next_action}`,
+        record_type: "tasks",
+        record_id: id,
+        due_date: it.next_action_due,
+        original_due_date: it.next_action_due,
+      });
+    }
   }
   return { created };
+}
+
+/**
+ * When an item's next action changes, the task for its earlier next action stays as a regular task and its
+ * commitment is released (only the current next action is a commitment). Stage tasks are not affected.
+ * Before database update 0010 the release is not possible and nothing changes.
+ */
+export async function releaseSupersededNextActions(ctx: Pick<Ctx, "sb" | "ownerId">, itemId?: string): Promise<{ released: number }> {
+  const { sb, ownerId } = ctx;
+  let q = sb.from("tasks").select("id,title,pipeline_item_id").eq("owner_id", ownerId).eq("status", "todo").like("source_key", "pipeline:%");
+  if (itemId) q = q.eq("pipeline_item_id", itemId);
+  const { data: tasks } = await q;
+  const list = (tasks ?? []) as Row[];
+  if (!list.length) return { released: 0 };
+  const { data: items } = await sb.from("pipeline_items").select("id,name,next_action").in("id", [...new Set(list.map((t) => t.pipeline_item_id).filter(Boolean))]);
+  const current = Object.fromEntries(((items ?? []) as Row[]).map((i) => [i.id, i.next_action ? `${i.name}: ${i.next_action}` : null]));
+  const stale = list.filter((t) => t.pipeline_item_id && current[t.pipeline_item_id] !== t.title).map((t) => t.id);
+  if (!stale.length) return { released: 0 };
+  const { data, error } = await sb.from("commitments").update({ status: "released" }).eq("owner_id", ownerId).eq("record_type", "tasks").eq("status", "open").in("record_id", stale).select("id");
+  if (error) return { released: 0 }; // "released" needs database update 0010
+  return { released: (data ?? []).length };
+}
+
+/**
+ * Regular tasks that were not done move to today (no reason needed), and times_moved goes up by one.
+ * Tasks with an open or missed commitment keep their date (missed-commitment flow).
+ * Needs database update 0010 (tasks.times_moved); before it, nothing moves.
+ */
+export async function rolloverRegularTasks(ctx: Ctx): Promise<{ moved: number; skipped?: string }> {
+  const { sb, ownerId, today } = ctx;
+  const { data, error } = await sb.from("tasks").select("id,status,due_date,times_moved").eq("owner_id", ownerId).eq("status", "todo").lt("due_date", today).limit(2000);
+  if (error) {
+    if (isMissingSchemaError(error)) return { moved: 0, skipped: "Database update 0010 is not applied yet" };
+    throw new Error(error.message);
+  }
+  const tasks = (data ?? []) as Row[];
+  if (!tasks.length) return { moved: 0 };
+  const { data: open } = await sb.from("commitments").select("record_id").eq("owner_id", ownerId).eq("record_type", "tasks").in("status", ["open", "missed"]);
+  const commitmentIds = new Set(((open ?? []) as Row[]).map((c) => c.record_id));
+  const moves = planRollover(tasks as { id: string; status: string; due_date: string | null; times_moved: number }[], commitmentIds, today);
+  for (const [timesMoved, ids] of groupMovesByCount(moves)) {
+    for (let i = 0; i < ids.length; i += 200) {
+      const { error: upErr } = await sb.from("tasks").update({ due_date: today, times_moved: timesMoved }).in("id", ids.slice(i, i + 200));
+      if (upErr) throw new Error(upErr.message);
+    }
+  }
+  return { moved: moves.length };
 }
 
 /** A contact's follow-up date creates a task and a calendar event when the date arrives. */

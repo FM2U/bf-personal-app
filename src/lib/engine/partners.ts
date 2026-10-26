@@ -65,7 +65,7 @@ export async function buildPartnerSnapshot(ctx: Ctx, partner: Row, start: string
   if (sections.includes("commitments")) {
     const [{ data: cs }, { data: misses }] = await Promise.all([
       sb.from("commitments").select("id,title,due_date,status").eq("owner_id", ownerId),
-      sb.from("missed_commitments").select("commitment_id").eq("owner_id", ownerId),
+      sb.from("missed_commitments").select("commitment_id").eq("owner_id", ownerId).neq("resolution", "released"),
     ]);
     const list = (cs ?? []) as Row[];
     const titles = Object.fromEntries(list.map((c) => [c.id, c.title]));
@@ -132,7 +132,7 @@ export function templatePartnerSummary(s: Row): string {
   const parts: string[] = [];
   if (s.runway) parts.push(`- **Runway:** ${fmtMonths(s.runway.months)} against a target of ${s.runway.target_months ?? "not set"} months. Cash is ${money(s.runway.cash)}.`);
   if (s.milestones) parts.push(`- **Milestones:** ${s.milestones.completed.length} completed, ${s.milestones.missed.length} missed this period.`);
-  if (s.commitments) parts.push(`- **Commitments:** ${s.commitments.score.met} met, ${s.commitments.score.missed} missed.`);
+  if (s.commitments) parts.push(s.commitments.score.pct === null ? "- **Commitments:** no commitments were due this period." : `- **Commitments:** ${s.commitments.score.met} met, ${s.commitments.score.missed} missed.`);
   if (s.targets?.length) for (const t of s.targets as Row[]) parts.push(`- **${t.name}:** ${t.total} done of ${t.required} required. ${t.met} ${t.period === "week" ? "weeks" : "days"} met, ${t.missed} missed.`);
   if (s.savings) parts.push(`- **Savings:** ${money(s.savings.monthly_savings_achieved)} per month from completed reduction actions.`);
   if (s.loans?.length) for (const l of s.loans as Row[]) parts.push(`- **Loan from ${l.name}:** ${money(l.paid_to_date)} repaid, ${money(l.remaining_principal)} remaining${l.next_payment ? `. Next payment ${money(l.next_payment.amount)} on ${fmtDate(l.next_payment.due_date)}` : ""}.`);
@@ -206,7 +206,7 @@ export function reportText(partner: Row, report: Row, link: string | null, forma
     lines.push(`Milestones missed: ${s.milestones.missed.map((m: Row) => m.title).join("; ") || "none"}.`);
   }
   if (s.commitments) {
-    lines.push(`Commitment completion: ${s.commitments.score.pct ?? "not available"}${s.commitments.score.pct !== null ? "%" : ""} (${s.commitments.score.met} met, ${s.commitments.score.missed} missed).`);
+    lines.push(s.commitments.score.pct === null ? "Commitment completion: no commitments were due this period." : `Commitment completion: ${s.commitments.score.pct}% (${s.commitments.score.met} met, ${s.commitments.score.missed} missed).`);
     if (s.commitments.repeated_misses?.length) lines.push(`Repeated misses: ${s.commitments.repeated_misses.map((r: Row) => `${r.title} (${r.misses})`).join("; ")}.`);
   }
   if (s.targets?.length) for (const t of s.targets as Row[]) lines.push(`${t.name}: ${t.total} done of ${t.required} required (${t.met} ${t.period === "week" ? "weeks" : "days"} met, ${t.missed} missed).`);

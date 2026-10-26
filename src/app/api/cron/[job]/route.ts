@@ -4,7 +4,7 @@ import { env } from "@/lib/env";
 import { loadCtx } from "@/lib/engine/helpers";
 import { buildMorningPlan, connectionChecks, ownerIds, plaidSyncAll, runEvening, runMorning } from "@/lib/engine/run";
 import { checkMilestones, evaluateConditions } from "@/lib/engine/rules";
-import { checkCommitments, generateFollowUps, generatePipelineTasks, generateRecurringTasks } from "@/lib/engine/tasks";
+import { checkCommitments, generateFollowUps, generatePipelineTasks, generateRecurringTasks, rolloverRegularTasks } from "@/lib/engine/tasks";
 import { ensureReview } from "@/lib/engine/reviews";
 import { schedulePartnerReports } from "@/lib/engine/partners";
 import { checkPipelineAccountability } from "@/lib/engine/pipeline-jobs";
@@ -26,6 +26,7 @@ const JOBS: Record<string, (sb: ReturnType<typeof createServiceClient>, ownerId:
   "quarterly-review": (_sb, _id, ctx) => ensureReview(ctx, "quarterly"),
   "partner-reports": (_sb, _id, ctx) => schedulePartnerReports(ctx),
   commitments: (_sb, _id, ctx) => checkCommitments(ctx, false),
+  "task-rollover": (_sb, _id, ctx) => rolloverRegularTasks(ctx),
   milestones: (_sb, _id, ctx) => checkMilestones(ctx),
   "pipeline-checks": (_sb, _id, ctx) => checkPipelineAccountability(ctx),
 };

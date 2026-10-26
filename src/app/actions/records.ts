@@ -7,9 +7,9 @@ import { requireOwner } from "@/lib/auth";
 import { ACQUISITION_ONLY_FIELDS, getResource, recordHref, RESOURCES, type Field } from "@/lib/resources";
 import { dedupeHash, merchantFromDescription, normalizeDescription } from "@/lib/calc/csv";
 import { tzOffset } from "@/lib/google";
-import { loadCtx } from "@/lib/engine/helpers";
+import { loadCtx, refreshNextActionAlert } from "@/lib/engine/helpers";
 import { evaluateConditions } from "@/lib/engine/rules";
-import { checkCommitments } from "@/lib/engine/tasks";
+import { checkCommitments, releaseSupersededNextActions } from "@/lib/engine/tasks";
 import { nextReportDate } from "@/lib/engine/partners";
 import { DB_UPDATE_NOTICE, isMissingSchemaError, NEW_COLUMNS, NEW_TABLES } from "@/lib/schema-guard";
 import { hasPipelineUpdate, missingForStage } from "@/lib/pipeline";
@@ -150,6 +150,10 @@ export async function saveRecord(_prev: FormState, fd: FormData): Promise<FormSt
     data.pipeline_item_id = String(fd.get("__link_id") ?? "") || null;
   }
 
+  // "This is a commitment" on a new task: a commitment needs a due date.
+  const markCommitmentOnCreate = table === "tasks" && !id && (fd.get("__is_commitment") === "on" || fd.get("__is_commitment") === "true");
+  if (markCommitmentOnCreate && !data.due_date) return { ok: false, error: "Set a due date to make this task a commitment." };
+
   if (!id) {
     for (const k of ["related_type", "related_id"]) {
       const v = String(fd.get(`__set_${k}`) ?? "");
@@ -192,6 +196,14 @@ export async function saveRecord(_prev: FormState, fd: FormData): Promise<FormSt
   }
   if (table === "pipeline_items" && !id && savedId) await ensurePipelineDetails(supabase, ownerId, savedId, String(data.pipeline_id));
   if (table === "pipeline_items" && savedId && data.next_action) await clearNextActionReminders(supabase, savedId);
+  if (table === "pipeline_items" && savedId) {
+    // Only the current next action is a commitment; the grouped Home alert shows the new count.
+    await releaseSupersededNextActions(ctx, savedId);
+    await refreshNextActionAlert(ctx);
+  }
+  if (markCommitmentOnCreate && savedId) {
+    await supabase.from("commitments").insert({ owner_id: ownerId, title: data.title, record_type: "tasks", record_id: savedId, due_date: data.due_date, original_due_date: data.due_date });
+  }
   if (table === "milestones" && data.status === "met" && before?.status !== "met" && before?.next_milestone_id) {
     await supabase.from("milestones").update({ status: "active" }).eq("id", before.next_milestone_id).neq("status", "met");
   }
@@ -203,7 +215,7 @@ export async function saveRecord(_prev: FormState, fd: FormData): Promise<FormSt
   redirect(target.replace("{id}", savedId ?? ""));
 }
 
-/** The item has a next action now: close the "Set next action" alert and task. */
+/** The item has a next action now: close the "Set next action" task (and an alert from before grouping). */
 async function clearNextActionReminders(sb: Awaited<ReturnType<typeof requireOwner>>["supabase"], itemId: string) {
   await sb.from("alerts").update({ status: "dismissed", dismissed_at: new Date().toISOString() }).eq("dedupe_key", `pipeline-next-action:${itemId}`).eq("status", "open");
   await sb.from("tasks").update({ status: "done" }).eq("pipeline_item_id", itemId).eq("status", "todo").like("source_key", "set-next-action:%");
