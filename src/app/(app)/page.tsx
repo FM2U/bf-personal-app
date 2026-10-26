@@ -16,7 +16,13 @@ import { SubmitButton } from "@/components/app/submit-button";
 import { dismissAlert } from "@/app/actions/records";
 import { regeneratePlan } from "@/app/actions/domain";
 import { date as fmtDate, money, months as fmtMonths } from "@/lib/format";
+import { addDaysISO } from "@/lib/calc/dates";
+import { consecutiveCompleteDays, nextScheduledReview } from "@/lib/calc/scores";
+import { summarizeTargets } from "@/lib/targets";
+import { KpiGroup, type Kpi } from "@/components/app/kpi-tiles";
+import { DbUpdateNotice } from "@/components/app/target-grid";
 import type { Row } from "@/lib/types";
+import { AiText } from "@/components/app/ai-text";
 
 export const metadata = { title: "Home" };
 
@@ -24,7 +30,7 @@ export default async function HomePage() {
   const { supabase, ownerId } = await requireOwner();
   const ctx = await loadCtx(supabase, ownerId);
   const today = ctx.today;
-  const [metrics, planRes, todayTasks, overdueTasks, overdueMs, alertsRes, budgetsRes, linesRes, proposalsRes, google, meetings] = await Promise.all([
+  const [metrics, planRes, todayTasks, overdueTasks, overdueMs, alertsRes, budgetsRes, linesRes, proposalsRes, google, meetings, kpiExtra] = await Promise.all([
     computeMetrics(supabase, today),
     supabase.from("daily_plans").select("*").eq("plan_date", today).maybeSingle(),
     supabase.from("tasks").select("*").eq("due_date", today).order("status", { ascending: false }).order("priority"),
@@ -36,6 +42,12 @@ export default async function HomePage() {
     supabase.from("ai_proposals").select("id", { count: "exact", head: true }).eq("status", "pending"),
     getGoogleConnection(supabase, ownerId),
     todaysMeetings(ctx),
+    Promise.all([
+      supabase.from("pipeline_items").select("next_action_due").eq("status", "open").not("next_action", "is", null).lte("next_action_due", today),
+      supabase.from("tasks").select("due_date,status").gte("due_date", addDaysISO(today, -400)).lte("due_date", today).limit(5000),
+      supabase.from("missed_commitments").select("id", { count: "exact", head: true }).eq("resolution", "pending"),
+      supabase.from("reviews").select("id,kind,period_end").eq("status", "draft").neq("kind", "daily").order("period_end").limit(1),
+    ]),
   ]);
   const snap = metrics.snapshot;
   const target = snap.inputs.num.runway_target_months;
@@ -51,9 +63,49 @@ export default async function HomePage() {
   const nw = await netWorthByMonth(supabase, today, 6);
   const hasAccounts = snap.accounts.length > 0;
 
+  // KPI tiles
+  const [pipeRes, streakRes, missRes, draftRes] = kpiExtra;
+  const pipeDue = (pipeRes.data ?? []) as Row[];
+  const pipeOverdue = pipeDue.filter((p) => p.next_action_due < today).length;
+  const streak = consecutiveCompleteDays((streakRes.data ?? []) as { due_date: string; status: string }[], today);
+  const dayTargets = summarizeTargets(metrics.targets, today).filter((t) => t.target.period === "day" && t.today.status !== "off");
+  const targetsMet = dayTargets.filter((t) => t.today.status === "met").length;
+  const score = metrics.values.commitment_score_week;
+  const draftReview = ((draftRes.data ?? []) as Row[])[0];
+  const scheduled = nextScheduledReview(today, Number(ctx.profile.weekly_review_weekday ?? 0));
+  const REVIEW_NAME: Record<string, string> = { weekly: "Weekly", monthly: "Monthly", quarterly: "Quarterly" };
+  const productivityTiles: Kpi[] = [
+    { label: "Tasks done today", value: tasks.length ? `${doneCount} of ${tasks.length}` : "None due", href: "/productivity", tone: tasks.length && doneCount === tasks.length ? "good" : undefined, hint: tasks.length ? `${tasks.length - doneCount} left` : undefined },
+    {
+      label: "Targets met today",
+      value: !metrics.targets.available ? "Not yet" : dayTargets.length ? `${targetsMet} of ${dayTargets.length}` : "None",
+      href: "/accountability/targets",
+      tone: !metrics.targets.available ? "warn" : dayTargets.length && targetsMet === dayTargets.length ? "good" : undefined,
+      hint: !metrics.targets.available ? "Update needed" : dayTargets.length ? dayTargets.map((t) => `${t.target.name} ${t.today.count}/${t.today.required}`).join(", ") : "No daily targets today",
+    },
+    { label: "Pipeline actions due", value: pipeDue.length, href: "/productivity/pipeline-actions", tone: pipeOverdue ? "bad" : undefined, hint: pipeOverdue ? `${pipeOverdue} overdue` : "Today or earlier" },
+  ];
+  const accountabilityTiles: Kpi[] = [
+    { label: "Commitment score this week", value: score === null || score === undefined ? "No data" : `${score}%`, href: "/accountability/scores", tone: score !== null && score !== undefined && score < 70 ? "bad" : undefined, hint: "Includes targets" },
+    { label: "Days in a row with every task done", value: streak, href: "/accountability/scores", tone: streak ? "good" : undefined },
+    { label: "Open missed commitments", value: missRes.count ?? 0, href: "/accountability", tone: missRes.count ? "bad" : undefined, hint: missRes.count ? "Reason needed" : undefined },
+    draftReview
+      ? { label: "Next review due", value: REVIEW_NAME[draftReview.kind] ?? "Review", href: `/accountability/reviews/${draftReview.id}`, tone: "warn", hint: `Due now, draft ready` }
+      : { label: "Next review due", value: REVIEW_NAME[scheduled.kind], href: "/accountability/reviews", hint: scheduled.date === today ? "Today" : fmtDate(scheduled.date, "EEE, MMM d") },
+  ];
+
   return (
     <div>
       <PageHeader title="Home" description={`${fmtDate(today, "EEEE, MMMM d, yyyy")}. Runway, today's plan, meetings, overdue items, and alerts.`} />
+      <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,4fr)]">
+        <KpiGroup title="Productivity" tiles={productivityTiles} cols="grid-cols-3" />
+        <KpiGroup title="Accountability" tiles={accountabilityTiles} cols="grid-cols-2 sm:grid-cols-4" />
+      </div>
+      {!metrics.targets.available ? (
+        <div className="mb-4">
+          <DbUpdateNotice />
+        </div>
+      ) : null}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         <Card>
           <CardHeader>
@@ -146,7 +198,7 @@ export default async function HomePage() {
             <div className="min-w-0">
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Morning plan {planRes.data?.generated_by === "ai" ? "(AI)" : ""}</p>
               {planRes.data ? (
-                <div className="whitespace-pre-wrap rounded-md bg-slate-50 p-3 text-sm leading-relaxed">{planRes.data.content}</div>
+                <AiText text={planRes.data.content} className="rounded-md bg-slate-50 p-3" />
               ) : (
                 <p className="text-sm text-muted-foreground">The plan is written each morning after the bank sync. Press &quot;Write today&apos;s plan&quot; to write it now.</p>
               )}
