@@ -1,13 +1,15 @@
 import { addDaysISO } from "./dates";
 
-export type CommitmentLike = { due_date: string; status: "open" | "met" | "missed" | "closed_by_decision" };
+export type CommitmentLike = { due_date: string; status: "open" | "met" | "missed" | "closed_by_decision" | "released" };
 
 /**
  * Completion score for a period: commitments due in the period that were met, divided by those
  * that are decided (met or missed). Open commitments that are not yet due are not counted.
+ * Released commitments (no longer commitments under the commitment rule) are left out.
+ * pct is null when nothing was decided (shown as "No commitments").
  */
 export function completionScore(commitments: CommitmentLike[], start: string, end: string) {
-  const inPeriod = commitments.filter((c) => c.due_date >= start && c.due_date <= end);
+  const inPeriod = commitments.filter((c) => c.status !== "released" && c.due_date >= start && c.due_date <= end);
   const met = inPeriod.filter((c) => c.status === "met").length;
   const missed = inPeriod.filter((c) => c.status === "missed" || c.status === "closed_by_decision").length;
   const decided = met + missed;
