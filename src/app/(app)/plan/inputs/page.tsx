@@ -8,6 +8,7 @@ import { SubmitButton } from "@/components/app/submit-button";
 import { updateInput } from "@/app/actions/domain";
 import { dateTime } from "@/lib/format";
 import type { Row } from "@/lib/types";
+import { GuardedForm } from "@/components/app/unsaved-changes";
 
 export const metadata = { title: "Inputs and Assumptions" };
 
@@ -41,7 +42,7 @@ export default async function InputsPage() {
               {list.map((i) => {
                 const isText = i.unit === "text" || i.unit === "date";
                 return (
-                  <form key={i.id} action={updateInput} className="grid grid-cols-1 gap-2 py-3 sm:grid-cols-[minmax(0,1fr)_11rem_auto] sm:items-center">
+                  <GuardedForm key={i.id} action={updateInput} className="grid grid-cols-1 gap-2 py-3 sm:grid-cols-[minmax(0,1fr)_11rem_auto] sm:items-center">
                     <input type="hidden" name="id" value={i.id} />
                     <div className="min-w-0">
                       <Link href={`/records/inputs/${i.id}`} className="clamp-2 text-sm font-medium hover:underline">
@@ -64,7 +65,7 @@ export default async function InputsPage() {
                     <SubmitButton size="sm" variant="outline">
                       Save
                     </SubmitButton>
-                  </form>
+                  </GuardedForm>
                 );
               })}
             </CardContent>

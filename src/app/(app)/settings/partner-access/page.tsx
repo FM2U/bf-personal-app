@@ -9,6 +9,7 @@ import { revokePartnerLink } from "@/app/actions/domain";
 import { dateTime } from "@/lib/format";
 import { env } from "@/lib/env";
 import type { Row } from "@/lib/types";
+import { GuardedForm } from "@/components/app/unsaved-changes";
 
 export const metadata = { title: "Partner access" };
 
@@ -58,12 +59,12 @@ export default async function PartnerAccessPage({ searchParams }: { searchParams
                       <TD className="whitespace-nowrap">{l.last_viewed_at ? dateTime(l.last_viewed_at) : "Not viewed"}</TD>
                       <TD>
                         {active ? (
-                          <form action={revokePartnerLink}>
+                          <GuardedForm action={revokePartnerLink}>
                             <input type="hidden" name="id" value={l.id} />
                             <SubmitButton size="sm" variant="outline">
                               Revoke
                             </SubmitButton>
-                          </form>
+                          </GuardedForm>
                         ) : null}
                       </TD>
                     </TR>

@@ -11,6 +11,7 @@ import { createOutreachGmailDraft, draftOutreachMessage, logOutreach, type Draft
 import { markdownToPlain } from "@/lib/markdown";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { GuardedForm } from "@/components/app/unsaved-changes";
 
 export type QueueItem = {
   id: string;
@@ -55,13 +56,13 @@ export function LogOutreachForm({
   defaultPurpose?: "general" | "deal_sourcing";
 }) {
   return (
-    <form
+    <GuardedForm
       action={logOutreach}
       className={cn("grid grid-cols-1 gap-2 sm:items-end", purposeAvailable ? "sm:grid-cols-[8rem_10rem_minmax(0,1fr)_10rem_auto]" : "sm:grid-cols-[8rem_minmax(0,1fr)_10rem_auto]")}
     >
       {contactId ? <input type="hidden" name="contact_id" value={contactId} /> : null}
       <input type="hidden" name="back" value={back} />
-      <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+      <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
         Method
         <NativeSelect name="method" defaultValue="email" aria-label="Method">
           {METHODS.map((m) => (
@@ -72,7 +73,7 @@ export function LogOutreachForm({
         </NativeSelect>
       </label>
       {purposeAvailable ? (
-        <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+        <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
           Purpose
           <NativeSelect name="purpose" defaultValue={defaultPurpose} aria-label="Purpose">
             <option value="general">General</option>
@@ -80,11 +81,11 @@ export function LogOutreachForm({
           </NativeSelect>
         </label>
       ) : null}
-      <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+      <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
         Summary (optional)
         <Input name="summary" maxLength={500} placeholder="What you sent or discussed" />
       </label>
-      <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+      <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
         Outcome (optional)
         <NativeSelect name="outcome" defaultValue="" aria-label="Outcome">
           {OUTCOMES.map((o) => (
@@ -104,7 +105,7 @@ export function LogOutreachForm({
           </Button>
         ) : null}
       </div>
-    </form>
+    </GuardedForm>
   );
 }
 
@@ -150,11 +151,11 @@ export function DraftMessagePanel({ contactId, onClose }: { contactId: string; o
       {draft?.ok ? (
         <>
           {draft.note ? <Notice tone="warn">{draft.note}</Notice> : null}
-          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+          <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
             Subject
             <Input value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={200} />
           </label>
-          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+          <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
             Message
             <Textarea value={body} onChange={(e) => setBody(e.target.value)} rows={8} />
           </label>

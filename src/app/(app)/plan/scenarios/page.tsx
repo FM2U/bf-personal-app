@@ -8,6 +8,7 @@ import { SubmitButton } from "@/components/app/submit-button";
 import { createScenario } from "@/app/actions/domain";
 import { dateTime } from "@/lib/format";
 import type { Row } from "@/lib/types";
+import { GuardedForm } from "@/components/app/unsaved-changes";
 
 export const metadata = { title: "Scenarios" };
 
@@ -56,24 +57,24 @@ export default async function ScenariosPage() {
             <CardTitle>New scenario</CardTitle>
           </CardHeader>
           <CardContent>
-            <form action={createScenario} className="flex flex-col gap-3">
-              <label className="flex flex-col gap-1 text-sm font-medium">
+            <GuardedForm action={createScenario} className="flex flex-col gap-3">
+              <label className="flex flex-col gap-1.5 text-sm font-medium">
                 Name
                 <Input name="name" required placeholder="Example: Cut dining by half" />
               </label>
-              <label className="flex flex-col gap-1 text-sm font-medium">
+              <label className="flex flex-col gap-1.5 text-sm font-medium">
                 Kind
                 <NativeSelect name="kind" defaultValue="general">
                   <option value="general">General</option>
                   <option value="job_vs_acquisition">Job vs acquisition</option>
                 </NativeSelect>
               </label>
-              <label className="flex flex-col gap-1 text-sm font-medium">
+              <label className="flex flex-col gap-1.5 text-sm font-medium">
                 Months projected
                 <Input name="horizon_months" type="number" defaultValue={60} min={1} max={480} />
               </label>
               <SubmitButton>Create scenario</SubmitButton>
-            </form>
+            </GuardedForm>
           </CardContent>
         </Card>
       </div>

@@ -4,6 +4,7 @@ import { ChevronLeft } from "lucide-react";
 import { requireOwner } from "@/lib/auth";
 import { getResource } from "@/lib/resources";
 import { loadRefOptions } from "@/lib/data";
+import { quickCreateRefTables } from "@/lib/quick-create";
 import { loadCtx } from "@/lib/engine/helpers";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/app/page-header";
@@ -19,7 +20,7 @@ export default async function NewRecordPage({ params, searchParams }: { params: 
   if (!r || r.noCreate) notFound();
   const { supabase, ownerId } = await requireOwner();
   const ctx = await loadCtx(supabase, ownerId);
-  const refOptions = await loadRefOptions(supabase, r.fields.filter((f) => f.ref).map((f) => f.ref!));
+  const refOptions = await loadRefOptions(supabase, [...r.fields.filter((f) => f.ref).map((f) => f.ref!), ...quickCreateRefTables(r.fields)]);
   const initial: Row = {};
   const extraHidden: Record<string, string> = {};
   for (const [k, v] of Object.entries(sp)) {

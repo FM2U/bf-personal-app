@@ -7,6 +7,7 @@ import { addTargetEntry } from "@/app/actions/targets";
 import { describeTarget } from "@/lib/calc/targets";
 import type { TargetSummary } from "@/lib/targets";
 import { cn } from "@/lib/utils";
+import { GuardedForm } from "@/components/app/unsaved-changes";
 
 /** Today's target counters (Productivity, Today). Each tile: count of required, a bar, and the action that adds to the count. */
 export function TargetCounters({ available, summaries, back }: { available: boolean; summaries: TargetSummary[]; back: string }) {
@@ -53,13 +54,13 @@ export function TargetCounters({ available, summaries, back }: { available: bool
             ) : null}
             <div className="mt-auto pt-1">
               {t.count_source === "manual" ? (
-                <form action={addTargetEntry}>
+                <GuardedForm action={addTargetEntry}>
                   <input type="hidden" name="target_id" value={t.id} />
                   <input type="hidden" name="back" value={back} />
                   <SubmitButton size="sm" variant="outline" className="w-full" pendingText="Adding...">
                     +1
                   </SubmitButton>
-                </form>
+                </GuardedForm>
               ) : t.count_source === "communications_outreach" ? (
                 <Button asChild size="sm" variant="outline" className="w-full">
                   <Link href="/people/outreach">Log outreach</Link>

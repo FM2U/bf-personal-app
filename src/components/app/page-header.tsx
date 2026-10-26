@@ -13,11 +13,14 @@ export function PageHeader({ title, description, actions, className }: { title: 
   );
 }
 
+/** Label style for every metric (Stat, Home tiles): dark gray, medium weight, held to 2 lines. */
+export const METRIC_LABEL = "clamp-2 min-h-8 text-xs font-medium leading-4 text-slate-700";
+
 /** A small labeled number. Labels are held to 2 lines so values line up across a row. */
 export function Stat({ label, value, hint, tone }: { label: string; value: React.ReactNode; hint?: React.ReactNode; tone?: "good" | "bad" | "warn" }) {
   return (
     <div className="flex min-w-0 flex-col">
-      <span className="clamp-2 min-h-8 text-xs leading-4 text-muted-foreground">{label}</span>
+      <span className={METRIC_LABEL}>{label}</span>
       <span
         className={cn(
           "tabular mt-1 text-lg font-semibold leading-tight text-slate-900",
@@ -29,6 +32,19 @@ export function Stat({ label, value, hint, tone }: { label: string; value: React
         {value}
       </span>
       {hint ? <span className="clamp-1 mt-0.5 text-xs text-muted-foreground">{hint}</span> : null}
+    </div>
+  );
+}
+
+/**
+ * Grid of metrics with a thin light line between rows (1px, slate-200, 12px above and below).
+ * Each line runs the full width of the grid, also above a row that is not full; the first row has no line.
+ * Works for any column count: the top line of the first row is hidden (styles: .stat-grid in globals.css).
+ */
+export function StatGrid({ children, className }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div className="min-w-0 overflow-hidden">
+      <div className={cn("stat-grid -mt-[13px] grid grid-cols-2 content-start gap-y-3", className)}>{children}</div>
     </div>
   );
 }

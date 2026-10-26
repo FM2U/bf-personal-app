@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/app/page-header";
 import { ListCard } from "@/components/app/list-card";
 import { SubmitButton } from "@/components/app/submit-button";
 import { startReview } from "@/app/actions/domain";
+import { GuardedForm } from "@/components/app/unsaved-changes";
 
 export const metadata = { title: "Reviews" };
 
@@ -27,12 +28,12 @@ export default async function ReviewsPage() {
               <CardDescription className="clamp-4 min-h-20">{k.body}</CardDescription>
             </CardHeader>
             <CardContent>
-              <form action={startReview}>
+              <GuardedForm action={startReview}>
                 <input type="hidden" name="kind" value={k.kind} />
                 <SubmitButton size="sm" variant="outline" pendingText="Drafting...">
                   {k.kind === "daily" ? "Open today's daily close" : `Open the latest ${k.kind} review`}
                 </SubmitButton>
-              </form>
+              </GuardedForm>
             </CardContent>
           </Card>
         ))}

@@ -78,7 +78,7 @@ export default async function PublicReportPage({ params, searchParams }: { param
                   <CardTitle>Earlier reports</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <ul className="flex flex-col gap-1 text-sm">
+                  <ul className="flex flex-col gap-1.5 text-sm">
                     {reports.map((r) => (
                       <li key={r.id}>
                         <a href={`?r=${r.id}`} className={r.id === report.id ? "font-medium" : "text-teal-800 hover:underline"}>

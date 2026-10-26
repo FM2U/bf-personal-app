@@ -137,8 +137,8 @@ export function ImportWizard({ accounts, layouts }: { accounts: Account[]; layou
 
   const counts = preview ? { new: preview.filter((r) => r.status === "new").length, dup: preview.filter((r) => r.status === "duplicate").length, err: preview.filter((r) => r.status === "error").length } : null;
   const colSelect = (key: keyof ImportLayout, label: string, optional = false) => (
-    <label className="flex min-w-0 flex-col gap-1">
-      <span className="field-label flex items-end text-sm font-medium">{label}</span>
+    <label className="flex min-w-0 flex-col gap-1.5">
+      <span className="field-label text-sm font-medium"><span>{label}</span></span>
       <NativeSelect value={(layout[key] as string) ?? ""} onChange={(e) => setLayout({ ...layout, [key]: e.target.value })}>
         <option value="">{optional ? "Not used" : "Choose a column"}</option>
         {headers.map((h) => (
@@ -172,7 +172,7 @@ export function ImportWizard({ accounts, layouts }: { accounts: Account[]; layou
             <CardDescription>Simplifi by Quicken data can be brought in through its CSV export.</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
-            <label className="flex flex-col gap-1 text-sm font-medium">
+            <label className="flex flex-col gap-1.5 text-sm font-medium">
               Account
               <NativeSelect value={accountId} onChange={(e) => setAccountId(e.target.value)}>
                 {accounts.map((a) => (
@@ -183,7 +183,7 @@ export function ImportWizard({ accounts, layouts }: { accounts: Account[]; layou
                 ))}
               </NativeSelect>
             </label>
-            <label className="flex flex-col gap-1 text-sm font-medium">
+            <label className="flex flex-col gap-1.5 text-sm font-medium">
               CSV file
               <Input type="file" accept=".csv,text/csv" onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])} />
             </label>
@@ -201,7 +201,7 @@ export function ImportWizard({ accounts, layouts }: { accounts: Account[]; layou
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             {layouts.length ? (
-              <label className="flex flex-col gap-1 text-sm font-medium">
+              <label className="flex flex-col gap-1.5 text-sm font-medium">
                 Use a saved layout
                 <NativeSelect
                   value=""
@@ -232,15 +232,15 @@ export function ImportWizard({ accounts, layouts }: { accounts: Account[]; layou
                   {colSelect("external_id_column", "Bank transaction ID", true)}
                   {!layout.amount_column ? colSelect("debit_column", "Money out column", true) : null}
                   {!layout.amount_column ? colSelect("credit_column", "Money in column", true) : null}
-                  <label className="flex min-w-0 flex-col gap-1">
-                    <span className="field-label flex items-end text-sm font-medium">Amount sign</span>
+                  <label className="flex min-w-0 flex-col gap-1.5">
+                    <span className="field-label text-sm font-medium"><span>Amount sign</span></span>
                     <NativeSelect value={layout.amount_sign} onChange={(e) => setLayout({ ...layout, amount_sign: e.target.value as ImportLayout["amount_sign"] })}>
                       <option value="negative_is_outflow">Negative = money out</option>
                       <option value="positive_is_outflow">Positive = money out</option>
                     </NativeSelect>
                   </label>
-                  <label className="flex min-w-0 flex-col gap-1">
-                    <span className="field-label flex items-end text-sm font-medium">Date format</span>
+                  <label className="flex min-w-0 flex-col gap-1.5">
+                    <span className="field-label text-sm font-medium"><span>Date format</span></span>
                     <NativeSelect value={layout.date_format} onChange={(e) => setLayout({ ...layout, date_format: e.target.value as ImportLayout["date_format"] })}>
                       <option value="auto">Detect automatically</option>
                       <option value="MM/DD/YYYY">MM/DD/YYYY</option>
@@ -248,12 +248,12 @@ export function ImportWizard({ accounts, layouts }: { accounts: Account[]; layou
                       <option value="YYYY-MM-DD">YYYY-MM-DD</option>
                     </NativeSelect>
                   </label>
-                  <label className="flex min-w-0 flex-col gap-1">
-                    <span className="field-label flex items-end text-sm font-medium">Bank or card</span>
+                  <label className="flex min-w-0 flex-col gap-1.5">
+                    <span className="field-label text-sm font-medium"><span>Bank or card</span></span>
                     <Input value={institution} onChange={(e) => setInstitution(e.target.value)} placeholder="Example: Chase" />
                   </label>
-                  <label className="flex min-w-0 flex-col gap-1">
-                    <span className="field-label flex items-end text-sm font-medium">Save layout as</span>
+                  <label className="flex min-w-0 flex-col gap-1.5">
+                    <span className="field-label text-sm font-medium"><span>Save layout as</span></span>
                     <Input value={layoutName} onChange={(e) => setLayoutName(e.target.value)} placeholder="Example: Chase checking CSV" />
                   </label>
                 </div>

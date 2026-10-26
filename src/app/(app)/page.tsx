@@ -6,10 +6,10 @@ import { computeMetrics } from "@/lib/metrics";
 import { todaysMeetings } from "@/lib/engine/run";
 import { getGoogleConnection } from "@/lib/google";
 import { netWorthByMonth } from "@/lib/finance";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardNote, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { EmptyState, PageHeader, Stat } from "@/components/app/page-header";
+import { EmptyState, PageHeader, Stat, StatGrid } from "@/components/app/page-header";
 import { TaskList } from "@/components/app/task-list";
 import { Progress } from "@/components/app/charts";
 import { SubmitButton } from "@/components/app/submit-button";
@@ -26,6 +26,7 @@ import type { Row } from "@/lib/types";
 import { AiText } from "@/components/app/ai-text";
 import { sortTasksProprietaryFirst } from "@/lib/calc/pipeline";
 import { hasPipelineUpdate, loadDealRanks, loadDealTypes } from "@/lib/pipeline";
+import { GuardedForm } from "@/components/app/unsaved-changes";
 
 export const metadata = { title: "Home" };
 
@@ -131,17 +132,17 @@ export default async function HomePage() {
             {hasAccounts ? (
               <>
                 <Progress value={runwayPct} tone={runwayPct !== null && runwayPct < 50 ? "red" : runwayPct !== null && runwayPct < 100 ? "amber" : "teal"} />
-                <div className="grid grid-cols-3 gap-3">
+                <StatGrid className="grid-cols-3">
                   <Stat label="Target" value={target ? `${target} months` : "Not set"} />
                   <Stat label="Available cash" value={money(snap.cash)} />
                   <Stat label="Net monthly burn" value={money(snap.runway.netMonthlyBurn)} />
-                </div>
-                <p className="text-xs text-muted-foreground">Cash divided by (average monthly spending minus average monthly income), last {snap.inputs.num.runway_lookback_months ?? 3} months.</p>
+                </StatGrid>
               </>
             ) : (
               <EmptyState title="Add an account and its balance to calculate runway." action={<Button asChild size="sm"><Link href="/records/accounts/new">Add account</Link></Button>} />
             )}
           </CardContent>
+          {hasAccounts ? <CardNote>Cash divided by (average monthly spending minus average monthly income), last {snap.inputs.num.runway_lookback_months ?? 3} months.</CardNote> : null}
         </Card>
 
         <Card>
@@ -151,11 +152,11 @@ export default async function HomePage() {
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <Progress value={budgetTotal ? (snap.monthSpending / budgetTotal) * 100 : 0} tone={budgetTotal && snap.monthSpending > budgetTotal ? "red" : "teal"} />
-            <div className="grid grid-cols-3 gap-3">
+            <StatGrid className="grid-cols-3">
               <Stat label="Monthly budget" value={budgetTotal ? money(budgetTotal) : "Not set"} />
               <Stat label="Remaining" value={budgetTotal ? money(budgetTotal - snap.monthSpending) : "Not set"} tone={budgetTotal && snap.monthSpending > budgetTotal ? "bad" : undefined} />
               <Stat label="Savings from reduction actions" value={`${money(metrics.values.savings_achieved_monthly)}/mo`} tone="good" />
-            </div>
+            </StatGrid>
             {!budgetTotal ? (
               <Link href="/finance/budget" className="text-sm text-teal-800 hover:underline">
                 Set a budget per category
@@ -169,7 +170,6 @@ export default async function HomePage() {
             <CardTitle className="flex items-center justify-between">
               Alerts {alerts.length ? <Badge variant="danger">{alerts.length}</Badge> : null}
             </CardTitle>
-            <CardDescription>Decision conditions met, missed commitments, pipeline items that need action, broken connections.</CardDescription>
           </CardHeader>
           <CardContent>
             {alerts.length ? (
@@ -180,12 +180,12 @@ export default async function HomePage() {
                     <Link href={a.href ?? "/"} className="clamp-2 min-w-0 flex-1 text-sm hover:underline">
                       {a.message}
                     </Link>
-                    <form action={dismissAlert}>
+                    <GuardedForm action={dismissAlert}>
                       <input type="hidden" name="id" value={a.id} />
                       <button className="rounded p-1 text-muted-foreground hover:bg-slate-100" aria-label="Dismiss alert">
                         <X className="h-3.5 w-3.5" />
                       </button>
-                    </form>
+                    </GuardedForm>
                   </li>
                 ))}
               </ul>
@@ -193,6 +193,7 @@ export default async function HomePage() {
               <p className="text-sm text-muted-foreground">No open alerts.</p>
             )}
           </CardContent>
+          <CardNote>Decision conditions met, missed commitments, pipeline items that need action, broken connections.</CardNote>
         </Card>
 
         <Card className="md:col-span-2">
@@ -203,11 +204,11 @@ export default async function HomePage() {
                 The morning plan and today&apos;s required tasks. {tasks.length ? `${doneCount} of ${tasks.length} done.` : ""}
               </CardDescription>
             </div>
-            <form action={regeneratePlan}>
+            <GuardedForm action={regeneratePlan}>
               <SubmitButton size="sm" variant="outline" pendingText="Writing plan...">
                 {planRes.data ? "Rewrite plan" : "Write today's plan"}
               </SubmitButton>
-            </form>
+            </GuardedForm>
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-5 lg:grid-cols-2">
             <div className="min-w-0">
@@ -232,7 +233,6 @@ export default async function HomePage() {
         <Card>
           <CardHeader>
             <CardTitle>Today&apos;s meetings</CardTitle>
-            <CardDescription>From Google Calendar.</CardDescription>
           </CardHeader>
           <CardContent>
             {meetings === null ? (
@@ -256,6 +256,7 @@ export default async function HomePage() {
               <p className="text-sm text-muted-foreground">No meetings today.</p>
             )}
           </CardContent>
+          <CardNote>From Google Calendar.</CardNote>
         </Card>
 
         <Card>
@@ -263,7 +264,6 @@ export default async function HomePage() {
             <CardTitle className="flex items-center justify-between">
               Overdue {overdue.length + overdueMilestones.length ? <Badge variant="danger">{overdue.length + overdueMilestones.length}</Badge> : null}
             </CardTitle>
-            <CardDescription>Tasks and milestones past their due date.</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             {overdueMilestones.length ? (
@@ -281,19 +281,19 @@ export default async function HomePage() {
             {overdue.length ? <TaskList tasks={overdue} today={today} dealTypes={dealTypes} /> : null}
             {!overdue.length && !overdueMilestones.length ? <p className="text-sm text-muted-foreground">Nothing overdue.</p> : null}
           </CardContent>
+          <CardNote>Tasks and milestones past their due date.</CardNote>
         </Card>
 
         <Card>
           <CardHeader>
             <CardTitle>Net worth</CardTitle>
-            <CardDescription>Assets minus debts.</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
-            <div className="grid grid-cols-3 gap-3">
+            <StatGrid className="grid-cols-3">
               <Stat label="Net worth" value={money(snap.netWorth.netWorth)} />
               <Stat label="Assets" value={money(snap.netWorth.assets)} />
               <Stat label="Debts" value={money(snap.netWorth.liabilities)} />
-            </div>
+            </StatGrid>
             <p className="text-xs text-muted-foreground">
               6 months ago: {money(nw[0]?.netWorth ?? 0)}. Emergency fund: {Math.round(snap.emergencyFund.pct ?? 0)}% of target.
             </p>
@@ -301,12 +301,12 @@ export default async function HomePage() {
               Savings and financial security <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </CardContent>
+          <CardNote>Assets minus debts.</CardNote>
         </Card>
 
         <Card>
           <CardHeader>
             <CardTitle>AI proposals</CardTitle>
-            <CardDescription>Changes the AI suggested. Nothing is saved until you approve it.</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex items-end justify-between gap-3">
@@ -316,6 +316,7 @@ export default async function HomePage() {
               </Button>
             </div>
           </CardContent>
+          <CardNote>Changes the AI suggested. Nothing is saved until you approve it.</CardNote>
         </Card>
       </div>
     </div>

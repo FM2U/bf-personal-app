@@ -14,6 +14,9 @@ import { nextReportDate } from "@/lib/engine/partners";
 import { DB_UPDATE_NOTICE, isMissingSchemaError, NEW_COLUMNS, NEW_TABLES } from "@/lib/schema-guard";
 import { hasPipelineUpdate, missingForStage } from "@/lib/pipeline";
 import type { Row } from "@/lib/types";
+import { canQuickCreate, quickCreateFields } from "@/lib/quick-create";
+import { safeLeaveTarget } from "@/lib/form-dirty";
+import { titleOf } from "@/lib/data";
 
 export type FormState = { ok: boolean; error?: string; message?: string; link?: { href: string; label: string } } | null;
 
@@ -80,15 +83,43 @@ async function parseFields(fields: Field[], fd: FormData, tz: string): Promise<{
   return { data };
 }
 
+type WriteResult = { ok: false; error: string; link?: { href: string; label: string } } | { ok: true; id: string | null; row: Row };
+
 /** Create or update any record described in src/lib/resources.ts. */
 export async function saveRecord(_prev: FormState, fd: FormData): Promise<FormState> {
   const table = String(fd.get("__table") ?? "");
-  const id = String(fd.get("__id") ?? "") || null;
   const resource = getResource(table);
   if (!resource) return { ok: false, error: "Unknown record type." };
+  const result = await writeRecord(table, fd, resource.fields);
+  if (!result.ok) return result;
+  const savedId = result.id;
+  revalidatePath("/", "layout");
+  // "Save and leave" (unsaved changes warning): go to the page that was being opened.
+  const leaveTo = safeLeaveTarget(String(fd.get("__leave_to") ?? ""));
+  const target = leaveTo || String(fd.get("__redirect") ?? "") || (savedId ? recordHref(table, savedId) : resource.listHref);
+  redirect(target.replace("{id}", savedId ?? ""));
+}
+
+/**
+ * "+ New" next to a reference field: creates the record from its short form without leaving the page.
+ * Same validation and after-save rules as saveRecord; only the short form's fields are read.
+ */
+export async function createRecordInline(fd: FormData): Promise<{ ok: true; id: string; label: string } | { ok: false; error: string }> {
+  const table = String(fd.get("__table") ?? "");
+  if (!canQuickCreate(table)) return { ok: false, error: "This record type cannot be added here." };
+  fd.delete("__id");
+  for (const k of ["__redirect", "__leave_to", "__link_type", "__link_id"]) fd.delete(k);
+  const result = await writeRecord(table, fd, quickCreateFields(table));
+  if (!result.ok) return { ok: false, error: result.error };
+  if (!result.id) return { ok: false, error: "The record was not saved." };
+  return { ok: true, id: result.id, label: titleOf(table, { ...result.row, id: result.id }) };
+}
+
+async function writeRecord(table: string, fd: FormData, fields: Field[]): Promise<WriteResult> {
+  const id = String(fd.get("__id") ?? "") || null;
   const { supabase, ownerId } = await requireOwner();
   const ctx = await loadCtx(supabase, ownerId);
-  const parsed = await parseFields(resource.fields, fd, ctx.tz);
+  const parsed = await parseFields(fields, fd, ctx.tz);
   if ("error" in parsed) return { ok: false, error: parsed.error };
   const data = parsed.data;
 
@@ -209,10 +240,7 @@ export async function saveRecord(_prev: FormState, fd: FormData): Promise<FormSt
   }
   if (["tasks", "milestones", "goals"].includes(table)) await checkCommitments(ctx, false);
   if (CONDITION_TABLES.has(table)) await evaluateConditions(ctx);
-
-  revalidatePath("/", "layout");
-  const target = String(fd.get("__redirect") ?? "") || (savedId ? recordHref(table, savedId) : resource.listHref);
-  redirect(target.replace("{id}", savedId ?? ""));
+  return { ok: true, id: savedId, row: { ...(before ?? {}), ...data } };
 }
 
 /** The item has a next action now: close the "Set next action" task (and an alert from before grouping). */

@@ -129,6 +129,7 @@ export function ChatPanel({ aiReady }: { aiReady: boolean }) {
             <div ref={endRef} />
           </div>
           <form
+            data-unsaved="off"
             className="flex items-end gap-2 border-t border-border p-3"
             onSubmit={(e) => {
               e.preventDefault();

@@ -17,6 +17,7 @@ import { ScenarioComparisonTable, mergeSeries } from "@/components/app/scenario-
 import { saveScenarioOverrides } from "@/app/actions/domain";
 import { money } from "@/lib/format";
 import type { Row } from "@/lib/types";
+import { GuardedForm } from "@/components/app/unsaved-changes";
 
 export default async function ScenarioPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -137,7 +138,7 @@ export default async function ScenarioPage({ params }: { params: Promise<{ id: s
             <CardDescription>Leave a field empty to use the current number (shown in grey).</CardDescription>
           </CardHeader>
           <CardContent>
-            <form action={saveScenarioOverrides} className="flex flex-col gap-4">
+            <GuardedForm action={saveScenarioOverrides} className="flex flex-col gap-4">
               <input type="hidden" name="scenario_id" value={id} />
               <OverrideGroup title="Current figures" items={BASELINE_OVERRIDE_KEYS.map((b) => ({ key: b.key, label: b.label, current: baselineValues[b.key] }))} overrides={overrides} />
               {base.debts.length ? (
@@ -152,7 +153,7 @@ export default async function ScenarioPage({ params }: { params: Promise<{ id: s
               ) : null}
               <OverrideGroup title="Inputs and Assumptions" items={inputs.map((i: Row) => ({ key: i.key, label: i.label, current: i.value_number === null ? null : Number(i.value_number) }))} overrides={overrides} />
               <SubmitButton>Save and recalculate</SubmitButton>
-            </form>
+            </GuardedForm>
           </CardContent>
         </Card>
       </div>

@@ -6,6 +6,7 @@ import { ProposalCard } from "@/components/app/proposal-card";
 import { approveAllCategories } from "@/app/actions/ai";
 import { labelMap, loadRefOptions } from "@/lib/data";
 import type { Row } from "@/lib/types";
+import { GuardedForm } from "@/components/app/unsaved-changes";
 
 export const metadata = { title: "AI proposals" };
 
@@ -48,12 +49,12 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
                   <CardTitle>Category suggestions ({categories.length})</CardTitle>
                   <CardDescription>Approve one at a time, or approve all of them.</CardDescription>
                 </div>
-                <form action={approveAllCategories}>
+                <GuardedForm action={approveAllCategories}>
                   <input type="hidden" name="back" value="/proposals" />
                   <SubmitButton size="sm" pendingText="Approving...">
                     Approve all {categories.length}
                   </SubmitButton>
-                </form>
+                </GuardedForm>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">

@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { Sparkles } from "lucide-react";
 import { requireOwner } from "@/lib/auth";
@@ -5,6 +6,7 @@ import { MobileModuleBar, SidebarLinks } from "@/components/app/nav-links";
 import { AskAiSidebarButton, ChatPanel } from "@/components/app/chat-panel";
 import { signOut } from "@/app/actions/auth";
 import { isAIConfigured } from "@/lib/env";
+import { UnsavedChangesGuard } from "@/components/app/unsaved-changes";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const { supabase, user } = await requireOwner();
@@ -54,6 +56,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       </header>
       <main className="mx-auto w-full max-w-7xl px-4 pt-6 pb-24 sm:px-6 lg:px-8">{children}</main>
       <ChatPanel aiReady={isAIConfigured()} />
+      <Suspense fallback={null}>
+        <UnsavedChangesGuard />
+      </Suspense>
     </div>
   );
 }

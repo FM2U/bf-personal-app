@@ -6,6 +6,7 @@ import { getResource } from "@/lib/resources";
 import { dateTime, money } from "@/lib/format";
 import type { Row } from "@/lib/types";
 import { AiText } from "@/components/app/ai-text";
+import { GuardedForm } from "@/components/app/unsaved-changes";
 
 /** One AI proposal. Nothing is saved until "Approve" is pressed. */
 export function ProposalCard({ p, back, labels }: { p: Row; back: string; labels?: Record<string, Record<string, string>> }) {
@@ -41,16 +42,16 @@ export function ProposalCard({ p, back, labels }: { p: Row; back: string; labels
       ) : null}
       {p.status === "pending" ? (
         <div className="mt-auto flex flex-col gap-2">
-          <form action={approveProposal} className="flex flex-col gap-2">
+          <GuardedForm action={approveProposal} className="flex flex-col gap-2">
             <input type="hidden" name="id" value={p.id} />
             <input type="hidden" name="back" value={back} />
             {isReduction ? (
               <div className="grid grid-cols-2 gap-2">
-                <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+                <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
                   <span className="clamp-1">Deadline</span>
                   <Input type="date" name="o_deadline" defaultValue={p.payload?.deadline ?? ""} required />
                 </label>
-                <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+                <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
                   <span className="clamp-1">Projected monthly savings</span>
                   <Input type="number" step="any" name="o_projected_monthly_savings" defaultValue={p.payload?.projected_monthly_savings ?? 0} required />
                 </label>
@@ -64,14 +65,14 @@ export function ProposalCard({ p, back, labels }: { p: Row; back: string; labels
             <SubmitButton size="sm" pendingText="Saving...">
               {isReduction ? "Choose this one and approve" : "Approve"}
             </SubmitButton>
-          </form>
-          <form action={rejectProposal}>
+          </GuardedForm>
+          <GuardedForm action={rejectProposal}>
             <input type="hidden" name="id" value={p.id} />
             <input type="hidden" name="back" value={back} />
             <SubmitButton size="sm" variant="outline" className="w-full" pendingText="Rejecting...">
               Reject
             </SubmitButton>
-          </form>
+          </GuardedForm>
         </div>
       ) : p.error ? (
         <p className="text-xs text-red-700">{p.error}</p>

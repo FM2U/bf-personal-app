@@ -2,7 +2,7 @@ import Link from "next/link";
 import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
 import { todaysMeetings } from "@/lib/engine/run";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardNote, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { EmptyState, PageHeader } from "@/components/app/page-header";
 import { SubmitButton } from "@/components/app/submit-button";
@@ -17,6 +17,7 @@ import { AiText } from "@/components/app/ai-text";
 import { sortTasksProprietaryFirst } from "@/lib/calc/pipeline";
 import { loadDealRanks, loadDealTypes } from "@/lib/pipeline";
 import { DealSourceBadge } from "@/components/app/pipeline-badges";
+import { GuardedForm } from "@/components/app/unsaved-changes";
 
 export const metadata = { title: "Today's plan" };
 
@@ -42,16 +43,16 @@ export default async function TodayPage() {
         description="The AI's morning plan, built from due tasks, pipeline next actions, milestone tasks, and calendar meetings."
         actions={
           <>
-            <form action={runTodaysJobs}>
+            <GuardedForm action={runTodaysJobs}>
               <SubmitButton size="sm" variant="outline" pendingText="Creating...">
                 Create today&apos;s recurring tasks now
               </SubmitButton>
-            </form>
-            <form action={regeneratePlan}>
+            </GuardedForm>
+            <GuardedForm action={regeneratePlan}>
               <SubmitButton size="sm" pendingText="Writing...">
                 {plan ? "Rewrite plan" : "Write plan"}
               </SubmitButton>
-            </form>
+            </GuardedForm>
           </>
         }
       />
@@ -60,7 +61,6 @@ export default async function TodayPage() {
           <CardHeader className="flex-row items-start justify-between gap-2">
             <div>
               <CardTitle>Daily targets</CardTitle>
-              <CardDescription>Today&apos;s count for each target. Outreach counts when you log it in People, Outreach Queue.</CardDescription>
             </div>
             <Button asChild size="sm" variant="outline">
               <Link href="/accountability/targets">All targets</Link>
@@ -69,6 +69,7 @@ export default async function TodayPage() {
           <CardContent>
             <TargetCounters available={targets.available} summaries={summarizeTargets(targets, ctx.today)} back="/productivity" />
           </CardContent>
+          <CardNote>Today&apos;s count for each target. Outreach counts when you log it in People, Outreach Queue.</CardNote>
         </Card>
         <Card className="lg:col-span-2">
           <CardHeader>

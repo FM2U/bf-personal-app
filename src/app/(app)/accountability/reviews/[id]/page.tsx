@@ -5,10 +5,10 @@ import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
 import { dailyCloseCommitments, dailyCloseTargets, movedTasksForReview } from "@/lib/engine/reviews";
 import { DbUpdateNotice } from "@/components/app/target-grid";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardNote, CardTitle } from "@/components/ui/card";
 import { Input, Textarea } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Notice, PageHeader, Stat } from "@/components/app/page-header";
+import { Notice, PageHeader, Stat, StatGrid } from "@/components/app/page-header";
 import { ConfirmSubmit, SubmitButton } from "@/components/app/submit-button";
 import { TaskList } from "@/components/app/task-list";
 import { handleMovedTask, saveReview } from "@/app/actions/domain";
@@ -16,6 +16,7 @@ import { movedNote } from "@/lib/calc/commitment-rule";
 import { date as fmtDate, dateTime, money, months as fmtMonths } from "@/lib/format";
 import type { Row } from "@/lib/types";
 import { AiText } from "@/components/app/ai-text";
+import { GuardedForm } from "@/components/app/unsaved-changes";
 
 const TITLE: Record<string, string> = { daily: "Daily close", weekly: "Weekly review", monthly: "Monthly review", quarterly: "Quarterly review" };
 
@@ -56,7 +57,7 @@ export default async function ReviewPage({ params, searchParams }: { params: Pro
     </label>
   );
   const text = (name: string, label: string, rows = 3) => (
-    <label className="flex flex-col gap-1 text-sm font-medium">
+    <label className="flex flex-col gap-1.5 text-sm font-medium">
       {label}
       <Textarea name={`a_${name}`} rows={rows} defaultValue={a[name] ?? ""} disabled={done} />
     </label>
@@ -86,7 +87,8 @@ export default async function ReviewPage({ params, searchParams }: { params: Pro
             <CardHeader>
               <CardTitle>Numbers at the time of the draft</CardTitle>
             </CardHeader>
-            <CardContent className="grid grid-cols-2 gap-4">
+            <CardContent>
+<StatGrid>
               <Stat label="Runway" value={fmtMonths(d.runway_months)} />
               <Stat label="Cash" value={money(d.cash)} />
               <Stat label="Average monthly spending" value={money(d.avg_spending)} />
@@ -101,13 +103,13 @@ export default async function ReviewPage({ params, searchParams }: { params: Pro
               {d.deal_sourcing ? <Stat label="Deals sourced: proprietary, brokered" value={`${d.deal_sourcing.proprietary}, ${d.deal_sourcing.brokered}`} hint={`${d.deal_sourcing.sourced} in total`} /> : null}
               {d.deal_sourcing ? <Stat label="Proprietary share of deals sourced" value={d.deal_sourcing.proprietary_share_pct === null ? "No deals" : `${d.deal_sourcing.proprietary_share_pct}%`} /> : null}
               {d.stalled_items ? <Stat label="Stalled pipeline items" value={(d.stalled_items as Row[]).length} tone={(d.stalled_items as Row[]).length ? "bad" : "good"} /> : null}
-            </CardContent>
+            </StatGrid>
+</CardContent>
           </Card>
           {review.kind !== "daily" && (d.targets ?? []).length ? (
             <Card>
               <CardHeader>
                 <CardTitle>Daily targets this period</CardTitle>
-                <CardDescription>Total done against the total required on active days.</CardDescription>
               </CardHeader>
               <CardContent className="flex flex-col divide-y divide-slate-100">
                 {(d.targets as Row[]).map((t) => (
@@ -118,6 +120,7 @@ export default async function ReviewPage({ params, searchParams }: { params: Pro
                   </div>
                 ))}
               </CardContent>
+              <CardNote>Total done against the total required on active days.</CardNote>
             </Card>
           ) : null}
         </div>
@@ -127,7 +130,7 @@ export default async function ReviewPage({ params, searchParams }: { params: Pro
             <CardTitle>Your review</CardTitle>
           </CardHeader>
           <CardContent>
-            <form action={saveReview} className="flex flex-col gap-4">
+            <GuardedForm action={saveReview} className="flex flex-col gap-4">
               <input type="hidden" name="id" value={review.id} />
               {sp.missing && !done ? (
                 <Notice tone="error">
@@ -150,7 +153,7 @@ export default async function ReviewPage({ params, searchParams }: { params: Pro
                     {closeTargets && !closeTargets.available ? <DbUpdateNotice compact /> : null}
                     {misses.length ? (
                       <>
-                        <label className="flex flex-col gap-1 text-sm">
+                        <label className="flex flex-col gap-1.5 text-sm">
                           <span className="font-medium text-slate-800">One reason for every checked item</span>
                           <Input name="a_shared_reason" defaultValue={a.shared_reason ?? ""} placeholder="Example: the broker call ran all afternoon" maxLength={200} disabled={done} />
                         </label>
@@ -255,7 +258,7 @@ export default async function ReviewPage({ params, searchParams }: { params: Pro
                   </SubmitButton>
                 </div>
               ) : null}
-            </form>
+            </GuardedForm>
           </CardContent>
         </Card>
         {moved ? (
@@ -273,7 +276,7 @@ export default async function ReviewPage({ params, searchParams }: { params: Pro
                 <ul className="flex flex-col divide-y divide-slate-100">
                   {moved.tasks.map((t) => (
                     <li key={t.id}>
-                      <form action={handleMovedTask} className="grid grid-cols-1 items-center gap-2 py-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                      <GuardedForm action={handleMovedTask} className="grid grid-cols-1 items-center gap-2 py-2 sm:grid-cols-[minmax(0,1fr)_auto]">
                         <input type="hidden" name="task_id" value={t.id} />
                         <span className="min-w-0">
                           <Link href={`/records/tasks/${t.id}`} className="clamp-2 text-sm font-medium hover:underline">
@@ -293,7 +296,7 @@ export default async function ReviewPage({ params, searchParams }: { params: Pro
                             Delete
                           </ConfirmSubmit>
                         </span>
-                      </form>
+                      </GuardedForm>
                     </li>
                   ))}
                 </ul>

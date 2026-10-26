@@ -13,6 +13,7 @@ import { OPERATOR_LABELS, type Operator } from "@/lib/calc/conditions";
 import { getResource } from "@/lib/resources";
 import { date as fmtDate, dateTime, num } from "@/lib/format";
 import type { Row } from "@/lib/types";
+import { GuardedForm } from "@/components/app/unsaved-changes";
 
 export const metadata = { title: "Decision Conditions" };
 
@@ -28,11 +29,11 @@ export default async function ConditionsPage() {
         description="A rule the app checks every day and after every data change: measured number + comparison + threshold + required action. Actions run once when the rule becomes true."
         actions={
           <>
-            <form action={checkConditionsNow}>
+            <GuardedForm action={checkConditionsNow}>
               <SubmitButton size="sm" variant="outline" pendingText="Checking...">
                 Check all now
               </SubmitButton>
-            </form>
+            </GuardedForm>
             <Button asChild size="sm">
               <Link href="/records/decision_conditions/new">Add condition</Link>
             </Button>

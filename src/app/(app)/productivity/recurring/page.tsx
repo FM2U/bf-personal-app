@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/app/page-header";
 import { ListCard } from "@/components/app/list-card";
 import { SubmitButton } from "@/components/app/submit-button";
 import { runTodaysJobs } from "@/app/actions/domain";
+import { GuardedForm } from "@/components/app/unsaved-changes";
 
 export const metadata = { title: "Recurring tasks" };
 
@@ -21,11 +22,11 @@ export default async function RecurringPage() {
         title="Recurring tasks"
         description="Daily, weekly, monthly, and quarterly task lists generated from these templates each morning."
         actions={
-          <form action={runTodaysJobs}>
+          <GuardedForm action={runTodaysJobs}>
             <SubmitButton size="sm" variant="outline" pendingText="Creating...">
               Create today&apos;s tasks now
             </SubmitButton>
-          </form>
+          </GuardedForm>
         }
       />
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">

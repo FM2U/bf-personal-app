@@ -2,16 +2,17 @@ import Link from "next/link";
 import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
 import { loadFinanceSnapshot } from "@/lib/finance";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardNote, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, NativeSelect } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import { EmptyState, PageHeader, Stat } from "@/components/app/page-header";
+import { EmptyState, PageHeader, Stat, StatGrid } from "@/components/app/page-header";
 import { SubmitButton } from "@/components/app/submit-button";
 import { recordTransfer } from "@/app/actions/finance";
 import { date as fmtDate, money, titleCase } from "@/lib/format";
 import type { Row } from "@/lib/types";
+import { GuardedForm } from "@/components/app/unsaved-changes";
 
 export const metadata = { title: "Accounts and Cash" };
 
@@ -44,12 +45,14 @@ export default async function AccountsPage() {
         }
       />
       <Card className="mb-4">
-        <CardContent className="grid grid-cols-2 gap-4 pt-5 md:grid-cols-4">
+        <CardContent className="pt-5">
+<StatGrid className="md:grid-cols-4">
           <Stat label="Available cash (counted in runway)" value={money(snap.cash)} hint={snap.includeBusiness ? "Personal and Cyan Arc LLC" : "Personal accounts only"} />
           <Stat label="Net worth" value={money(snap.netWorth.netWorth)} />
           <Stat label="Assets" value={money(snap.netWorth.assets)} />
           <Stat label="Debts" value={money(snap.netWorth.liabilities)} />
-        </CardContent>
+        </StatGrid>
+</CardContent>
       </Card>
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         {snap.entities.map((e) => {
@@ -117,7 +120,6 @@ export default async function AccountsPage() {
         <Card>
           <CardHeader>
             <CardTitle>Transfers between Personal and Cyan Arc LLC</CardTitle>
-            <CardDescription>Transfers are not counted as spending or income.</CardDescription>
           </CardHeader>
           <CardContent>
             {crossEntity.length ? (
@@ -149,6 +151,7 @@ export default async function AccountsPage() {
               <p className="text-sm text-muted-foreground">No transfers between entities recorded yet. Use the form to record one.</p>
             )}
           </CardContent>
+          <CardNote>Transfers are not counted as spending or income.</CardNote>
         </Card>
         <Card>
           <CardHeader>
@@ -157,8 +160,8 @@ export default async function AccountsPage() {
           </CardHeader>
           <CardContent>
             {snap.accounts.length >= 2 ? (
-              <form action={recordTransfer} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <label className="flex flex-col gap-1 text-sm font-medium">
+              <GuardedForm action={recordTransfer} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="flex flex-col gap-1.5 text-sm font-medium">
                   From account
                   <NativeSelect name="from_account" required>
                     {snap.accounts.map((a) => (
@@ -168,7 +171,7 @@ export default async function AccountsPage() {
                     ))}
                   </NativeSelect>
                 </label>
-                <label className="flex flex-col gap-1 text-sm font-medium">
+                <label className="flex flex-col gap-1.5 text-sm font-medium">
                   To account
                   <NativeSelect name="to_account" required defaultValue={snap.accounts[1]?.id}>
                     {snap.accounts.map((a) => (
@@ -178,20 +181,20 @@ export default async function AccountsPage() {
                     ))}
                   </NativeSelect>
                 </label>
-                <label className="flex flex-col gap-1 text-sm font-medium">
+                <label className="flex flex-col gap-1.5 text-sm font-medium">
                   Amount
                   <Input name="amount" type="number" step="0.01" min="0.01" required />
                 </label>
-                <label className="flex flex-col gap-1 text-sm font-medium">
+                <label className="flex flex-col gap-1.5 text-sm font-medium">
                   Date
                   <Input name="date" type="date" defaultValue={ctx.today} required />
                 </label>
-                <label className="flex flex-col gap-1 text-sm font-medium sm:col-span-2">
+                <label className="flex flex-col gap-1.5 text-sm font-medium sm:col-span-2">
                   Description
                   <Input name="description" placeholder="Example: Owner contribution to Cyan Arc LLC" />
                 </label>
                 <SubmitButton className="self-start">Record transfer</SubmitButton>
-              </form>
+              </GuardedForm>
             ) : (
               <p className="text-sm text-muted-foreground">Add at least two accounts to record a transfer.</p>
             )}

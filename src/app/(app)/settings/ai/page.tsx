@@ -3,7 +3,7 @@ import { aiBudget } from "@/lib/ai/claude";
 import { env } from "@/lib/env";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import { PageHeader, Stat } from "@/components/app/page-header";
+import { PageHeader, Stat, StatGrid } from "@/components/app/page-header";
 import { Progress } from "@/components/app/charts";
 import { StatusBadge } from "@/components/app/field-value";
 import { dateTime, money } from "@/lib/format";
@@ -43,11 +43,11 @@ export default async function AiUsagePage() {
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <Progress value={budget.cap ? (budget.spent / budget.cap) * 100 : 0} tone={budget.blocked ? "red" : "teal"} />
-            <div className="grid grid-cols-3 gap-3">
+            <StatGrid className="grid-cols-3">
               <Stat label="Spent" value={money(budget.spent, true)} />
               <Stat label="Cap" value={money(budget.cap, true)} />
               <Stat label="Remaining" value={money(budget.remaining, true)} />
-            </div>
+            </StatGrid>
           </CardContent>
         </Card>
         <Card>
@@ -56,7 +56,7 @@ export default async function AiUsagePage() {
           </CardHeader>
           <CardContent>
             {Object.keys(byPurpose).length ? (
-              <ul className="flex flex-col gap-1 text-sm">
+              <ul className="flex flex-col gap-1.5 text-sm">
                 {Object.entries(byPurpose).map(([p, v]) => (
                   <li key={p} className="flex justify-between gap-2">
                     <span>{p.replace(/_/g, " ")}</span>
@@ -77,7 +77,7 @@ export default async function AiUsagePage() {
           </CardHeader>
           <CardContent>
             {Object.keys(byMonth).length ? (
-              <ul className="flex flex-col gap-1 text-sm">
+              <ul className="flex flex-col gap-1.5 text-sm">
                 {Object.entries(byMonth).map(([m, v]) => (
                   <li key={m} className="flex justify-between gap-2">
                     <span>{m}</span>

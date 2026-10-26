@@ -14,6 +14,7 @@ import { DbUpdateNotice } from "@/components/app/target-grid";
 import { deleteStageTask, moveStageTask, saveStageLimit } from "@/app/actions/pipeline";
 import type { Row } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { GuardedForm } from "@/components/app/unsaved-changes";
 
 export const metadata = { title: "Initiatives and pipelines" };
 
@@ -82,7 +83,7 @@ export default async function InitiativesSettingsPage({ searchParams }: { search
                           <Badge variant={s.outcome === "open" ? "outline" : "neutral"}>{OUTCOME[s.outcome] ?? s.outcome}</Badge>
                         </div>
                         {s.outcome === "open" ? (
-                          <form action={saveStageLimit} className="flex items-center gap-2">
+                          <GuardedForm action={saveStageLimit} className="flex items-center gap-2">
                             <input type="hidden" name="id" value={s.id} />
                             <input type="hidden" name="back" value={here} />
                             <label htmlFor={`limit-${s.id}`} className="shrink-0 text-xs text-muted-foreground">
@@ -93,7 +94,7 @@ export default async function InitiativesSettingsPage({ searchParams }: { search
                             <SubmitButton size="sm" variant="outline" className="h-8">
                               Save
                             </SubmitButton>
-                          </form>
+                          </GuardedForm>
                         ) : (
                           <span className="text-xs text-muted-foreground">No time limit (closed stage)</span>
                         )}
@@ -121,22 +122,22 @@ export default async function InitiativesSettingsPage({ searchParams }: { search
                             {list.map((t, i) => (
                               <li key={t.id} className={cn("grid grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-x-3 gap-y-1 py-1.5", TASK_GRID)}>
                                 <div className="flex gap-1">
-                                  <form action={moveStageTask}>
+                                  <GuardedForm action={moveStageTask}>
                                     <input type="hidden" name="id" value={t.id} />
                                     <input type="hidden" name="dir" value="up" />
                                     <input type="hidden" name="back" value={here} />
                                     <Button type="submit" size="icon" variant="ghost" className="h-7 w-7" disabled={i === 0} aria-label={`Move "${t.title}" up`}>
                                       <ArrowUp />
                                     </Button>
-                                  </form>
-                                  <form action={moveStageTask}>
+                                  </GuardedForm>
+                                  <GuardedForm action={moveStageTask}>
                                     <input type="hidden" name="id" value={t.id} />
                                     <input type="hidden" name="dir" value="down" />
                                     <input type="hidden" name="back" value={here} />
                                     <Button type="submit" size="icon" variant="ghost" className="h-7 w-7" disabled={i === list.length - 1} aria-label={`Move "${t.title}" down`}>
                                       <ArrowDown />
                                     </Button>
-                                  </form>
+                                  </GuardedForm>
                                 </div>
                                 <span className="clamp-2 text-sm text-slate-900">{t.title}</span>
                                 <span className="tabular col-start-2 text-xs text-slate-700 md:col-start-auto md:text-sm">
@@ -154,13 +155,13 @@ export default async function InitiativesSettingsPage({ searchParams }: { search
                                   <Button asChild size="sm" variant="ghost" className="h-7">
                                     <Link href={`/records/stage_tasks/${t.id}?edit=1`}>Edit</Link>
                                   </Button>
-                                  <form action={deleteStageTask}>
+                                  <GuardedForm action={deleteStageTask}>
                                     <input type="hidden" name="id" value={t.id} />
                                     <input type="hidden" name="back" value={here} />
                                     <ConfirmSubmit size="sm" variant="ghost" className="h-7 text-red-700" message={`Delete the stage task "${t.title}"? Tasks already created for items stay.`}>
                                       Delete
                                     </ConfirmSubmit>
-                                  </form>
+                                  </GuardedForm>
                                 </div>
                               </li>
                             ))}

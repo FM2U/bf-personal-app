@@ -4,6 +4,7 @@ import { ChevronLeft, Pencil } from "lucide-react";
 import { requireOwner } from "@/lib/auth";
 import { getResource, RESOURCES } from "@/lib/resources";
 import { labelMap, loadRefOptions, titleOf } from "@/lib/data";
+import { quickCreateRefTables } from "@/lib/quick-create";
 import { nextActionFor } from "@/lib/next-action";
 import { loadCtx } from "@/lib/engine/helpers";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,6 +17,7 @@ import { ChildrenSections, CommunicationsPanel, DocumentsPanel, HistoryPanel, Li
 import { ExtraPanels, ExtraSidePanels, PipelineItemNotices } from "@/components/app/extra-panels";
 import { deleteRecord } from "@/app/actions/records";
 import { formRules } from "@/lib/form-rules";
+import { GuardedForm } from "@/components/app/unsaved-changes";
 
 const COMMS_TABLES = new Set(["contacts", "organizations", "pipeline_items", "funding_sources", "debts", "partners", "decisions", "goals", "milestones"]);
 
@@ -31,6 +33,7 @@ export default async function RecordPage({ params, searchParams }: { params: Pro
   for (const f of r.fields) if (f.ref) refTables.add(f.ref);
   for (const c of r.children ?? []) for (const f of RESOURCES[c.table].fields) if (f.ref) refTables.add(f.ref);
   if (table === "budget_lines") refTables.add("categories");
+  for (const t of quickCreateRefTables(r.fields)) refTables.add(t);
   const refOptions = await loadRefOptions(supabase, [...refTables]);
   const labels = labelMap(refOptions);
   const ctx = await loadCtx(supabase, ownerId);
@@ -75,13 +78,13 @@ export default async function RecordPage({ params, searchParams }: { params: Pro
           <ExtraPanels sb={supabase} ownerId={ownerId} table={table} row={row} today={ctx.today} labels={labels} refOptions={refOptions} sp={sp} />
           <ChildrenSections sb={supabase} table={table} id={id} labels={labels} />
           {editing && !r.noDelete ? (
-            <form action={deleteRecord} className="self-start">
+            <GuardedForm action={deleteRecord} className="self-start">
               <input type="hidden" name="__table" value={table} />
               <input type="hidden" name="__id" value={id} />
               <ConfirmSubmit variant="destructive" size="sm" message={`Delete this ${r.singular.toLowerCase()}? This cannot be undone.`}>
                 Delete {r.singular.toLowerCase()}
               </ConfirmSubmit>
-            </form>
+            </GuardedForm>
           ) : null}
         </div>
         <div className="flex min-w-0 flex-col gap-4">

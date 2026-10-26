@@ -1,12 +1,12 @@
 import Link from "next/link";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardNote, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, NativeSelect, Textarea } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { SubmitButton } from "@/components/app/submit-button";
-import { DetailGrid, EmptyState, Notice, Stat } from "@/components/app/page-header";
+import { DetailGrid, EmptyState, Notice, Stat, StatGrid } from "@/components/app/page-header";
 import { RecordForm } from "@/components/app/record-form";
 import { ProposalCard } from "@/components/app/proposal-card";
 import { markCommitment, setTaskStatus } from "@/app/actions/records";
@@ -44,6 +44,7 @@ import { loadPipelineStatus, missingForStage, hasPipelineUpdate } from "@/lib/pi
 import { DealSourceBadge, ItemStatusBadges } from "@/components/app/pipeline-badges";
 import { TaskList } from "@/components/app/task-list";
 import { logDealActivity } from "@/app/actions/pipeline";
+import { GuardedForm } from "@/components/app/unsaved-changes";
 
 type P = {
   sb: SupabaseClient;
@@ -90,7 +91,7 @@ export async function ExtraSidePanels(p: P) {
     panels.push(
       <Card key="task">
         <CardContent className="flex flex-col gap-2 pt-5">
-          <form
+          <GuardedForm
             action={async () => {
               "use server";
               await setTaskStatus(p.row.id, p.row.status !== "done");
@@ -99,7 +100,7 @@ export async function ExtraSidePanels(p: P) {
             <SubmitButton size="sm" variant={p.row.status === "done" ? "outline" : "default"} className="w-full">
               {p.row.status === "done" ? "Mark as not done" : "Mark as done"}
             </SubmitButton>
-          </form>
+          </GuardedForm>
         </CardContent>
       </Card>,
     );
@@ -112,11 +113,11 @@ export async function ExtraSidePanels(p: P) {
           <CardDescription>Proof of completion is required: a number, a link, or an uploaded document.</CardDescription>
         </CardHeader>
         <CardContent>
-          <form action={completeMilestone} className="flex flex-col gap-2">
+          <GuardedForm action={completeMilestone} className="flex flex-col gap-2">
             <input type="hidden" name="id" value={p.row.id} />
             <Input name="proof" placeholder={p.row.proof_type === "link" ? "Link to proof" : p.row.proof_type === "number" ? "Number achieved" : "Optional note (upload the document below)"} defaultValue={p.row.proof_value ?? ""} />
             <SubmitButton size="sm">Mark met</SubmitButton>
-          </form>
+          </GuardedForm>
         </CardContent>
       </Card>,
     );
@@ -139,14 +140,14 @@ export async function ExtraSidePanels(p: P) {
               Marked as a commitment, due {fmtDate(c.due_date)}. Status: <Badge variant="neutral">{c.status.replace(/_/g, " ")}</Badge>
             </p>
           ) : (
-            <form action={markCommitment} className="flex flex-col gap-2">
+            <GuardedForm action={markCommitment} className="flex flex-col gap-2">
               <input type="hidden" name="record_type" value={p.table} />
               <input type="hidden" name="record_id" value={p.row.id} />
               <Input type="date" name="due_date" defaultValue={p.row.due_date ?? p.row.deadline ?? ""} required aria-label="Commitment due date" />
               <SubmitButton size="sm" variant="outline">
                 Mark as commitment
               </SubmitButton>
-            </form>
+            </GuardedForm>
           )}
         </CardContent>
       </Card>,
@@ -165,13 +166,13 @@ export async function ExtraSidePanels(p: P) {
             ["cancel_planned", "Plan to cancel"],
             ["cancelled", "Cancelled"],
           ].map(([v, l]) => (
-            <form key={v} action={setRecurringReview}>
+            <GuardedForm key={v} action={setRecurringReview}>
               <input type="hidden" name="id" value={p.row.id} />
               <input type="hidden" name="review_status" value={v} />
               <SubmitButton size="sm" variant={p.row.review_status === v ? "default" : "outline"} className="w-full">
                 {l}
               </SubmitButton>
-            </form>
+            </GuardedForm>
           ))}
         </CardContent>
       </Card>,
@@ -182,11 +183,11 @@ export async function ExtraSidePanels(p: P) {
       <Card key="check">
         <CardContent className="flex flex-col gap-2 pt-5">
           <p className="text-sm text-muted-foreground">Last checked: {p.row.last_evaluated_at ? dateTime(p.row.last_evaluated_at) : "not yet"}.</p>
-          <form action={checkConditionsNow}>
+          <GuardedForm action={checkConditionsNow}>
             <SubmitButton size="sm" variant="outline" className="w-full" pendingText="Checking...">
               Check all conditions now
             </SubmitButton>
-          </form>
+          </GuardedForm>
         </CardContent>
       </Card>,
     );
@@ -198,7 +199,7 @@ export async function ExtraSidePanels(p: P) {
           <CardTitle>Record balance</CardTitle>
         </CardHeader>
         <CardContent>
-          <RecordForm table="account_balances" initial={{ account_id: p.row.id, as_of: p.today, source: "manual" }} refOptions={{ accounts: [{ id: p.row.id, label: p.row.name }] }} redirectTo={recordHref("accounts", p.row.id)} only={["as_of", "balance", "account_id"]} submitLabel="Save balance" />
+          <RecordForm table="account_balances" initial={{ account_id: p.row.id, as_of: p.today, source: "manual" }} refOptions={{ accounts: [{ id: p.row.id, label: p.row.name }] }} redirectTo={recordHref("accounts", p.row.id)} only={["as_of", "balance", "account_id"]} submitLabel="Save balance" allowCreate={false} />
         </CardContent>
       </Card>,
     );
@@ -272,7 +273,6 @@ async function PipelineItemPanels({ sb, ownerId, row, refOptions, today }: P) {
             {isAcq ? <DealSourceBadge type={row.deal_source_type} /> : null}
             <ItemStatusBadges status={st} itemStatus={row.status} />
           </CardTitle>
-          <CardDescription>Every open item has a next action, a time limit for its stage, and the stage&apos;s task list.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           {!status.available ? <DbUpdateNotice compact /> : null}
@@ -326,14 +326,14 @@ async function PipelineItemPanels({ sb, ownerId, row, refOptions, today }: P) {
             )}
           </div>
         </CardContent>
+        <CardNote>Every open item has a next action, a time limit for its stage, and the stage&apos;s task list.</CardNote>
       </Card>
       <Card>
         <CardHeader>
           <CardTitle>Stage</CardTitle>
-          <CardDescription>The date the item entered each stage is recorded, so the app shows how long each stage takes.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <form action={moveStage} className="flex flex-col gap-2 sm:flex-row">
+          <GuardedForm action={moveStage} className="flex flex-col gap-2 sm:flex-row">
             <input type="hidden" name="item_id" value={row.id} />
             <NativeSelect name="stage_id" defaultValue={row.stage_id ?? ""} aria-label="Stage" className="sm:max-w-xs">
               {stageList.map((s) => (
@@ -345,7 +345,7 @@ async function PipelineItemPanels({ sb, ownerId, row, refOptions, today }: P) {
             <SubmitButton size="sm" variant="outline">
               Move to stage
             </SubmitButton>
-          </form>
+          </GuardedForm>
           <Table>
             <THead>
               <TR className="hover:bg-transparent">
@@ -367,6 +367,7 @@ async function PipelineItemPanels({ sb, ownerId, row, refOptions, today }: P) {
             </TBody>
           </Table>
         </CardContent>
+        <CardNote>The date the item entered each stage is recorded, so the app shows how long each stage takes.</CardNote>
       </Card>
       {detailTable && detail ? (
         <Card id="item-details">
@@ -418,16 +419,16 @@ function DealActivityCard({ row, available }: { row: Row; available: boolean }) 
       </CardHeader>
       <CardContent>
         {available ? (
-          <form action={logDealActivity} className="flex flex-col gap-2">
+          <GuardedForm action={logDealActivity} className="flex flex-col gap-2">
             <input type="hidden" name="item_id" value={row.id} />
-            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+            <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
               What happened
               <NativeSelect name="purpose" defaultValue="cim_request" aria-label="What happened">
                 <option value="cim_request">I requested the CIM</option>
                 <option value="source_contact">I contacted the broker or referral source</option>
               </NativeSelect>
             </label>
-            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+            <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
               Method
               <NativeSelect name="method" defaultValue="email" aria-label="Method">
                 <option value="email">Email</option>
@@ -437,14 +438,14 @@ function DealActivityCard({ row, available }: { row: Row; available: boolean }) 
                 <option value="other">Other</option>
               </NativeSelect>
             </label>
-            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+            <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
               Summary (optional)
               <Input name="summary" maxLength={500} placeholder="What you asked for or discussed" />
             </label>
             <SubmitButton size="sm" pendingText="Saving...">
               Log it
             </SubmitButton>
-          </form>
+          </GuardedForm>
         ) : (
           <DbUpdateNotice compact />
         )}
@@ -475,11 +476,11 @@ async function DiligenceList({ sb, itemId }: { sb: SupabaseClient; itemId: strin
           <ul className="flex flex-col divide-y divide-slate-100">
             {items.map((i) => (
               <li key={i.id} className="flex items-center gap-3 py-1.5">
-                <form action={toggleDiligence}>
+                <GuardedForm action={toggleDiligence}>
                   <input type="hidden" name="id" value={i.id} />
                   <input type="hidden" name="is_done" value={String(!i.is_done)} />
                   <button className={`h-5 w-5 rounded border ${i.is_done ? "border-teal-700 bg-teal-700" : "border-slate-400"}`} aria-label={i.is_done ? "Mark not done" : "Mark done"} />
-                </form>
+                </GuardedForm>
                 <Link href={recordHref("diligence_items", i.id)} className={`clamp-1 flex-1 text-sm hover:underline ${i.is_done ? "text-muted-foreground line-through" : ""}`}>
                   {i.title}
                 </Link>
@@ -505,25 +506,25 @@ async function FundingPanel({ sb, row }: P) {
     <Card>
       <CardHeader>
         <CardTitle>Repayment tracking</CardTitle>
-        <CardDescription>Payments due, payments made, and remaining balance.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <StatGrid className="sm:grid-cols-4">
           <Stat label="Total scheduled" value={money(due)} />
           <Stat label="Paid to date" value={money(paid)} />
           <Stat label="Remaining principal" value={money(Math.max(0, Number(row.amount) - principalPaid))} />
           <Stat label="Payments overdue" value={rows.filter((r) => r.due_date < new Date().toISOString().slice(0, 10) && Number(r.paid_amount) < Number(r.amount_due)).length} />
-        </div>
+        </StatGrid>
         {row.kind === "loan" ? (
-          <form action={generateRepayments} className="flex flex-col gap-1">
+          <GuardedForm action={generateRepayments} className="flex flex-col gap-1">
             <input type="hidden" name="id" value={row.id} />
             <SubmitButton size="sm" variant="outline" className="self-start">
               {rows.length ? "Recreate unpaid schedule from the terms" : "Create repayment schedule from the terms"}
             </SubmitButton>
             <p className="text-xs text-muted-foreground">Uses the amount, interest rate, term, start date, and repayment schedule above. Paid rows are kept.</p>
-          </form>
+          </GuardedForm>
         ) : null}
       </CardContent>
+      <CardNote>Payments due, payments made, and remaining balance.</CardNote>
     </Card>
   );
 }
@@ -546,12 +547,12 @@ async function DecisionPanel({ sb, row }: P) {
                 {o.description ? <p className="text-sm text-muted-foreground">{o.description}</p> : null}
                 {o.numbers ? <p className="whitespace-pre-wrap text-sm">{o.numbers}</p> : null}
                 {row.status === "open" ? (
-                  <form action={chooseOption} className="mt-auto flex flex-col gap-2">
+                  <GuardedForm action={chooseOption} className="mt-auto flex flex-col gap-2">
                     <input type="hidden" name="decision_id" value={row.id} />
                     <input type="hidden" name="option_id" value={o.id} />
                     <Textarea name="outcome" rows={2} placeholder="Outcome or reason (optional)" />
                     <SubmitButton size="sm">Choose this option</SubmitButton>
-                  </form>
+                  </GuardedForm>
                 ) : row.chosen_option_id === o.id ? (
                   <Badge variant="success" className="self-start">
                     Chosen
@@ -588,7 +589,7 @@ async function ReductionPanel({ sb, table, row, labels }: P) {
             ))}
           </div>
         ) : (
-          <form action={requestReductionSuggestions} className="flex flex-col gap-2">
+          <GuardedForm action={requestReductionSuggestions} className="flex flex-col gap-2">
             <input type="hidden" name="table" value={table} />
             <input type="hidden" name="id" value={row.id} />
             <input type="hidden" name="back" value={back} />
@@ -596,7 +597,7 @@ async function ReductionPanel({ sb, table, row, labels }: P) {
               Get 3 suggestions
             </SubmitButton>
             {!isAIConfigured() ? <p className="text-xs text-muted-foreground">The AI is not set up yet. Add ANTHROPIC_API_KEY in Vercel, or add a reduction action by hand below.</p> : null}
-          </form>
+          </GuardedForm>
         )}
         <Button asChild size="sm" variant="outline" className="self-start">
           <Link href={`/records/reduction_actions/new?${col}=${row.id}${row.category_id ? `&category_id=${row.category_id}` : ""}`}>Add a reduction action by hand</Link>
@@ -655,11 +656,11 @@ async function GoalProgress({ sb, row, today }: P) {
         <CardTitle>Measured number</CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-3 gap-4">
+        <StatGrid className="grid-cols-3">
           <Stat label="Current value (calculated)" value={current === null ? "Not available" : num(current, 2)} tone={met ? "good" : undefined} />
           <Stat label="Target" value={row.target_value ?? "Not set"} />
           <Stat label="Deadline" value={fmtDate(row.deadline)} />
-        </div>
+        </StatGrid>
         {met ? <p className="mt-3 text-sm text-emerald-700">The measured number meets the target. Mark the goal met when confirmed.</p> : null}
       </CardContent>
     </Card>
@@ -703,12 +704,12 @@ async function PartnerLinksPanel({ sb, row }: P) {
                     {url ? <p className="mt-1 break-all font-mono text-xs text-slate-700">{url}</p> : null}
                   </div>
                   {active ? (
-                    <form action={revokePartnerLink}>
+                    <GuardedForm action={revokePartnerLink}>
                       <input type="hidden" name="id" value={l.id} />
                       <SubmitButton size="sm" variant="outline">
                         Revoke
                       </SubmitButton>
-                    </form>
+                    </GuardedForm>
                   ) : null}
                 </li>
               );
@@ -717,13 +718,13 @@ async function PartnerLinksPanel({ sb, row }: P) {
         ) : (
           <Notice>No link yet. Create one to share reports without a login.</Notice>
         )}
-        <form action={createPartnerLink} className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_10rem_auto] sm:items-end">
+        <GuardedForm action={createPartnerLink} className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_10rem_auto] sm:items-end">
           <input type="hidden" name="partner_id" value={row.id} />
-          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+          <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
             <span className="clamp-1">Label (optional)</span>
             <Input name="label" placeholder="Example: Weekly report link" />
           </label>
-          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+          <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
             <span className="clamp-1">Expires after</span>
             <NativeSelect name="expires_days" defaultValue="0">
               <option value="0">Never</option>
@@ -733,13 +734,13 @@ async function PartnerLinksPanel({ sb, row }: P) {
             </NativeSelect>
           </label>
           <SubmitButton size="sm">Create link</SubmitButton>
-        </form>
-        <form action={createReportNow}>
+        </GuardedForm>
+        <GuardedForm action={createReportNow}>
           <input type="hidden" name="partner_id" value={row.id} />
           <SubmitButton size="sm" variant="outline" pendingText="Creating report...">
             Create a report now
           </SubmitButton>
-        </form>
+        </GuardedForm>
         <DetailGrid items={[{ label: "Report schedule", value: row.schedule }, { label: "Next report date", value: fmtDate(row.next_report_on) }]} />
       </CardContent>
     </Card>
@@ -780,7 +781,7 @@ async function ContactOutreachPanel({ sb, ownerId, row, today }: P) {
         <CardDescription>The last contact date comes from the latest communication. Set the relationship group, and whether this person can refer off-market deals, with Edit.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <StatGrid className="sm:grid-cols-4">
           <Stat label="Relationship group" value={row.relationship_group ? GROUP_LABELS[row.relationship_group as RelationshipGroup] : "Not set"} />
           <Stat label="Reach out every" value={status.everyDays ? `${status.everyDays} days` : "Not set"} hint={row.outreach_every_days ? "Set on this contact" : row.relationship_group ? "Group default" : undefined} />
           <Stat label="Last contact" value={last ? fmtDate(last, "MMM d") : "Never"} />
@@ -790,7 +791,7 @@ async function ContactOutreachPanel({ sb, ownerId, row, today }: P) {
             tone={status.due ? "warn" : undefined}
             hint={status.due && status.daysOverdue ? `${status.daysOverdue} days overdue` : undefined}
           />
-        </div>
+        </StatGrid>
         <LogOutreachButton contactId={row.id} back={back} purposeAvailable={row.is_deal_source !== undefined} defaultPurpose={row.is_deal_source ? "deal_sourcing" : "general"} />
         <div>
           <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Outreach history and outcomes</p>
@@ -804,7 +805,7 @@ async function ContactOutreachPanel({ sb, ownerId, row, today }: P) {
                   <Link href={recordHref("communications", c.id)} className="clamp-1 text-sm hover:underline">
                     {c.summary || c.subject || "Outreach"}
                   </Link>
-                  <form action={setOutreachOutcome} className="flex items-center gap-1">
+                  <GuardedForm action={setOutreachOutcome} className="flex items-center gap-1">
                     <input type="hidden" name="id" value={c.id} />
                     <input type="hidden" name="back" value={back} />
                     <NativeSelect name="outcome" defaultValue={c.outcome ?? ""} aria-label="Outcome" className="h-8 text-xs">
@@ -818,7 +819,7 @@ async function ContactOutreachPanel({ sb, ownerId, row, today }: P) {
                     <SubmitButton size="sm" variant="outline" className="h-8 px-2 text-xs">
                       Save
                     </SubmitButton>
-                  </form>
+                  </GuardedForm>
                 </li>
               ))}
             </ul>
@@ -847,18 +848,18 @@ async function TargetHistoryPanel({ sb, ownerId, row, today }: P) {
     <Card>
       <CardHeader>
         <CardTitle>History</CardTitle>
-        <CardDescription>{describeTarget(s.target.def)}.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <StatGrid className="sm:grid-cols-4">
           <Stat label={s.target.period === "week" ? "This week so far" : "Today"} value={s.today.status === "off" ? "Not counted" : `${s.today.count} of ${s.today.required}`} />
           <Stat label="Completion rate" value={s.rate.pct === null ? "No data yet" : `${s.rate.pct}%`} />
           <Stat label={`${unit} met in a row`} value={s.metInARow} />
           <Stat label={`${unit} missed in a row`} value={s.missedInARow} />
-        </div>
+        </StatGrid>
         {s.target.period === "week" ? <TargetWeekGrid history={s.history} today={today} /> : <TargetDayGrid history={s.history} today={today} />}
         <TargetLegend />
       </CardContent>
+      <CardNote>{describeTarget(s.target.def)}.</CardNote>
     </Card>
   );
 }

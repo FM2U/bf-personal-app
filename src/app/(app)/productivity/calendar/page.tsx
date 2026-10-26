@@ -5,6 +5,7 @@ import { Notice, PageHeader } from "@/components/app/page-header";
 import { ListCard } from "@/components/app/list-card";
 import { SubmitButton } from "@/components/app/submit-button";
 import { addTimeBlocks } from "@/app/actions/domain";
+import { GuardedForm } from "@/components/app/unsaved-changes";
 
 export const metadata = { title: "Calendar time blocks" };
 
@@ -18,11 +19,11 @@ export default async function CalendarPage() {
         title="Calendar time blocks"
         description="The app adds time blocks to Google Calendar for priority tasks and reviews each morning. Block length and number per day are set in Inputs and Assumptions."
         actions={
-          <form action={addTimeBlocks}>
+          <GuardedForm action={addTimeBlocks}>
             <SubmitButton size="sm" disabled={!connected} pendingText="Adding...">
               Add today&apos;s time blocks now
             </SubmitButton>
-          </form>
+          </GuardedForm>
         }
       />
       {!connected ? (

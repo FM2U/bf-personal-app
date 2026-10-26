@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardNote, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import { EmptyState, Notice, PageHeader, Stat } from "@/components/app/page-header";
+import { EmptyState, Notice, PageHeader, Stat, StatGrid } from "@/components/app/page-header";
 import { SubmitButton } from "@/components/app/submit-button";
 import { CategorySelect } from "@/components/app/category-select";
 import { suggestCategories } from "@/app/actions/ai";
@@ -15,6 +15,7 @@ import { monthBounds } from "@/lib/calc/dates";
 import { isAIConfigured } from "@/lib/env";
 import { date as fmtDate, money, titleCase } from "@/lib/format";
 import type { Row } from "@/lib/types";
+import { GuardedForm } from "@/components/app/unsaved-changes";
 
 export const metadata = { title: "Expenses" };
 
@@ -112,11 +113,11 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
                 Show
               </Button>
             </form>
-            <div className="grid grid-cols-3 gap-4">
+            <StatGrid className="grid-cols-3">
               <Stat label="Money out (excluding transfers)" value={money(out)} />
               <Stat label="Money in (excluding transfers)" value={money(inn)} />
               <Stat label="Uncategorized (all months)" value={uncategorized ?? 0} tone={uncategorized ? "warn" : undefined} />
-            </div>
+            </StatGrid>
           </CardHeader>
           <CardContent>
             {rows.length ? (
@@ -163,32 +164,31 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
           <Card>
             <CardHeader>
               <CardTitle>Categorize</CardTitle>
-              <CardDescription>Rules run on every import. The AI can suggest categories for the rest; you approve each one.</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-2">
-              <form action={suggestCategories}>
+              <GuardedForm action={suggestCategories}>
                 <input type="hidden" name="back" value="/finance/expenses" />
                 <SubmitButton size="sm" className="w-full" disabled={!isAIConfigured() || !uncategorized} pendingText="Asking the AI...">
                   Suggest categories ({uncategorized ?? 0} uncategorized)
                 </SubmitButton>
-              </form>
+              </GuardedForm>
               <Button asChild size="sm" variant="outline">
                 <Link href="/settings/categories">Categories and rules</Link>
               </Button>
               {sp.notice ? <p className="text-xs text-teal-800">{sp.notice}</p> : null}
             </CardContent>
+            <CardNote>Rules run on every import. The AI can suggest categories for the rest; you approve each one.</CardNote>
           </Card>
           <Card>
             <CardHeader className="flex-row items-start justify-between gap-2">
               <div>
                 <CardTitle>Recurring charges</CardTitle>
-                <CardDescription>Found automatically: repeating charges and their frequency.</CardDescription>
               </div>
-              <form action={detectRecurringNow}>
+              <GuardedForm action={detectRecurringNow}>
                 <SubmitButton size="sm" variant="outline" pendingText="Checking...">
                   Check now
                 </SubmitButton>
-              </form>
+              </GuardedForm>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
               {flagged.length ? <Notice tone="warn">{flagged.length} software subscriptions are marked for review. Confirm each one is still used.</Notice> : null}
@@ -214,6 +214,7 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
                 <p className="text-sm text-muted-foreground">No recurring charges found yet. They appear after at least 2 to 3 matching charges are imported.</p>
               )}
             </CardContent>
+            <CardNote>Found automatically: repeating charges and their frequency.</CardNote>
           </Card>
         </div>
       </div>

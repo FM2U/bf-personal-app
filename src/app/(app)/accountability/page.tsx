@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardNote, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
@@ -12,6 +12,7 @@ import { resolveMiss } from "@/app/actions/records";
 import { recordHref } from "@/lib/resources";
 import { date as fmtDate } from "@/lib/format";
 import type { Row } from "@/lib/types";
+import { GuardedForm } from "@/components/app/unsaved-changes";
 
 export const metadata = { title: "Commitments" };
 
@@ -46,7 +47,7 @@ export default async function CommitmentsPage({ searchParams }: { searchParams: 
               pending.map((m) => {
                 const c = byId[m.commitment_id];
                 return (
-                  <form key={m.id} action={resolveMiss} className={`grid grid-cols-1 gap-2 rounded-lg border p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] ${sp.miss === m.id ? "border-amber-400 bg-amber-50/50" : "border-border"}`}>
+                  <GuardedForm key={m.id} action={resolveMiss} className={`grid grid-cols-1 gap-2 rounded-lg border p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] ${sp.miss === m.id ? "border-amber-400 bg-amber-50/50" : "border-border"}`}>
                     <input type="hidden" name="miss_id" value={m.id} />
                     <div className="min-w-0">
                       <Link href={c ? recordHref(c.record_type, c.record_id) : "#"} className="clamp-2 text-sm font-medium hover:underline">
@@ -71,7 +72,7 @@ export default async function CommitmentsPage({ searchParams }: { searchParams: 
                         Save
                       </SubmitButton>
                     </div>
-                  </form>
+                  </GuardedForm>
                 );
               })
             ) : (
@@ -82,7 +83,6 @@ export default async function CommitmentsPage({ searchParams }: { searchParams: 
         <Card>
           <CardHeader>
             <CardTitle>Repeated misses</CardTitle>
-            <CardDescription>Shown in the weekly review and in partner reports.</CardDescription>
           </CardHeader>
           <CardContent>
             {repeated.length ? (
@@ -100,6 +100,7 @@ export default async function CommitmentsPage({ searchParams }: { searchParams: 
               <p className="text-sm text-muted-foreground">No commitment has been missed more than once.</p>
             )}
           </CardContent>
+          <CardNote>Shown in the weekly review and in partner reports.</CardNote>
         </Card>
         <Card className="xl:col-span-3">
           <CardHeader>

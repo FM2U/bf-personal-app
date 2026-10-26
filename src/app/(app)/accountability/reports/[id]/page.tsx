@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { DetailGrid, Notice, PageHeader } from "@/components/app/page-header";
 import { SubmitButton } from "@/components/app/submit-button";
+import { GuardedForm } from "@/components/app/unsaved-changes";
 import { ReportView } from "@/components/app/report-view";
 import { createGmailDraftForReport, finalizeReport, saveReportSummary } from "@/app/actions/domain";
 import { date as fmtDate, dateTime } from "@/lib/format";
@@ -43,18 +44,25 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
                 <CardDescription>{report.summary_source === "ai" ? "Drafted by the AI. Edit as needed." : report.summary_source === "owner" ? "Edited by you." : "Drafted from the numbers (AI not available)."}</CardDescription>
               </CardHeader>
               <CardContent>
-                <form className="flex flex-col gap-3">
+                <GuardedForm
+                  action={async (fd: FormData) => {
+                    "use server";
+                    if (fd.get("__intent") === "finalize") await finalizeReport(fd);
+                    else await saveReportSummary(fd);
+                  }}
+                  className="flex flex-col gap-3"
+                >
                   <input type="hidden" name="id" value={report.id} />
-                  <Textarea name="summary" rows={6} defaultValue={report.summary ?? ""} />
+                  <Textarea name="summary" rows={6} defaultValue={report.summary ?? ""} aria-label="Summary" />
                   <div className="flex flex-wrap gap-2">
-                    <SubmitButton formAction={finalizeReport} pendingText="Finalizing...">
+                    <SubmitButton name="__intent" value="finalize" pendingText="Finalizing...">
                       Finalize{methods.includes("email") ? " and create Gmail draft" : ""}
                     </SubmitButton>
-                    <SubmitButton formAction={saveReportSummary} variant="outline">
+                    <SubmitButton name="__intent" value="save" variant="outline" data-save-and-leave>
                       Save summary
                     </SubmitButton>
                   </div>
-                </form>
+                </GuardedForm>
                 {report.summary ? (
                   <div className="mt-4 border-t border-slate-100 pt-3">
                     <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">How the partner sees the saved summary</p>
@@ -81,12 +89,12 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
                 ]}
               />
               {!draft && methods.includes("email") ? (
-                <form action={createGmailDraftForReport}>
+                <GuardedForm action={createGmailDraftForReport}>
                   <input type="hidden" name="id" value={report.id} />
                   <SubmitButton size="sm" variant="outline" className="w-full" pendingText="Creating draft...">
                     {report.gmail_draft_id ? "Create another Gmail draft" : "Create Gmail draft"}
                   </SubmitButton>
-                </form>
+                </GuardedForm>
               ) : null}
               {!draft && methods.includes("mail") ? (
                 <Button asChild size="sm" variant="outline">

@@ -5,16 +5,17 @@ import { loadCtx } from "@/lib/engine/helpers";
 import { addDaysISO, weekBounds } from "@/lib/calc/dates";
 import { describeTarget, rangeTotals } from "@/lib/calc/targets";
 import { loadOutreachStats, loadTargets, summarizeTargets, todayBreakdown } from "@/lib/targets";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardNote, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { EmptyState, Notice, PageHeader, Stat } from "@/components/app/page-header";
+import { EmptyState, Notice, PageHeader, Stat, StatGrid } from "@/components/app/page-header";
 import { SubmitButton } from "@/components/app/submit-button";
 import { DbUpdateNotice, TargetDayGrid, TargetLegend, TargetWeekGrid } from "@/components/app/target-grid";
 import { addTargetEntry, saveTargetMissReason, undoTargetEntry } from "@/app/actions/targets";
 import { COUNT_SOURCE_OPTIONS } from "@/lib/resources";
 import { date as fmtDate } from "@/lib/format";
+import { GuardedForm } from "@/components/app/unsaved-changes";
 
 export const metadata = { title: "Targets" };
 
@@ -83,26 +84,23 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
                     {t.is_commitment ? <Badge variant="default">Commitment</Badge> : null}
                     {t.show_to_partners ? <Badge variant="neutral">Shown to partners</Badge> : null}
                   </CardTitle>
-                  <CardDescription>
-                    {describeTarget(t.def)}. {SOURCE_SHORT[t.count_source] ?? COUNT_SOURCE_OPTIONS.find((o) => o.value === t.count_source)?.label}. Counting since {fmtDate(t.def.start_date)}.
-                  </CardDescription>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {t.count_source === "manual" && t.active ? (
                     <>
-                      <form action={addTargetEntry}>
+                      <GuardedForm action={addTargetEntry}>
                         <input type="hidden" name="target_id" value={t.id} />
                         <input type="hidden" name="back" value="/accountability/targets" />
                         <SubmitButton size="sm" pendingText="Adding...">
                           +1 today
                         </SubmitButton>
-                      </form>
-                      <form action={undoTargetEntry}>
+                      </GuardedForm>
+                      <GuardedForm action={undoTargetEntry}>
                         <input type="hidden" name="target_id" value={t.id} />
                         <SubmitButton size="sm" variant="outline" pendingText="Removing...">
                           Undo last +1
                         </SubmitButton>
-                      </form>
+                      </GuardedForm>
                     </>
                   ) : null}
                   {t.count_source === "communications_outreach" ? (
@@ -133,7 +131,7 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
                 </div>
               </CardHeader>
               <CardContent className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)]">
-                <div className="grid grid-cols-2 content-start gap-x-4 gap-y-4 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3">
+                <StatGrid className="sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3">
                   <Stat
                     label={t.period === "week" ? "This week so far" : "Today"}
                     value={s.today.status === "off" ? "Not counted" : `${s.today.count} of ${s.today.required}`}
@@ -172,13 +170,16 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
                       hint={`${deals30[t.id]!.proprietary} of ${deals30[t.id]!.total} deals`}
                     />
                   ) : null}
-                </div>
+                </StatGrid>
                 <div className="flex min-w-0 flex-col gap-3">
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t.period === "week" ? "History by week" : "History by day, last 8 weeks"}</p>
                   {t.period === "week" ? <TargetWeekGrid history={s.history} today={today} /> : <TargetDayGrid history={s.history} today={today} />}
                   <TargetLegend />
                 </div>
               </CardContent>
+              <CardNote>
+                {describeTarget(t.def)}. {SOURCE_SHORT[t.count_source] ?? COUNT_SOURCE_OPTIONS.find((o) => o.value === t.count_source)?.label}. Counting since {fmtDate(t.def.start_date)}.
+              </CardNote>
             </Card>
           );
         })}
@@ -193,7 +194,7 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
               {needReason.length ? (
                 <div className="flex flex-col divide-y divide-slate-100">
                   {needReason.map(({ target, h }) => (
-                    <form
+                    <GuardedForm
                       key={`${target.id}:${h.start}`}
                       action={saveTargetMissReason}
                       className="grid grid-cols-1 items-center gap-2 py-2 sm:grid-cols-[minmax(0,11rem)_11rem_minmax(0,1fr)_auto]"
@@ -212,7 +213,7 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
                       <SubmitButton size="sm" variant="outline">
                         Save
                       </SubmitButton>
-                    </form>
+                    </GuardedForm>
                   ))}
                 </div>
               ) : (

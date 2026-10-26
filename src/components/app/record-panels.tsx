@@ -15,6 +15,7 @@ import { dateTime } from "@/lib/format";
 import type { NextAction } from "@/lib/next-action";
 import type { Row } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { GuardedForm } from "@/components/app/unsaved-changes";
 
 export function NextActionCard({ action }: { action: NextAction }) {
   return (
@@ -87,19 +88,19 @@ export async function LinkedRecordsPanel({ sb, table, id }: { sb: SupabaseClient
                   </span>
                   <span className="clamp-1 font-medium text-teal-800">{titles[`${l.type}:${l.rid}`] ?? "Open record"}</span>
                 </Link>
-                <form action={removeLink}>
+                <GuardedForm action={removeLink}>
                   <input type="hidden" name="id" value={l.id} />
                   <Button variant="ghost" size="icon" aria-label="Remove link">
                     <Trash2 />
                   </Button>
-                </form>
+                </GuardedForm>
               </li>
             ))}
           </ul>
         ) : (
           <p className="text-sm text-muted-foreground">No linked records. Link this record to the people, deals, goals, or documents it relates to.</p>
         )}
-        <form action={addLink} className="flex flex-col gap-2">
+        <GuardedForm action={addLink} className="flex flex-col gap-2">
           <input type="hidden" name="from_type" value={table} />
           <input type="hidden" name="from_id" value={id} />
           <NativeSelect name="target" required defaultValue="" aria-label="Record to link">
@@ -124,7 +125,7 @@ export async function LinkedRecordsPanel({ sb, table, id }: { sb: SupabaseClient
               Link
             </SubmitButton>
           </div>
-        </form>
+        </GuardedForm>
       </CardContent>
     </Card>
   );
@@ -151,19 +152,19 @@ export async function DocumentsPanel({ sb, table, id }: { sb: SupabaseClient; ta
                     {d.kind.replace(/_/g, " ")} . {dateTime(d.created_at)}
                   </span>
                 </a>
-                <form action={deleteDocument}>
+                <GuardedForm action={deleteDocument}>
                   <input type="hidden" name="id" value={d.id} />
                   <Button variant="ghost" size="icon" aria-label="Delete document">
                     <Trash2 />
                   </Button>
-                </form>
+                </GuardedForm>
               </li>
             ))}
           </ul>
         ) : (
           <p className="text-sm text-muted-foreground">No documents. Upload signed agreements, statements, or proof here.</p>
         )}
-        <form action={uploadDocument} className="flex flex-col gap-2">
+        <GuardedForm action={uploadDocument} className="flex flex-col gap-2">
           <input type="hidden" name="record_type" value={table} />
           <input type="hidden" name="record_id" value={id} />
           <Input type="file" name="file" required aria-label="File" />
@@ -179,7 +180,7 @@ export async function DocumentsPanel({ sb, table, id }: { sb: SupabaseClient; ta
               Upload
             </SubmitButton>
           </div>
-        </form>
+        </GuardedForm>
       </CardContent>
     </Card>
   );
@@ -194,24 +195,24 @@ export async function NotesPanel({ sb, table, id }: { sb: SupabaseClient; table:
         <CardTitle>Notes</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        <form action={addNote} className="flex flex-col gap-2">
+        <GuardedForm action={addNote} className="flex flex-col gap-2">
           <input type="hidden" name="record_type" value={table} />
           <input type="hidden" name="record_id" value={id} />
           <Textarea name="body" rows={2} placeholder="Add a note" aria-label="Note" required />
           <SubmitButton size="sm" variant="outline" className="self-start">
             Add note
           </SubmitButton>
-        </form>
+        </GuardedForm>
         {notes.map((n) => (
           <div key={n.id} className="rounded-md bg-slate-50 p-3 text-sm">
             <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
               {dateTime(n.created_at)}
-              <form action={deleteNote}>
+              <GuardedForm action={deleteNote}>
                 <input type="hidden" name="id" value={n.id} />
                 <button className="hover:text-red-700" aria-label="Delete note">
                   Delete
                 </button>
-              </form>
+              </GuardedForm>
             </div>
             <p className="whitespace-pre-wrap">{n.body}</p>
           </div>

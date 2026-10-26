@@ -12,6 +12,7 @@ import { PlaidLinkButton } from "@/components/app/plaid-link-button";
 import { disconnectGoogle, disconnectPlaidItem, plaidSyncNow, runEveningNow, runMorningNow } from "@/app/actions/settings";
 import { dateTime, money } from "@/lib/format";
 import type { Row } from "@/lib/types";
+import { GuardedForm } from "@/components/app/unsaved-changes";
 
 export const metadata = { title: "Connections" };
 
@@ -60,11 +61,11 @@ export default async function ConnectionsPage({ searchParams }: { searchParams: 
                 <a href="/api/google/connect">{gStatus === "disconnected" ? "Connect Google" : "Reconnect Google"}</a>
               </Button>
               {gStatus !== "disconnected" ? (
-                <form action={disconnectGoogle}>
+                <GuardedForm action={disconnectGoogle}>
                   <SubmitButton size="sm" variant="outline">
                     Disconnect
                   </SubmitButton>
-                </form>
+                </GuardedForm>
               ) : null}
             </div>
           </CardContent>
@@ -95,12 +96,12 @@ export default async function ConnectionsPage({ searchParams }: { searchParams: 
                           </p>
                         </div>
                         {i.status !== "disconnected" ? (
-                          <form action={disconnectPlaidItem}>
+                          <GuardedForm action={disconnectPlaidItem}>
                             <input type="hidden" name="id" value={i.id} />
                             <SubmitButton size="sm" variant="ghost">
                               Stop syncing
                             </SubmitButton>
-                          </form>
+                          </GuardedForm>
                         ) : null}
                       </li>
                     ))}
@@ -108,11 +109,11 @@ export default async function ConnectionsPage({ searchParams }: { searchParams: 
                 ) : null}
                 <PlaidLinkButton />
                 {plaidItems.length ? (
-                  <form action={plaidSyncNow}>
+                  <GuardedForm action={plaidSyncNow}>
                     <SubmitButton size="sm" variant="outline" pendingText="Syncing...">
                       Sync now
                     </SubmitButton>
-                  </form>
+                  </GuardedForm>
                 ) : null}
               </>
             )}
@@ -152,16 +153,16 @@ export default async function ConnectionsPage({ searchParams }: { searchParams: 
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2">
-            <form action={runMorningNow}>
+            <GuardedForm action={runMorningNow}>
               <SubmitButton size="sm" variant="outline" pendingText="Running morning job...">
                 Run the morning job now
               </SubmitButton>
-            </form>
-            <form action={runEveningNow}>
+            </GuardedForm>
+            <GuardedForm action={runEveningNow}>
               <SubmitButton size="sm" variant="outline" pendingText="Running evening job...">
                 Run the evening job now
               </SubmitButton>
-            </form>
+            </GuardedForm>
           </CardContent>
         </Card>
       </div>
