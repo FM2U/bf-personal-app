@@ -318,3 +318,56 @@ begin
     (o, 'File the receipts from last month', current_date, 2),
     (o, 'Update the LinkedIn headline', current_date, 5);
 end $$;
+
+-- Deal source chain and Consulting demo data (needs migration 0011).
+do $$
+declare
+  o uuid := (select id from auth.users order by created_at limit 1);
+  p_con uuid;
+  c_friend uuid; c_cpa uuid; c_lead uuid; c_client uuid;
+  org_client uuid; org_client2 uuid;
+  it uuid;
+  st record;
+begin
+  if o is null then raise exception 'Create the owner account first'; end if;
+  if to_regclass('public.consulting_details') is null then
+    raise notice 'Skipping consulting demo data: database update 0011 is not applied.';
+    return;
+  end if;
+  select id into p_con from pipelines where owner_id = o and kind = 'consulting' limit 1;
+  select id into c_cpa from contacts where owner_id = o and name = 'Pat Example, CPA';
+  select id into c_friend from contacts where owner_id = o and name = 'Jamie Fictional';
+  select id into c_lead from contacts where owner_id = o and name = 'Casey Demo';
+
+  -- Source chain: Jamie Fictional (a friend) started the chain for two deals and one consulting lead.
+  update pipeline_items set introduced_by_contact_id = c_friend
+   where owner_id = o and name in ('Demo HVAC Services Co', 'Demo Plumbing Supply');
+  update pipeline_items set introduced_by_contact_id = c_cpa where owner_id = o and name = 'Demo Machine Shop';
+  update contacts set is_consulting_lead = true, title = 'Operations director (demo)' where id = c_lead;
+
+  insert into organizations (owner_id, name, kind) values (o, 'Demo Retail Group', 'business') returning id into org_client;
+  insert into organizations (owner_id, name, kind) values (o, 'Sample Clinic Partners', 'business') returning id into org_client2;
+  insert into contacts (owner_id, name, roles, organization_id, email, relationship_group, notes)
+  values (o, 'Robin Client (demo)', '{other}', org_client, 'robin@example.com', 'professional', 'Consulting client: monthly operations retainer.')
+  returning id into c_client;
+
+  -- Consulting items. Inserting an item creates its stage tasks and next action (database triggers).
+  for st in
+    select * from (values
+      ('Demo Retail Group: operations retainer', 'Active', org_client, c_client, c_friend, 'monthly_retainer', 4200::numeric, null::numeric, null::numeric, current_date - 120, null::date, null::int),
+      ('Sample Clinic Partners: pricing project', 'Proposal sent', org_client2, c_lead, c_friend, 'project', 18000::numeric, null::numeric, 3::numeric, current_date + 21, current_date + 111, null::int),
+      ('Demo Logistics: hourly advisory', 'Discovery call', null::uuid, c_lead, null::uuid, 'hourly', 175::numeric, 20::numeric, null::numeric, null::date, null::date, 40),
+      ('Demo Bakery: process review', 'Identified', null::uuid, null::uuid, null::uuid, null::text, null::numeric, null::numeric, null::numeric, null::date, null::date, null::int)
+    ) as v (name, stage, org, lead_from, intro, rate_type, rate, hours, months, start_d, end_d, prob)
+  loop
+    insert into pipeline_items (owner_id, pipeline_id, stage_id, name, organization_id, primary_contact_id, source_contact_id, introduced_by_contact_id)
+    select o, p_con, s.id, st.name, st.org, st.lead_from, st.lead_from, st.intro from pipeline_stages s where s.pipeline_id = p_con and s.name = st.stage
+    returning id into it;
+    insert into consulting_details (owner_id, item_id, rate_type, rate, expected_hours_per_month, project_months, start_date, end_date, probability_pct)
+    values (o, it, st.rate_type, st.rate, st.hours, st.months, st.start_d, st.end_d, st.prob);
+  end loop;
+
+  -- The demo consulting payments are linked to the retainer engagement.
+  select id into it from pipeline_items where owner_id = o and name = 'Demo Retail Group: operations retainer';
+  update transactions set pipeline_item_id = it where owner_id = o and description = 'CONSULTING CLIENT DEMO PAYMENT';
+end $$;

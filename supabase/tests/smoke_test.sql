@@ -5,9 +5,9 @@
 insert into auth.users (id, email) values ('00000000-0000-0000-0000-000000000001', 'owner@example.com');
 
 do $$ begin
-  assert (select count(*) from public.pipelines) = 5, 'expected 5 pipelines';
-  assert (select count(*) from public.initiatives) = 5, 'expected 5 initiatives';
-  assert (select count(*) from public.pipeline_stages) = 33, 'expected 33 stages';
+  assert (select count(*) from public.pipelines) = 6, 'expected 6 pipelines';
+  assert (select count(*) from public.initiatives) = 6, 'expected 6 initiatives';
+  assert (select count(*) from public.pipeline_stages) = 42, 'expected 42 stages';
   assert (select count(*) from public.inputs) > 20, 'expected inputs';
   assert (select count(*) from public.owner_profile) = 1, 'expected owner profile';
 end $$;
@@ -32,7 +32,7 @@ do $$ begin
 end $$;
 select set_config('request.jwt.claim.aal', 'aal2', false);
 do $$ begin
-  assert (select count(*) from public.pipelines) = 5, 'aal2 owner must see data';
+  assert (select count(*) from public.pipelines) = 6, 'aal2 owner must see data';
 end $$;
 
 insert into public.accounts (name, kind) values ('Test checking', 'checking');
@@ -190,12 +190,12 @@ begin
   end loop;
 end $$;
 do $$ begin
-  assert (select count(*) from public.stage_tasks) = 46, 'seeded stage tasks';
-  assert (select count(distinct p.id) from public.stage_tasks st join public.pipeline_stages s on s.id = st.pipeline_stage_id join public.pipelines p on p.id = s.pipeline_id) = 5, 'stage tasks for all 5 pipelines';
+  assert (select count(*) from public.stage_tasks) = 60, 'seeded stage tasks';
+  assert (select count(distinct p.id) from public.stage_tasks st join public.pipeline_stages s on s.id = st.pipeline_stage_id join public.pipelines p on p.id = s.pipeline_id) = 6, 'stage tasks for all 6 pipelines';
   assert (select count(*) from public.pipeline_stages s where not exists (select 1 from public.stage_tasks st where st.pipeline_stage_id = s.id)) = 0, 'every stage has tasks';
   assert (select max_days_in_stage from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.name = 'Acquisitions' and s.name = 'LOI signed') = 30, 'LOI signed limit';
   assert (select required_fields from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.name = 'Acquisitions' and s.name = 'IOI sent') = '{revenue,ebitda,asking_price}'::text[], 'IOI sent required fields';
-  assert (select count(*) from public.pipeline_stages where outcome = 'open' and max_days_in_stage is null) = 0, 'every open stage has a time limit';
+  assert (select count(*) from public.pipeline_stages s where outcome = 'open' and max_days_in_stage is null and s.name <> 'Active') = 0, 'every open stage has a time limit (except consulting Active)';
   assert (select count(*) from public.targets where name in ('Deals sourced', 'Deals advanced')) = 2, 'deal targets';
   assert (select minimum_count from public.targets where name = 'Deals sourced') = 5, 'deals sourced minimum';
   assert (select count_source from public.targets where name = 'Deals advanced') = 'deals_advanced', 'deals advanced source';
@@ -206,7 +206,7 @@ do $$ begin
 end $$;
 select public.seed_owner_pipeline_accountability('00000000-0000-0000-0000-000000000001');
 do $$ begin
-  assert (select count(*) from public.stage_tasks) = 46, 'stage tasks must not duplicate';
+  assert (select count(*) from public.stage_tasks) = 60, 'stage tasks must not duplicate';
   assert (select count(*) from public.targets) = 3, 'targets must not duplicate';
 end $$;
 
@@ -296,7 +296,7 @@ do $$ begin
   assert (select bool_and(is_commitment) from public.task_templates where public.is_review_template_title(title)), 'review templates are commitments';
   assert not (select is_commitment from public.task_templates where title like 'Download the full data export%'), 'export template is a regular task';
   assert (select count(*) from public.stage_tasks where is_commitment <> is_next_action_default) = 0, 'only next-action stage tasks are commitments';
-  assert (select count(*) from public.stage_tasks where is_commitment) = 23, 'one next-action task per open stage (23)';
+  assert (select count(*) from public.stage_tasks where is_commitment) = 30, 'one next-action task per open stage (30)';
   assert (select commitment_rule_applied_at is not null from public.owner_profile limit 1), 'rule applied to the owner';
 end $$;
 -- The owner's later choice in Settings is kept when the rule runs again.
@@ -315,5 +315,76 @@ do $$ begin
   exception when check_violation then null;
   end;
 end $$;
+
+-- 16. Source chain and Consulting (0011): new table locked to the owner, seeds present and not duplicated,
+-- consulting items get their stage tasks, and the new columns and values are accepted.
+do $$ begin
+  assert (select relrowsecurity from pg_class where oid = 'public.consulting_details'::regclass), 'RLS on consulting_details';
+  assert exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'consulting_details' and policyname = 'owner_only'), 'policy on consulting_details';
+  assert exists (select 1 from pg_trigger where tgrelid = 'public.consulting_details'::regclass and tgname = 'log_change'), 'change log on consulting_details';
+  assert exists (select 1 from pg_trigger where tgrelid = 'public.consulting_details'::regclass and tgname = 'set_updated_at'), 'updated_at on consulting_details';
+  assert (select kind from public.pipelines where name = 'Consulting') = 'consulting', 'consulting pipeline';
+  assert (select i.name from public.pipelines p join public.initiatives i on i.id = p.initiative_id where p.name = 'Consulting') = 'Consulting', 'consulting initiative';
+  assert (select count(*) from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.name = 'Consulting') = 9, '9 consulting stages';
+  assert (select count(*) from public.stage_tasks st join public.pipeline_stages s on s.id = st.pipeline_stage_id join public.pipelines p on p.id = s.pipeline_id where p.name = 'Consulting') = 14, '14 consulting stage tasks';
+  assert (select count(*) from public.stage_tasks st join public.pipeline_stages s on s.id = st.pipeline_stage_id join public.pipelines p on p.id = s.pipeline_id where p.name = 'Consulting' and st.is_commitment) = 7, 'one commitment per open consulting stage';
+  assert (select required_fields from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.name = 'Consulting' and s.name = 'Signed') = '{rate_type,rate,start_date}'::text[], 'Signed required details';
+  assert (select required_fields from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.name = 'Consulting' and s.name = 'Proposal sent') = '{rate_type,rate}'::text[], 'Proposal sent required details';
+  assert (select max_days_in_stage from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.name = 'Consulting' and s.name = 'Proposal sent') = 14, 'Proposal sent limit';
+  assert (select max_days_in_stage is null and counts_as_signed from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.name = 'Consulting' and s.name = 'Active'), 'Active: no limit, signed work';
+  assert (select count(*) from public.pipeline_stages where counts_as_signed) = 2, 'Signed and Active count as signed work';
+  assert (select default_probability_pct from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.name = 'Consulting' and s.name = 'Proposal sent') = 50, 'stage probability';
+  assert (select value_number from public.inputs where key = 'runway_include_signed_consulting') = 0, 'runway consulting input off';
+  assert (select category from public.inputs where key = 'runway_include_signed_consulting') = 'Runway', 'runway consulting category';
+  assert (select value_number from public.inputs where key = 'consulting_months') = 12, 'consulting months input';
+  assert (select value_number from public.inputs where key = 'consulting_monthly_income') = 0, 'consulting monthly income input';
+end $$;
+select public.seed_owner_consulting('00000000-0000-0000-0000-000000000001');
+do $$ begin
+  assert (select count(*) from public.pipelines) = 6, 'pipelines must not duplicate';
+  assert (select count(*) from public.stage_tasks) = 60, 'stage tasks must not duplicate (consulting)';
+  assert (select count(*) from public.inputs where key in ('runway_include_signed_consulting', 'consulting_monthly_income', 'consulting_months')) = 3, 'inputs not duplicated';
+end $$;
+set role authenticated;
+select set_config('request.jwt.claim.aal', 'aal2', false);
+insert into public.contacts (name, is_consulting_lead) values ('Consulting lead', true);
+insert into public.pipeline_items (pipeline_id, stage_id, name, source_contact_id, introduced_by_contact_id)
+select p.id, s.id, 'Consulting test', (select id from public.contacts where name = 'Consulting lead'), (select id from public.contacts where name = 'Deal source CPA')
+from public.pipelines p join public.pipeline_stages s on s.pipeline_id = p.id where p.name = 'Consulting' and s.name = 'Identified';
+insert into public.consulting_details (item_id, rate_type, rate, expected_hours_per_month) select id, 'hourly', 150, 20 from public.pipeline_items where name = 'Consulting test';
+insert into public.communications (method, subject, contact_id, purpose)
+select 'email', 'Consulting availability', id, null from public.contacts where name = 'Consulting lead';
+insert into public.accounts (name, kind) values ('Consulting checking', 'checking');
+insert into public.transactions (account_id, date, amount, description, pipeline_item_id)
+select a.id, current_date, 3000, 'Client payment', i.id from public.accounts a, public.pipeline_items i where a.name = 'Consulting checking' and i.name = 'Consulting test';
+do $$ begin
+  assert (select next_action from public.pipeline_items where name = 'Consulting test') = 'Research the client and their need', 'consulting default next action';
+  assert (select count(*) from public.tasks where title like 'Consulting test: %') = 2, 'consulting stage tasks created';
+  assert (select count(*) from public.commitments where title = 'Consulting test: Research the client and their need') = 1, 'consulting next action is a commitment';
+  assert (select purpose from public.communications where subject = 'Consulting availability') = 'consulting', 'consulting lead purpose';
+  assert (select count(*) from public.transactions where pipeline_item_id is not null) = 1, 'payment linked to the engagement';
+  assert (select introduced_by_contact_id is not null from public.pipeline_items where name = 'Consulting test'), 'introduced by saved';
+end $$;
+do $$ begin
+  begin
+    insert into public.consulting_details (item_id, rate_type) select id, 'weekly' from public.pipeline_items where name = 'Playbook deal';
+    raise exception 'invalid rate type allowed';
+  exception when check_violation then null;
+  end;
+end $$;
+select set_config('request.jwt.claim.aal', 'aal1', false);
+do $$ begin
+  assert (select count(*) from public.consulting_details) = 0, 'aal1 session must not see consulting details';
+end $$;
+reset role;
+set role anon;
+do $$ begin
+  begin
+    perform 1 from public.consulting_details limit 1;
+    raise exception 'anon read of consulting details allowed';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
 
 select 'smoke test passed' as result;

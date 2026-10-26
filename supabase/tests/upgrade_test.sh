@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# LOCAL TESTING ONLY: tests supabase/UPDATE_RUN_ONCE.sql (0008 + 0009 + 0010) on the possible live states:
+# LOCAL TESTING ONLY: tests supabase/UPDATE_RUN_ONCE.sql (0008 to 0011) and supabase/UPDATE_0011_RUN_ONCE.sql on the possible live states:
 #   (b) 0001 to 0007 plus an existing owner and data, then UPDATE_RUN_ONCE.sql twice (safe to run twice)
 #   (c) 0001 to 0008 plus an existing owner and data, then UPDATE_RUN_ONCE.sql once
 #   (d) 0001 to 0009 (as first released: every stage task a commitment) plus an owner and data, then UPDATE_RUN_ONCE.sql twice
+#   (e) 0001 to 0010 (the live database on 2026-10-26) plus an owner and data, then UPDATE_0011_RUN_ONCE.sql twice
 # Usage: bash supabase/tests/upgrade_test.sh
 set -euo pipefail
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -22,9 +23,10 @@ setup() { # $1 = database, $2 = last migration number to apply before the owner 
   su postgres -c "$PSQL -d $1" <<'SQL'
 \set ON_ERROR_STOP 1
 insert into public.contacts (owner_id, name) values ('00000000-0000-0000-0000-000000000001', 'Existing contact');
--- 0009 as first released made every stage task a commitment.
+-- 0009 as first released made every stage task a commitment (only for a database without 0010).
 do $$ begin
-  if to_regclass('public.stage_tasks') is not null then
+  if to_regclass('public.stage_tasks') is not null and not exists (
+    select 1 from information_schema.columns where table_schema = 'public' and table_name = 'tasks' and column_name = 'times_moved') then
     execute 'update public.stage_tasks set is_commitment = true';
   end if;
 end $$;
@@ -68,7 +70,7 @@ do $$ begin
   assert (select count(*) from public.targets where name = 'Deals sourced' and count_source = 'deals_sourced' and minimum_count = 5) = 1, 'Deals sourced seeded once';
   assert (select count(*) from public.targets where name = 'Deals advanced' and count_source = 'deals_advanced' and minimum_count = 1) = 1, 'Deals advanced seeded once';
   assert (select start_date from public.targets where name = 'Deals advanced') = (now() at time zone 'America/New_York')::date, 'counting starts today (New York)';
-  assert (select count(*) from public.stage_tasks) = 46, 'stage tasks seeded once';
+  assert (select count(*) from public.stage_tasks) = 60, 'stage tasks seeded once (46 plus 14 consulting)';
   assert (select count(*) from public.inputs where key in ('pipeline_stall_days', 'stage_extension_days')) = 2, 'inputs seeded once';
   assert (select max_days_in_stage from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.name = 'Acquisitions' and s.name = 'Diligence') = 60, 'Diligence limit';
   assert (select purpose from public.communications where subject = 'Existing call') = 'general', 'existing communications get purpose general';
@@ -97,7 +99,7 @@ do $$ begin
   assert (select count(*) from public.task_templates where is_commitment) = 4, 'only review templates are commitments';
   assert (select count(*) from public.task_templates where is_commitment and not public.is_review_template_title(title)) = 0, 'no other template is a commitment';
   assert (select count(*) from public.stage_tasks where is_commitment <> is_next_action_default) = 0, 'only next-action stage tasks are commitments';
-  assert (select count(*) from public.stage_tasks) = 46, 'stage tasks not duplicated';
+  assert (select count(*) from public.stage_tasks) = 60, 'stage tasks not duplicated';
   assert (select status from public.commitments where title like 'Download%') = 'released', 'export commitment released';
   assert (select resolution from public.missed_commitments m join public.commitments c on c.id = m.commitment_id where c.title like 'Download%') = 'released', 'pending miss released';
   assert (select count(*) from public.alerts a join public.commitments c on c.id = a.related_id where c.title like 'Download%' and a.status = 'open') = 0, 'miss alert dismissed';
@@ -116,6 +118,40 @@ select 'upgrade checks passed' as result;
 SQL
 }
 
+check11() { # $1 = database: 0011 seeded once, existing data kept
+  su postgres -c "$PSQL -d $1" <<'SQL'
+\set ON_ERROR_STOP 1
+do $$ begin
+  assert (select count(*) from public.pipelines where name = 'Consulting' and kind = 'consulting') = 1, 'one Consulting pipeline';
+  assert (select count(*) from public.initiatives where name = 'Consulting') = 1, 'one Consulting initiative';
+  assert (select count(*) from public.pipelines) = 6, 'six pipelines';
+  assert (select count(*) from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.name = 'Consulting') = 9, 'nine consulting stages';
+  assert (select count(*) from public.stage_tasks st join public.pipeline_stages s on s.id = st.pipeline_stage_id join public.pipelines p on p.id = s.pipeline_id where p.name = 'Consulting') = 14, 'consulting stage tasks once';
+  assert (select count(*) from public.stage_tasks) = 60, 'all stage tasks once';
+  assert (select count(*) from public.inputs where key in ('runway_include_signed_consulting', 'consulting_monthly_income', 'consulting_months')) = 3, 'consulting inputs once';
+  assert (select count(*) from public.pipeline_stages where counts_as_signed) = 2, 'two signed-work stages';
+  assert (select count(*) from pg_policies where schemaname = 'public' and tablename = 'consulting_details' and policyname = 'owner_only') = 1, 'consulting policy';
+  assert (select count(*) from pg_trigger where tgname = 'log_change' and tgrelid = 'public.consulting_details'::regclass) = 1, 'consulting change log';
+  assert (select relrowsecurity from pg_class where oid = 'public.consulting_details'::regclass), 'consulting RLS';
+  assert (select count(*) from pg_constraint where conname in ('pipelines_kind_check', 'communications_purpose_check', 'pipeline_stages_probability_check')) = 3, 'one of each 0011 check';
+  assert (select introduced_by_contact_id from public.pipeline_items where name = 'Existing deal') is null, 'existing items keep an empty introduced by';
+  assert (select is_consulting_lead from public.contacts where name = 'Existing contact') = false, 'existing contacts are not consulting leads';
+  assert (select purpose from public.communications where subject = 'Existing call') = 'general', 'existing communication purpose kept';
+  assert (select count(*) from public.targets) = 3, 'no consulting target';
+end $$;
+-- A new consulting item gets its stage tasks.
+insert into public.pipeline_items (owner_id, pipeline_id, stage_id, name)
+select p.owner_id, p.id, s.id, 'Upgrade consulting item' from public.pipelines p join public.pipeline_stages s on s.pipeline_id = p.id
+where p.name = 'Consulting' and s.name = 'Identified';
+do $$ begin
+  assert (select count(*) from public.tasks where title like 'Upgrade consulting item: %') = 2, 'consulting stage tasks on create';
+  assert (select next_action from public.pipeline_items where name = 'Upgrade consulting item') = 'Research the client and their need', 'consulting next action';
+end $$;
+delete from public.pipeline_items where name = 'Upgrade consulting item';
+select '0011 checks passed' as result;
+SQL
+}
+
 # (b) Live state today: 0001 to 0007 applied.
 setup bf_upgrade_b 0007
 for run in 1 2; do
@@ -123,12 +159,14 @@ for run in 1 2; do
   su postgres -c "$PSQL -d bf_upgrade_b -f $DIR/UPDATE_RUN_ONCE.sql"
 done
 check bf_upgrade_b
+check11 bf_upgrade_b
 
 # (c) 0001 to 0008 applied (the 0008 update was pasted first).
 setup bf_upgrade_c 0008
 echo "[bf_upgrade_c] Applying UPDATE_RUN_ONCE.sql"
 su postgres -c "$PSQL -d bf_upgrade_c -f $DIR/UPDATE_RUN_ONCE.sql"
 check bf_upgrade_c
+check11 bf_upgrade_c
 
 # (d) 0001 to 0009 applied (as first released), then the update twice.
 setup bf_upgrade_d 0009
@@ -137,5 +175,14 @@ for run in 1 2; do
   su postgres -c "$PSQL -d bf_upgrade_d -f $DIR/UPDATE_RUN_ONCE.sql"
 done
 check bf_upgrade_d
+check11 bf_upgrade_d
 
-echo "Upgrade paths passed: 0001-0007 + update twice, 0001-0008 + update, 0001-0009 + update twice."
+# (e) Live state on 2026-10-26: 0001 to 0010 applied, then UPDATE_0011_RUN_ONCE.sql twice.
+setup bf_upgrade_e 0010
+for run in 1 2; do
+  echo "[bf_upgrade_e] Applying UPDATE_0011_RUN_ONCE.sql (run $run)"
+  su postgres -c "$PSQL -d bf_upgrade_e -f $DIR/UPDATE_0011_RUN_ONCE.sql"
+done
+check11 bf_upgrade_e
+
+echo "Upgrade paths passed: 0001-0007 + update twice, 0001-0008 + update, 0001-0009 + update twice, 0001-0010 + 0011 update twice."
