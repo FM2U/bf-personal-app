@@ -1,0 +1,256 @@
+import Link from "next/link";
+import { ArrowRight, X } from "lucide-react";
+import { requireOwner } from "@/lib/auth";
+import { loadCtx } from "@/lib/engine/helpers";
+import { computeMetrics } from "@/lib/metrics";
+import { todaysMeetings } from "@/lib/engine/run";
+import { getGoogleConnection } from "@/lib/google";
+import { netWorthByMonth } from "@/lib/finance";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { EmptyState, PageHeader, Stat } from "@/components/app/page-header";
+import { TaskList } from "@/components/app/task-list";
+import { Progress } from "@/components/app/charts";
+import { SubmitButton } from "@/components/app/submit-button";
+import { dismissAlert } from "@/app/actions/records";
+import { regeneratePlan } from "@/app/actions/domain";
+import { date as fmtDate, money, months as fmtMonths } from "@/lib/format";
+import type { Row } from "@/lib/types";
+
+export const metadata = { title: "Home" };
+
+export default async function HomePage() {
+  const { supabase, ownerId } = await requireOwner();
+  const ctx = await loadCtx(supabase, ownerId);
+  const today = ctx.today;
+  const [metrics, planRes, todayTasks, overdueTasks, overdueMs, alertsRes, budgetsRes, linesRes, proposalsRes, google, meetings] = await Promise.all([
+    computeMetrics(supabase, today),
+    supabase.from("daily_plans").select("*").eq("plan_date", today).maybeSingle(),
+    supabase.from("tasks").select("*").eq("due_date", today).order("status", { ascending: false }).order("priority"),
+    supabase.from("tasks").select("*").eq("status", "todo").lt("due_date", today).order("due_date").limit(15),
+    supabase.from("milestones").select("id,title,due_date,status").in("status", ["planned", "active"]).lt("due_date", today).order("due_date"),
+    supabase.from("alerts").select("*").eq("status", "open").order("created_at", { ascending: false }).limit(12),
+    supabase.from("budgets").select("id").eq("is_active", true),
+    supabase.from("budget_lines").select("budget_id,current_monthly,target_monthly"),
+    supabase.from("ai_proposals").select("id", { count: "exact", head: true }).eq("status", "pending"),
+    getGoogleConnection(supabase, ownerId),
+    todaysMeetings(ctx),
+  ]);
+  const snap = metrics.snapshot;
+  const target = snap.inputs.num.runway_target_months;
+  const runway = snap.runway.months;
+  const runwayPct = runway === null ? 100 : target ? (runway / target) * 100 : null;
+  const activeBudgets = new Set(((budgetsRes.data ?? []) as Row[]).map((b) => b.id));
+  const budgetTotal = ((linesRes.data ?? []) as Row[]).filter((l) => activeBudgets.has(l.budget_id)).reduce((s, l) => s + Number(l.current_monthly), 0);
+  const tasks = (todayTasks.data ?? []) as Row[];
+  const doneCount = tasks.filter((t) => t.status === "done").length;
+  const alerts = (alertsRes.data ?? []) as Row[];
+  const overdue = (overdueTasks.data ?? []) as Row[];
+  const overdueMilestones = (overdueMs.data ?? []) as Row[];
+  const nw = await netWorthByMonth(supabase, today, 6);
+  const hasAccounts = snap.accounts.length > 0;
+
+  return (
+    <div>
+      <PageHeader title="Home" description={`${fmtDate(today, "EEEE, MMMM d, yyyy")}. Runway, today's plan, meetings, overdue items, and alerts.`} />
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <Card>
+          <CardHeader>
+            <CardDescription>Runway</CardDescription>
+            <CardTitle className="text-3xl tabular">{hasAccounts ? fmtMonths(runway) : "No data yet"}</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            {hasAccounts ? (
+              <>
+                <Progress value={runwayPct} tone={runwayPct !== null && runwayPct < 50 ? "red" : runwayPct !== null && runwayPct < 100 ? "amber" : "teal"} />
+                <div className="grid grid-cols-3 gap-3">
+                  <Stat label="Target" value={target ? `${target} months` : "Not set"} />
+                  <Stat label="Available cash" value={money(snap.cash)} />
+                  <Stat label="Net monthly burn" value={money(snap.runway.netMonthlyBurn)} />
+                </div>
+                <p className="text-xs text-muted-foreground">Cash divided by (average monthly spending minus average monthly income), last {snap.inputs.num.runway_lookback_months ?? 3} months.</p>
+              </>
+            ) : (
+              <EmptyState title="Add an account and its balance to calculate runway." action={<Button asChild size="sm"><Link href="/records/accounts/new">Add account</Link></Button>} />
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardDescription>This month</CardDescription>
+            <CardTitle className="text-3xl tabular">{money(snap.monthSpending)}</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <Progress value={budgetTotal ? (snap.monthSpending / budgetTotal) * 100 : 0} tone={budgetTotal && snap.monthSpending > budgetTotal ? "red" : "teal"} />
+            <div className="grid grid-cols-3 gap-3">
+              <Stat label="Monthly budget" value={budgetTotal ? money(budgetTotal) : "Not set"} />
+              <Stat label="Remaining" value={budgetTotal ? money(budgetTotal - snap.monthSpending) : "Not set"} tone={budgetTotal && snap.monthSpending > budgetTotal ? "bad" : undefined} />
+              <Stat label="Savings from reduction actions" value={`${money(metrics.values.savings_achieved_monthly)}/mo`} tone="good" />
+            </div>
+            {!budgetTotal ? (
+              <Link href="/finance/budget" className="text-sm text-teal-800 hover:underline">
+                Set a budget per category
+              </Link>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        <Card id="alerts" className="md:col-span-2 xl:col-span-1">
+          <CardHeader>
+            <CardTitle className="flex items-center justify-between">
+              Alerts {alerts.length ? <Badge variant="danger">{alerts.length}</Badge> : null}
+            </CardTitle>
+            <CardDescription>Decision conditions met, missed commitments, broken connections.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {alerts.length ? (
+              <ul className="flex flex-col divide-y divide-slate-100">
+                {alerts.map((a) => (
+                  <li key={a.id} className="flex items-start gap-2 py-2">
+                    <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${a.severity === "critical" ? "bg-red-500" : a.severity === "warning" ? "bg-amber-500" : "bg-sky-500"}`} />
+                    <Link href={a.href ?? "/"} className="clamp-2 min-w-0 flex-1 text-sm hover:underline">
+                      {a.message}
+                    </Link>
+                    <form action={dismissAlert}>
+                      <input type="hidden" name="id" value={a.id} />
+                      <button className="rounded p-1 text-muted-foreground hover:bg-slate-100" aria-label="Dismiss alert">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </form>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">No open alerts.</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="md:col-span-2">
+          <CardHeader className="flex-row items-start justify-between gap-2">
+            <div>
+              <CardTitle>Today</CardTitle>
+              <CardDescription>
+                The morning plan and today&apos;s required tasks. {tasks.length ? `${doneCount} of ${tasks.length} done.` : ""}
+              </CardDescription>
+            </div>
+            <form action={regeneratePlan}>
+              <SubmitButton size="sm" variant="outline" pendingText="Writing plan...">
+                {planRes.data ? "Rewrite plan" : "Write today's plan"}
+              </SubmitButton>
+            </form>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+            <div className="min-w-0">
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Morning plan {planRes.data?.generated_by === "ai" ? "(AI)" : ""}</p>
+              {planRes.data ? (
+                <div className="whitespace-pre-wrap rounded-md bg-slate-50 p-3 text-sm leading-relaxed">{planRes.data.content}</div>
+              ) : (
+                <p className="text-sm text-muted-foreground">The plan is written each morning after the bank sync. Press &quot;Write today&apos;s plan&quot; to write it now.</p>
+              )}
+            </div>
+            <div className="min-w-0">
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Tasks due today</p>
+              {tasks.length ? (
+                <TaskList tasks={tasks} today={today} showDue={false} />
+              ) : (
+                <EmptyState title="No tasks due today." body="Recurring tasks are created each morning. Add a task for anything else due today." action={<Button asChild size="sm" variant="outline"><Link href={`/records/tasks/new?due_date=${today}`}>Add task</Link></Button>} />
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Today&apos;s meetings</CardTitle>
+            <CardDescription>From Google Calendar.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {meetings === null ? (
+              <EmptyState title={google?.status === "error" ? "The Google connection failed." : "Google is not connected."} body="Connect Google to see today's meetings here." action={<Button asChild size="sm" variant="outline"><Link href="/settings">Open Connections</Link></Button>} />
+            ) : meetings.length ? (
+              <ul className="flex flex-col divide-y divide-slate-100">
+                {meetings.map((m) => (
+                  <li key={m.id} className="grid grid-cols-[4.5rem_1fr] gap-2 py-2 text-sm">
+                    <span className="tabular text-muted-foreground">{m.allDay ? "All day" : new Date(m.start ?? "").toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: ctx.tz })}</span>
+                    {m.link ? (
+                      <a href={m.link} target="_blank" rel="noreferrer" className="clamp-2 hover:underline">
+                        {m.title}
+                      </a>
+                    ) : (
+                      <span className="clamp-2">{m.title}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">No meetings today.</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center justify-between">
+              Overdue {overdue.length + overdueMilestones.length ? <Badge variant="danger">{overdue.length + overdueMilestones.length}</Badge> : null}
+            </CardTitle>
+            <CardDescription>Tasks and milestones past their due date.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            {overdueMilestones.length ? (
+              <ul className="flex flex-col gap-1">
+                {overdueMilestones.map((m) => (
+                  <li key={m.id} className="text-sm">
+                    <Link href={`/records/milestones/${m.id}`} className="font-medium text-red-700 hover:underline">
+                      Milestone: {m.title}
+                    </Link>{" "}
+                    <span className="text-xs text-muted-foreground">due {fmtDate(m.due_date)}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {overdue.length ? <TaskList tasks={overdue} today={today} /> : null}
+            {!overdue.length && !overdueMilestones.length ? <p className="text-sm text-muted-foreground">Nothing overdue.</p> : null}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Net worth</CardTitle>
+            <CardDescription>Assets minus debts.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <div className="grid grid-cols-3 gap-3">
+              <Stat label="Net worth" value={money(snap.netWorth.netWorth)} />
+              <Stat label="Assets" value={money(snap.netWorth.assets)} />
+              <Stat label="Debts" value={money(snap.netWorth.liabilities)} />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              6 months ago: {money(nw[0]?.netWorth ?? 0)}. Emergency fund: {snap.emergencyFund.pct ?? 0}% of target.
+            </p>
+            <Link href="/finance/savings" className="inline-flex items-center gap-1 text-sm text-teal-800 hover:underline">
+              Savings and financial security <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>AI proposals</CardTitle>
+            <CardDescription>Changes the AI suggested. Nothing is saved until you approve it.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-end justify-between gap-3">
+              <Stat label="Waiting for approval" value={proposalsRes.count ?? 0} />
+              <Button asChild size="sm" variant="outline">
+                <Link href="/proposals">Review proposals</Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}

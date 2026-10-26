@@ -1087,6 +1087,9 @@ export function getResource(table: string): Resource | null {
 
 export function recordHref(table: string, id: string): string {
   if (table === "pipelines") return `/opportunities/${id}`;
+  if (table === "reviews") return `/accountability/reviews/${id}`;
+  if (table === "partner_reports") return `/accountability/reports/${id}`;
+  if (table === "scenarios") return `/plan/scenarios/${id}`;
   return `/records/${table}/${id}`;
 }
 
