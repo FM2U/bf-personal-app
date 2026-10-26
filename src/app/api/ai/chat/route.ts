@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type Anthropic from "@anthropic-ai/sdk";
 import { getOwner } from "@/lib/auth";
-import { AI_SYSTEM_BASE, AIUnavailable, callClaude, cleanText, textOf } from "@/lib/ai/claude";
+import { AI_SYSTEM_BASE, AIUnavailable, CHAT_LENGTH_RULE, MESSAGE_FORMAT_RULE, callClaude, cleanText, textOf } from "@/lib/ai/claude";
 import { AI_TOOLS, runTool } from "@/lib/ai/tools";
 import { loadCtx } from "@/lib/engine/helpers";
 import type { Row } from "@/lib/types";
@@ -31,6 +31,9 @@ export async function POST(req: Request) {
   const path = body.pagePath ?? "/";
   const recordMatch = path.match(/^\/records\/([a-z_]+)\/([0-9a-f-]{36})/);
   const system = `${AI_SYSTEM_BASE}
+${CHAT_LENGTH_RULE}
+Exception: when Bram asks for an email or message draft, write the draft itself using this format instead:
+${MESSAGE_FORMAT_RULE}
 Today is ${ctx.today}. Bram is on the screen ${path}.${recordMatch ? ` The record on screen is table "${recordMatch[1]}" id "${recordMatch[2]}". Read it with get_record when relevant.` : ""}
 Use the tools to read data before answering questions about numbers. Never claim a change was saved: use propose_change, then tell Bram to approve it on the AI proposals page.`;
 

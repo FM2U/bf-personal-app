@@ -12,6 +12,7 @@ import { SubmitButton } from "@/components/app/submit-button";
 import { ReportView } from "@/components/app/report-view";
 import { createGmailDraftForReport, finalizeReport, saveReportSummary } from "@/app/actions/domain";
 import { date as fmtDate, dateTime } from "@/lib/format";
+import { AiText } from "@/components/app/ai-text";
 
 export default async function ReportPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -54,6 +55,12 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
                     </SubmitButton>
                   </div>
                 </form>
+                {report.summary ? (
+                  <div className="mt-4 border-t border-slate-100 pt-3">
+                    <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">How the partner sees the saved summary</p>
+                    <AiText text={report.summary} />
+                  </div>
+                ) : null}
               </CardContent>
             </Card>
           ) : null}

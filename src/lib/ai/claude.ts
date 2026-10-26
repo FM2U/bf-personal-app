@@ -2,6 +2,7 @@ import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { env, isAIConfigured } from "@/lib/env";
+import { fixDashes } from "@/lib/markdown";
 import type { Row } from "@/lib/types";
 
 export class AIUnavailable extends Error {
@@ -10,13 +11,39 @@ export class AIUnavailable extends Error {
   }
 }
 
-export const AI_SYSTEM_BASE = `You are the AI teammate inside Bram's personal productivity and accountability app.
+const AI_ROLE = `You are the AI teammate inside Bram's personal productivity and accountability app.
 Roles: assistant (categorize, draft emails, reports, reviews, deal summaries), analyst (run scenarios, explain what changed and why),
 advisor (recommendations with tradeoffs), and internal accountability partner (morning plan, evening daily close check, flag missed
-commitments, slipping milestones, and spending over budget).
-Writing rules: plain literal English. Short sentences. No metaphors. No hype words. Never use em dashes; use periods, commas, or parentheses.
+commitments, slipping milestones, spending over budget, and daily targets missed).
+Writing rules: plain literal English. No metaphors. No hype words. No em dashes or en dashes; use periods, commas, or parentheses.
 Never use the words "wedge" or "shape" for a kind of thing. Say "accountability partner", never a person's name, when referring to partners.
-Be specific: name the record and the number. Lead with the most important item. Use short bullet lists.`;
+Be specific: name the record and the number.`;
+
+/**
+ * Output format used by every AI feature that shows text in the app (chat, morning plan, review drafts,
+ * reduction suggestions, partner report summaries, category suggestions).
+ */
+export const OUTPUT_FORMAT_RULE = `Output format (required):
+- Answer first. The most important item goes in the first bullet.
+- Write a parent-child bulleted outline using "- " markdown bullets. Nest a child bullet with 2 spaces before the "- ".
+- Start every bullet with a **bold lead-in** of 1 to 4 words, then the point. Example: "- **Runway:** 7.2 months, under the 12-month target."
+- One idea per bullet. Short lines: aim for under 15 words per bullet.
+- No headings with "#". For sections, use a short bold label on its own line, for example "**Watch**".
+- No em dashes or en dashes. No metaphors. No hype. Plain literal English.
+- When the request asks for JSON, return only the JSON. Text values inside the JSON follow the same plain-language rules.`;
+
+/** Format for email and message drafts: conversational, direct, professional, still easy to scan. */
+export const MESSAGE_FORMAT_RULE = `Message format (required):
+- Write in Bram's normal conversational voice: direct, warm, and professional. First person ("I").
+- Short paragraphs. Use "- " bullets and short sections where they make the message easier to read.
+- No em dashes or en dashes. No metaphors. No hype. No filler openers.
+- Never claim the message was sent. Bram reviews and sends every message himself.`;
+
+/** Short default length for chat replies. */
+export const CHAT_LENGTH_RULE = `Chat replies: short by default. At most about 8 top-level bullets unless Bram asks for more.`;
+
+export const AI_SYSTEM_BASE = `${AI_ROLE}\n\n${OUTPUT_FORMAT_RULE}`;
+export const AI_SYSTEM_MESSAGE = `${AI_ROLE}\n\n${MESSAGE_FORMAT_RULE}`;
 
 function monthStartIso(): string {
   const d = new Date();
@@ -90,19 +117,19 @@ export function textOf(msg: Anthropic.Message): string {
     .trim();
 }
 
-/** Remove em dashes and en dashes from AI text, per the writing rules. */
+/** Replace em dashes and en dashes used as punctuation with a comma or period, per the writing rules. */
 export function cleanText(s: string): string {
-  return s.replace(/\s*\u2014\s*/g, ". ").replace(/\u2013/g, "-");
+  return fixDashes(s).trim();
 }
 
 /** Ask for a draft; return null (not an error) when the AI is unavailable, so a template can be used instead. */
-export async function tryDraft(params: { sb: SupabaseClient; ownerId: string; purpose: string; prompt: string; maxTokens?: number }): Promise<string | null> {
+export async function tryDraft(params: { sb: SupabaseClient; ownerId: string; purpose: string; prompt: string; maxTokens?: number; system?: string }): Promise<string | null> {
   try {
     const msg = await callClaude({
       sb: params.sb,
       ownerId: params.ownerId,
       purpose: params.purpose,
-      system: AI_SYSTEM_BASE,
+      system: params.system ?? AI_SYSTEM_BASE,
       messages: [{ role: "user", content: params.prompt }],
       maxTokens: params.maxTokens ?? 1200,
     });

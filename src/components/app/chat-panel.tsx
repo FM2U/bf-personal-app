@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { MessageSquare, Send, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
+import { AiText } from "@/components/app/ai-text";
 
 type Msg = { role: "user" | "assistant" | "error"; content: string; proposals?: string[] };
 
@@ -95,7 +96,7 @@ export function ChatPanel({ aiReady }: { aiReady: boolean }) {
                       : "mr-8 rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-900"
                 }
               >
-                <p className="whitespace-pre-wrap">{m.content}</p>
+                {m.role === "assistant" ? <AiText text={m.content} /> : <p className="whitespace-pre-wrap">{m.content}</p>}
                 {m.proposals?.length ? (
                   <Link href="/proposals" className="mt-2 inline-block text-xs font-medium text-teal-800 underline">
                     {m.proposals.length} proposal(s) waiting for your approval

@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireOwner } from "@/lib/auth";
-import { AI_SYSTEM_BASE, AIUnavailable, callClaude, parseJsonFromText, textOf } from "@/lib/ai/claude";
+import { AI_SYSTEM_BASE, AIUnavailable, callClaude, cleanText, parseJsonFromText, textOf } from "@/lib/ai/claude";
 import { addDaysISO } from "@/lib/calc/dates";
 import { loadCtx } from "@/lib/engine/helpers";
 import { evaluateConditions } from "@/lib/engine/rules";
@@ -42,7 +42,7 @@ export async function requestReductionSuggestions(fd: FormData) {
       messages: [
         {
           role: "user",
-          content: `${subject}\nGive exactly 3 specific, practical ways to reduce or remove this cost. Return only JSON: [{"title": "...", "description": "one or two sentences", "estimated_monthly_savings": number}]`,
+          content: `${subject}\nGive exactly 3 specific, practical ways to reduce or remove this cost. Return only JSON: [{"title": "short action, under 8 words", "description": "one or two short, literal sentences", "estimated_monthly_savings": number}]`,
         },
       ],
       maxTokens: 700,
@@ -52,7 +52,7 @@ export async function requestReductionSuggestions(fd: FormData) {
     back(fd, e instanceof AIUnavailable ? e.message : "The AI request failed.");
   }
   if (!Array.isArray(suggestions) || !suggestions.length) back(fd, "The AI reply could not be read. Try again.");
-  const three = suggestions.slice(0, 3).map((s) => ({ title: String(s.title), description: String(s.description ?? ""), estimated_monthly_savings: Number(s.estimated_monthly_savings) || 0 }));
+  const three = suggestions.slice(0, 3).map((s) => ({ title: cleanText(String(s.title)), description: cleanText(String(s.description ?? "")), estimated_monthly_savings: Number(s.estimated_monthly_savings) || 0 }));
   const group = randomUUID();
   await supabase.from("ai_proposals").insert(
     three.map((s) => ({

@@ -5,6 +5,7 @@ import { approveProposal, rejectProposal } from "@/app/actions/ai";
 import { getResource } from "@/lib/resources";
 import { dateTime, money } from "@/lib/format";
 import type { Row } from "@/lib/types";
+import { AiText } from "@/components/app/ai-text";
 
 /** One AI proposal. Nothing is saved until "Approve" is pressed. */
 export function ProposalCard({ p, back, labels }: { p: Row; back: string; labels?: Record<string, Record<string, string>> }) {
@@ -23,7 +24,7 @@ export function ProposalCard({ p, back, labels }: { p: Row; back: string; labels
         </div>
         <Badge variant={p.status === "pending" ? "warning" : p.status === "approved" ? "success" : "neutral"}>{p.status}</Badge>
       </div>
-      {p.reason ? <p className="clamp-2 text-sm text-slate-600">{p.reason}</p> : null}
+      {p.reason ? <AiText text={p.reason} className="text-slate-600" /> : null}
       {!isReduction && !isCategory && fields.length ? (
         <dl className="grid grid-cols-[minmax(0,8rem)_1fr] gap-x-3 gap-y-1 text-xs">
           {fields.slice(0, 8).map(([k, v]) => {
