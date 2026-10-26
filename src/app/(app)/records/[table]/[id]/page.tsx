@@ -65,7 +65,7 @@ export default async function RecordPage({ params, searchParams }: { params: Pro
               {editing ? (
                 <RecordForm table={table} id={id} initial={row} refOptions={refOptions} cancelHref="?" showSaveRule={table === "transactions"} />
               ) : (
-                <DetailGrid items={r.fields.map((f) => ({ label: f.label, value: <FieldValue field={f} value={row[f.name]} labels={labels} /> }))} />
+                <DetailGrid cols={2} items={r.fields.map((f) => ({ label: f.label, value: <FieldValue field={f} value={row[f.name]} labels={labels} /> }))} />
               )}
             </CardContent>
           </Card>
@@ -88,7 +88,7 @@ export default async function RecordPage({ params, searchParams }: { params: Pro
           {COMMS_TABLES.has(table) ? <CommunicationsPanel sb={supabase} table={table} id={id} /> : null}
           <DocumentsPanel sb={supabase} table={table} id={id} />
           <NotesPanel sb={supabase} table={table} id={id} />
-          <HistoryPanel sb={supabase} table={table} id={id} />
+          <HistoryPanel sb={supabase} table={table} id={id} labels={labels} />
         </div>
       </div>
     </div>

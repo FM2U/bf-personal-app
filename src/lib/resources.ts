@@ -714,7 +714,6 @@ const R: Resource[] = [
     order: ["next_action_due", true],
     empty: "Add an item to start tracking it through the stages.",
     children: [
-      { table: "diligence_items", fk: "item_id", label: "Diligence checklist" },
       { table: "tasks", fk: "pipeline_item_id", label: "Tasks" },
     ],
   },

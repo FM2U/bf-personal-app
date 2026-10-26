@@ -92,7 +92,7 @@ export function textOf(msg: Anthropic.Message): string {
 
 /** Remove em dashes and en dashes from AI text, per the writing rules. */
 export function cleanText(s: string): string {
-  return s.replace(/\s*—\s*/g, ". ").replace(/–/g, "-");
+  return s.replace(/\s*\u2014\s*/g, ". ").replace(/\u2013/g, "-");
 }
 
 /** Ask for a draft; return null (not an error) when the AI is unavailable, so a template can be used instead. */

@@ -266,11 +266,17 @@ export async function CommunicationsPanel({ sb, table, id }: { sb: SupabaseClien
   );
 }
 
-export async function HistoryPanel({ sb, table, id }: { sb: SupabaseClient; table: string; id: string }) {
+export async function HistoryPanel({ sb, table, id, labels = {} }: { sb: SupabaseClient; table: string; id: string; labels?: Record<string, Record<string, string>> }) {
   const { data } = await sb.from("change_log").select("*").eq("table_name", table).eq("record_id", id).order("created_at", { ascending: false }).limit(25);
-  const rows = (data ?? []) as Row[];
   const r = getResource(table);
-  const show = (v: unknown) => (v === null || v === undefined ? "empty" : typeof v === "object" ? JSON.stringify(v).slice(0, 80) : String(v).slice(0, 80));
+  const rows = ((data ?? []) as Row[]).filter((c) => c.action !== "update" || !r || r.fields.some((f) => f.name === c.field));
+  const show = (v: unknown, field?: string) => {
+    const f = r?.fields.find((x) => x.name === field);
+    if (f?.type === "ref" && typeof v === "string") return labels[f.ref!]?.[v] ?? "another record";
+    if (f?.type === "select" && v !== null && v !== undefined) return f.options?.find((o) => o.value === String(v))?.label ?? String(v);
+    return showRaw(v);
+  };
+  const showRaw = (v: unknown) => (v === null || v === undefined ? "empty" : typeof v === "object" ? JSON.stringify(v).slice(0, 80) : String(v).slice(0, 80));
   return (
     <Card>
       <CardHeader>
@@ -287,7 +293,7 @@ export async function HistoryPanel({ sb, table, id }: { sb: SupabaseClient; tabl
                 </div>
                 {c.action === "update" ? (
                   <p className="mt-0.5">
-                    <span className="font-medium">{r?.fields.find((f) => f.name === c.field)?.label ?? c.field}</span>: {show(c.old_value)} to {show(c.new_value)}
+                    <span className="font-medium">{r?.fields.find((f) => f.name === c.field)?.label ?? c.field}</span>: {show(c.old_value, c.field)} to {show(c.new_value, c.field)}
                   </p>
                 ) : (
                   <p className="mt-0.5">{c.action === "insert" ? "Created" : "Deleted"}</p>

@@ -78,11 +78,11 @@ export function Bento({ children, cols = 3, className }: { children: React.React
 }
 
 /** Aligned label and value list for record details. Labels wrap to at most 2 lines. */
-export function DetailGrid({ items }: { items: { label: string; value: React.ReactNode }[] }) {
+export function DetailGrid({ items, cols = 1 }: { items: { label: string; value: React.ReactNode }[]; cols?: 1 | 2 }) {
   return (
-    <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+    <dl className={cn("grid grid-cols-1 gap-x-6 gap-y-3", cols === 2 && "md:grid-cols-2")}>
       {items.map((it, i) => (
-        <div key={i} className="grid grid-cols-[minmax(0,9rem)_minmax(0,1fr)] items-start gap-3 border-b border-slate-100 pb-2">
+        <div key={i} className="grid grid-cols-[minmax(0,40%)_minmax(0,1fr)] items-start gap-3 border-b border-slate-100 pb-2">
           <dt className="clamp-2 text-xs leading-4 text-muted-foreground">{it.label}</dt>
           <dd className="min-w-0 break-words text-sm text-slate-900">{it.value}</dd>
         </div>

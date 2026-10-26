@@ -110,7 +110,7 @@ export function ReportView({ report }: { report: Row }) {
             <div className="grid grid-cols-3 gap-3">
               <Pair label="Monthly savings from completed actions" value={money(s.savings.monthly_savings_achieved)} />
               <Pair label="Actions completed" value={s.savings.completed_actions} />
-              <Pair label="Emergency fund progress" value={s.savings.emergency_fund_pct === null ? "Not set" : `${s.savings.emergency_fund_pct}%`} />
+              <Pair label="Emergency fund progress" value={s.savings.emergency_fund_pct === null ? "Not set" : `${Math.round(s.savings.emergency_fund_pct)}%`} />
             </div>
           </Section>
         ) : null}
