@@ -311,6 +311,122 @@ const expectText = async (page, text) => {
     await expectText(page, "Number value");
   });
 
+  await step("Pipelines open in list view; the board is one click away and remembered", async () => {
+    const fresh = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    await fresh.addCookies([cookie]);
+    const p = await fresh.newPage();
+    await p.goto(`${BASE}/opportunities`);
+    await p.getByRole("link", { name: "Open pipeline" }).first().click();
+    await p.waitForURL(/\/opportunities\/[0-9a-f-]{36}/);
+    await p.waitForFunction(() => document.body.innerText.toLowerCase().includes("days in stage"));
+    const id = p.url().match(/opportunities\/([0-9a-f-]{36})/)[1];
+    await p.getByRole("link", { name: "Board", exact: true }).click();
+    await p.waitForURL(/view=board/);
+    await p.waitForSelector("[role=region][aria-label$='board']");
+    const sw = await p.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    if (sw > 0) throw new Error(`page scrolls sideways by ${sw}px at 1280`);
+    await p.goto(`${BASE}/opportunities/${id}`);
+    await p.waitForSelector("[role=region][aria-label$='board']");
+    await p.getByRole("link", { name: "List", exact: true }).click();
+    await p.waitForURL(/view=list/);
+    await p.goto(`${BASE}/opportunities/${id}`);
+    await p.waitForFunction(() => document.body.innerText.toLowerCase().includes("days in stage"));
+    await fresh.close();
+  });
+
+  let itemEdit = null;
+  const homeLink = () => page.locator("aside a[href='/']").filter({ hasText: "Home" });
+  await step("Unsaved changes: Stay keeps the typed value; a value changed back does not ask", async () => {
+    await page.goto(`${BASE}/opportunities`);
+    await page.getByRole("link", { name: "Open pipeline" }).first().click();
+    await page.waitForFunction(() => document.body.innerText.toLowerCase().includes("days in stage"));
+    const href = await page.locator("a[href^='/records/pipeline_items/']:not([href*='/new'])").first().getAttribute("href");
+    itemEdit = `${BASE}${href}?edit=1`;
+    await page.goto(itemEdit);
+    const original = await page.inputValue('input[name="source"]');
+    await page.fill('input[name="source"]', "Flow test source");
+    await homeLink().click();
+    await page.getByRole("dialog", { name: "Save your changes?" }).waitFor();
+    await page.screenshot({ path: path.join(OUT, "flow-unsaved-dialog.png") });
+    await page.getByTestId("unsaved-stay").click();
+    await page.waitForTimeout(300);
+    if (!page.url().includes("edit=1")) throw new Error("left the page after Stay");
+    if ((await page.inputValue('input[name="source"]')) !== "Flow test source") throw new Error("typed value lost after Stay");
+    // Browser Back asks too.
+    await page.goBack();
+    await page.getByRole("dialog", { name: "Save your changes?" }).waitFor();
+    await page.getByTestId("unsaved-stay").click();
+    if (!page.url().includes("edit=1")) throw new Error("left the page after Back and Stay");
+    // Changed back to the original: no question.
+    await page.fill('input[name="source"]', original);
+    await homeLink().click();
+    await page.waitForURL(`${BASE}/`);
+  });
+
+  await step("Unsaved changes: Leave without saving goes and keeps the old value", async () => {
+    await page.goto(itemEdit);
+    const original = await page.inputValue('input[name="source"]');
+    await page.fill('input[name="source"]', "Not saved value");
+    await homeLink().click();
+    await page.getByTestId("unsaved-leave").click();
+    await page.waitForURL(`${BASE}/`);
+    await page.goto(itemEdit);
+    if ((await page.inputValue('input[name="source"]')) !== original) throw new Error("value was saved");
+  });
+
+  await step("Unsaved changes: Save and leave saves, then opens the link", async () => {
+    await page.goto(itemEdit);
+    await page.fill('input[name="source"]', "Saved by Save and leave");
+    await homeLink().click();
+    await page.getByTestId("unsaved-save").click();
+    await page.waitForURL(`${BASE}/`);
+    await page.goto(itemEdit);
+    if ((await page.inputValue('input[name="source"]')) !== "Saved by Save and leave") throw new Error("value not saved");
+  });
+
+  await step("Unsaved changes: Save and leave stays and shows the error when the save fails", async () => {
+    await page.goto(itemEdit);
+    await page.fill('input[name="source"]', "Will not save");
+    await page.evaluate(() => {
+      document.querySelectorAll("[required]").forEach((e) => e.removeAttribute("required"));
+      document.querySelector('input[name="next_action"]').value = "";
+    });
+    await page.locator('input[name="next_action"]').fill("");
+    await homeLink().click();
+    await page.getByTestId("unsaved-save").click();
+    await expectText(page, "Next action is required.");
+    if (!page.url().includes("edit=1")) throw new Error("left the page after a failed save");
+    if ((await page.inputValue('input[name="source"]')) !== "Will not save") throw new Error("typed value lost after failed save");
+    await page.goto(itemEdit);
+  });
+
+  await step("+ New contact from the pipeline item form keeps typed values and selects the new contact", async () => {
+    await page.goto(itemEdit);
+    await page.fill('input[name="next_action"]', "Call the owner about the CIM");
+    await page.getByRole("button", { name: "New contact for Main contact" }).click();
+    const dlg = page.getByRole("dialog", { name: "New contact" });
+    await dlg.waitFor();
+    await dlg.locator('input[name="name"]').fill("Flow New Contact");
+    await dlg.locator('input[name="email"]').fill("flow.contact@example.com");
+    await page.screenshot({ path: path.join(OUT, "flow-new-contact-dialog.png") });
+    await dlg.getByRole("button", { name: "Add contact" }).click();
+    await dlg.waitFor({ state: "detached" });
+    if ((await page.inputValue("#f_primary_contact_id")) !== "Flow New Contact") throw new Error("new contact not selected");
+    if ((await page.inputValue('input[name="next_action"]')) !== "Call the owner about the CIM") throw new Error("typed value lost");
+    // The other contact field can choose it too (type to filter).
+    await page.locator("#f_source_contact_id").fill("flow new");
+    if (!(await page.locator("[role=option]", { hasText: "Flow New Contact" }).count())) throw new Error("new contact not in the other list");
+    await page.keyboard.press("Escape");
+    // The form still asks before leaving, then saves with the new contact.
+    await homeLink().click();
+    await page.getByRole("dialog", { name: "Save your changes?" }).waitFor();
+    await page.getByTestId("unsaved-stay").click();
+    await page.getByRole("button", { name: "Save changes" }).click();
+    await page.waitForURL(/\/records\/pipeline_items\/[0-9a-f-]{36}$/);
+    await expectText(page, "Flow New Contact");
+    await expectText(page, "Call the owner about the CIM");
+  });
+
   await browser.close();
   for (const r of results) console.log(r.join(" "));
   if (results.some((r) => r[0] === "FAIL")) process.exit(1);

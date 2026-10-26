@@ -53,6 +53,15 @@ Built from `docs/` in the project: Architecture v2 and the Decisions Log (both a
 - **Applied once per owner** (`owner_profile.commitment_rule_applied_at`), so later changes in Settings are kept when the update runs again.
 - **Before the update is applied,** nothing moves to the next day, the grouped alerts still work, and every screen and both scheduled jobs keep working.
 
+### Shared form and card rules (UI)
+
+- **Unsaved changes:** every form uses `GuardedForm` (`src/components/app/unsaved-changes.tsx`). When a field holds a change that is not saved, an in-app link or the browser Back button shows a dialog: Save and leave, Leave without saving, Stay on this page. Closing or reloading the tab shows the browser's prompt. A value changed back to the original is not a change. Filter forms (`method="get"`) and forms marked `data-unsaved="off"` are not checked.
+- **Form fields:** `FieldGrid` and `FormField` (`src/components/ui/form-field.tsx`): label 6px above its input, 16px to the next field, labels held to 2 lines, inputs aligned across a row.
+- **Reference fields:** type to search; "+ New" opens a short form for that record type (`src/lib/quick-create.ts`), saves it with the same checks as any form, and chooses it. What was typed in the main form stays.
+- **Dropdowns:** one arrow 12px from the right edge, text never runs under it (`globals.css`).
+- **Cards:** a card's one-line description of what it shows sits at the bottom under a thin line (`CardNote`). Instructions needed before using a card stay under the title. Metric labels are dark gray, medium weight (`METRIC_LABEL`); rows of metrics have a thin line between them (`StatGrid`).
+- **Pipelines** open in list view; Board is one click away and the last choice per pipeline is remembered in a cookie. The board fits the page width from 1024px (about 7 stages at 1280px); on narrow screens it scrolls inside its own box.
+
 ### AI text format
 
 All AI features share one output rule (`src/lib/ai/claude.ts`): bulleted outline, bold lead-in per bullet, short lines, answer first, no em dashes.
