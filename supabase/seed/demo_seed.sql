@@ -157,3 +157,69 @@ begin
   insert into communications (owner_id, occurred_at, method, direction, contact_id, organization_id, subject, summary)
   values (o, now() - interval '2 days', 'call', 'outgoing', c_broker, org_broker, 'Intro call about Demo HVAC Services Co', 'Broker shared the teaser. CIM to follow after NDA.');
 end $$;
+
+-- Daily Targets and Outreach Queue demo data (needs migration 0008).
+do $$
+declare
+  o uuid := (select id from auth.users order by created_at limit 1);
+  t_out uuid;
+  t_calls uuid;
+  t_week uuid;
+  p_acq uuid;
+  c record;
+  d date;
+  n int;
+  i int;
+  names text[] := array['Jordan Sample (pseudonym)', 'Casey Demo', 'Morgan Example', 'Riley Test', 'Taylor Placeholder', 'Sam Mockup', 'Jamie Fictional', 'Drew Specimen'];
+  groups text[] := array['close', 'warm', 'professional', 'warm', 'close', 'professional', 'warm', null];
+  last_days int[] := array[45, 70, 20, null, 31, 120, 10, 5];
+  outcomes text[] := array['replied', 'no_response', 'meeting_booked', 'no_response', 'referral', 'replied', null, 'no_response'];
+  cid uuid;
+begin
+  if o is null then raise exception 'Create the owner account first'; end if;
+  select id into t_out from targets where owner_id = o and name = 'Network outreach';
+  -- Count the demo history from 8 weeks ago.
+  update targets set start_date = current_date - 56 where id = t_out;
+  select id into p_acq from pipelines where owner_id = o and name = 'Acquisitions';
+  insert into targets (owner_id, name, period, minimum_count, active_weekdays, count_source, is_commitment, show_to_partners, sort_order, start_date)
+  values (o, 'Broker calls', 'day', 1, '{1,2,3,4,5}', 'manual', false, false, 2, current_date - 56) returning id into t_calls;
+  insert into targets (owner_id, name, period, minimum_count, active_weekdays, count_source, pipeline_id, is_commitment, show_to_partners, sort_order, start_date)
+  values (o, 'New deals sourced', 'week', 2, '{1,2,3,4,5}', 'pipeline_items_created', p_acq, true, true, 3, current_date - 84) returning id into t_week;
+  update targets set show_to_partners = true where id = t_out;
+  update partners set sections = array_append(sections, 'targets') where owner_id = o and not ('targets' = any (sections));
+
+  -- Contacts with relationship groups, each with one earlier outreach message.
+  for i in 1..array_length(names, 1) loop
+    insert into contacts (owner_id, name, roles, email, relationship_group, notes)
+    values (o, names[i], '{advisor}', lower(replace(split_part(names[i], ' ', 1), ' ', '')) || '@example.com', groups[i], 'Demo contact for the Outreach Queue.')
+    returning id into cid;
+    if last_days[i] is not null then
+      insert into communications (owner_id, occurred_at, method, direction, contact_id, subject, summary, is_outreach, outcome)
+      values (o, now() - (last_days[i] || ' days')::interval, 'email', 'outgoing', cid, 'Outreach email: ' || names[i], 'Checked in about acquisition search progress.', true, outcomes[i]);
+    end if;
+  end loop;
+  update contacts set relationship_group = 'warm' where owner_id = o and name = 'Alex Example';
+
+  -- Outreach history for the last 8 weeks on weekdays (varying counts so the grid shows met and missed days).
+  for i in 1..55 loop
+    d := current_date - i;
+    if extract(dow from d) between 1 and 5 then
+      n := (array[3, 4, 1, 3, 0, 3, 5, 2, 3, 3])[1 + (i % 10)];
+      for c in select generate_series(1, n) as k loop
+        insert into communications (owner_id, occurred_at, method, direction, subject, is_outreach, outcome)
+        values (o, d + time '15:00' + (c.k || ' minutes')::interval, (array['email', 'call', 'text'])[1 + (c.k % 3)], 'outgoing', 'Outreach', true,
+                (array['replied', 'no_response', 'no_response', 'meeting_booked', null])[1 + ((i + c.k) % 5)]);
+      end loop;
+      if i % 3 <> 0 then
+        insert into target_entries (owner_id, target_id, entry_date, count) values (o, t_calls, d, 1);
+      end if;
+    end if;
+  end loop;
+  -- Today so far: 1 outreach logged.
+  insert into communications (owner_id, occurred_at, method, direction, subject, is_outreach) values (o, now() - interval '1 minute', 'email', 'outgoing', 'Outreach', true);
+  insert into target_misses (owner_id, target_id, period_start, period_end, actual_count, required_count, reason)
+  select o, t_out, x.day, x.day, 1, 3, 'Diligence calls took the afternoon.'
+  from (select current_date - g as day from generate_series(1, 14) g) x
+  where extract(dow from x.day) between 1 and 5 and (select count(*) from communications cm where cm.owner_id = o and cm.is_outreach and cm.occurred_at::date = x.day) between 1 and 2
+  limit 1;
+end $$;

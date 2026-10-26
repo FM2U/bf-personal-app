@@ -112,7 +112,37 @@ do $$ begin
   assert exists (select 1 from public.change_log where table_name = 'tasks' and action = 'delete'), 'delete logged';
 end $$;
 
--- 10. The anon role (public visitors) cannot read any table.
+-- 10. Targets and outreach (0008): owner sees the seeded target, manual taps and outreach logging work.
+do $$ begin
+  assert (select count(*) from public.targets) = 1, 'aal2 owner must see the seeded target';
+  assert (select count_source from public.targets where name = 'Network outreach') = 'communications_outreach', 'seed target source';
+  assert (select minimum_count from public.targets where name = 'Network outreach') = 3, 'seed target minimum';
+  assert (select active_weekdays from public.targets where name = 'Network outreach') = '{1,2,3,4,5}'::int[], 'seed target weekdays';
+  assert (select i.name from public.targets t join public.initiatives i on i.id = t.initiative_id where t.name = 'Network outreach') = 'Acquisition Search', 'seed target initiative';
+end $$;
+insert into public.target_entries (target_id, entry_date, count) select id, current_date, 2 from public.targets where name = 'Network outreach';
+insert into public.communications (method, subject, is_outreach, outcome) values ('email', 'Outreach test', true, 'replied');
+insert into public.contacts (name, relationship_group, outreach_every_days) values ('Test contact', 'warm', null);
+do $$ begin
+  assert (select count(*) from public.target_entries) = 1, 'target entry saved';
+  assert exists (select 1 from public.change_log where table_name = 'target_entries' and action = 'insert'), 'target entry change log';
+  assert (select count(*) from public.communications where is_outreach) = 1, 'outreach communication saved';
+end $$;
+do $$ begin
+  begin
+    insert into public.communications (method, subject, is_outreach, outcome) values ('email', 'Bad outcome', true, 'maybe');
+    raise exception 'invalid outcome allowed';
+  exception when check_violation then null;
+  end;
+end $$;
+select set_config('request.jwt.claim.aal', 'aal1', false);
+do $$ begin
+  assert (select count(*) from public.targets) = 0, 'aal1 session must not see targets';
+  assert (select count(*) from public.target_entries) = 0, 'aal1 session must not see target entries';
+end $$;
+select set_config('request.jwt.claim.aal', 'aal2', false);
+
+-- 11. The anon role (public visitors) cannot read any table.
 reset role;
 set role anon;
 do $$ begin
@@ -123,5 +153,29 @@ do $$ begin
   end;
 end $$;
 
+do $$ begin
+  begin
+    perform 1 from public.targets limit 1;
+    raise exception 'anon read of targets allowed';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
 reset role;
+
+-- 12. New tables have Row Level Security and the owner-only policy; the target seed does not duplicate.
+do $$
+declare t text;
+begin
+  foreach t in array array['targets', 'target_entries', 'target_misses'] loop
+    assert (select relrowsecurity from pg_class where oid = format('public.%I', t)::regclass), format('RLS on %s', t);
+    assert exists (select 1 from pg_policies where schemaname = 'public' and tablename = t and policyname = 'owner_only'), format('policy on %s', t);
+    assert exists (select 1 from pg_trigger where tgrelid = format('public.%I', t)::regclass and tgname = 'log_change'), format('change log on %s', t);
+  end loop;
+end $$;
+select public.seed_owner_targets('00000000-0000-0000-0000-000000000001');
+do $$ begin
+  assert (select count(*) from public.targets) = 1, 'seed target must not duplicate';
+end $$;
+
 select 'smoke test passed' as result;
