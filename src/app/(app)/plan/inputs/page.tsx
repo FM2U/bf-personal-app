@@ -30,9 +30,10 @@ export default async function InputsPage() {
           </Button>
         }
       />
-      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+      {/* Two balanced columns on wide screens: each card sits directly under the one above it, so no blank space is left between cards of different heights. */}
+      <div className="gap-4 xl:columns-2">
         {Object.entries(groups).map(([group, list]) => (
-          <Card key={group}>
+          <Card key={group} className="mb-4 break-inside-avoid">
             <CardHeader>
               <CardTitle>{group}</CardTitle>
             </CardHeader>
