@@ -64,7 +64,7 @@ const expectText = async (page, text) => {
     await page.getByRole("button", { name: "Open today's daily close" }).click();
     await page.waitForURL(/\/accountability\/reviews\/.+/);
     await page.screenshot({ path: path.join(OUT, "flow-daily-close.png"), fullPage: true });
-    for (const input of await page.locator('input[name^="a_reason_"]').all()) await input.fill("Ran out of time.");
+    for (const input of await page.locator('input[name^="a_reason_"], input[name^="a_target_reason_"]').all()) if (await input.isEnabled()) await input.fill("Ran out of time.");
     await page.getByRole("button", { name: "Complete review" }).click();
     await expectText(page, "Completed");
   });
@@ -142,6 +142,40 @@ const expectText = async (page, text) => {
     const rows = await page.locator("table >> text=Current").count();
     if (!rows) throw new Error("stage history not shown");
     await page.screenshot({ path: path.join(OUT, "flow-pipeline-item.png"), fullPage: true });
+  });
+
+  await step("Required details block a stage move and list what is missing", async () => {
+    await page.goto(`${BASE}/opportunities`);
+    await page.getByRole("link", { name: "Open pipeline" }).first().click();
+    await page.getByRole("link", { name: "Demo Sign Shop" }).first().click();
+    await expectText(page, "Accountability");
+    await page.locator('select[name="stage_id"]').selectOption({ label: "5. IOI sent" });
+    await page.getByRole("button", { name: "Move to stage" }).click();
+    await expectText(page, "Not moved to IOI sent");
+    await expectText(page, "Asking price");
+    await page.screenshot({ path: path.join(OUT, "flow-stage-blocked.png"), fullPage: true });
+  });
+
+  await step("Log a CIM request on an acquisition item (Deals advanced)", async () => {
+    await page.getByRole("button", { name: "Log it" }).click();
+    await expectText(page, "CIM request logged.");
+  });
+
+  await step("Stage time limit decision: Extend adds days for the item", async () => {
+    await page.goto(`${BASE}/plan/decisions`);
+    await page.getByRole("link", { name: /Demo Pest Control: \d+ days in Screened/ }).first().click();
+    await expectText(page, "Advance to next stage");
+    await page.screenshot({ path: path.join(OUT, "flow-stage-limit-decision.png"), fullPage: true });
+    await page.locator("form:has(button:text('Choose this option'))").filter({ hasText: "" }).nth(2).getByRole("button", { name: "Choose this option" }).click();
+    await expectText(page, "Chosen");
+  });
+
+  await step("Outreach Queue: deal source first, deal sourcing draft", async () => {
+    await page.goto(`${BASE}/people/outreach`);
+    const first = await page.locator("a[href^='/records/contacts/']").first().innerText();
+    if (!first.includes("Quinn Demo")) throw new Error(`first contact is ${first}`);
+    await page.getByRole("button", { name: "Draft message" }).first().click();
+    await expectText(page, "off-market");
   });
 
   await step("Add a task through the form", async () => {

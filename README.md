@@ -12,7 +12,7 @@ Built from `docs/` in the project: Architecture v2 and the Decisions Log (both a
 | Home | Number tiles (Productivity: tasks done, targets met, pipeline actions due; Accountability: commitment score, days in a row, open misses, next review), runway vs. target, today's plan and tasks, meetings, overdue items, alerts, this month's spending vs. budget |
 | Plan | Initiatives, goals, milestones, decision conditions, Inputs and Assumptions, scenarios (incl. job vs. acquisition), decisions log |
 | Finance | Accounts (Personal or Cyan Arc LLC) and transfers, expenses with categories and recurring charges, CSV import, budget, debt payoff (avalanche and snowball), funding and repayments, income received, savings and financial security |
-| Opportunities | One pipeline system with 5 seeded pipelines and stages; acquisition, job, and investor fields; stage history |
+| Opportunities | One pipeline system with 5 seeded pipelines; board and list views; stage task lists, stage time limits, required details, stalled items; deal source (proprietary or brokered) on acquisitions, proprietary first; stage history |
 | People | Contacts, organizations, communication history; follow-up dates create tasks and calendar events; Outreach Queue (contacts due for a message, Log outreach, Draft message) |
 | Productivity | Today's plan with daily target counters, task lists, recurring task templates, calendar time blocks, pipeline next actions |
 | Accountability | Commitments, Daily Targets, missed-commitment flow, daily/weekly/monthly/quarterly reviews, completion scores, accountability partners and reports |
@@ -28,6 +28,18 @@ Built from `docs/` in the project: Architecture v2 and the Decisions Log (both a
 - **Decision conditions:** measured numbers "Daily target: count in the last N days / N weeks" and "periods met / missed in a row", with details such as `{"target":"Network outreach","days":7}`.
 - **Outreach Queue:** contacts with a relationship group (close 30, warm 60, professional 90 days, or a custom number) are due when the last communication date plus the frequency is today or earlier. Draft message never sends: it creates a Gmail draft after approval, or copies the text.
 - **Before 0008 is applied,** these screens show "Database update needed" and every existing screen keeps working.
+
+### Pipeline accountability and deal source (database update 0009)
+
+- **Next action required:** every pipeline item form requires a next action and a due date, filled from the stage's default task. Open items without one get a Home alert and the task "Set next action: <item>".
+- **Stage task lists:** each stage has default tasks (Settings, Initiatives and pipelines). Entering a stage, including when an item is created, creates those tasks for the item (once per item and stage task), linked to the item and its initiative, and as commitments when the stage task says so. A database trigger does this, so every way of saving an item gets the same tasks. Closing an item (won or passed) skips its open pipeline tasks.
+- **Stage time limits:** `pipeline_stages.max_days_in_stage`. When an open item is in a stage longer than the limit plus any extensions, the morning job opens a decision with three options written in advance: "Advance to next stage", "Pass", "Extend 7 days" (Inputs: `stage_extension_days`). Extend adds days for that item's current stay only (`pipeline_item_stage_extensions`).
+- **Required details:** `pipeline_stages.required_fields`. A move is blocked when the details for the stage, or any earlier stage, are empty; the item page lists what is missing with a link to fill them. Moving to a passed stage never needs details.
+- **Stalled:** an open item with no stage change and no linked communication, completed task, note, or document for `pipeline_stall_days` (Inputs, Opportunities, default 7) days. Shown as a badge, a Home alert, and in the weekly and monthly review.
+- **Deal source:** acquisition items have a deal source (proprietary = off-market, brokered), a broker or referral person, and source notes. Proprietary deals sort first on the board, in task lists, in the morning plan, and in pipeline next actions. The Acquisitions page shows counts by type (this week, open, per stage).
+- **Deal-source contacts:** contacts marked "Deal source" come first in the Outreach Queue; Draft message writes an off-market deal sourcing ask. Outreach has a purpose (general or deal sourcing); the Network outreach target still counts all outreach and shows the deal-sourcing share.
+- **Deal targets:** "Deals sourced" (5 per weekday: new Acquisitions items that day, with proprietary and brokered counts) and "Deals advanced" (1 per weekday: each Acquisitions item counted once per day when it moved into NDA signed or a later stage that day, not counting the stage it was created in, or when "Log deal activity" recorded a CIM request or a contact with the broker or referral source on it that day).
+- **Before the update is applied,** these features show "Database update needed" and every existing screen and both scheduled jobs keep working.
 
 ### AI text format
 
@@ -61,10 +73,11 @@ docs/                 SETUP-CHECKLIST.md and screenshots
 
 Exact values to paste are in `docs/SETUP-CHECKLIST.md`. Summary:
 
-1. **Supabase:** create a project. In SQL Editor, paste and run `supabase/ALL_MIGRATIONS_RUN_ONCE.sql` (0001 to 0008),
+1. **Supabase:** create a project. In SQL Editor, paste and run `supabase/ALL_MIGRATIONS_RUN_ONCE.sql` (0001 to 0009),
    or run each file in `supabase/migrations/` in number order. Or with the Supabase CLI: `supabase link` then `supabase db push`.
-   **Existing database (already has 0001 to 0007):** paste and run `supabase/UPDATE_0008_RUN_ONCE.sql` once. It is safe to run twice.
-   After changing a migration, regenerate both combined files with `python3 supabase/build_combined.py`.
+   **Existing database (already has 0001 to 0007, or 0001 to 0008):** paste and run `supabase/UPDATE_RUN_ONCE.sql` once.
+   It holds 0008 and 0009 and is safe to run twice. (`supabase/UPDATE_0008_RUN_ONCE.sql` is kept for reference only.)
+   After changing a migration, regenerate the combined files with `python3 supabase/build_combined.py`.
    In Authentication, turn on "Allow new users to sign up" only until you create your account, then turn it off.
    In Authentication, Multi-Factor, make sure TOTP is enabled.
 2. **Vercel:** import the GitHub repository `bf-personal-app`. Add every variable from `.env.example`. Deploy.
@@ -77,13 +90,13 @@ Vercel Hobby allows jobs that run once a day, so `vercel.json` has two:
 
 | Job | Time (UTC) | Time (New York) | Runs |
 |---|---|---|---|
-| `/api/cron/morning` | 10:00 | 6:00 or 5:00 am | Plaid sync, category rules, recurring charge detection, Google and Plaid connection checks, recurring tasks, pipeline next-action tasks, follow-ups, commitment check, missed milestones, decision conditions, weekly/monthly/quarterly review drafts (on their days), partner report drafts, calendar time blocks and review events, morning plan |
+| `/api/cron/morning` | 10:00 | 6:00 or 5:00 am | Plaid sync, category rules, recurring charge detection, Google and Plaid connection checks, recurring tasks, pipeline next-action tasks, pipeline checks (missing next action, stage time limits, stalled items), follow-ups, commitment check, missed milestones, decision conditions, weekly/monthly/quarterly review drafts (on their days), partner report drafts, calendar time blocks and review events, morning plan |
 | `/api/cron/evening` | 00:30 | 8:30 or 7:30 pm | Daily close draft (the AI's evening check), commitment check for the day, decision conditions |
 
 Vercel sends `Authorization: Bearer <CRON_SECRET>`. Any job can also be run alone, for example
 `curl -H "Authorization: Bearer $CRON_SECRET" https://<app>/api/cron/decision-conditions`.
 Jobs: morning, evening, plaid-sync, decision-conditions, connection-checks, recurring-tasks, morning-plan,
-daily-close, weekly-review, monthly-review, quarterly-review, partner-reports, commitments, milestones.
+daily-close, weekly-review, monthly-review, quarterly-review, partner-reports, commitments, milestones, pipeline-checks.
 Settings, Connections also has "Run the morning job now" and "Run the evening job now".
 Decision conditions are also checked right after each relevant change in the app.
 
@@ -96,8 +109,8 @@ npm run lint
 npm run typecheck
 npm run build
 bash supabase/tests/run_local.sh      # applies all migrations to a local Postgres and runs a smoke test
-bash supabase/tests/upgrade_test.sh   # 0001-0007 plus an owner, then UPDATE_0008 twice (upgrade path)
-bash dev-tools/setup-local-db.sh      # local database with demo data
+bash supabase/tests/upgrade_test.sh   # UPDATE_RUN_ONCE on 0001-0007 (run twice) and on 0001-0008, with an existing owner
+bash dev-tools/setup-local-db.sh      # local database with demo data (UP_TO=0007 for the database before the update)
 bash dev-tools/start-local.sh         # mock Supabase API + the built app on http://localhost:3000
 NODE_PATH=$(npm root -g) node dev-tools/check-pages.cjs   # renders every screen, saves screenshots
 NODE_PATH=$(npm root -g) node dev-tools/check-flows.cjs   # clicks through the main workflows

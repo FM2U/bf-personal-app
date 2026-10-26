@@ -6,21 +6,23 @@ Vercel variables go in: Vercel, project bf-personal-app, Settings, Environment V
 ## 1. Supabase (database)
 
 - [ ] Create a Supabase project (sign in with GitHub). Region: US East. Save the database password somewhere safe.
-- [ ] SQL Editor: paste and run `supabase/ALL_MIGRATIONS_RUN_ONCE.sql` (0001 to 0008), or each file from `supabase/migrations/` in order: 0001 to 0008.
+- [ ] SQL Editor: paste and run `supabase/ALL_MIGRATIONS_RUN_ONCE.sql` (0001 to 0009), or each file from `supabase/migrations/` in order: 0001 to 0009.
 - [ ] Authentication, Sign In / Providers, Email: enabled. Multi-Factor: TOTP enabled.
 - [ ] Copy Settings, API, **Project URL** to Vercel `NEXT_PUBLIC_SUPABASE_URL`
 - [ ] Copy Settings, API, **anon public** key to Vercel `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - [ ] Copy Settings, API, **service_role** key to Vercel `SUPABASE_SERVICE_ROLE_KEY` (keep private)
 - [ ] Authentication, URL Configuration: Site URL = your Vercel address (same as `APP_URL`)
 
-## 1b. Database update 0008 (existing database only: Daily Targets and Outreach Queue)
+## 1b. Database update (existing database only: one combined file)
 
-Do this once if the database was set up before 0008 (it already has 0001 to 0007).
+Do this once if the database was set up before 0009 (it has 0001 to 0007, or 0001 to 0008).
+The file holds both updates: 0008 (Daily Targets, Outreach Queue) and 0009 (stage task lists, time limits, required details, stalled items, deal source, Deals sourced and Deals advanced targets).
 
-- [ ] Open the file `supabase/UPDATE_0008_RUN_ONCE.sql` in the GitHub repository (bf-personal-app), press "Copy raw file"
+- [ ] Open the file `supabase/UPDATE_RUN_ONCE.sql` in the GitHub repository (bf-personal-app), press "Copy raw file"
 - [ ] Supabase, project bf-personal-app, SQL Editor, New query: paste, press **Run**. Expected result: "Success. No rows returned"
-- [ ] Open the app: Accountability, Targets shows "Network outreach" (3 per weekday). The "Database update needed" notices are gone
-- [ ] Running the file a second time is safe (nothing is duplicated)
+- [ ] Open the app: Accountability, Targets shows "Network outreach" (3 per weekday), "Deals sourced" (5 per weekday), and "Deals advanced" (1 per weekday). The "Database update needed" notices are gone
+- [ ] Settings, Initiatives and pipelines: each stage shows its task list, time limit, and required details. Review them and edit anything that does not fit
+- [ ] Running the file a second time is safe (nothing is duplicated). Do not use `supabase/UPDATE_0008_RUN_ONCE.sql`; it is kept for reference only
 
 ## 2. Vercel (website)
 
@@ -71,5 +73,7 @@ Do this once if the database was set up before 0008 (it already has 0001 to 0007
 - [ ] Plan, Inputs and Assumptions: set current age and review every number
 - [ ] Accountability, Accountability partners: add partners, then create a private link on each partner page
 - [ ] People, Contacts: open each person to keep in touch with, press Edit, set the relationship group (close, warm, or professional)
+- [ ] People, Contacts: for each person who can refer off-market deals (owners, operators, accountants, attorneys, bankers), press Edit and turn on "Deal source"
+- [ ] Opportunities, Acquisitions: open each existing deal, press Edit, and set the deal source (proprietary or brokered)
 - [ ] Accountability, Accountability partners: to share daily targets, add "Daily targets" to the partner's sections, and on the target turn on "Show to accountability partners"
 - [ ] Monthly: Settings, Export, Download full export
