@@ -15,6 +15,8 @@ export type QueueRow = {
   group: string | null;
   lastContactDate: string | null;
   lastOutcome: string | null;
+  /** Can refer off-market deals (database update 0009). Listed first. */
+  isDealSource: boolean;
   status: OutreachStatus;
 };
 
@@ -27,12 +29,13 @@ export async function loadOutreachQueue(
   sb: SupabaseClient,
   opts: { ownerId?: string; today: string; tz: string },
 ): Promise<{ available: boolean; all: QueueRow[]; due: QueueRow[]; error?: string }> {
-  const { data, error } = await scoped(
-    sb.from("contacts").select("id,name,email,organization_id,relationship_group,outreach_every_days"),
-    opts.ownerId,
-  ).order("name");
+  const read = (cols: string) => scoped(sb.from("contacts").select(cols), opts.ownerId).order("name");
+  const base = "id,name,email,organization_id,relationship_group,outreach_every_days";
+  let { data, error } = await read(`${base},is_deal_source`);
+  // Before database update 0009 there is no is_deal_source column: read without it.
+  if (error && isMissingSchemaError(error)) ({ data, error } = await read(base));
   if (error) return { available: !isMissingSchemaError(error), all: [], due: [], error: error.message };
-  const contacts = ((data ?? []) as Row[]).filter((c) => c.relationship_group || c.outreach_every_days);
+  const contacts = ((data ?? []) as unknown as Row[]).filter((c) => c.relationship_group || c.outreach_every_days);
   if (!contacts.length) return { available: true, all: [], due: [] };
   let comms: Row[] = [];
   let orgs: Row[] = [];
@@ -65,6 +68,7 @@ export async function loadOutreachQueue(
     group: c.relationship_group ?? null,
     lastContactDate: last[c.id] ?? null,
     lastOutcome: outcome[c.id] ?? null,
+    isDealSource: !!c.is_deal_source,
     status: outreachStatus(c, last[c.id] ?? null, opts.today),
   }));
   return { available: true, all, due: sortQueue(all.filter((r) => r.status.due)) };

@@ -17,6 +17,9 @@ import { checkCommitments, createTimeBlocks, generateFollowUps, generatePipeline
 import { applyCategoryRules, detectAndSaveRecurring } from "./finance-jobs";
 import { ensureReview } from "./reviews";
 import { schedulePartnerReports } from "./partners";
+import { checkPipelineAccountability } from "./pipeline-jobs";
+import { sortTasksProprietaryFirst } from "@/lib/calc/pipeline";
+import { loadDealRanks, loadDealTypes } from "@/lib/pipeline";
 
 type StepResult = { step: string; ok: boolean; result?: unknown; error?: string };
 
@@ -198,14 +201,18 @@ export async function buildMorningPlan(ctx: Ctx, force = false): Promise<string>
     if (existing) return existing.content;
   }
   const [{ data: tasks }, { data: alerts }, { data: milestones }, { data: decisions }, metrics, meetings] = await Promise.all([
-    sb.from("tasks").select("title,due_date,priority,source").eq("owner_id", ownerId).eq("status", "todo").lte("due_date", today).order("priority").order("due_date").limit(40),
+    sb.from("tasks").select("title,due_date,priority,source,pipeline_item_id").eq("owner_id", ownerId).eq("status", "todo").lte("due_date", today).order("priority").order("due_date").limit(40),
     sb.from("alerts").select("message,kind").eq("owner_id", ownerId).eq("status", "open").limit(20),
     sb.from("milestones").select("title,due_date,status").eq("owner_id", ownerId).in("status", ["planned", "active"]).lte("due_date", addDaysISO(today, 14)),
     sb.from("decisions").select("title,due_date").eq("owner_id", ownerId).eq("status", "open"),
     computeMetrics(sb, today, ownerId),
     todaysMeetings(ctx),
   ]);
-  const taskList = (tasks ?? []) as Row[];
+  // Tasks for proprietary (off-market) deals come before brokered ones at equal priority and due date.
+  const [rankOf, dealTypes] = await Promise.all([loadDealRanks(sb, ownerId), loadDealTypes(sb, ownerId)]);
+  const taskList = sortTasksProprietaryFirst((tasks ?? []) as Row[], rankOf).map(({ pipeline_item_id, ...t }) =>
+    dealTypes[pipeline_item_id] ? { ...t, deal: dealTypes[pipeline_item_id] } : t,
+  );
   const overdue = taskList.filter((t) => t.due_date < today);
   const dueToday = taskList.filter((t) => t.due_date === today);
   // Daily targets and the outreach queue (empty until database update 0008 is applied)
@@ -232,7 +239,7 @@ export async function buildMorningPlan(ctx: Ctx, force = false): Promise<string>
     sb,
     ownerId,
     purpose: "morning_plan",
-    prompt: `Write today's morning plan for Bram (${today}). Sections, each a short bold label on its own line followed by bullets: **Top 3** (exactly 3 bullets), **Daily targets** (each target: count needed today, and who in the outreach queue to contact first), **Also today**, **Watch** (alerts, overdue items, milestones due soon, open decisions, any change in runway or spending that needs action). Leave out a section with nothing in it. Under 220 words. Data (JSON): ${JSON.stringify(data).slice(0, 12000)}`,
+    prompt: `Write today's morning plan for Bram (${today}). Tasks are already in priority order; tasks marked deal "proprietary" (off-market deals) come before "brokered" ones, so keep that order. Sections, each a short bold label on its own line followed by bullets: **Top 3** (exactly 3 bullets), **Daily targets** (each target: count needed today, and who in the outreach queue to contact first), **Also today**, **Watch** (alerts, overdue items, milestones due soon, open decisions, any change in runway or spending that needs action). Leave out a section with nothing in it. Under 220 words. Data (JSON): ${JSON.stringify(data).slice(0, 12000)}`,
     maxTokens: 700,
   });
   const content = ai ?? templatePlan(data, metrics.snapshot.cash);
@@ -243,7 +250,7 @@ export async function buildMorningPlan(ctx: Ctx, force = false): Promise<string>
 function templatePlan(d: Row, cash: number): string {
   const top = [...d.overdue, ...d.due_today].slice(0, 3) as Row[];
   const lines = ["**Top 3**"];
-  if (top.length) top.forEach((t, i) => lines.push(`- **Task ${i + 1}:** ${t.title}${t.due_date < d.date ? " (overdue)" : ""}`));
+  if (top.length) top.forEach((t, i) => lines.push(`- **Task ${i + 1}:** ${t.title}${t.deal === "proprietary" ? " (proprietary deal)" : ""}${t.due_date < d.date ? " (overdue)" : ""}`));
   else lines.push("- **No tasks due:** add today's priorities in Productivity.");
   const targets = (d.targets_today ?? []) as Row[];
   if (targets.length) {
@@ -284,6 +291,7 @@ export async function runMorning(sb: SupabaseClient, ownerId: string) {
   await step("connection_checks", () => connectionChecks(ctx), log);
   await step("recurring_tasks", () => generateRecurringTasks(ctx), log);
   await step("pipeline_tasks", () => generatePipelineTasks(ctx), log);
+  await step("pipeline_accountability", () => checkPipelineAccountability(ctx), log);
   await step("follow_ups", () => generateFollowUps(ctx), log);
   await step("commitments", () => checkCommitments(ctx, false), log);
   await step("milestones", () => checkMilestones(ctx), log);

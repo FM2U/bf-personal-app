@@ -44,7 +44,17 @@ export async function createTask(
 /** Opens a decision record with options written in advance. Returns the decision id. */
 export async function openDecision(
   ctx: Pick<Ctx, "sb" | "ownerId">,
-  d: { title: string; context?: string; source: string; source_id?: string | null; initiative_id?: string | null; due_date?: string | null; options: { label: string; description?: string | null }[] },
+  d: {
+    title: string;
+    context?: string;
+    source: string;
+    source_id?: string | null;
+    initiative_id?: string | null;
+    due_date?: string | null;
+    /** One decision per key (database update 0009). A duplicate key returns null and opens nothing. */
+    dedupe_key?: string;
+    options: { label: string; description?: string | null }[];
+  },
 ): Promise<string | null> {
   const { data, error } = await ctx.sb
     .from("decisions")
@@ -57,6 +67,7 @@ export async function openDecision(
       initiative_id: d.initiative_id ?? null,
       due_date: d.due_date ?? null,
       status: "open",
+      ...(d.dedupe_key ? { dedupe_key: d.dedupe_key } : {}),
     })
     .select("id")
     .single();

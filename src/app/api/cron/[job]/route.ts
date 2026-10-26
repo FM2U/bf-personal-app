@@ -7,6 +7,7 @@ import { checkMilestones, evaluateConditions } from "@/lib/engine/rules";
 import { checkCommitments, generateFollowUps, generatePipelineTasks, generateRecurringTasks } from "@/lib/engine/tasks";
 import { ensureReview } from "@/lib/engine/reviews";
 import { schedulePartnerReports } from "@/lib/engine/partners";
+import { checkPipelineAccountability } from "@/lib/engine/pipeline-jobs";
 
 export const maxDuration = 300;
 
@@ -26,6 +27,7 @@ const JOBS: Record<string, (sb: ReturnType<typeof createServiceClient>, ownerId:
   "partner-reports": (_sb, _id, ctx) => schedulePartnerReports(ctx),
   commitments: (_sb, _id, ctx) => checkCommitments(ctx, false),
   milestones: (_sb, _id, ctx) => checkMilestones(ctx),
+  "pipeline-checks": (_sb, _id, ctx) => checkPipelineAccountability(ctx),
 };
 
 function authorized(req: Request): boolean {

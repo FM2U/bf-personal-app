@@ -14,6 +14,7 @@ import {
   type TargetDef,
 } from "@/lib/calc/targets";
 import { outreachStats, type OutreachStats } from "@/lib/calc/outreach";
+import { countDealsAdvanced, countDealsSourced, sourcedBreakdownByDay, sumBreakdown, type SourceBreakdown } from "@/lib/calc/pipeline";
 import { fetchAll } from "@/lib/data";
 import { scoped } from "@/lib/finance";
 import { isMissingSchemaError } from "@/lib/schema-guard";
@@ -32,6 +33,8 @@ export type TargetsData = {
   error?: string;
   targets: TargetRow[];
   counts: Record<string, DayCounts>;
+  /** Deals sourced targets: proprietary, brokered, and not set per date. */
+  breakdown: Record<string, Record<string, SourceBreakdown>>;
   misses: Row[];
   from: string;
   to: string;
@@ -47,7 +50,7 @@ export function targetDef(t: Row): TargetDef {
   };
 }
 
-const empty = (from: string, to: string, available: boolean, error?: string): TargetsData => ({ available, error, targets: [], counts: {}, misses: [], from, to });
+const empty = (from: string, to: string, available: boolean, error?: string): TargetsData => ({ available, error, targets: [], counts: {}, breakdown: {}, misses: [], from, to });
 
 /** Local date (YYYY-MM-DD) of a timestamp in the owner's time zone. */
 function localDate(ts: string, tz: string): string {
@@ -73,22 +76,29 @@ export async function loadTargets(
     const tsTo = `${addDaysISO(to, 1)}T23:59:59Z`;
     const inRange = (d: string) => d >= from && d <= to;
 
-    const [outreach, items, entries, misses] = await Promise.all([
+    const needItems = sources.has("pipeline_items_created") || sources.has("deals_sourced");
+    const needDeals = sources.has("deals_sourced") || sources.has("deals_advanced");
+    const itemsQuery = (cols: string) =>
+      fetchAll((a, b) => scoped(sb.from("pipeline_items").select(cols), ownerId).gte("created_at", tsFrom).lte("created_at", tsTo).order("created_at").range(a, b));
+    const [outreach, items, entries, misses, deals] = await Promise.all([
       sources.has("communications_outreach")
         ? fetchAll((a, b) => scoped(sb.from("communications").select("occurred_at"), ownerId).eq("is_outreach", true).gte("occurred_at", tsFrom).lte("occurred_at", tsTo).order("occurred_at").range(a, b))
         : Promise.resolve([] as Row[]),
-      sources.has("pipeline_items_created")
-        ? fetchAll((a, b) => scoped(sb.from("pipeline_items").select("pipeline_id,created_at"), ownerId).gte("created_at", tsFrom).lte("created_at", tsTo).order("created_at").range(a, b))
+      needItems
+        ? // deal_source_type exists after database update 0009; before it, read without it.
+          itemsQuery("id,pipeline_id,created_at,deal_source_type").catch(() => itemsQuery("id,pipeline_id,created_at"))
         : Promise.resolve([] as Row[]),
       sources.has("manual")
         ? fetchAll((a, b) => scoped(sb.from("target_entries").select("target_id,entry_date,count"), ownerId).gte("entry_date", from).lte("entry_date", to).order("entry_date").range(a, b))
         : Promise.resolve([] as Row[]),
       scoped(sb.from("target_misses").select("*"), ownerId).gte("period_start", addDaysISO(from, -7)).lte("period_start", to),
+      needDeals ? loadDealSources(sb, ownerId, tsFrom, tsTo, sources.has("deals_advanced")) : Promise.resolve(null),
     ]);
     if (misses.error && isMissingSchemaError(misses.error)) return empty(from, to, false);
 
     const outreachCounts = countByDay(outreach.map((c) => ({ date: localDate(c.occurred_at, tz) })).filter((c) => inRange(c.date)));
     const counts: Record<string, DayCounts> = {};
+    const breakdown: Record<string, Record<string, SourceBreakdown>> = {};
     for (const t of targets) {
       if (t.count_source === "communications_outreach") counts[t.id] = outreachCounts;
       else if (t.count_source === "pipeline_items_created") {
@@ -98,9 +108,20 @@ export async function loadTargets(
             .map((i) => ({ date: localDate(i.created_at, tz) }))
             .filter((i) => inRange(i.date)),
         );
+      } else if (t.count_source === "deals_sourced") {
+        // New items in the target's pipeline, or in every acquisition pipeline when none is set.
+        const inPipe = (pid: string) => (t.pipeline_id ? pid === t.pipeline_id : deals?.acquisitionPipelines.has(pid) ?? false);
+        const list = items
+          .filter((i) => inPipe(i.pipeline_id))
+          .map((i) => ({ id: i.id, date: localDate(i.created_at, tz), deal_source_type: i.deal_source_type ?? null }))
+          .filter((i) => inRange(i.date));
+        counts[t.id] = countDealsSourced(list);
+        breakdown[t.id] = sourcedBreakdownByDay(list);
+      } else if (t.count_source === "deals_advanced") {
+        counts[t.id] = deals ? dealsAdvancedCounts(t, deals, tz, inRange) : {};
       } else counts[t.id] = countByDay(entries.filter((e) => e.target_id === t.id).map((e) => ({ date: e.entry_date, count: Number(e.count) || 1 })));
     }
-    return { available: true, targets, counts, misses: (misses.data ?? []) as Row[], from, to };
+    return { available: true, targets, counts, breakdown, misses: (misses.data ?? []) as Row[], from, to };
   } catch (e) {
     const err = e as { code?: string; message?: string };
     if (isMissingSchemaError(err)) return empty(from, to, false);
@@ -108,9 +129,87 @@ export async function loadTargets(
   }
 }
 
+type DealSources = {
+  acquisitionPipelines: Set<string>;
+  stages: Row[];
+  itemPipeline: Record<string, string>;
+  /** Item creation time in milliseconds: the stage entered at creation is not a move. */
+  itemCreated: Record<string, number>;
+  moves: Row[];
+  comms: Row[];
+};
+
+/** Records behind the deal targets: pipelines, stages, stage moves, and CIM request or source contact communications. */
+async function loadDealSources(sb: SupabaseClient, ownerId: string | undefined, tsFrom: string, tsTo: string, advanced: boolean): Promise<DealSources> {
+  const [pipes, stages, itemRows, moves, comms] = await Promise.all([
+    scoped(sb.from("pipelines").select("id,kind"), ownerId),
+    advanced ? scoped(sb.from("pipeline_stages").select("id,pipeline_id,name,position,outcome"), ownerId) : Promise.resolve({ data: [] }),
+    advanced ? fetchAll((a, b) => scoped(sb.from("pipeline_items").select("id,pipeline_id,created_at"), ownerId).range(a, b)) : Promise.resolve([] as Row[]),
+    advanced
+      ? fetchAll((a, b) => scoped(sb.from("stage_history").select("item_id,stage_id,entered_at"), ownerId).gte("entered_at", tsFrom).lte("entered_at", tsTo).order("entered_at").range(a, b))
+      : Promise.resolve([] as Row[]),
+    advanced
+      ? fetchAll((a, b) =>
+          scoped(sb.from("communications").select("pipeline_item_id,occurred_at,purpose"), ownerId)
+            .in("purpose", ["cim_request", "source_contact"])
+            .gte("occurred_at", tsFrom)
+            .lte("occurred_at", tsTo)
+            .order("occurred_at")
+            .range(a, b),
+        ).catch(() => [] as Row[])
+      : Promise.resolve([] as Row[]),
+  ]);
+  return {
+    acquisitionPipelines: new Set(((pipes.data ?? []) as Row[]).filter((p) => p.kind === "acquisition").map((p) => p.id)),
+    stages: (stages.data ?? []) as Row[],
+    itemPipeline: Object.fromEntries(itemRows.map((i) => [i.id, i.pipeline_id])),
+    itemCreated: Object.fromEntries(itemRows.map((i) => [i.id, new Date(i.created_at).getTime()])),
+    moves,
+    comms,
+  };
+}
+
+/**
+ * Deals advanced for one target. Threshold stage: the target's stage, otherwise "NDA signed" in the pipeline,
+ * otherwise position 3. Only items in the target's pipeline (or every acquisition pipeline) count.
+ */
+function dealsAdvancedCounts(t: Row, d: DealSources, tz: string, inRange: (date: string) => boolean): DayCounts {
+  const inPipe = (pid: string | undefined) => !!pid && (t.pipeline_id ? pid === t.pipeline_id : d.acquisitionPipelines.has(pid));
+  const stageById = Object.fromEntries(d.stages.map((s) => [s.id, s]));
+  const thresholdFor = (pid: string) => {
+    const own = t.stage_id ? stageById[t.stage_id] : null;
+    if (own && own.pipeline_id === pid) return Number(own.position);
+    const nda = d.stages.find((s) => s.pipeline_id === pid && String(s.name).toLowerCase() === "nda signed");
+    return nda ? Number(nda.position) : 3;
+  };
+  // The first stage an item is created in is not a move: it counts as sourced, not advanced.
+  const moves = d.moves
+    .filter((m) => new Date(m.entered_at).getTime() !== d.itemCreated[m.item_id])
+    .map((m) => {
+      const st = stageById[m.stage_id];
+      const pid = st?.pipeline_id ?? d.itemPipeline[m.item_id];
+      return { item_id: m.item_id, pid, date: localDate(m.entered_at, tz), position: st ? Number(st.position) : null, outcome: st?.outcome ?? null };
+    })
+    .filter((m) => inPipe(m.pid) && inRange(m.date));
+  const comms = d.comms
+    .map((c) => ({ item_id: c.pipeline_item_id, pid: d.itemPipeline[c.pipeline_item_id], date: localDate(c.occurred_at, tz), purpose: c.purpose }))
+    .filter((c) => inPipe(c.pid) && inRange(c.date));
+  // Positions are compared per pipeline; normalize each move to "at or past" its pipeline's threshold.
+  const normalized = moves.map((m) => ({ ...m, position: m.position === null ? null : m.position >= thresholdFor(m.pid) ? 1 : 0 }));
+  return countDealsAdvanced({ moves: normalized, comms, minPosition: 1 });
+}
+
+/** Today's proprietary and brokered counts for a Deals sourced target (null for other targets). */
+export function todayBreakdown(data: TargetsData, targetId: string, start: string, end: string) {
+  const b = data.breakdown[targetId];
+  return b ? sumBreakdown(b, start, end) : null;
+}
+
 export type TargetSummary = {
   target: TargetRow;
   today: PeriodResult;
+  /** Deals sourced targets: proprietary and brokered counts in the current period. Null for other targets. */
+  breakdown: ReturnType<typeof sumBreakdown> | null;
   history: PeriodResult[];
   rate: ReturnType<typeof completionRate>;
   metInARow: number;
@@ -123,9 +222,11 @@ export function summarizeTargets(data: TargetsData, today: string): TargetSummar
   return data.targets.map((t) => {
     const counts = data.counts[t.id] ?? {};
     const history = periodHistory(t.def, counts, data.from, today, yesterday);
+    const current = periodResult(t.def, counts, today, yesterday);
     return {
       target: t,
-      today: periodResult(t.def, counts, today, yesterday),
+      today: current,
+      breakdown: todayBreakdown(data, t.id, current.start, current.end),
       history,
       rate: completionRate(history),
       metInARow: consecutive(history, "met"),
@@ -197,18 +298,21 @@ export function targetMetric(data: TargetsData | null, today: string, key: strin
 /** Outreach totals for a date range (local dates). Null when update 0008 is not applied. */
 export async function loadOutreachStats(sb: SupabaseClient, opts: { ownerId?: string; tz: string; from: string; to: string }): Promise<OutreachStats | null> {
   try {
-    const rows = await fetchAll((a, b) =>
-      scoped(sb.from("communications").select("occurred_at,outcome"), opts.ownerId)
-        .eq("is_outreach", true)
-        .gte("occurred_at", `${addDaysISO(opts.from, -1)}T00:00:00Z`)
-        .lte("occurred_at", `${addDaysISO(opts.to, 1)}T23:59:59Z`)
-        .order("occurred_at")
-        .range(a, b),
-    );
+    const read = (cols: string) =>
+      fetchAll((a, b) =>
+        scoped(sb.from("communications").select(cols), opts.ownerId)
+          .eq("is_outreach", true)
+          .gte("occurred_at", `${addDaysISO(opts.from, -1)}T00:00:00Z`)
+          .lte("occurred_at", `${addDaysISO(opts.to, 1)}T23:59:59Z`)
+          .order("occurred_at")
+          .range(a, b),
+      );
+    // purpose exists after database update 0009 (deal-sourcing share); before it, read without it.
+    const rows = await read("occurred_at,outcome,purpose").catch(() => read("occurred_at,outcome"));
     return outreachStats(rows.filter((r) => {
       const d = localDate(r.occurred_at, opts.tz);
       return d >= opts.from && d <= opts.to;
-    }) as { outcome: string | null }[]);
+    }) as { outcome: string | null; purpose?: string | null }[]);
   } catch {
     // Update 0008 not applied yet (no is_outreach column), or the read failed: no outreach numbers.
     return null;

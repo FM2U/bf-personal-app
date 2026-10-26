@@ -64,6 +64,9 @@ export async function generatePipelineTasks(ctx: Ctx): Promise<{ created: number
   const pipeById = Object.fromEntries(((pipes ?? []) as Row[]).map((p) => [p.id, p]));
   let created = 0;
   for (const it of (data ?? []) as Row[]) {
+    // The stage task list may already have created this task (same item and title): do not add it twice.
+    const { data: same } = await sb.from("tasks").select("id").eq("owner_id", ownerId).eq("pipeline_item_id", it.id).eq("title", `${it.name}: ${it.next_action}`).limit(1);
+    if (same?.length) continue;
     const id = await createTask(ctx, {
       title: `${it.name}: ${it.next_action}`,
       due_date: it.next_action_due,

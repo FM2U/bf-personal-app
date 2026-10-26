@@ -1,5 +1,5 @@
 import "server-only";
-import { addDaysISO, monthBounds, quarterBounds, weekBounds } from "@/lib/calc/dates";
+import { addDaysISO, monthBounds, quarterBounds, todayInTz, weekBounds } from "@/lib/calc/dates";
 import { budgetVariance } from "@/lib/calc/savings";
 import { completionScore, repeatedMisses } from "@/lib/calc/scores";
 import { computeMetrics } from "@/lib/metrics";
@@ -10,6 +10,9 @@ import { metricLabel } from "@/lib/metrics-list";
 import { periodResult } from "@/lib/calc/targets";
 import { loadOutreachStats, loadTargets, targetTotals } from "@/lib/targets";
 import type { Row } from "@/lib/types";
+
+import { sourcedBreakdownByDay, sumBreakdown } from "@/lib/calc/pipeline";
+import { loadPipelineStatus } from "@/lib/pipeline";
 import type { Ctx } from "./helpers";
 
 /** Daily targets for one day of the daily close: count, required, and met or missed (the day is final). */
@@ -112,6 +115,8 @@ export async function reviewData(ctx: Ctx, kind: ReviewKind, start: string, end:
   const targetData = await loadTargets(sb, { ownerId, tz: ctx.tz, from: addDaysISO(start, -120), to: end });
   data.targets = targetData.available ? targetTotals(targetData, start, end, end) : [];
   data.outreach = await loadOutreachStats(sb, { ownerId, tz: ctx.tz, from: start, to: end });
+  data.deal_sourcing = await dealSourcing(ctx, start, end);
+  if (kind === "weekly" || kind === "monthly") data.stalled_items = await stalledItems(ctx);
   if (kind === "weekly") {
     const [{ data: next }, { data: drafts }] = await Promise.all([
       sb.from("tasks").select("title,due_date,priority").eq("owner_id", ownerId).eq("status", "todo").gt("due_date", end).lte("due_date", addDaysISO(end, 7)).order("priority").limit(15),
@@ -159,6 +164,41 @@ export async function reviewData(ctx: Ctx, kind: ReviewKind, start: string, end:
     data.conditions_due_next_quarter = dueConds ?? [];
   }
   return data;
+}
+
+/** Acquisition deals sourced in the period, split proprietary (off-market) vs brokered, with the proprietary share. */
+async function dealSourcing(ctx: Ctx, start: string, end: string): Promise<Row | null> {
+  const { sb, ownerId, tz } = ctx;
+  const { data: pipes } = await sb.from("pipelines").select("id").eq("owner_id", ownerId).eq("kind", "acquisition");
+  const ids = ((pipes ?? []) as Row[]).map((p) => p.id);
+  if (!ids.length) return null;
+  const { data, error } = await sb
+    .from("pipeline_items")
+    .select("id,created_at,deal_source_type")
+    .eq("owner_id", ownerId)
+    .in("pipeline_id", ids)
+    .gte("created_at", `${addDaysISO(start, -1)}T00:00:00Z`)
+    .lte("created_at", `${addDaysISO(end, 1)}T23:59:59Z`);
+  if (error) return null; // Database update 0009 not applied yet.
+  const items = ((data ?? []) as Row[]).map((i) => ({ id: i.id, date: todayInTz(tz, new Date(i.created_at)), deal_source_type: i.deal_source_type }));
+  const s = sumBreakdown(sourcedBreakdownByDay(items), start, end);
+  return { sourced: s.total, proprietary: s.proprietary, brokered: s.brokered, not_set: s.notSet, proprietary_share_pct: s.proprietarySharePct };
+}
+
+/** Open pipeline items with no stage change and no activity for the set number of days. */
+async function stalledItems(ctx: Ctx): Promise<Row[]> {
+  const { sb, ownerId } = ctx;
+  const [{ data: items }, { data: pipes }] = await Promise.all([
+    sb.from("pipeline_items").select("*").eq("owner_id", ownerId).eq("status", "open"),
+    sb.from("pipelines").select("id,name").eq("owner_id", ownerId),
+  ]);
+  const list = (items ?? []) as Row[];
+  if (!list.length) return [];
+  const pipeName = Object.fromEntries(((pipes ?? []) as Row[]).map((p) => [p.id, p.name]));
+  const status = await loadPipelineStatus(sb, list, { ownerId, tz: ctx.tz, today: ctx.today });
+  return list
+    .filter((i) => status.byItem[i.id]?.stalled)
+    .map((i) => ({ name: i.name, pipeline: pipeName[i.pipeline_id] ?? "Pipeline", days_without_activity: status.byItem[i.id].daysSinceActivity, last_activity: status.byItem[i.id].lastActivity }));
 }
 
 const bullet = (lead: string, text: string, depth = 0) => `${"  ".repeat(depth)}- **${lead}:** ${text}`;
@@ -221,6 +261,29 @@ export function templateReviewDraft(kind: ReviewKind, d: Row): string {
       "",
     );
   }
+  if (d.deal_sourcing) {
+    const ds = d.deal_sourcing as Row;
+    section(
+      lines,
+      "Deal sourcing",
+      [
+        bullet("Sourced", `${ds.sourced} acquisition deals.`),
+        bullet("Proprietary", `${ds.proprietary} (off-market).`, 1),
+        bullet("Brokered", String(ds.brokered), 1),
+        ...(ds.not_set ? [bullet("Source not set", String(ds.not_set), 1)] : []),
+        bullet("Proprietary share", pctText(ds.proprietary_share_pct)),
+      ],
+      "",
+    );
+  }
+  if (d.stalled_items) {
+    section(
+      lines,
+      "Stalled pipeline items",
+      ((d.stalled_items ?? []) as Row[]).map((i) => bullet(i.name, `${i.pipeline}, no activity for ${i.days_without_activity} days.`)),
+      "no stalled items.",
+    );
+  }
   section(lines, "Decision conditions met", ((d.conditions_met ?? []) as Row[]).map((c) => bullet(c.name, `${c.metric}: ${c.value}`)), "no conditions met.");
   section(lines, "Pipeline movement", ((d.pipeline_moves ?? []) as Row[]).map((m) => bullet(m.item, `moved to ${m.stage} on ${m.date}`)), "no stage changes.");
   if (d.budget) {
@@ -261,7 +324,7 @@ export async function ensureReview(ctx: Ctx, kind: ReviewKind, forceDate?: strin
   const prompt = `Draft Bram's ${kind} review for ${p.start} to ${p.end}. ${
     kind === "daily"
       ? "This is the evening daily close check: list tasks done and not done, ask for a reason for each not done, show each daily target as met or missed (a missed target needs a one-line reason), and suggest tomorrow's top 3 tasks."
-      : "Cover each required section in order, each under a short bold label. Flag missed commitments, slipping milestones, and spending over budget. Include daily target totals vs required, the outreach reply rate, and meetings booked. End with recommended priorities."
+      : "Cover each required section in order, each under a short bold label. Flag missed commitments, slipping milestones, and spending over budget. Include daily target totals vs required, the outreach reply rate, and meetings booked. Report deals sourced split proprietary vs brokered with the proprietary share, and list stalled pipeline items. End with recommended priorities."
   } Keep it under 300 words. Data (JSON):\n${JSON.stringify(data).slice(0, 15000)}`;
   const ai = await tryDraft({ sb, ownerId, purpose: `review_${kind}`, prompt });
   const { data: created } = await sb
