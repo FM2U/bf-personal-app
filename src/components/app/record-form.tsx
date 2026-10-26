@@ -160,6 +160,8 @@ export function RecordForm({
   submitLabel,
   showSaveRule,
   extraHidden,
+  hide,
+  require,
 }: {
   table: string;
   id?: string | null;
@@ -171,10 +173,16 @@ export function RecordForm({
   submitLabel?: string;
   showSaveRule?: boolean;
   extraHidden?: Record<string, string>;
+  /** Fields left out of this form (example: deal source fields on a job item). */
+  hide?: string[];
+  /** Fields required on this form in addition to the record definition. */
+  require?: string[];
 }) {
   const resource = getResource(table)!;
   const [state, action] = useActionState<FormState, FormData>(saveRecord, null);
-  const fields = resource.fields.filter((f) => !f.hideOnForm && !f.readOnly && (!only || only.includes(f.name)));
+  const fields = resource.fields
+    .filter((f) => !f.hideOnForm && !f.readOnly && (!only || only.includes(f.name)) && !hide?.includes(f.name))
+    .map((f) => (require?.includes(f.name) ? { ...f, required: true } : f));
   return (
     <form action={action} className="flex flex-col gap-4">
       <input type="hidden" name="__table" value={table} />
@@ -183,7 +191,19 @@ export function RecordForm({
       {Object.entries(extraHidden ?? {}).map(([k, v]) => (
         <input key={k} type="hidden" name={k} value={v} />
       ))}
-      {state && !state.ok && state.error ? <Notice tone="error">{state.error}</Notice> : null}
+      {state && !state.ok && state.error ? (
+        <Notice tone="error">
+          {state.error}
+          {state.link ? (
+            <>
+              {" "}
+              <Link href={state.link.href} className="font-medium underline">
+                {state.link.label}
+              </Link>
+            </>
+          ) : null}
+        </Notice>
+      ) : null}
       <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
         {fields.map((f) => {
           const wide = ["textarea", "actions", "multiselect"].includes(f.type);

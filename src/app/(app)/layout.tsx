@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Sparkles } from "lucide-react";
 import { requireOwner } from "@/lib/auth";
 import { MobileModuleBar, SidebarLinks } from "@/components/app/nav-links";
-import { ChatPanel } from "@/components/app/chat-panel";
+import { AskAiSidebarButton, ChatPanel } from "@/components/app/chat-panel";
 import { signOut } from "@/app/actions/auth";
 import { isAIConfigured } from "@/lib/env";
 
@@ -20,6 +20,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </Link>
         <SidebarLinks />
         <div className="mt-auto flex flex-col gap-1 border-t border-border pt-3 text-sm">
+          <AskAiSidebarButton />
           <Link href="/proposals" className="flex items-center justify-between rounded-md px-3 py-2 text-slate-600 hover:bg-slate-100">
             <span className="flex items-center gap-2">
               <Sparkles className="h-4 w-4" /> AI proposals

@@ -13,8 +13,9 @@ import { FieldValue } from "@/components/app/field-value";
 import { RecordForm } from "@/components/app/record-form";
 import { ConfirmSubmit } from "@/components/app/submit-button";
 import { ChildrenSections, CommunicationsPanel, DocumentsPanel, HistoryPanel, LinkedRecordsPanel, NextActionCard, NoRecord, NotesPanel } from "@/components/app/record-panels";
-import { ExtraPanels, ExtraSidePanels } from "@/components/app/extra-panels";
+import { ExtraPanels, ExtraSidePanels, PipelineItemNotices } from "@/components/app/extra-panels";
 import { deleteRecord } from "@/app/actions/records";
+import { formRules } from "@/lib/form-rules";
 
 const COMMS_TABLES = new Set(["contacts", "organizations", "pipeline_items", "funding_sources", "debts", "partners", "decisions", "goals", "milestones"]);
 
@@ -36,6 +37,7 @@ export default async function RecordPage({ params, searchParams }: { params: Pro
   const next = await nextActionFor(supabase, table, row, ctx.today);
   const editing = sp.edit === "1" && !r.noEdit;
   const title = titleOf(table, row, labels);
+  const rules = await formRules(supabase, table, row);
 
   return (
     <div>
@@ -55,21 +57,22 @@ export default async function RecordPage({ params, searchParams }: { params: Pro
           ) : null
         }
       />
+      {table === "pipeline_items" ? <PipelineItemNotices sb={supabase} row={row} sp={sp} /> : null}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="flex min-w-0 flex-col gap-4 lg:col-span-2">
-          <Card>
+          <Card id="details">
             <CardHeader>
               <CardTitle>{editing ? `Edit ${r.singular.toLowerCase()}` : "Details"}</CardTitle>
             </CardHeader>
             <CardContent>
               {editing ? (
-                <RecordForm table={table} id={id} initial={row} refOptions={refOptions} cancelHref="?" showSaveRule={table === "transactions"} />
+                <RecordForm table={table} id={id} initial={row} refOptions={refOptions} cancelHref="?" showSaveRule={table === "transactions"} hide={rules.hide} require={rules.require} />
               ) : (
-                <DetailGrid cols={2} items={r.fields.map((f) => ({ label: f.label, value: <FieldValue field={f} value={row[f.name]} labels={labels} /> }))} />
+                <DetailGrid cols={2} items={r.fields.filter((f) => !rules.hide.includes(f.name)).map((f) => ({ label: f.label, value: <FieldValue field={f} value={row[f.name]} labels={labels} /> }))} />
               )}
             </CardContent>
           </Card>
-          <ExtraPanels sb={supabase} ownerId={ownerId} table={table} row={row} today={ctx.today} labels={labels} refOptions={refOptions} />
+          <ExtraPanels sb={supabase} ownerId={ownerId} table={table} row={row} today={ctx.today} labels={labels} refOptions={refOptions} sp={sp} />
           <ChildrenSections sb={supabase} table={table} id={id} labels={labels} />
           {editing && !r.noDelete ? (
             <form action={deleteRecord} className="self-start">

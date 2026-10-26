@@ -4,7 +4,7 @@ import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
 import { addDaysISO, weekBounds } from "@/lib/calc/dates";
 import { describeTarget, rangeTotals } from "@/lib/calc/targets";
-import { loadOutreachStats, loadTargets, summarizeTargets } from "@/lib/targets";
+import { loadOutreachStats, loadTargets, summarizeTargets, todayBreakdown } from "@/lib/targets";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +21,9 @@ export const metadata = { title: "Targets" };
 const SOURCE_SHORT: Record<string, string> = {
   communications_outreach: "Counts outreach logged",
   pipeline_items_created: "Counts pipeline items added",
+  deals_sourced: "Counts new acquisition items added (proprietary and brokered)",
+  deals_advanced:
+    "Counts each deal once per day when it moved to NDA signed or later, or a CIM request or a source contact was logged on it",
   manual: "Counted with the +1 button",
 };
 
@@ -34,6 +37,7 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
     loadOutreachStats(supabase, { ownerId, tz: ctx.tz, from: addDaysISO(today, -29), to: today }),
   ]);
   const summaries = summarizeTargets(data, today);
+  const deals30 = Object.fromEntries(data.targets.map((t) => [t.id, todayBreakdown(data, t.id, addDaysISO(today, -29), today)]));
   const week = weekBounds(today);
   const reasonFrom = addDaysISO(today, -14);
   const needReason = summaries.flatMap((s) =>
@@ -106,6 +110,16 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
                       <Link href="/people/outreach">Log outreach</Link>
                     </Button>
                   ) : null}
+                  {t.count_source === "deals_sourced" && t.pipeline_id ? (
+                    <Button asChild size="sm">
+                      <Link href={`/records/pipeline_items/new?pipeline_id=${t.pipeline_id}`}>Add a deal</Link>
+                    </Button>
+                  ) : null}
+                  {t.count_source === "deals_advanced" ? (
+                    <Button asChild size="sm" variant="outline">
+                      <Link href={t.pipeline_id ? `/opportunities/${t.pipeline_id}?view=list` : "/opportunities"}>Open deals</Link>
+                    </Button>
+                  ) : null}
                   {t.count_source === "pipeline_items_created" ? (
                     <Button asChild size="sm" variant="outline">
                       <Link href={t.pipeline_id ? `/opportunities/${t.pipeline_id}` : "/opportunities"}>Open pipeline</Link>
@@ -135,6 +149,28 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
                   ) : null}
                   {t.count_source === "communications_outreach" && outreach30 ? (
                     <Stat label="Reply rate, last 30 days" value={outreach30.replyRatePct === null ? "No outreach" : `${outreach30.replyRatePct}%`} hint={`${outreach30.sent} sent`} />
+                  ) : null}
+                  {t.count_source === "communications_outreach" && outreach30 && outreach30.dealSourcing !== null ? (
+                    <Stat
+                      label="Deal-sourcing share, last 30 days"
+                      value={outreach30.dealSourcingSharePct === null ? "No outreach" : `${outreach30.dealSourcingSharePct}%`}
+                      hint={`${outreach30.dealSourcing} of ${outreach30.sent} asked about deals`}
+                    />
+                  ) : null}
+                  {s.breakdown ? (
+                    <Stat
+                      label={t.period === "week" ? "This week: proprietary, brokered" : "Today: proprietary, brokered"}
+                      value={`${s.breakdown.proprietary}, ${s.breakdown.brokered}`}
+                      tone={s.breakdown.proprietary ? "good" : undefined}
+                      hint={s.breakdown.notSet ? `${s.breakdown.notSet} with no source set` : undefined}
+                    />
+                  ) : null}
+                  {deals30[t.id] ? (
+                    <Stat
+                      label="Proprietary share, last 30 days"
+                      value={deals30[t.id]!.proprietarySharePct === null ? "No deals" : `${deals30[t.id]!.proprietarySharePct}%`}
+                      hint={`${deals30[t.id]!.proprietary} of ${deals30[t.id]!.total} deals`}
+                    />
                   ) : null}
                 </div>
                 <div className="flex min-w-0 flex-col gap-3">

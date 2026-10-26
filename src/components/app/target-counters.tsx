@@ -45,6 +45,12 @@ export function TargetCounters({ available, summaries, back }: { available: bool
               </span>
             </div>
             <Progress value={off ? 0 : (s.today.count / s.today.required) * 100} tone={met ? "teal" : "amber"} />
+            {s.breakdown ? (
+              <p className="clamp-1 text-xs text-slate-700">
+                <span className="font-medium text-emerald-700">{s.breakdown.proprietary} proprietary</span>, {s.breakdown.brokered} brokered
+                {s.breakdown.notSet ? `, ${s.breakdown.notSet} not set` : ""}
+              </p>
+            ) : null}
             <div className="mt-auto pt-1">
               {t.count_source === "manual" ? (
                 <form action={addTargetEntry}>
@@ -57,6 +63,14 @@ export function TargetCounters({ available, summaries, back }: { available: bool
               ) : t.count_source === "communications_outreach" ? (
                 <Button asChild size="sm" variant="outline" className="w-full">
                   <Link href="/people/outreach">Log outreach</Link>
+                </Button>
+              ) : t.count_source === "deals_sourced" && t.pipeline_id ? (
+                <Button asChild size="sm" variant="outline" className="w-full">
+                  <Link href={`/records/pipeline_items/new?pipeline_id=${t.pipeline_id}`}>Add a deal</Link>
+                </Button>
+              ) : t.count_source === "deals_advanced" ? (
+                <Button asChild size="sm" variant="outline" className="w-full">
+                  <Link href={t.pipeline_id ? `/opportunities/${t.pipeline_id}?view=list` : "/opportunities"}>Open deals</Link>
                 </Button>
               ) : (
                 <Button asChild size="sm" variant="outline" className="w-full">

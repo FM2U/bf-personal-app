@@ -40,8 +40,21 @@ import { setOutreachOutcome } from "@/app/actions/targets";
 import { LogOutreachButton } from "@/components/app/outreach-actions";
 import { DbUpdateNotice, TargetDayGrid, TargetLegend, TargetWeekGrid } from "@/components/app/target-grid";
 import type { Row } from "@/lib/types";
+import { loadPipelineStatus, missingForStage, hasPipelineUpdate } from "@/lib/pipeline";
+import { DealSourceBadge, ItemStatusBadges } from "@/components/app/pipeline-badges";
+import { TaskList } from "@/components/app/task-list";
+import { logDealActivity } from "@/app/actions/pipeline";
 
-type P = { sb: SupabaseClient; ownerId: string; table: string; row: Row; today: string; labels: Record<string, Record<string, string>>; refOptions: Record<string, RefOption[]> };
+type P = {
+  sb: SupabaseClient;
+  ownerId: string;
+  table: string;
+  row: Row;
+  today: string;
+  labels: Record<string, Record<string, string>>;
+  refOptions: Record<string, RefOption[]>;
+  sp?: Record<string, string>;
+};
 
 /** Record-specific panels shown in the main column of the record page. */
 export async function ExtraPanels(p: P) {
@@ -107,6 +120,10 @@ export async function ExtraSidePanels(p: P) {
         </CardContent>
       </Card>,
     );
+  }
+  if (p.table === "pipeline_items" && p.row.status === "open") {
+    const { data: pipe } = await p.sb.from("pipelines").select("kind").eq("id", p.row.pipeline_id).maybeSingle();
+    if ((pipe as Row | null)?.kind === "acquisition") panels.push(<DealActivityCard key="deal-activity" row={p.row} available={await hasPipelineUpdate(p.sb)} />);
   }
   if (["tasks", "milestones", "goals"].includes(p.table)) {
     const { data: c } = await p.sb.from("commitments").select("*").eq("record_type", p.table).eq("record_id", p.row.id).maybeSingle();
@@ -189,13 +206,49 @@ export async function ExtraSidePanels(p: P) {
   return <>{panels}</>;
 }
 
-async function PipelineItemPanels({ sb, row, refOptions }: P) {
-  const [{ data: pipe }, { data: stages }, { data: history }] = await Promise.all([
+/** Notices at the top of a pipeline item page: a stage move blocked by missing details, or a saved action. */
+export async function PipelineItemNotices({ sb, row, sp }: { sb: SupabaseClient; row: Row; sp: Record<string, string> }) {
+  const { data: blocked } = sp.blocked ? await sb.from("pipeline_stages").select("id,name").eq("id", sp.blocked).maybeSingle() : { data: null };
+  const blockedStage = blocked as Row | null;
+  const blockedMissing = blockedStage ? await missingForStage(sb, row, blockedStage.id) : [];
+  if (!sp.notice && !(blockedStage && blockedMissing.length)) return null;
+  return (
+    <div className="mb-4 flex flex-col gap-3">
+      {sp.notice ? <Notice tone={sp.notice.startsWith("Database update") || sp.notice.startsWith("Not saved") ? "warn" : "success"}>{sp.notice}</Notice> : null}
+      {blockedStage && blockedMissing.length ? (
+        <Notice tone="error">
+          <p className="font-medium">Not moved to {blockedStage.name}. Add these details first:</p>
+          <ul className="mt-1 list-disc pl-5">
+            {blockedMissing.map((m) => (
+              <li key={m.key}>{m.label}</li>
+            ))}
+          </ul>
+          <a href={["deal_source_type", "primary_contact_id", "organization_id"].some((k) => blockedMissing.some((m) => m.key === k)) ? "?edit=1#details" : "#item-details"} className="mt-2 inline-block font-medium underline">
+            Fill them in now
+          </a>
+        </Notice>
+      ) : null}
+    </div>
+  );
+}
+
+async function PipelineItemPanels({ sb, ownerId, row, refOptions, today }: P) {
+  const [{ data: pipe }, { data: stages }, { data: history }, { data: profile }] = await Promise.all([
     sb.from("pipelines").select("*").eq("id", row.pipeline_id).single(),
     sb.from("pipeline_stages").select("*").eq("pipeline_id", row.pipeline_id).order("position"),
     sb.from("stage_history").select("*").eq("item_id", row.id).order("entered_at"),
+    sb.from("owner_profile").select("timezone").eq("owner_id", ownerId).maybeSingle(),
   ]);
   const stageList = (stages ?? []) as Row[];
+  const tz = (profile as Row | null)?.timezone || "America/New_York";
+  const status = await loadPipelineStatus(sb, [row], { ownerId, tz, today, stages: stageList });
+  const st = status.byItem[row.id];
+  const current = stageList.find((s) => s.id === row.stage_id);
+  const nextStage = stageList.find((s) => s.outcome !== "lost" && Number(s.position) > Number(current?.position ?? 0));
+  const nextMissing = nextStage && row.status === "open" ? await missingForStage(sb, row, nextStage.id) : [];
+  const { data: stageTasksData } = await sb.from("tasks").select("*").eq("pipeline_item_id", row.id).like("source_key", `stage-task:${row.id}:%`).order("due_date");
+  const stageTasks = ((stageTasksData ?? []) as Row[]).filter((t) => t.status !== "skipped");
+  const isAcq = pipe?.kind === "acquisition";
   const stageName = Object.fromEntries(stageList.map((s) => [s.id, s.name]));
   const detailTable = pipe?.kind === "acquisition" ? "deal_financials" : pipe?.kind === "job" ? "job_details" : pipe?.kind === "investor" ? "investor_details" : null;
   let detail: Row | null = null;
@@ -204,8 +257,76 @@ async function PipelineItemPanels({ sb, row, refOptions }: P) {
     detail = ((await sb.from(view).select("*").eq("item_id", row.id).maybeSingle()).data as Row | null) ?? null;
   }
   const scenarios = refOptions.scenarios ?? ((await sb.from("scenarios").select("id,name")).data ?? []).map((s: Row) => ({ id: s.id, label: s.name }));
+  const limitText = !st?.limit
+    ? "No time limit for this stage"
+    : st.limit.limit === null
+      ? `${st.limit.daysInStage} days. No time limit for this stage`
+      : `Day ${st.limit.daysInStage} of ${st.limit.limit}${st.limit.extensionDays ? ` (stage limit ${current?.max_days_in_stage} plus ${st.limit.extensionDays} extension days)` : ""}`;
+  const sourceContact = row.source_contact_id ? ((await sb.from("contacts").select("id,name").eq("id", row.source_contact_id).maybeSingle()).data as Row | null) : null;
   return (
     <>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex flex-wrap items-center gap-2">
+            Accountability
+            {isAcq ? <DealSourceBadge type={row.deal_source_type} /> : null}
+            <ItemStatusBadges status={st} itemStatus={row.status} />
+          </CardTitle>
+          <CardDescription>Every open item has a next action, a time limit for its stage, and the stage&apos;s task list.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          {!status.available ? <DbUpdateNotice compact /> : null}
+          <DetailGrid
+            cols={2}
+            items={[
+              {
+                label: "Next action",
+                value: row.next_action ? (
+                  <span className={row.next_action_due && row.next_action_due < today ? "font-medium text-red-700" : ""}>
+                    {row.next_action}
+                    {row.next_action_due ? ` (due ${fmtDate(row.next_action_due)})` : ""}
+                  </span>
+                ) : (
+                  <Link href="?edit=1" className="font-medium text-amber-700 underline">
+                    Not set. Set it now
+                  </Link>
+                ),
+              },
+              { label: "Time in this stage", value: <span className={st?.limit?.over ? "font-medium text-red-700" : ""}>{limitText}</span> },
+              {
+                label: "Last activity",
+                value: st?.lastActivity ? (
+                  <span className={st.stalled ? "font-medium text-amber-800" : ""}>
+                    {fmtDate(st.lastActivity)} ({st.daysSinceActivity === 0 ? "today" : `${st.daysSinceActivity} days ago`})
+                  </span>
+                ) : (
+                  "None"
+                ),
+              },
+              {
+                label: nextStage ? `Needed before ${nextStage.name}` : "Needed before the next stage",
+                value: !nextStage || row.status !== "open" ? "No later stage" : nextMissing.length ? <span className="font-medium text-amber-800">{nextMissing.map((m) => m.label).join(", ")}</span> : "Nothing missing",
+              },
+              ...(isAcq
+                ? [
+                    { label: "Deal source", value: row.deal_source_type ? <DealSourceBadge type={row.deal_source_type} /> : status.available ? <Link href="?edit=1" className="text-amber-700 underline">Not set</Link> : "Not available yet" },
+                    { label: "Broker or referral person", value: sourceContact ? <Link href={recordHref("contacts", sourceContact.id)} className="hover:underline">{sourceContact.name}</Link> : "None" },
+                  ]
+                : []),
+            ]}
+          />
+          <div>
+            <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Tasks from the stage task lists</p>
+            {stageTasks.length ? (
+              <TaskList tasks={stageTasks} today={today} />
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                {status.available ? "No stage tasks for this item yet. They are created when the item enters a stage that has a task list." : "Stage task lists appear after the database update."}
+              </p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
       <Card>
         <CardHeader>
           <CardTitle>Stage</CardTitle>
@@ -248,7 +369,7 @@ async function PipelineItemPanels({ sb, row, refOptions }: P) {
         </CardContent>
       </Card>
       {detailTable && detail ? (
-        <Card>
+        <Card id="item-details">
           <CardHeader>
             <CardTitle>{detailTable === "deal_financials" ? "Deal financials and your equity terms" : detailTable === "job_details" ? "Compensation" : "Investment amounts"}</CardTitle>
             {detailTable === "deal_financials" ? (
@@ -284,6 +405,51 @@ async function PipelineItemPanels({ sb, row, refOptions }: P) {
       ) : null}
       {detailTable === "deal_financials" ? <DiligenceList sb={sb} itemId={row.id} /> : null}
     </>
+  );
+}
+
+/** Quick log on an acquisition item: CIM requested, or contact with the broker or referral source (counted by Deals advanced). */
+function DealActivityCard({ row, available }: { row: Row; available: boolean }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Log deal activity</CardTitle>
+        <CardDescription>Counts toward the Deals advanced target (once per deal per day).</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {available ? (
+          <form action={logDealActivity} className="flex flex-col gap-2">
+            <input type="hidden" name="item_id" value={row.id} />
+            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+              What happened
+              <NativeSelect name="purpose" defaultValue="cim_request" aria-label="What happened">
+                <option value="cim_request">I requested the CIM</option>
+                <option value="source_contact">I contacted the broker or referral source</option>
+              </NativeSelect>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+              Method
+              <NativeSelect name="method" defaultValue="email" aria-label="Method">
+                <option value="email">Email</option>
+                <option value="call">Call</option>
+                <option value="text">Text</option>
+                <option value="meeting">Meeting</option>
+                <option value="other">Other</option>
+              </NativeSelect>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+              Summary (optional)
+              <Input name="summary" maxLength={500} placeholder="What you asked for or discussed" />
+            </label>
+            <SubmitButton size="sm" pendingText="Saving...">
+              Log it
+            </SubmitButton>
+          </form>
+        ) : (
+          <DbUpdateNotice compact />
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -607,8 +773,11 @@ async function ContactOutreachPanel({ sb, ownerId, row, today }: P) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Outreach</CardTitle>
-        <CardDescription>The last contact date comes from the latest communication. Set the relationship group with Edit.</CardDescription>
+        <CardTitle className="flex flex-wrap items-center gap-2">
+          Outreach
+          {row.is_deal_source ? <Badge variant="success">Deal source</Badge> : null}
+        </CardTitle>
+        <CardDescription>The last contact date comes from the latest communication. Set the relationship group, and whether this person can refer off-market deals, with Edit.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -622,7 +791,7 @@ async function ContactOutreachPanel({ sb, ownerId, row, today }: P) {
             hint={status.due && status.daysOverdue ? `${status.daysOverdue} days overdue` : undefined}
           />
         </div>
-        <LogOutreachButton contactId={row.id} back={back} />
+        <LogOutreachButton contactId={row.id} back={back} purposeAvailable={row.is_deal_source !== undefined} defaultPurpose={row.is_deal_source ? "deal_sourcing" : "general"} />
         <div>
           <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Outreach history and outcomes</p>
           {outreach.length ? (

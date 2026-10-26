@@ -14,6 +14,9 @@ import { loadTargets, summarizeTargets } from "@/lib/targets";
 import { TargetCounters } from "@/components/app/target-counters";
 import type { Row } from "@/lib/types";
 import { AiText } from "@/components/app/ai-text";
+import { sortTasksProprietaryFirst } from "@/lib/calc/pipeline";
+import { loadDealRanks, loadDealTypes } from "@/lib/pipeline";
+import { DealSourceBadge } from "@/components/app/pipeline-badges";
 
 export const metadata = { title: "Today's plan" };
 
@@ -23,12 +26,15 @@ export default async function TodayPage() {
   const [{ data: plan }, { data: tasks }, { data: actions }, { data: msTasks }, meetings] = await Promise.all([
     supabase.from("daily_plans").select("*").eq("plan_date", ctx.today).maybeSingle(),
     supabase.from("tasks").select("*").lte("due_date", ctx.today).or(`status.eq.todo,due_date.eq.${ctx.today}`).order("priority").order("due_date"),
-    supabase.from("pipeline_items").select("id,name,next_action,next_action_due").eq("status", "open").not("next_action", "is", null).lte("next_action_due", ctx.today).order("next_action_due"),
+    supabase.from("pipeline_items").select("*").eq("status", "open").not("next_action", "is", null).lte("next_action_due", ctx.today).order("next_action_due"),
     supabase.from("tasks").select("*").not("milestone_id", "is", null).eq("status", "todo").order("due_date").limit(10),
     todaysMeetings(ctx),
   ]);
   const targets = await loadTargets(supabase, { ownerId, tz: ctx.tz, from: addDaysISO(ctx.today, -14), to: ctx.today });
-  const list = (tasks ?? []) as Row[];
+  // Tasks for proprietary (off-market) deals come before brokered ones at equal priority and due date.
+  const [rankOf, dealTypes] = await Promise.all([loadDealRanks(supabase, ownerId), loadDealTypes(supabase, ownerId)]);
+  const list = sortTasksProprietaryFirst((tasks ?? []) as Row[], rankOf);
+  const actionList = ((actions ?? []) as Row[]).sort((a, b) => (a.next_action_due === b.next_action_due ? rankOf(a.id) - rankOf(b.id) : a.next_action_due < b.next_action_due ? -1 : 1));
   return (
     <div>
       <PageHeader
@@ -104,7 +110,7 @@ export default async function TodayPage() {
               <Link href={`/records/tasks/new?due_date=${ctx.today}`}>Add task</Link>
             </Button>
           </CardHeader>
-          <CardContent>{list.length ? <TaskList tasks={list} today={ctx.today} /> : <EmptyState title="Nothing due today." body="Add a task, or create today's recurring tasks now." />}</CardContent>
+          <CardContent>{list.length ? <TaskList tasks={list} today={ctx.today} dealTypes={dealTypes} /> : <EmptyState title="Nothing due today." body="Add a task, or create today's recurring tasks now." />}</CardContent>
         </Card>
         <div className="flex flex-col gap-4">
           <Card>
@@ -112,13 +118,16 @@ export default async function TodayPage() {
               <CardTitle>Pipeline next actions due</CardTitle>
             </CardHeader>
             <CardContent>
-              {(actions ?? []).length ? (
+              {actionList.length ? (
                 <ul className="flex flex-col gap-2 text-sm">
-                  {((actions ?? []) as Row[]).map((a) => (
+                  {actionList.map((a) => (
                     <li key={a.id}>
-                      <Link href={`/records/pipeline_items/${a.id}`} className="font-medium hover:underline">
-                        {a.name}
-                      </Link>
+                      <span className="flex items-center justify-between gap-2">
+                        <Link href={`/records/pipeline_items/${a.id}`} className="clamp-1 min-w-0 font-medium hover:underline">
+                          {a.name}
+                        </Link>
+                        <DealSourceBadge type={a.deal_source_type} />
+                      </span>
                       <span className="block text-xs text-muted-foreground">
                         {a.next_action} ({fmtDate(a.next_action_due, "MMM d")})
                       </span>

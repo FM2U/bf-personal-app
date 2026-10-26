@@ -79,6 +79,12 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
               {d.budget ? <Stat label="Spent vs. budget" value={`${money(d.budget.totals.actual)} / ${money(d.budget.totals.current)}`} /> : null}
               {d.outreach ? <Stat label="Outreach reply rate" value={d.outreach.replyRatePct === null ? "No outreach" : `${d.outreach.replyRatePct}%`} hint={`${d.outreach.sent} sent`} /> : null}
               {d.outreach ? <Stat label="Meetings booked from outreach" value={d.outreach.meetings} /> : null}
+              {d.outreach && d.outreach.dealSourcingSharePct !== null && d.outreach.dealSourcingSharePct !== undefined ? (
+                <Stat label="Outreach asking about deals" value={`${d.outreach.dealSourcingSharePct}%`} hint={`${d.outreach.dealSourcing} of ${d.outreach.sent}`} />
+              ) : null}
+              {d.deal_sourcing ? <Stat label="Deals sourced: proprietary, brokered" value={`${d.deal_sourcing.proprietary}, ${d.deal_sourcing.brokered}`} hint={`${d.deal_sourcing.sourced} in total`} /> : null}
+              {d.deal_sourcing ? <Stat label="Proprietary share of deals sourced" value={d.deal_sourcing.proprietary_share_pct === null ? "No deals" : `${d.deal_sourcing.proprietary_share_pct}%`} /> : null}
+              {d.stalled_items ? <Stat label="Stalled pipeline items" value={(d.stalled_items as Row[]).length} tone={(d.stalled_items as Row[]).length ? "bad" : "good"} /> : null}
             </CardContent>
           </Card>
           {review.kind !== "daily" && (d.targets ?? []).length ? (

@@ -4,17 +4,18 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireOwner } from "@/lib/auth";
-import { getResource, recordHref, RESOURCES, type Field } from "@/lib/resources";
+import { ACQUISITION_ONLY_FIELDS, getResource, recordHref, RESOURCES, type Field } from "@/lib/resources";
 import { dedupeHash, merchantFromDescription, normalizeDescription } from "@/lib/calc/csv";
 import { tzOffset } from "@/lib/google";
 import { loadCtx } from "@/lib/engine/helpers";
 import { evaluateConditions } from "@/lib/engine/rules";
 import { checkCommitments } from "@/lib/engine/tasks";
 import { nextReportDate } from "@/lib/engine/partners";
-import { COLUMNS_0008, DB_UPDATE_NOTICE, isMissingSchemaError, TABLES_0008 } from "@/lib/schema-guard";
+import { DB_UPDATE_NOTICE, isMissingSchemaError, NEW_COLUMNS, NEW_TABLES } from "@/lib/schema-guard";
+import { hasPipelineUpdate, missingForStage } from "@/lib/pipeline";
 import type { Row } from "@/lib/types";
 
-export type FormState = { ok: boolean; error?: string; message?: string } | null;
+export type FormState = { ok: boolean; error?: string; message?: string; link?: { href: string; label: string } } | null;
 
 const NUMERIC_SELECTS = new Set(["priority", "weekday"]);
 const CONDITION_TABLES = new Set([
@@ -111,6 +112,28 @@ export async function saveRecord(_prev: FormState, fd: FormData): Promise<FormSt
     const { data: first } = await supabase.from("pipeline_stages").select("id").eq("pipeline_id", data.pipeline_id).order("position").limit(1).maybeSingle();
     data.stage_id = first?.id ?? null;
   }
+  if (table === "pipeline_items") {
+    const merged = { ...(before ?? {}), ...data };
+    const { data: pipe } = await supabase.from("pipelines").select("kind").eq("id", merged.pipeline_id).maybeSingle();
+    const isAcquisition = (pipe as Row | null)?.kind === "acquisition";
+    if (!isAcquisition) for (const k of ACQUISITION_ONLY_FIELDS) delete data[k];
+    // Acquisition items need the deal source (after database update 0009 adds the field).
+    if (isAcquisition && "deal_source_type" in data && !data.deal_source_type && (await hasPipelineUpdate(supabase))) {
+      return { ok: false, error: "Deal source is required for acquisitions: choose Proprietary (off-market) or Brokered." };
+    }
+    // Moving to another stage: every required detail must be filled first.
+    if (before && data.stage_id && data.stage_id !== before.stage_id) {
+      const missing = await missingForStage(supabase, merged, String(data.stage_id));
+      if (missing.length) {
+        const { data: st } = await supabase.from("pipeline_stages").select("name").eq("id", data.stage_id).maybeSingle();
+        return {
+          ok: false,
+          error: `Not moved. Add these details before moving to ${(st as Row | null)?.name ?? "this stage"}: ${missing.map((m) => m.label).join(", ")}.`,
+          link: { href: `${recordHref("pipeline_items", before.id)}#details`, label: "Open the item to fill them" },
+        };
+      }
+    }
+  }
   if (table === "partners" && !id && !data.next_report_on) data.next_report_on = nextReportDate(String(data.schedule ?? "weekly"), ctx.today);
   if (table === "decisions" && data.status === "decided" && !data.decided_on) data.decided_on = ctx.today;
   if (table === "reduction_actions" && data.status === "completed" && !data.completed_on) data.completed_on = ctx.today;
@@ -118,9 +141,14 @@ export async function saveRecord(_prev: FormState, fd: FormData): Promise<FormSt
     if (Array.isArray(data.active_weekdays)) data.active_weekdays = (data.active_weekdays as string[]).map(Number).filter((n) => n >= 0 && n <= 6);
     if (!id && !data.start_date) data.start_date = ctx.today;
     if ("start_date" in data && !data.start_date) delete data.start_date;
-    if (data.count_source !== "pipeline_items_created" && "pipeline_id" in data) data.pipeline_id = null;
+    if (!["pipeline_items_created", "deals_sourced", "deals_advanced"].includes(String(data.count_source)) && "pipeline_id" in data) data.pipeline_id = null;
+    if (data.count_source !== "deals_advanced" && "stage_id" in data) data.stage_id = null;
   }
   if (table === "communications" && data.outcome && data.is_outreach === false) data.is_outreach = true;
+  // A communication logged from a pipeline item page is saved with that item (counted by "Deals advanced").
+  if (table === "communications" && !id && String(fd.get("__link_type") ?? "") === "pipeline_items" && !data.pipeline_item_id) {
+    data.pipeline_item_id = String(fd.get("__link_id") ?? "") || null;
+  }
 
   if (!id) {
     for (const k of ["related_type", "related_id"]) {
@@ -139,13 +167,13 @@ export async function saveRecord(_prev: FormState, fd: FormData): Promise<FormSt
     return { error, newId: (created as Row | null)?.id ?? null };
   };
   let result = await write(data);
-  // Database update 0008 not applied yet: save without the new columns so existing screens keep working.
-  if (result.error && isMissingSchemaError(result.error) && COLUMNS_0008[table]) {
-    const without = Object.fromEntries(Object.entries(data).filter(([k]) => !COLUMNS_0008[table].includes(k)));
+  // Database update 0008 or 0009 not applied yet: save without the new columns so existing screens keep working.
+  if (result.error && isMissingSchemaError(result.error) && NEW_COLUMNS[table]) {
+    const without = Object.fromEntries(Object.entries(data).filter(([k]) => !NEW_COLUMNS[table].includes(k)));
     result = await write(without);
   }
   if (result.error) {
-    if (isMissingSchemaError(result.error) && TABLES_0008.includes(table)) return { ok: false, error: DB_UPDATE_NOTICE };
+    if (isMissingSchemaError(result.error) && NEW_TABLES.includes(table)) return { ok: false, error: DB_UPDATE_NOTICE };
     return { ok: false, error: result.error.message };
   }
   savedId = result.newId;
@@ -163,6 +191,7 @@ export async function saveRecord(_prev: FormState, fd: FormData): Promise<FormSt
     if (pattern) await supabase.from("categorization_rules").insert({ owner_id: ownerId, pattern, match_type: "contains", category_id: data.category_id, created_from: "correction" });
   }
   if (table === "pipeline_items" && !id && savedId) await ensurePipelineDetails(supabase, ownerId, savedId, String(data.pipeline_id));
+  if (table === "pipeline_items" && savedId && data.next_action) await clearNextActionReminders(supabase, savedId);
   if (table === "milestones" && data.status === "met" && before?.status !== "met" && before?.next_milestone_id) {
     await supabase.from("milestones").update({ status: "active" }).eq("id", before.next_milestone_id).neq("status", "met");
   }
@@ -172,6 +201,12 @@ export async function saveRecord(_prev: FormState, fd: FormData): Promise<FormSt
   revalidatePath("/", "layout");
   const target = String(fd.get("__redirect") ?? "") || (savedId ? recordHref(table, savedId) : resource.listHref);
   redirect(target.replace("{id}", savedId ?? ""));
+}
+
+/** The item has a next action now: close the "Set next action" alert and task. */
+async function clearNextActionReminders(sb: Awaited<ReturnType<typeof requireOwner>>["supabase"], itemId: string) {
+  await sb.from("alerts").update({ status: "dismissed", dismissed_at: new Date().toISOString() }).eq("dedupe_key", `pipeline-next-action:${itemId}`).eq("status", "open");
+  await sb.from("tasks").update({ status: "done" }).eq("pipeline_item_id", itemId).eq("status", "todo").like("source_key", "set-next-action:%");
 }
 
 async function ensurePipelineDetails(sb: Awaited<ReturnType<typeof requireOwner>>["supabase"], ownerId: string, itemId: string, pipelineId: string) {

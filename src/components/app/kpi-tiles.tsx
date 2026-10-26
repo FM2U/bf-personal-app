@@ -5,7 +5,7 @@ export type Kpi = { label: string; value: React.ReactNode; hint?: string; href: 
 
 /**
  * A labeled group of compact number tiles. Each tile opens its module.
- * Labels are held to 2 lines and hints to 1 line, so values line up across the row.
+ * Labels and hints are held to 2 lines each (space reserved), so values and hints line up across the row.
  */
 export function KpiGroup({ title, tiles, className, cols }: { title: string; tiles: Kpi[]; className?: string; cols: string }) {
   return (
@@ -29,7 +29,7 @@ export function KpiGroup({ title, tiles, className, cols }: { title: string; til
             >
               {t.value}
             </span>
-            <span className="clamp-1 mt-0.5 min-h-4 text-[11px] leading-4 text-muted-foreground">{t.hint ?? ""}</span>
+            <span className="clamp-2 mt-0.5 min-h-8 text-[11px] leading-4 text-muted-foreground">{t.hint ?? ""}</span>
           </Link>
         ))}
       </div>

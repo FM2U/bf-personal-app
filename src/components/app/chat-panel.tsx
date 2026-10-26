@@ -10,6 +10,20 @@ import { AiText } from "@/components/app/ai-text";
 
 type Msg = { role: "user" | "assistant" | "error"; content: string; proposals?: string[] };
 
+const OPEN_EVENT = "bf-open-ai-chat";
+
+/**
+ * "Ask the AI" in the desktop sidebar. On desktop the button sits in the sidebar instead of floating,
+ * so it never covers page content. On phones the floating button is used (the page has bottom padding for it).
+ */
+export function AskAiSidebarButton() {
+  return (
+    <Button type="button" onClick={() => window.dispatchEvent(new Event(OPEN_EVENT))} className="mb-2 w-full justify-start" aria-label="Open AI chat">
+      <MessageSquare /> Ask the AI
+    </Button>
+  );
+}
+
 /** AI chat panel, available on every screen. The AI reads app data and can only propose changes. */
 export function ChatPanel({ aiReady }: { aiReady: boolean }) {
   const [open, setOpen] = useState(false);
@@ -23,6 +37,13 @@ export function ChatPanel({ aiReady }: { aiReady: boolean }) {
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, open]);
+
+  // The "Ask the AI" button in the desktop sidebar opens this panel.
+  useEffect(() => {
+    const openPanel = () => setOpen(true);
+    window.addEventListener(OPEN_EVENT, openPanel);
+    return () => window.removeEventListener(OPEN_EVENT, openPanel);
+  }, []);
 
   async function send() {
     const text = input.trim();
@@ -50,7 +71,7 @@ export function ChatPanel({ aiReady }: { aiReady: boolean }) {
   return (
     <div className="no-print">
       {!open ? (
-        <Button onClick={() => setOpen(true)} className="fixed bottom-4 right-4 z-40 h-12 rounded-full px-5 shadow-lg" aria-label="Open AI chat">
+        <Button onClick={() => setOpen(true)} className="fixed bottom-4 right-4 z-40 h-12 rounded-full px-5 shadow-lg lg:hidden" aria-label="Open AI chat">
           <MessageSquare /> Ask the AI
         </Button>
       ) : null}

@@ -23,6 +23,8 @@ import { KpiGroup, type Kpi } from "@/components/app/kpi-tiles";
 import { DbUpdateNotice } from "@/components/app/target-grid";
 import type { Row } from "@/lib/types";
 import { AiText } from "@/components/app/ai-text";
+import { sortTasksProprietaryFirst } from "@/lib/calc/pipeline";
+import { hasPipelineUpdate, loadDealRanks, loadDealTypes } from "@/lib/pipeline";
 
 export const metadata = { title: "Home" };
 
@@ -55,10 +57,12 @@ export default async function HomePage() {
   const runwayPct = runway === null ? 100 : target ? (runway / target) * 100 : null;
   const activeBudgets = new Set(((budgetsRes.data ?? []) as Row[]).map((b) => b.id));
   const budgetTotal = ((linesRes.data ?? []) as Row[]).filter((l) => activeBudgets.has(l.budget_id)).reduce((s, l) => s + Number(l.current_monthly), 0);
-  const tasks = (todayTasks.data ?? []) as Row[];
+  // Tasks for proprietary (off-market) deals come before brokered ones at equal priority and due date.
+  const [rankOf, dealTypes, pipelineUpdate] = await Promise.all([loadDealRanks(supabase, ownerId), loadDealTypes(supabase, ownerId), hasPipelineUpdate(supabase)]);
+  const tasks = sortTasksProprietaryFirst((todayTasks.data ?? []) as Row[], rankOf, { doneLast: true, status: (t) => t.status });
   const doneCount = tasks.filter((t) => t.status === "done").length;
   const alerts = (alertsRes.data ?? []) as Row[];
-  const overdue = (overdueTasks.data ?? []) as Row[];
+  const overdue = sortTasksProprietaryFirst((overdueTasks.data ?? []) as Row[], rankOf);
   const overdueMilestones = (overdueMs.data ?? []) as Row[];
   const nw = await netWorthByMonth(supabase, today, 6);
   const hasAccounts = snap.accounts.length > 0;
@@ -70,6 +74,7 @@ export default async function HomePage() {
   const streak = consecutiveCompleteDays((streakRes.data ?? []) as { due_date: string; status: string }[], today);
   const dayTargets = summarizeTargets(metrics.targets, today).filter((t) => t.target.period === "day" && t.today.status !== "off");
   const targetsMet = dayTargets.filter((t) => t.today.status === "met").length;
+  const sourced = summarizeTargets(metrics.targets, today).find((t) => t.target.count_source === "deals_sourced" && t.target.active);
   const score = metrics.values.commitment_score_week;
   const draftReview = ((draftRes.data ?? []) as Row[])[0];
   const scheduled = nextScheduledReview(today, Number(ctx.profile.weekly_review_weekday ?? 0));
@@ -85,6 +90,15 @@ export default async function HomePage() {
     },
     { label: "Pipeline actions due", value: pipeDue.length, href: "/productivity/pipeline-actions", tone: pipeOverdue ? "bad" : undefined, hint: pipeOverdue ? `${pipeOverdue} overdue` : "Today or earlier" },
   ];
+  if (sourced) {
+    productivityTiles.splice(2, 0, {
+      label: "Deals sourced today",
+      value: sourced.today.status === "off" ? "Not today" : `${sourced.today.count} of ${sourced.today.required}`,
+      href: "/accountability/targets",
+      tone: sourced.today.status === "met" ? "good" : undefined,
+      hint: sourced.breakdown ? `${sourced.breakdown.proprietary} proprietary, ${sourced.breakdown.brokered} brokered` : undefined,
+    });
+  }
   const accountabilityTiles: Kpi[] = [
     { label: "Commitment score this week", value: score === null || score === undefined ? "No data" : `${score}%`, href: "/accountability/scores", tone: score !== null && score !== undefined && score < 70 ? "bad" : undefined, hint: "Includes targets" },
     { label: "Days in a row with every task done", value: streak, href: "/accountability/scores", tone: streak ? "good" : undefined },
@@ -97,11 +111,11 @@ export default async function HomePage() {
   return (
     <div>
       <PageHeader title="Home" description={`${fmtDate(today, "EEEE, MMMM d, yyyy")}. Runway, today's plan, meetings, overdue items, and alerts.`} />
-      <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,4fr)]">
-        <KpiGroup title="Productivity" tiles={productivityTiles} cols="grid-cols-3" />
+      <div className={`mb-4 grid grid-cols-1 gap-4 ${productivityTiles.length > 3 ? "xl:grid-cols-2" : "lg:grid-cols-[minmax(0,3fr)_minmax(0,4fr)]"}`}>
+        <KpiGroup title="Productivity" tiles={productivityTiles} cols={productivityTiles.length > 3 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3"} />
         <KpiGroup title="Accountability" tiles={accountabilityTiles} cols="grid-cols-2 sm:grid-cols-4" />
       </div>
-      {!metrics.targets.available ? (
+      {!metrics.targets.available || !pipelineUpdate ? (
         <div className="mb-4">
           <DbUpdateNotice />
         </div>
@@ -206,7 +220,7 @@ export default async function HomePage() {
             <div className="min-w-0">
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Tasks due today</p>
               {tasks.length ? (
-                <TaskList tasks={tasks} today={today} showDue={false} />
+                <TaskList tasks={tasks} today={today} showDue={false} dealTypes={dealTypes} />
               ) : (
                 <EmptyState title="No tasks due today." body="Recurring tasks are created each morning. Add a task for anything else due today." action={<Button asChild size="sm" variant="outline"><Link href={`/records/tasks/new?due_date=${today}`}>Add task</Link></Button>} />
               )}
@@ -263,7 +277,7 @@ export default async function HomePage() {
                 ))}
               </ul>
             ) : null}
-            {overdue.length ? <TaskList tasks={overdue} today={today} /> : null}
+            {overdue.length ? <TaskList tasks={overdue} today={today} dealTypes={dealTypes} /> : null}
             {!overdue.length && !overdueMilestones.length ? <p className="text-sm text-muted-foreground">Nothing overdue.</p> : null}
           </CardContent>
         </Card>

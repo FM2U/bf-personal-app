@@ -4,8 +4,11 @@ import { TaskCheckbox } from "@/components/app/task-checkbox";
 import { date as fmtDate } from "@/lib/format";
 import type { Row } from "@/lib/types";
 
-/** Tasks with completion checkboxes. Each title opens the task. */
-export function TaskList({ tasks, today, showDue = true }: { tasks: Row[]; today: string; showDue?: boolean }) {
+/**
+ * Tasks with completion checkboxes. Each title opens the task.
+ * `dealTypes` (pipeline item id to deal source) marks tasks for proprietary deals.
+ */
+export function TaskList({ tasks, today, showDue = true, dealTypes }: { tasks: Row[]; today: string; showDue?: boolean; dealTypes?: Record<string, string> }) {
   return (
     <ul className="flex flex-col divide-y divide-slate-100">
       {tasks.map((t) => (
@@ -15,6 +18,7 @@ export function TaskList({ tasks, today, showDue = true }: { tasks: Row[]; today
             {t.title}
           </Link>
           <span className="flex shrink-0 items-center gap-1">
+            {dealTypes && t.pipeline_item_id && dealTypes[t.pipeline_item_id] === "proprietary" ? <Badge variant="success">Proprietary</Badge> : null}
             {t.priority === 1 ? <Badge variant="warning">High</Badge> : null}
             {showDue && t.due_date ? (
               <span className={`w-20 text-right text-xs ${t.due_date < today && t.status !== "done" ? "font-medium text-red-700" : "text-muted-foreground"}`}>{t.due_date === today ? "Today" : fmtDate(t.due_date, "MMM d")}</span>

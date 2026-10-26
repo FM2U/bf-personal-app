@@ -88,9 +88,12 @@ export async function logOutreach(fd: FormData) {
   const outcome = OUTCOMES.includes(outcomeRaw) ? outcomeRaw : null;
   const summary = String(fd.get("summary") ?? "").trim().slice(0, 2000) || null;
   let contact: Row | null = null;
-  if (contactId) contact = ((await supabase.from("contacts").select("id,name,organization_id").eq("id", contactId).maybeSingle()).data as Row | null) ?? null;
+  if (contactId) contact = ((await supabase.from("contacts").select("*").eq("id", contactId).maybeSingle()).data as Row | null) ?? null;
   const methodLabel = method === "other" ? "Outreach" : `Outreach ${method}`;
-  const { error } = await supabase.from("communications").insert({
+  // Purpose: as chosen; otherwise deal sourcing for deal-source contacts (database update 0009).
+  const purposeRaw = String(fd.get("purpose") ?? "");
+  const purpose = ["general", "deal_sourcing"].includes(purposeRaw) ? purposeRaw : contact?.is_deal_source ? "deal_sourcing" : "general";
+  const row: Row = {
     owner_id: ownerId,
     occurred_at: new Date().toISOString(),
     method,
@@ -101,7 +104,10 @@ export async function logOutreach(fd: FormData) {
     summary,
     is_outreach: true,
     outcome,
-  });
+  };
+  let { error } = await supabase.from("communications").insert({ ...row, purpose });
+  // Before update 0009 there is no purpose column: save without it.
+  if (error && isMissingSchemaError(error)) ({ error } = await supabase.from("communications").insert(row));
   if (error) back(fd, isMissingSchemaError(error) ? DB_UPDATE_NOTICE : `Not saved: ${error.message}`, "/people/outreach");
   await evaluateConditions(ctx);
   revalidatePath("/", "layout");
@@ -136,6 +142,7 @@ export async function draftOutreachMessage(contactId: string): Promise<DraftResu
   ]);
   const canGmail = !!c.email && isGoogleConfigured() && google?.status === "connected";
   const first = String(c.name ?? "").split(/\s+/)[0] || "there";
+  const dealSource = !!c.is_deal_source;
   const context = {
     name: c.name,
     title: c.title,
@@ -154,16 +161,29 @@ export async function draftOutreachMessage(contactId: string): Promise<DraftResu
       messages: [
         {
           role: "user",
-          content: `Draft a short outreach message (under 110 words) from Bram to ${c.name} to stay in touch. Mention one specific thing from the recent communications or notes when there is one. End with one simple, low-effort question or ask. Return only JSON: {"subject": "short subject line", "body": "message text, starting with a greeting using the first name"}. Contact (JSON): ${JSON.stringify(context).slice(0, 6000)}`,
+          content: dealSource
+            ? `Draft a short message (under 140 words) from Bram to ${c.name} asking for off-market deal referrals. ${c.name} is a deal source: someone who may know business owners thinking about selling (for example an owner, operator, accountant, attorney, or banker). Bram is buying one small business to run as owner-operator. Structure: a one-line greeting and personal opener (mention one specific thing from the recent communications or notes when there is one); then 2 to 4 short "- " bullets on what Bram is looking for (owner-operated business, steady profits, an owner thinking about retirement or a transition, no broker involved yet); then one simple ask: does any client or contact come to mind, and would they make a warm introduction. Conversational, direct, Bram's voice. Return only JSON: {"subject": "short subject line", "body": "message text, starting with a greeting using the first name"}. Contact (JSON): ${JSON.stringify(context).slice(0, 6000)}`
+            : `Draft a short outreach message (under 110 words) from Bram to ${c.name} to stay in touch. Mention one specific thing from the recent communications or notes when there is one. End with one simple, low-effort question or ask. Return only JSON: {"subject": "short subject line", "body": "message text, starting with a greeting using the first name"}. Contact (JSON): ${JSON.stringify(context).slice(0, 6000)}`,
         },
       ],
       maxTokens: 600,
     });
     const parsed = parseJsonFromText<{ subject?: string; body?: string }>(textOf(msg));
     if (!parsed?.body) return { ok: false, error: "The AI reply could not be read. Try again." };
-    return { ok: true, subject: cleanText(String(parsed.subject ?? `Checking in`)), body: cleanText(String(parsed.body)), source: "ai", canGmail, email: c.email ?? null };
+    return { ok: true, subject: cleanText(String(parsed.subject ?? (dealSource ? "A quick ask" : "Checking in"))), body: cleanText(String(parsed.body)), source: "ai", canGmail, email: c.email ?? null };
   } catch (e) {
     const note = e instanceof AIUnavailable ? e.message : "The AI request failed.";
+    if (dealSource) {
+      return {
+        ok: true,
+        subject: "A quick ask: businesses that may be for sale",
+        body: `Hi ${first},\n\nI hope things are going well. I am looking to buy one small business to run myself as owner-operator, and I am focusing on owners who have not listed with a broker yet.\n\nWhat I am looking for:\n- An owner-operated business with steady profits\n- An owner thinking about retirement or a transition in the next few years\n- No broker involved yet\n\nDoes anyone among your clients or contacts come to mind? A short introduction would mean a lot, and I will keep it confidential.\n\nThanks,\nBram`,
+        source: "template",
+        note: `${note} A plain template is shown instead.`,
+        canGmail,
+        email: c.email ?? null,
+      };
+    }
     return {
       ok: true,
       subject: "Checking in",

@@ -16,18 +16,24 @@ import { createGmailDraft } from "@/lib/google";
 import { loadInputs } from "@/lib/finance";
 import { env } from "@/lib/env";
 import type { Row } from "@/lib/types";
+import { applyStageLimitChoice, moveItemToStage } from "@/lib/pipeline-moves";
 
 const done = (path?: string) => {
   revalidatePath("/", "layout");
   if (path) redirect(path);
 };
 
+/** "Move to stage" on the item page. A move with missing required details is blocked; the item page lists them. */
 export async function moveStage(fd: FormData) {
   const { supabase, ownerId } = await requireOwner();
   const id = String(fd.get("item_id"));
-  await supabase.from("pipeline_items").update({ stage_id: String(fd.get("stage_id")) }).eq("id", id);
+  const stageId = String(fd.get("stage_id"));
+  const { data: item } = await supabase.from("pipeline_items").select("*").eq("id", id).maybeSingle();
+  if (!item || item.stage_id === stageId) return done();
+  const { missing } = await moveItemToStage(supabase, item as Row, stageId);
+  if (missing.length) return done(`/records/pipeline_items/${id}?blocked=${stageId}`);
   await evaluateConditions(await loadCtx(supabase, ownerId));
-  done();
+  done(`/records/pipeline_items/${id}`);
 }
 
 export async function completeMilestone(fd: FormData) {
@@ -59,6 +65,16 @@ export async function generateRepayments(fd: FormData) {
 export async function chooseOption(fd: FormData) {
   const { supabase, ownerId } = await requireOwner();
   const ctx = await loadCtx(supabase, ownerId);
+  // Stage time limit decisions act on the pipeline item (advance, pass, or extend).
+  const [{ data: decision }, { data: option }] = await Promise.all([
+    supabase.from("decisions").select("*").eq("id", String(fd.get("decision_id"))).maybeSingle(),
+    supabase.from("decision_options").select("*").eq("id", String(fd.get("option_id"))).maybeSingle(),
+  ]);
+  if (decision && option) {
+    const r = await applyStageLimitChoice(supabase, ownerId, decision as Row, option as Row);
+    // Blocked by missing details: the decision stays open and the item page lists what to fill.
+    if (r.handled && r.redirectTo?.includes("blocked=")) return done(r.redirectTo);
+  }
   await supabase
     .from("decisions")
     .update({ status: "decided", chosen_option_id: String(fd.get("option_id")), decided_on: ctx.today, outcome: String(fd.get("outcome") ?? "") || null })

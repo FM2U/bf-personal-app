@@ -8,6 +8,8 @@ import { loadCtx } from "@/lib/engine/helpers";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/app/page-header";
 import { RecordForm } from "@/components/app/record-form";
+import { DbUpdateNotice } from "@/components/app/target-grid";
+import { formRules, stageDefaultNextAction } from "@/lib/form-rules";
 import type { Row } from "@/lib/types";
 
 export default async function NewRecordPage({ params, searchParams }: { params: Promise<{ table: string }>; searchParams: Promise<Record<string, string>> }) {
@@ -33,15 +35,33 @@ export default async function NewRecordPage({ params, searchParams }: { params: 
     if (f.name === "budget_id" && refOptions.budgets?.length === 1) initial[f.name] = refOptions.budgets[0].id;
     if (f.name === "occurred_at") initial[f.name] = new Date().toISOString();
   }
+  // Pipeline items: the first stage when none is given, and the stage's default next action.
+  if (table === "pipeline_items" && initial.pipeline_id && !initial.stage_id) {
+    const { data: first } = await supabase.from("pipeline_stages").select("id").eq("pipeline_id", initial.pipeline_id).order("position").limit(1).maybeSingle();
+    if (first) initial.stage_id = first.id;
+  }
+  if (table === "pipeline_items" && !initial.next_action) {
+    const def = await stageDefaultNextAction(supabase, initial.stage_id, ctx.today);
+    if (def) {
+      initial.next_action = def.title;
+      initial.next_action_due = initial.next_action_due ?? def.due;
+    } else if (!initial.next_action_due) initial.next_action_due = ctx.today;
+  }
+  const rules = await formRules(supabase, table, initial);
   return (
     <div>
       <Link href={r.listHref} className="mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-slate-900">
         <ChevronLeft className="h-4 w-4" /> {r.plural}
       </Link>
       <PageHeader title={`Add ${r.singular.toLowerCase()}`} description={r.empty} />
+      {rules.updateNeeded && (table === "pipeline_items" || table === "contacts") ? (
+        <div className="mb-4 max-w-3xl">
+          <DbUpdateNotice compact />
+        </div>
+      ) : null}
       <Card className="max-w-3xl">
         <CardContent className="pt-5">
-          <RecordForm table={table} initial={initial} refOptions={refOptions} cancelHref={r.listHref} extraHidden={extraHidden} />
+          <RecordForm table={table} initial={initial} refOptions={refOptions} cancelHref={r.listHref} extraHidden={extraHidden} hide={rules.hide} require={rules.require} />
         </CardContent>
       </Card>
     </div>

@@ -10,6 +10,7 @@ import { Notice } from "@/components/app/page-header";
 import { createOutreachGmailDraft, draftOutreachMessage, logOutreach, type DraftResult } from "@/app/actions/targets";
 import { markdownToPlain } from "@/lib/markdown";
 import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
 
 export type QueueItem = {
   id: string;
@@ -20,6 +21,7 @@ export type QueueItem = {
   overdueTone: "bad" | "warn" | "none";
   lastOutcome: string;
   lastContact: string;
+  isDealSource?: boolean;
 };
 
 const METHODS = [
@@ -39,9 +41,24 @@ const OUTCOMES = [
 ];
 
 /** The small "Log outreach" form: method, optional summary, optional outcome. Creates one outreach communication. */
-export function LogOutreachForm({ contactId, back, onCancel }: { contactId: string | null; back: string; onCancel?: () => void }) {
+export function LogOutreachForm({
+  contactId,
+  back,
+  onCancel,
+  purposeAvailable = false,
+  defaultPurpose = "general",
+}: {
+  contactId: string | null;
+  back: string;
+  onCancel?: () => void;
+  purposeAvailable?: boolean;
+  defaultPurpose?: "general" | "deal_sourcing";
+}) {
   return (
-    <form action={logOutreach} className="grid grid-cols-1 gap-2 sm:grid-cols-[8rem_minmax(0,1fr)_10rem_auto] sm:items-end">
+    <form
+      action={logOutreach}
+      className={cn("grid grid-cols-1 gap-2 sm:items-end", purposeAvailable ? "sm:grid-cols-[8rem_10rem_minmax(0,1fr)_10rem_auto]" : "sm:grid-cols-[8rem_minmax(0,1fr)_10rem_auto]")}
+    >
       {contactId ? <input type="hidden" name="contact_id" value={contactId} /> : null}
       <input type="hidden" name="back" value={back} />
       <label className="flex flex-col gap-1 text-xs text-muted-foreground">
@@ -54,6 +71,15 @@ export function LogOutreachForm({ contactId, back, onCancel }: { contactId: stri
           ))}
         </NativeSelect>
       </label>
+      {purposeAvailable ? (
+        <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+          Purpose
+          <NativeSelect name="purpose" defaultValue={defaultPurpose} aria-label="Purpose">
+            <option value="general">General</option>
+            <option value="deal_sourcing">Deal sourcing</option>
+          </NativeSelect>
+        </label>
+      ) : null}
       <label className="flex flex-col gap-1 text-xs text-muted-foreground">
         Summary (optional)
         <Input name="summary" maxLength={500} placeholder="What you sent or discussed" />
@@ -166,15 +192,22 @@ export function DraftMessagePanel({ contactId, onClose }: { contactId: string; o
 }
 
 /** One row of the Outreach Queue, with the two actions. Columns line up with the header row on desktop. */
-export function OutreachQueueRow({ item, back }: { item: QueueItem; back: string }) {
+export function OutreachQueueRow({ item, back, purposeAvailable = false }: { item: QueueItem; back: string; purposeAvailable?: boolean }) {
   const [mode, setMode] = useState<"none" | "log" | "draft">("none");
   return (
     <div className="flex flex-col gap-2 py-3">
       <div className="grid grid-cols-1 items-center gap-2 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1.1fr)_6.5rem_7.5rem_8.5rem_18.5rem] md:gap-3">
         <div className="min-w-0">
-          <Link href={`/records/contacts/${item.id}`} className="clamp-1 text-sm font-medium text-slate-900 hover:underline">
-            {item.name}
-          </Link>
+          <span className="flex min-w-0 items-center gap-1.5">
+            <Link href={`/records/contacts/${item.id}`} className="clamp-1 min-w-0 text-sm font-medium text-slate-900 hover:underline">
+              {item.name}
+            </Link>
+            {item.isDealSource ? (
+              <Badge variant="success" className="shrink-0" title="Can refer off-market deals">
+                Deal source
+              </Badge>
+            ) : null}
+          </span>
           <p className="text-xs text-muted-foreground md:hidden"><span className="clamp-1">{item.organization ?? "No organization"}</span></p>
         </div>
         <span className="hidden text-sm text-slate-700 md:block"><span className="clamp-1">{item.organization ?? "None"}</span></span>
@@ -192,7 +225,9 @@ export function OutreachQueueRow({ item, back }: { item: QueueItem; back: string
           </Button>
         </div>
       </div>
-      {mode === "log" ? <LogOutreachForm contactId={item.id} back={back} onCancel={() => setMode("none")} /> : null}
+      {mode === "log" ? (
+        <LogOutreachForm contactId={item.id} back={back} onCancel={() => setMode("none")} purposeAvailable={purposeAvailable} defaultPurpose={item.isDealSource ? "deal_sourcing" : "general"} />
+      ) : null}
       {mode === "draft" ? <DraftMessagePanel contactId={item.id} onClose={() => setMode("none")} /> : null}
     </div>
   );
@@ -208,10 +243,22 @@ function Cell({ label, value, tone = "none" }: { label: string; value: string; t
 }
 
 /** "Log outreach" button that opens the small form (used on contact pages and for outreach without a contact). */
-export function LogOutreachButton({ contactId, back, label = "Log outreach" }: { contactId: string | null; back: string; label?: string }) {
+export function LogOutreachButton({
+  contactId,
+  back,
+  label = "Log outreach",
+  purposeAvailable = false,
+  defaultPurpose = "general",
+}: {
+  contactId: string | null;
+  back: string;
+  label?: string;
+  purposeAvailable?: boolean;
+  defaultPurpose?: "general" | "deal_sourcing";
+}) {
   const [open, setOpen] = useState(false);
   return open ? (
-    <LogOutreachForm contactId={contactId} back={back} onCancel={() => setOpen(false)} />
+    <LogOutreachForm contactId={contactId} back={back} onCancel={() => setOpen(false)} purposeAvailable={purposeAvailable} defaultPurpose={defaultPurpose} />
   ) : (
     <Button type="button" size="sm" variant="outline" onClick={() => setOpen(true)} className="self-start">
       <Check /> {label}

@@ -3,6 +3,7 @@
  * The generic record page (/records/[table]/[id]) and forms are built from these definitions.
  */
 import { METRICS } from "@/lib/metrics-list";
+import { REQUIRED_FIELD_DEFS } from "@/lib/calc/pipeline";
 
 export type FieldType =
   | "text"
@@ -79,8 +80,25 @@ export const WEEKDAY_OPTIONS: Option[] = ["Sunday", "Monday", "Tuesday", "Wednes
 export const COUNT_SOURCE_OPTIONS: Option[] = [
   { value: "communications_outreach", label: "Outreach logged (communications marked as outreach)" },
   { value: "pipeline_items_created", label: "Pipeline items added" },
+  { value: "deals_sourced", label: "Deals sourced (new acquisition items, with proprietary and brokered counts)" },
+  { value: "deals_advanced", label: "Deals advanced (CIM requested, source contacted, or moved to the chosen stage or later)" },
   { value: "manual", label: "Manual count (press +1)" },
 ];
+
+export const DEAL_SOURCE_OPTIONS: Option[] = [
+  { value: "proprietary", label: "Proprietary (off-market, found directly)" },
+  { value: "brokered", label: "Brokered (listed by a broker)" },
+];
+
+export const PURPOSE_OPTIONS: Option[] = [
+  { value: "general", label: "General" },
+  { value: "deal_sourcing", label: "Deal sourcing (asking about off-market deals)" },
+  { value: "cim_request", label: "CIM request (on an acquisition item)" },
+  { value: "source_contact", label: "Contact with the broker or referral source (on an acquisition item)" },
+];
+
+/** pipeline_items fields shown only on acquisition items. */
+export const ACQUISITION_ONLY_FIELDS = ["deal_source_type", "source_contact_id", "source_notes"];
 
 const R: Resource[] = [
   // Owner and entities
@@ -607,7 +625,7 @@ const R: Resource[] = [
       { name: "decided_on", label: "Date decided", type: "date" },
       { name: "chosen_option_id", label: "Chosen option", type: "ref", ref: "decision_options" },
       { name: "outcome", label: "Outcome", type: "textarea" },
-      { name: "source", label: "Opened by", type: "select", options: o("manual", "milestone", "decision_condition", "missed_commitment", "ai"), readOnly: true, default: "manual" },
+      { name: "source", label: "Opened by", type: "select", options: [...o("manual", "milestone", "decision_condition", "missed_commitment", "ai"), { value: "pipeline_stage", label: "Stage time limit" }], readOnly: true, default: "manual" },
     ],
     columns: ["title", "status", "due_date", "decided_on", "source"],
     order: ["created_at", false],
@@ -703,6 +721,8 @@ const R: Resource[] = [
         { value: "won", label: "Closed, won" },
         { value: "lost", label: "Closed, passed or lost" },
       ], default: "open" },
+      { name: "max_days_in_stage", label: "Time limit (days in this stage)", type: "number", help: "When an open item is in this stage longer, a decision opens: advance, pass, or extend. Empty = no limit." },
+      { name: "required_fields", label: "Details required before an item can enter this stage", type: "multiselect", options: REQUIRED_FIELD_DEFS.map((d) => ({ value: d.key, label: d.label })) },
     ],
     columns: ["position", "name", "outcome"],
     order: ["position", true],
@@ -718,11 +738,14 @@ const R: Resource[] = [
       { name: "name", label: "Name", type: "text", required: true },
       { name: "pipeline_id", label: "Pipeline", type: "ref", ref: "pipelines", required: true },
       { name: "stage_id", label: "Stage", type: "ref", ref: "pipeline_stages", required: true },
-      { name: "next_action", label: "Next action", type: "text" },
-      { name: "next_action_due", label: "Next action due", type: "date" },
+      { name: "next_action", label: "Next action", type: "text", required: true, help: "Filled from the stage's default task. Change it if needed." },
+      { name: "next_action_due", label: "Next action due", type: "date", required: true },
+      { name: "deal_source_type", label: "Deal source", type: "select", options: DEAL_SOURCE_OPTIONS },
+      { name: "source_contact_id", label: "Broker or referral person", type: "ref", ref: "contacts" },
       { name: "organization_id", label: "Organization", type: "ref", ref: "organizations" },
       { name: "primary_contact_id", label: "Main contact", type: "ref", ref: "contacts" },
       { name: "source", label: "Where it came from", type: "text" },
+      { name: "source_notes", label: "Source notes", type: "textarea", help: "How the deal was found, who referred it, and what was said." },
       { name: "status", label: "Status", type: "select", options: o("open", "won", "lost"), readOnly: true },
       { name: "notes", label: "Notes", type: "textarea" },
     ],
@@ -858,6 +881,7 @@ const R: Resource[] = [
         { value: "professional", label: "Professional (every 90 days)" },
       ] },
       { name: "outreach_every_days", label: "Reach out every (days)", type: "number", help: "Leave empty to use the group default: close 30, warm 60, professional 90." },
+      { name: "is_deal_source", label: "Deal source (can refer off-market deals)", type: "boolean", help: "Owners, operators, accountants, attorneys, bankers. Listed first in the Outreach Queue." },
       { name: "notes", label: "Notes", type: "textarea" },
     ],
     columns: ["name", "organization_id", "roles", "email", "follow_up_date"],
@@ -885,6 +909,8 @@ const R: Resource[] = [
       { name: "summary", label: "Summary", type: "textarea" },
       { name: "is_outreach", label: "Counts as outreach (Daily Targets)", type: "boolean" },
       { name: "outcome", label: "Outreach outcome", type: "select", options: OUTCOME_OPTIONS },
+      { name: "purpose", label: "Purpose", type: "select", options: PURPOSE_OPTIONS, help: "Empty = deal sourcing for deal-source contacts, otherwise general." },
+      { name: "pipeline_item_id", label: "Pipeline item it concerns", type: "ref", ref: "pipeline_items" },
     ],
     columns: ["occurred_at", "method", "contact_id", "subject"],
     order: ["occurred_at", false],
@@ -960,6 +986,43 @@ const R: Resource[] = [
     order: ["starts_at", false],
     empty: "Time blocks for priority tasks and reviews are added each morning when Google is connected.",
   },
+  // Stage task lists (Settings, Initiatives and pipelines)
+  {
+    table: "stage_tasks",
+    singular: "Stage task",
+    plural: "Stage tasks",
+    titleField: "title",
+    listHref: "/settings/initiatives",
+    fields: [
+      { name: "pipeline_stage_id", label: "Stage", type: "ref", ref: "pipeline_stages", required: true },
+      { name: "title", label: "Task", type: "text", required: true, help: "Example: Request teaser or CIM" },
+      { name: "due_in_days", label: "Due (days after entering the stage)", type: "number", required: true, default: 2 },
+      { name: "is_next_action_default", label: "Use as the item's next action when it enters the stage", type: "boolean" },
+      { name: "is_commitment", label: "Counts as a commitment", type: "boolean", default: true },
+      { name: "sort_order", label: "Order", type: "number", default: 1 },
+    ],
+    columns: ["sort_order", "title", "due_in_days", "is_next_action_default"],
+    order: ["sort_order", true],
+    empty: "Tasks created for an item when it enters this stage.",
+  },
+  {
+    table: "pipeline_item_stage_extensions",
+    singular: "Stage time extension",
+    plural: "Stage time extensions",
+    titleField: "extra_days",
+    listHref: "/opportunities",
+    fields: [
+      { name: "item_id", label: "Pipeline item", type: "ref", ref: "pipeline_items", required: true },
+      { name: "stage_id", label: "Stage", type: "ref", ref: "pipeline_stages", required: true },
+      { name: "extra_days", label: "Extra days", type: "number", required: true },
+      { name: "decision_id", label: "Decision", type: "ref", ref: "decisions" },
+      { name: "note", label: "Note", type: "textarea" },
+    ],
+    columns: ["item_id", "stage_id", "extra_days"],
+    order: ["created_at", false],
+    empty: "Extensions are added when Extend is chosen on a stage time limit decision.",
+    noCreate: true,
+  },
   // Accountability: Daily Targets
   {
     table: "targets",
@@ -976,7 +1039,8 @@ const R: Resource[] = [
       { name: "minimum_count", label: "Minimum count per period", type: "number", required: true, default: 3 },
       { name: "active_weekdays", label: "Days it applies (per-day targets only)", type: "multiselect", options: WEEKDAY_OPTIONS, default: "1,2,3,4,5" },
       { name: "count_source", label: "What is counted", type: "select", options: COUNT_SOURCE_OPTIONS, required: true, default: "communications_outreach" },
-      { name: "pipeline_id", label: "Only this pipeline (for pipeline items added)", type: "ref", ref: "pipelines" },
+      { name: "pipeline_id", label: "Only this pipeline (pipeline items added, deals sourced, deals advanced)", type: "ref", ref: "pipelines" },
+      { name: "stage_id", label: "Deals advanced: count moves into this stage or later", type: "ref", ref: "pipeline_stages", help: "Empty = NDA signed." },
       { name: "initiative_id", label: "Initiative", type: "ref", ref: "initiatives" },
       { name: "start_date", label: "Counting starts on", type: "date", help: "Days before this date are not counted as met or missed. Empty = today." },
       { name: "is_commitment", label: "Counts as a commitment (included in the commitment score)", type: "boolean", default: true },
@@ -1199,6 +1263,7 @@ export const EXPORT_TABLES = [
   "initiatives", "goals", "milestones", "milestone_options", "decision_conditions", "decisions", "decision_options",
   "scenarios", "scenario_input_changes",
   "pipelines", "pipeline_stages", "pipeline_items", "stage_history", "deal_financials", "diligence_items", "job_details", "investor_details",
+  "stage_tasks", "pipeline_item_stage_extensions",
   "task_templates", "tasks", "calendar_events", "daily_plans",
   "commitments", "missed_commitments", "reviews", "partners", "partner_links", "partner_reports",
   "targets", "target_entries", "target_misses",

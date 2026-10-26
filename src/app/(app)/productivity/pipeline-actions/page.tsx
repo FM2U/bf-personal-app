@@ -6,6 +6,9 @@ import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { EmptyState, PageHeader } from "@/components/app/page-header";
 import { date as fmtDate } from "@/lib/format";
 import type { Row } from "@/lib/types";
+import { sourceRank } from "@/lib/calc/pipeline";
+import { loadPipelineStatus } from "@/lib/pipeline";
+import { DealSourceBadge, ItemStatusBadges } from "@/components/app/pipeline-badges";
 
 export const metadata = { title: "Pipeline next actions" };
 
@@ -19,7 +22,14 @@ export default async function PipelineActionsPage() {
   ]);
   const pn = Object.fromEntries(((pipes ?? []) as Row[]).map((p) => [p.id, p.name]));
   const sn = Object.fromEntries(((stages ?? []) as Row[]).map((p) => [p.id, p.name]));
-  const list = (items ?? []) as Row[];
+  // Items without a next action first, then by due date; at the same date proprietary deals come before brokered ones.
+  const list = ((items ?? []) as Row[]).sort((a, b) => {
+    const ad = a.next_action_due ?? "";
+    const bd = b.next_action_due ?? "";
+    if (ad !== bd) return ad < bd ? -1 : 1;
+    return sourceRank(a.deal_source_type) - sourceRank(b.deal_source_type);
+  });
+  const status = await loadPipelineStatus(supabase, list, { ownerId, tz: ctx.tz, today: ctx.today });
   return (
     <div>
       <PageHeader title="Pipeline next actions" description="Every open pipeline item's next action. Each one also appears in the task list on its due date. Items without a next action are listed first." />
@@ -34,6 +44,7 @@ export default async function PipelineActionsPage() {
                   <TH>Item</TH>
                   <TH>Pipeline</TH>
                   <TH>Stage</TH>
+                  <TH>Status</TH>
                 </TR>
               </THead>
               <TBody>
@@ -42,12 +53,18 @@ export default async function PipelineActionsPage() {
                     <TD className={`whitespace-nowrap ${i.next_action_due && i.next_action_due < ctx.today ? "font-medium text-red-700" : ""}`}>{i.next_action_due ? fmtDate(i.next_action_due) : "Not set"}</TD>
                     <TD className={i.next_action ? "" : "text-amber-700"}>{i.next_action ?? "Set the next action"}</TD>
                     <TD>
-                      <Link href={`/records/pipeline_items/${i.id}`} className="font-medium hover:underline">
-                        {i.name}
-                      </Link>
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        <Link href={`/records/pipeline_items/${i.id}`} className="font-medium hover:underline">
+                          {i.name}
+                        </Link>
+                        <DealSourceBadge type={i.deal_source_type} />
+                      </span>
                     </TD>
                     <TD>{pn[i.pipeline_id]}</TD>
                     <TD>{sn[i.stage_id]}</TD>
+                    <TD>
+                      <ItemStatusBadges status={status.byItem[i.id]} itemStatus={i.status} fallback />
+                    </TD>
                   </TR>
                 ))}
               </TBody>

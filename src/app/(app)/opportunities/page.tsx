@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState, PageHeader, Stat } from "@/components/app/page-header";
 import { date as fmtDate } from "@/lib/format";
 import type { Row } from "@/lib/types";
+import { loadPipelineStatus } from "@/lib/pipeline";
 
 export const metadata = { title: "Opportunities" };
 
@@ -15,11 +16,12 @@ export default async function OpportunitiesPage() {
   const [{ data: pipes }, { data: stages }, { data: items }, { data: inits }] = await Promise.all([
     supabase.from("pipelines").select("*").eq("is_active", true).order("sort_order"),
     supabase.from("pipeline_stages").select("*").order("position"),
-    supabase.from("pipeline_items").select("id,name,pipeline_id,stage_id,status,next_action,next_action_due"),
+    supabase.from("pipeline_items").select("*"),
     supabase.from("initiatives").select("id,name"),
   ]);
   const initName = Object.fromEntries(((inits ?? []) as Row[]).map((i) => [i.id, i.name]));
   const all = (items ?? []) as Row[];
+  const status = await loadPipelineStatus(supabase, all.filter((i) => i.status === "open"), { ownerId, tz: ctx.tz, today: ctx.today, stages: (stages ?? []) as Row[] });
   return (
     <div>
       <PageHeader
@@ -50,9 +52,10 @@ export default async function OpportunitiesPage() {
                   <CardDescription>{initName[p.initiative_id] ?? "No initiative"}</CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-4">
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-4 gap-3">
                     <Stat label="Open items" value={open.length} />
                     <Stat label="Next actions due" value={due.length} tone={due.length ? "warn" : undefined} />
+                    <Stat label="Stalled" value={open.filter((i) => status.byItem[i.id]?.stalled).length} tone={open.some((i) => status.byItem[i.id]?.stalled) ? "warn" : undefined} />
                     <Stat label="Closed won" value={its.filter((i) => i.status === "won").length} />
                   </div>
                   <div className="flex h-2 overflow-hidden rounded-full bg-slate-100">

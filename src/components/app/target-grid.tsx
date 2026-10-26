@@ -90,17 +90,24 @@ export function TargetLegend() {
   );
 }
 
-/** Small notice shown where a feature needs database update 0008. */
-export function DbUpdateNotice({ compact = false }: { compact?: boolean }) {
+/** Small notice shown where a feature needs the database update (0008 and 0009 in supabase/UPDATE_RUN_ONCE.sql). */
+export function DbUpdateNotice({ compact = false, features }: { compact?: boolean; features?: string }) {
   return (
     <div className={cn("rounded-lg border border-amber-200 bg-amber-50 text-amber-900", compact ? "px-3 py-2 text-xs" : "px-4 py-3 text-sm")}>
-      <span className="font-semibold">Database update needed:</span> paste <code className="rounded bg-amber-100 px-1 text-[0.95em]">{DB_UPDATE_FILE}</code> into the Supabase SQL Editor and run it.{" "}
+      <span className="font-semibold">Database update needed:</span> paste <code className="rounded bg-amber-100 px-1 text-[0.95em]">{DB_UPDATE_FILE}</code> into the Supabase SQL Editor and run it.
       {compact ? null : (
-        <Link href="/accountability/targets" className="underline">
-          Daily Targets
-        </Link>
+        <>
+          {" "}
+          {features ?? (
+            <>
+              <Link href="/accountability/targets" className="underline">
+                Daily Targets
+              </Link>
+              , the Outreach Queue, stage task lists, stage time limits, and deal source tracking appear after the update.
+            </>
+          )}
+        </>
       )}
-      {compact ? null : " and the Outreach Queue appear after the update."}
     </div>
   );
 }

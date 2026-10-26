@@ -4,11 +4,11 @@ import { cn } from "@/lib/utils";
 export function PageHeader({ title, description, actions, className }: { title: string; description?: React.ReactNode; actions?: React.ReactNode; className?: string }) {
   return (
     <div className={cn("mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between", className)}>
-      <div className="min-w-0">
+      <div className="min-w-0 sm:flex-1">
         <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">{title}</h1>
         {description ? <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{description}</p> : null}
       </div>
-      {actions ? <div className="no-print flex flex-wrap gap-2">{actions}</div> : null}
+      {actions ? <div className="no-print flex flex-wrap gap-2 sm:max-w-[55%] sm:shrink-0 sm:justify-end">{actions}</div> : null}
     </div>
   );
 }

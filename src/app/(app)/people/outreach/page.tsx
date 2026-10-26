@@ -12,6 +12,7 @@ import { EmptyState, Notice, PageHeader, Stat } from "@/components/app/page-head
 import { DbUpdateNotice } from "@/components/app/target-grid";
 import { LogOutreachButton, OutreachQueueRow, type QueueItem } from "@/components/app/outreach-actions";
 import { date as fmtDate } from "@/lib/format";
+import { hasPipelineUpdate } from "@/lib/pipeline";
 
 export const metadata = { title: "Outreach Queue" };
 
@@ -26,6 +27,7 @@ function toItem(r: QueueRow): QueueItem {
     overdueTone: s.neverContacted || (s.daysOverdue ?? 0) > 14 ? "bad" : (s.daysOverdue ?? 0) > 0 ? "warn" : "none",
     lastOutcome: r.lastOutcome ? OUTCOME_LABELS[r.lastOutcome] ?? r.lastOutcome : r.lastContactDate ? "Not recorded" : "None",
     lastContact: r.lastContactDate ?? "",
+    isDealSource: r.isDealSource,
   };
 }
 
@@ -34,11 +36,13 @@ export default async function OutreachQueuePage({ searchParams }: { searchParams
   const { supabase, ownerId } = await requireOwner();
   const ctx = await loadCtx(supabase, ownerId);
   const today = ctx.today;
-  const [queue, stats, targets] = await Promise.all([
+  const [queue, stats, targets, purposeAvailable] = await Promise.all([
     loadOutreachQueue(supabase, { ownerId, today, tz: ctx.tz }),
     loadOutreachStats(supabase, { ownerId, tz: ctx.tz, from: addDaysISO(today, -29), to: today }),
     loadTargets(supabase, { ownerId, tz: ctx.tz, from: addDaysISO(today, -7), to: today }),
+    hasPipelineUpdate(supabase),
   ]);
+  const dealSourcesDue = queue.due.filter((r) => r.isDealSource).length;
   const outreachTarget = summarizeTargets(targets, today).find((s) => s.target.count_source === "communications_outreach");
   const upcoming = queue.all
     .filter((r) => !r.status.due && r.status.dueDate)
@@ -50,7 +54,7 @@ export default async function OutreachQueuePage({ searchParams }: { searchParams
     <div>
       <PageHeader
         title="Outreach Queue"
-        description="Contacts due for a message, most overdue first. Due = the last communication date plus the contact's frequency (close 30, warm 60, professional 90 days unless set on the contact)."
+        description="Contacts due for a message. Deal sources (people who can refer off-market deals) come first, then the most overdue. Due = the last communication date plus the contact's frequency (close 30, warm 60, professional 90 days unless set on the contact)."
       />
       <div className="flex flex-col gap-4">
         {sp.notice ? <Notice tone={sp.notice.startsWith("Database update") || sp.notice.startsWith("Not saved") ? "warn" : "success"}>{sp.notice}</Notice> : null}
@@ -61,7 +65,7 @@ export default async function OutreachQueuePage({ searchParams }: { searchParams
             <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
               <Card>
                 <CardContent className="pt-5">
-                  <Stat label="Contacts due now" value={queue.due.length} tone={queue.due.length ? "warn" : "good"} />
+                  <Stat label="Contacts due now" value={queue.due.length} tone={queue.due.length ? "warn" : "good"} hint={purposeAvailable ? `${dealSourcesDue} deal ${dealSourcesDue === 1 ? "source" : "sources"}` : undefined} />
                 </CardContent>
               </Card>
               <Card>
@@ -70,7 +74,13 @@ export default async function OutreachQueuePage({ searchParams }: { searchParams
                     label={outreachTarget ? `${outreachTarget.target.name} today` : "Outreach logged today"}
                     value={outreachTarget ? (outreachTarget.today.status === "off" ? "Not today" : `${outreachTarget.today.count} of ${outreachTarget.today.required}`) : "No target"}
                     tone={outreachTarget?.today.status === "met" ? "good" : undefined}
-                    hint={outreachTarget?.today.status === "off" ? "Inactive day" : undefined}
+                    hint={
+                      outreachTarget?.today.status === "off"
+                        ? "Inactive day"
+                        : stats?.dealSourcingSharePct !== null && stats?.dealSourcingSharePct !== undefined
+                          ? `Deal sourcing: ${stats.dealSourcingSharePct}% of the last 30 days`
+                          : undefined
+                    }
                   />
                 </CardContent>
               </Card>
@@ -90,7 +100,9 @@ export default async function OutreachQueuePage({ searchParams }: { searchParams
               <CardHeader className="flex-row flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <CardTitle className="flex items-center gap-2">Due now {queue.due.length ? <Badge variant="warning">{queue.due.length}</Badge> : null}</CardTitle>
-                  <CardDescription>Log outreach after you send a message or make a call. It counts toward the Network outreach target. Draft message never sends anything.</CardDescription>
+                  <CardDescription>
+                    Log outreach after you send a message or make a call. It counts toward the Network outreach target. For a deal source, Draft message writes an off-market deal sourcing ask. Draft message never sends anything.
+                  </CardDescription>
                 </div>
               </CardHeader>
               <CardContent>
@@ -117,7 +129,7 @@ export default async function OutreachQueuePage({ searchParams }: { searchParams
                     </div>
                     <div className="flex flex-col divide-y divide-slate-100">
                       {queue.due.map((r) => (
-                        <OutreachQueueRow key={r.id} item={toItem(r)} back={back} />
+                        <OutreachQueueRow key={r.id} item={toItem(r)} back={back} purposeAvailable={purposeAvailable} />
                       ))}
                     </div>
                   </div>
@@ -138,9 +150,16 @@ export default async function OutreachQueuePage({ searchParams }: { searchParams
                     <ul className="flex flex-col divide-y divide-slate-100">
                       {upcoming.map((r) => (
                         <li key={r.id} className="grid grid-cols-[minmax(0,1fr)_auto_3.5rem] items-center gap-3 py-2 text-sm">
-                          <Link href={`/records/contacts/${r.id}`} className="clamp-1 font-medium hover:underline">
-                            {r.name}
-                          </Link>
+                          <span className="flex min-w-0 items-center gap-1.5">
+                            <Link href={`/records/contacts/${r.id}`} className="clamp-1 min-w-0 font-medium hover:underline">
+                              {r.name}
+                            </Link>
+                            {r.isDealSource ? (
+                              <Badge variant="success" className="shrink-0">
+                                Deal source
+                              </Badge>
+                            ) : null}
+                          </span>
                           <span className="clamp-1 text-muted-foreground">{r.group ? GROUP_LABELS[r.group as RelationshipGroup] : `Every ${r.status.everyDays} days`}</span>
                           <span className="tabular text-right text-muted-foreground">{fmtDate(r.status.dueDate, "MMM d")}</span>
                         </li>
@@ -157,7 +176,7 @@ export default async function OutreachQueuePage({ searchParams }: { searchParams
                   <CardDescription>Logs outreach without a contact. To link a person, log it from their contact page instead.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <LogOutreachButton contactId={null} back={back} />
+                  <LogOutreachButton contactId={null} back={back} purposeAvailable={purposeAvailable} />
                 </CardContent>
               </Card>
             </div>
