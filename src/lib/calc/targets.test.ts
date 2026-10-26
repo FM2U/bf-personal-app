@@ -100,7 +100,9 @@ describe("outreach queue", () => {
 
   it("calculates the reply rate", () => {
     const s = outreachStats([{ outcome: "replied" }, { outcome: "meeting_booked" }, { outcome: "no_response" }, { outcome: null }]);
-    expect(s).toEqual({ sent: 4, replied: 1, meetings: 1, referrals: 0, noResponse: 1, replyRatePct: 50 });
+    expect(s).toEqual({ sent: 4, replied: 1, meetings: 1, referrals: 0, noResponse: 1, replyRatePct: 50, dealSourcing: null, dealSourcingSharePct: null });
+    const d = outreachStats([{ outcome: null, purpose: "deal_sourcing" }, { outcome: null, purpose: "general" }, { outcome: "replied", purpose: "deal_sourcing" }, { outcome: null, purpose: "general" }]);
+    expect(d).toMatchObject({ sent: 4, dealSourcing: 2, dealSourcingSharePct: 50 });
     expect(outreachStats([]).replyRatePct).toBeNull();
   });
 });

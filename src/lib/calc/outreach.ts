@@ -55,27 +55,52 @@ export function outreachStatus(
   return { everyDays, dueDate, due: overdue >= 0, daysOverdue: overdue >= 0 ? overdue : null, neverContacted: false };
 }
 
-/** Never-contacted contacts first (by name), then most days overdue first. */
-export function sortQueue<T extends { name: string; status: OutreachStatus }>(rows: T[]): T[] {
+/**
+ * Deal-source contacts first (people who can refer off-market deals), then never-contacted contacts (by name),
+ * then most days overdue first.
+ */
+export function sortQueue<T extends { name: string; status: OutreachStatus; isDealSource?: boolean }>(rows: T[]): T[] {
   return [...rows].sort((a, b) => {
+    if (!!a.isDealSource !== !!b.isDealSource) return a.isDealSource ? -1 : 1;
     if (a.status.neverContacted !== b.status.neverContacted) return a.status.neverContacted ? -1 : 1;
     const d = (b.status.daysOverdue ?? 0) - (a.status.daysOverdue ?? 0);
     return d !== 0 ? d : a.name.localeCompare(b.name);
   });
 }
 
-export type OutreachStats = { sent: number; replied: number; meetings: number; referrals: number; noResponse: number; replyRatePct: number | null };
+export type OutreachStats = {
+  sent: number;
+  replied: number;
+  meetings: number;
+  referrals: number;
+  noResponse: number;
+  replyRatePct: number | null;
+  /** Outreach with purpose deal_sourcing. Null when database update 0009 is not applied. */
+  dealSourcing: number | null;
+  dealSourcingSharePct: number | null;
+};
 
 /**
  * Totals for outreach communications. Reply rate = outreach with any reply outcome
  * (replied, meeting booked, or referral) divided by all outreach sent.
  */
-export function outreachStats(comms: { outcome: string | null }[]): OutreachStats {
+export function outreachStats(comms: { outcome: string | null; purpose?: string | null }[]): OutreachStats {
   const sent = comms.length;
   const replied = comms.filter((c) => c.outcome === "replied").length;
   const meetings = comms.filter((c) => c.outcome === "meeting_booked").length;
   const referrals = comms.filter((c) => c.outcome === "referral").length;
   const noResponse = comms.filter((c) => c.outcome === "no_response").length;
   const anyReply = replied + meetings + referrals;
-  return { sent, replied, meetings, referrals, noResponse, replyRatePct: sent ? Math.round((anyReply / sent) * 100) : null };
+  const hasPurpose = comms.some((c) => c.purpose !== undefined);
+  const dealSourcing = hasPurpose ? comms.filter((c) => c.purpose === "deal_sourcing").length : null;
+  return {
+    sent,
+    replied,
+    meetings,
+    referrals,
+    noResponse,
+    replyRatePct: sent ? Math.round((anyReply / sent) * 100) : null,
+    dealSourcing,
+    dealSourcingSharePct: dealSourcing !== null && sent ? Math.round((dealSourcing / sent) * 100) : null,
+  };
 }
