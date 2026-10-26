@@ -114,7 +114,7 @@ end $$;
 
 -- 10. Targets and outreach (0008): owner sees the seeded target, manual taps and outreach logging work.
 do $$ begin
-  assert (select count(*) from public.targets) = 1, 'aal2 owner must see the seeded target';
+  assert (select count(*) from public.targets) = 3, 'aal2 owner must see the 3 seeded targets';
   assert (select count_source from public.targets where name = 'Network outreach') = 'communications_outreach', 'seed target source';
   assert (select minimum_count from public.targets where name = 'Network outreach') = 3, 'seed target minimum';
   assert (select active_weekdays from public.targets where name = 'Network outreach') = '{1,2,3,4,5}'::int[], 'seed target weekdays';
@@ -175,7 +175,114 @@ begin
 end $$;
 select public.seed_owner_targets('00000000-0000-0000-0000-000000000001');
 do $$ begin
-  assert (select count(*) from public.targets) = 1, 'seed target must not duplicate';
+  assert (select count(*) from public.targets) = 3, 'seed targets must not duplicate';
 end $$;
+
+-- 13. Pipeline accountability (0009): new tables locked to the owner, seeds present and not duplicated.
+do $$
+declare t text;
+begin
+  foreach t in array array['stage_tasks', 'pipeline_item_stage_extensions'] loop
+    assert (select relrowsecurity from pg_class where oid = format('public.%I', t)::regclass), format('RLS on %s', t);
+    assert exists (select 1 from pg_policies where schemaname = 'public' and tablename = t and policyname = 'owner_only'), format('policy on %s', t);
+    assert exists (select 1 from pg_trigger where tgrelid = format('public.%I', t)::regclass and tgname = 'log_change'), format('change log on %s', t);
+    assert exists (select 1 from pg_trigger where tgrelid = format('public.%I', t)::regclass and tgname = 'set_updated_at'), format('updated_at on %s', t);
+  end loop;
+end $$;
+do $$ begin
+  assert (select count(*) from public.stage_tasks) = 46, 'seeded stage tasks';
+  assert (select count(distinct p.id) from public.stage_tasks st join public.pipeline_stages s on s.id = st.pipeline_stage_id join public.pipelines p on p.id = s.pipeline_id) = 5, 'stage tasks for all 5 pipelines';
+  assert (select count(*) from public.pipeline_stages s where not exists (select 1 from public.stage_tasks st where st.pipeline_stage_id = s.id)) = 0, 'every stage has tasks';
+  assert (select max_days_in_stage from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.name = 'Acquisitions' and s.name = 'LOI signed') = 30, 'LOI signed limit';
+  assert (select required_fields from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.name = 'Acquisitions' and s.name = 'IOI sent') = '{revenue,ebitda,asking_price}'::text[], 'IOI sent required fields';
+  assert (select count(*) from public.pipeline_stages where outcome = 'open' and max_days_in_stage is null) = 0, 'every open stage has a time limit';
+  assert (select count(*) from public.targets where name in ('Deals sourced', 'Deals advanced')) = 2, 'deal targets';
+  assert (select minimum_count from public.targets where name = 'Deals sourced') = 5, 'deals sourced minimum';
+  assert (select count_source from public.targets where name = 'Deals advanced') = 'deals_advanced', 'deals advanced source';
+  assert (select s.name from public.targets t join public.pipeline_stages s on s.id = t.stage_id where t.name = 'Deals advanced') = 'NDA signed', 'deals advanced stage';
+  assert (select start_date from public.targets where name = 'Deals sourced') = (now() at time zone 'America/New_York')::date, 'counting starts today (New York)';
+  assert (select value_number from public.inputs where key = 'pipeline_stall_days') = 7, 'stall days input';
+  assert (select category from public.inputs where key = 'pipeline_stall_days') = 'Opportunities', 'stall days category';
+end $$;
+select public.seed_owner_pipeline_accountability('00000000-0000-0000-0000-000000000001');
+do $$ begin
+  assert (select count(*) from public.stage_tasks) = 46, 'stage tasks must not duplicate';
+  assert (select count(*) from public.targets) = 3, 'targets must not duplicate';
+end $$;
+
+-- 14. Entering a stage: default next action, stage tasks, commitments (once per item and stage task).
+set role authenticated;
+select set_config('request.jwt.claim.aal', 'aal2', false);
+insert into public.pipeline_items (pipeline_id, stage_id, name, deal_source_type)
+select p.id, s.id, 'Playbook deal', 'proprietary' from public.pipelines p join public.pipeline_stages s on s.pipeline_id = p.id
+where p.name = 'Acquisitions' and s.name = 'Sourced';
+do $$ begin
+  assert (select next_action from public.pipeline_items where name = 'Playbook deal') = 'Request teaser or CIM', 'default next action';
+  assert (select next_action_due from public.pipeline_items where name = 'Playbook deal') = (now() at time zone 'America/New_York')::date + 2, 'default next action due';
+  assert (select count(*) from public.tasks where title like 'Playbook deal: %') = 2, 'Sourced stage tasks created';
+  assert (select count(*) from public.commitments where title like 'Playbook deal: %') = 2, 'stage tasks are commitments';
+  assert (select initiative_id is not null from public.tasks where title = 'Playbook deal: Request teaser or CIM'), 'task linked to initiative';
+end $$;
+update public.pipeline_items set stage_id = (
+  select s.id from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.name = 'Acquisitions' and s.name = 'Screened'
+) where name = 'Playbook deal';
+do $$ begin
+  assert (select next_action from public.pipeline_items where name = 'Playbook deal') = 'Sign NDA', 'next action follows the new stage';
+  assert (select count(*) from public.tasks where title like 'Playbook deal: %') = 4, 'Screened stage tasks added';
+end $$;
+-- Back to Sourced and forward again: no duplicate tasks. A next action typed by hand is kept.
+update public.pipeline_items set stage_id = (
+  select s.id from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.name = 'Acquisitions' and s.name = 'Sourced'
+) where name = 'Playbook deal';
+update public.pipeline_items set next_action = 'Call the owner directly', stage_id = (
+  select s.id from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.name = 'Acquisitions' and s.name = 'Screened'
+) where name = 'Playbook deal';
+do $$ begin
+  assert (select count(*) from public.tasks where title like 'Playbook deal: %') = 4, 'stage tasks not duplicated on re-entry';
+  assert (select next_action from public.pipeline_items where name = 'Playbook deal') = 'Call the owner directly', 'typed next action kept';
+end $$;
+-- Passing the item skips its open pipeline tasks and closes their commitments.
+update public.pipeline_items set stage_id = (
+  select s.id from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.name = 'Acquisitions' and s.name = 'Passed'
+) where name = 'Playbook deal';
+do $$ begin
+  assert (select count(*) from public.tasks where title like 'Playbook deal: %' and status = 'todo') = 1, 'only the Passed stage task stays open';
+  assert (select count(*) from public.commitments where title like 'Playbook deal: %' and status = 'open') = 1, 'commitments closed except the new one';
+end $$;
+-- Purpose defaults to deal_sourcing for deal-source contacts; the new count sources are accepted.
+insert into public.contacts (name, is_deal_source) values ('Deal source CPA', true);
+insert into public.communications (method, subject, contact_id, purpose)
+select 'email', 'Asked about off-market sellers', id, null from public.contacts where name = 'Deal source CPA';
+insert into public.communications (method, subject) values ('email', 'Plain note');
+insert into public.targets (name, count_source) values ('Test deals advanced', 'deals_advanced');
+insert into public.pipeline_item_stage_extensions (item_id, stage_id, stage_entered_at, extra_days)
+select id, stage_id, stage_entered_at, 7 from public.pipeline_items where name = 'Playbook deal';
+do $$ begin
+  assert (select purpose from public.communications where subject = 'Asked about off-market sellers') = 'deal_sourcing', 'deal source purpose';
+  assert (select purpose from public.communications where subject = 'Plain note') = 'general', 'general purpose';
+  assert (select count(*) from public.pipeline_item_stage_extensions) = 1, 'extension saved';
+end $$;
+do $$ begin
+  begin
+    update public.pipeline_items set deal_source_type = 'rumor' where name = 'Playbook deal';
+    raise exception 'invalid deal source allowed';
+  exception when check_violation then null;
+  end;
+end $$;
+select set_config('request.jwt.claim.aal', 'aal1', false);
+do $$ begin
+  assert (select count(*) from public.stage_tasks) = 0, 'aal1 session must not see stage tasks';
+  assert (select count(*) from public.pipeline_item_stage_extensions) = 0, 'aal1 session must not see extensions';
+end $$;
+reset role;
+set role anon;
+do $$ begin
+  begin
+    perform 1 from public.stage_tasks limit 1;
+    raise exception 'anon read of stage tasks allowed';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
 
 select 'smoke test passed' as result;

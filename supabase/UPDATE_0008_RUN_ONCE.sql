@@ -1,3 +1,6 @@
+-- USE supabase/UPDATE_RUN_ONCE.sql INSTEAD. That file includes this update (0008) and the next one (0009).
+-- This file is kept for reference only.
+--
 -- BF Personal App: database update 0008 (Daily Targets and Outreach Queue).
 -- For a database that already has 0001 to 0007. Paste this whole file into the Supabase SQL Editor and press Run.
 -- Safe to run more than once. Generated from supabase/migrations/0008_targets_outreach.sql.

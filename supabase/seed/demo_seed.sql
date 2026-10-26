@@ -177,6 +177,10 @@ declare
   cid uuid;
 begin
   if o is null then raise exception 'Create the owner account first'; end if;
+  if to_regclass('public.targets') is null then
+    raise notice 'Skipping Daily Targets demo data: database update 0008 is not applied.';
+    return;
+  end if;
   select id into t_out from targets where owner_id = o and name = 'Network outreach';
   -- Count the demo history from 8 weeks ago.
   update targets set start_date = current_date - 56 where id = t_out;
@@ -222,4 +226,74 @@ begin
   from (select current_date - g as day from generate_series(1, 14) g) x
   where extract(dow from x.day) between 1 and 5 and (select count(*) from communications cm where cm.owner_id = o and cm.is_outreach and cm.occurred_at::date = x.day) between 1 and 2
   limit 1;
+end $$;
+
+-- Pipeline accountability and deal source demo data (needs migration 0009).
+do $$
+declare
+  o uuid := (select id from auth.users order by created_at limit 1);
+  p_acq uuid;
+  st record;
+  c_cpa uuid; c_banker uuid; c_broker uuid; org_broker uuid;
+  it uuid;
+begin
+  if o is null then raise exception 'Create the owner account first'; end if;
+  if to_regclass('public.stage_tasks') is null then
+    raise notice 'Skipping pipeline accountability demo data: database update 0009 is not applied.';
+    return;
+  end if;
+  select id into p_acq from pipelines where owner_id = o and kind = 'acquisition' limit 1;
+  select id into c_broker from contacts where owner_id = o and name = 'Alex Example';
+  select id into org_broker from organizations where owner_id = o and name = 'Example Business Brokers';
+
+  -- Deal-source contacts (people who can refer off-market deals).
+  insert into contacts (owner_id, name, roles, title, email, relationship_group, is_deal_source, notes)
+  values (o, 'Pat Example, CPA', '{advisor}', 'Partner, small business accounting (demo)', 'pat@example.com', 'professional', true, 'Works with many owner-operators near retirement.')
+  returning id into c_cpa;
+  insert into contacts (owner_id, name, roles, title, email, relationship_group, is_deal_source, notes)
+  values (o, 'Quinn Demo', '{advisor}', 'Commercial banker (demo)', 'quinn@example.com', 'warm', true, 'Knows owners refinancing before a sale.')
+  returning id into c_banker;
+  update contacts set is_deal_source = true where owner_id = o and name = 'Morgan Example';
+  insert into communications (owner_id, occurred_at, method, direction, contact_id, subject, summary, is_outreach, purpose)
+  values (o, now() - interval '70 days', 'email', 'outgoing', c_banker, 'Outreach email: Quinn Demo', 'Asked about clients thinking about selling.', true, 'deal_sourcing');
+  update communications set purpose = 'deal_sourcing'
+   where owner_id = o and is_outreach and subject = 'Outreach' and extract(day from occurred_at)::int % 3 = 0;
+
+  -- Existing demo deals: source type.
+  update pipeline_items set deal_source_type = 'brokered', source_contact_id = c_broker, source_notes = 'Listed by Example Business Brokers.'
+   where owner_id = o and name = 'Demo HVAC Services Co';
+  update pipeline_items set deal_source_type = 'proprietary', source_contact_id = c_cpa, source_notes = 'Owner introduced by Pat Example, CPA.'
+   where owner_id = o and name = 'Demo Landscaping LLC';
+
+  -- New deals. Inserting an item creates its stage tasks and next action (database triggers).
+  for st in
+    select * from (values
+      ('Demo Plumbing Supply', 'Sourced', 'proprietary', 0, 'Owner referral from Quinn Demo.'),
+      ('Demo Bookkeeping Firm', 'Sourced', 'brokered', 0, 'Broker listing.'),
+      ('Demo Machine Shop', 'Screened', 'proprietary', 1, 'Direct letter to the owner.'),
+      ('Demo Sign Shop', 'NDA signed', 'proprietary', 12, 'Owner referral from Pat Example, CPA.'),
+      ('Demo Pest Control', 'Screened', 'brokered', 20, 'Broker listing.'),
+      ('Demo Car Wash Co', 'Sourced', 'brokered', 3, 'Broker listing.')
+    ) as v (name, stage, source_type, days_ago, notes)
+  loop
+    insert into pipeline_items (owner_id, pipeline_id, stage_id, name, deal_source_type, source_contact_id, source_notes)
+    select o, p_acq, s.id, st.name, st.source_type, case when st.source_type = 'brokered' then c_broker else c_cpa end, st.notes
+      from pipeline_stages s where s.pipeline_id = p_acq and s.name = st.stage
+    returning id into it;
+    insert into deal_financials (owner_id, item_id) values (o, it);
+    if st.days_ago > 0 then
+      update pipeline_items set created_at = now() - (st.days_ago || ' days')::interval, stage_entered_at = now() - (st.days_ago || ' days')::interval where id = it;
+      update stage_history set entered_at = now() - (st.days_ago || ' days')::interval where item_id = it;
+    end if;
+  end loop;
+  -- One item with no next action (the morning job adds an alert and a "Set next action" task).
+  update pipeline_items set next_action = null, next_action_due = null where owner_id = o and name = 'Demo Car Wash Co';
+  -- Today: a CIM request on Demo Sign Shop (counts toward Deals advanced).
+  select id into it from pipeline_items where owner_id = o and name = 'Demo Sign Shop';
+  insert into communications (owner_id, occurred_at, method, direction, contact_id, subject, purpose, pipeline_item_id)
+  values (o, now() - interval '5 minutes', 'email', 'outgoing', c_cpa, 'CIM requested: Demo Sign Shop', 'cim_request', it);
+  insert into record_links (owner_id, from_type, from_id, to_type, to_id, relation)
+  select o, 'communications', id, 'pipeline_items', it, 'concerns' from communications where owner_id = o and subject = 'CIM requested: Demo Sign Shop';
+  -- Count the deal targets from 1 week ago in the demo.
+  update targets set start_date = current_date - 7 where owner_id = o and name in ('Deals sourced', 'Deals advanced');
 end $$;
