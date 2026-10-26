@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDaysISO, parseDate } from "@/lib/calc/dates";
 import { checkGoogle, listEventsForDay, type MeetingItem } from "@/lib/google";
 import { checkPlaidItem, syncPlaidItem } from "@/lib/plaid";
-import { isPlaidConfigured } from "@/lib/env";
+import { env, isAIConfigured, isPlaidConfigured } from "@/lib/env";
 import { tryDraft } from "@/lib/ai/claude";
 import { computeMetrics } from "@/lib/metrics";
 import { money, months as fmtMonths } from "@/lib/format";
@@ -40,6 +40,95 @@ export async function plaidSyncAll(ctx: Ctx) {
     }
   }
   return results;
+}
+
+const KEY_EXPIRY_INPUT = "anthropic_key_expiry_date";
+const KEY_EXPIRY_WARNING_DAYS = 14;
+
+/** Makes sure the "Anthropic API key expiry date" input exists (added after first install). */
+async function ensureKeyExpiryInput(ctx: Ctx): Promise<string | null> {
+  const { data } = await ctx.sb.from("inputs").select("value_text").eq("owner_id", ctx.ownerId).eq("key", KEY_EXPIRY_INPUT).maybeSingle();
+  if (data) return (data as Row).value_text ?? null;
+  await ctx.sb.from("inputs").upsert(
+    {
+      owner_id: ctx.ownerId,
+      key: KEY_EXPIRY_INPUT,
+      label: "Anthropic API key expiry date",
+      category: "AI",
+      unit: "date",
+      value_number: null,
+      value_text: null,
+      description: `Date the Anthropic API key stops working (shown in the Anthropic Console). The app warns ${KEY_EXPIRY_WARNING_DAYS} days before this date.`,
+      sort_order: 265,
+    },
+    { onConflict: "owner_id,key", ignoreDuplicates: true },
+  );
+  return null;
+}
+
+/** Confirms the Anthropic API key is accepted. Listing models is free. */
+async function checkAnthropicKey(): Promise<{ ok: boolean; skipped?: boolean; error?: string }> {
+  if (!isAIConfigured()) return { ok: false, skipped: true };
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/models?limit=1", {
+      headers: { "x-api-key": env.anthropicKey, "anthropic-version": "2023-06-01" },
+      cache: "no-store",
+    });
+    if (res.ok) return { ok: true };
+    if (res.status === 401 || res.status === 403) return { ok: false, error: `the key was rejected (HTTP ${res.status})` };
+    return { ok: true, error: `Anthropic returned HTTP ${res.status}; not treated as a key problem` };
+  } catch (e) {
+    return { ok: true, error: `Anthropic could not be reached (${e instanceof Error ? e.message : String(e)}); not treated as a key problem` };
+  }
+}
+
+/** Daily check of the Anthropic API key: rejected key, and expiry within 14 days. */
+export async function anthropicKeyCheck(ctx: Ctx) {
+  const expiry = await ensureKeyExpiryInput(ctx);
+  const check = await checkAnthropicKey();
+  if (check.skipped) return { skipped: "AI is not set up yet" };
+  if (!check.ok) {
+    await createTask(ctx, {
+      title: "Replace the Anthropic API key (5 minutes)",
+      due_date: ctx.today,
+      source: "connection",
+      source_key: `anthropic:rejected:${ctx.today}`,
+      priority: 1,
+      description: `Anthropic reported that ${check.error}. Create a new key at console.anthropic.com/settings/keys, paste it into Vercel as ANTHROPIC_API_KEY, redeploy, then update the expiry date in Plan, Inputs and Assumptions.`,
+    });
+    await createAlert(ctx, {
+      kind: "connection",
+      severity: "critical",
+      message: "The Anthropic API key was rejected. AI features are not working until the key is replaced.",
+      href: "/settings",
+      dedupe_key: "connection:anthropic",
+    });
+  }
+  let daysLeft: number | null = null;
+  const expiryDate = expiry ? parseDate(expiry) : null;
+  if (expiryDate) {
+    const todayDate = parseDate(ctx.today);
+    if (todayDate) daysLeft = Math.round((expiryDate.getTime() - todayDate.getTime()) / 86_400_000);
+    if (daysLeft !== null && daysLeft <= KEY_EXPIRY_WARNING_DAYS) {
+      const when = daysLeft < 0 ? `expired on ${expiry}` : daysLeft === 0 ? "expires today" : `expires in ${daysLeft} days (${expiry})`;
+      await createTask(ctx, {
+        title: "Replace the Anthropic API key before it expires (5 minutes)",
+        due_date: daysLeft <= 0 ? ctx.today : addDaysISO(ctx.today, Math.max(0, daysLeft - 3)),
+        source: "connection",
+        source_key: `anthropic:expiry:${expiry}`,
+        priority: 1,
+        description: `The Anthropic API key ${when}. Create a new key at console.anthropic.com/settings/keys, paste it into Vercel as ANTHROPIC_API_KEY, redeploy, then enter the new expiry date in Plan, Inputs and Assumptions.`,
+      });
+      await createAlert(ctx, {
+        kind: "connection",
+        severity: daysLeft <= 3 ? "critical" : "warning",
+        message: `The Anthropic API key ${when}. Replace it to keep AI features working.`,
+        href: "/plan/inputs",
+        dedupe_key: `anthropic:expiry:${expiry}`,
+      });
+    }
+  }
+  return { ok: check.ok, note: check.error ?? null, expiry: expiry ?? "not set", daysLeft };
 }
 
 async function reconnectTask(ctx: Ctx, service: "Google" | "Plaid", detail: string) {
@@ -86,6 +175,7 @@ export async function connectionChecks(ctx: Ctx) {
     }
     out.plaid = plaid;
   }
+  out.anthropic = await anthropicKeyCheck(ctx);
   return out;
 }
 
