@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { STATUS_TEXT, toneStatus } from "@/lib/status";
 import { METRIC_LABEL } from "@/components/app/page-header";
+import { ModuleTitle, type ModuleKey } from "@/components/app/module-icon";
 
 export type Kpi = { label: string; value: React.ReactNode; hint?: string; href: string; tone?: "good" | "bad" | "warn" };
 
@@ -8,10 +10,10 @@ export type Kpi = { label: string; value: React.ReactNode; hint?: string; href: 
  * A labeled group of compact number tiles. Each tile opens its module.
  * Labels and hints are held to 2 lines each (space reserved), so values and hints line up across the row.
  */
-export function KpiGroup({ title, tiles, className, cols }: { title: string; tiles: Kpi[]; className?: string; cols: string }) {
+export function KpiGroup({ title, module, tiles, className, cols }: { title: string; module?: ModuleKey; tiles: Kpi[]; className?: string; cols: string }) {
   return (
     <section className={cn("flex min-w-0 flex-col gap-2 rounded-xl border border-border bg-white p-3", className)} aria-label={title}>
-      <h2 className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h2>
+      <h2 className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{module ? <ModuleTitle module={module}>{title}</ModuleTitle> : title}</h2>
       <div className={cn("grid gap-2", cols)}>
         {tiles.map((t) => (
           <Link
@@ -23,9 +25,7 @@ export function KpiGroup({ title, tiles, className, cols }: { title: string; til
             <span
               className={cn(
                 "tabular clamp-1 mt-1 text-lg font-semibold leading-tight text-slate-900 sm:text-xl",
-                t.tone === "good" && "text-emerald-700",
-                t.tone === "bad" && "text-red-700",
-                t.tone === "warn" && "text-amber-700",
+                t.tone && STATUS_TEXT[toneStatus(t.tone)],
               )}
             >
               {t.value}

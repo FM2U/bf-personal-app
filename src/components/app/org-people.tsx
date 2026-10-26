@@ -75,7 +75,7 @@ export function OrgPeopleEditor({
                 <li key={id} className="flex items-center justify-between gap-2 px-3 py-1.5 text-sm">
                   <span className="min-w-0">
                     <span className="clamp-1 font-medium text-slate-900">{c?.label ?? "Contact"}</span>
-                    {other ? <span className="clamp-1 text-xs text-amber-800">Moves here from {other}</span> : null}
+                    {other ? <span className="clamp-1 text-xs text-status-soon">Moves here from {other}</span> : null}
                   </span>
                   <Button type="button" variant="ghost" size="sm" className="shrink-0" onClick={() => setLinked((l) => l.filter((x) => x !== id))} aria-label={`Remove ${c?.label ?? "contact"}`}>
                     <X /> {initialLinked.includes(id) ? "Unlink" : "Remove"}

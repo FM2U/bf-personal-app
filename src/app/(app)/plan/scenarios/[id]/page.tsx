@@ -125,7 +125,7 @@ export default async function ScenarioPage({ params }: { params: Promise<{ id: s
                       <TD className="tabular text-right">{money(r.acquisitionSalaryCumulative)}</TD>
                       <TD className="tabular text-right">{money(r.acquisitionEquityValue)}</TD>
                       <TD className="tabular text-right">{money(r.acquisitionTotal)}</TD>
-                      <TD className={`tabular text-right ${r.difference < 0 ? "text-red-700" : "text-emerald-700"}`}>{money(r.difference)}</TD>
+                      <TD className={`tabular text-right ${r.difference < 0 ? "text-status-missed" : "text-status-met"}`}>{money(r.difference)}</TD>
                     </TR>
                   ))}
                 </TBody>
@@ -174,7 +174,7 @@ export default async function ScenarioPage({ params }: { params: Promise<{ id: s
                       <TD className="tabular text-right">{money(r.acquisitionSalaryCumulative)}</TD>
                       <TD className="tabular text-right">{money(r.acquisitionEquityValue)}</TD>
                       <TD className="tabular text-right">{money(r.bridgeTotal)}</TD>
-                      <TD className={`tabular text-right ${r.difference < 0 ? "text-red-700" : "text-emerald-700"}`}>{money(r.difference)}</TD>
+                      <TD className={`tabular text-right ${r.difference < 0 ? "text-status-missed" : "text-status-met"}`}>{money(r.difference)}</TD>
                     </TR>
                   ))}
                 </TBody>

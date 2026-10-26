@@ -19,6 +19,31 @@
   --border: #e2e8f0;
   --input: #cbd5e1;
   --ring: #14b8a6;
+  /*
+   * Status colors: the only colors that carry meaning, used the same way on every screen.
+   * met = met or done (green); soon = due soon, due today, warnings (amber);
+   * missed = missed, overdue, critical (red); neutral = not started, neutral (gray).
+   * Text colors pass WCAG AA (4.5:1) on white and on their own -bg tint. -solid is for dots, bars, and filled cells only.
+   */
+  --status-met: #047857;
+  --status-met-bg: #ecfdf5;
+  --status-met-border: #a7f3d0;
+  --status-met-solid: #059669;
+  --status-soon: #92400e;
+  --status-soon-bg: #fffbeb;
+  --status-soon-border: #fcd34d;
+  --status-soon-solid: #f59e0b;
+  --status-missed: #b91c1c;
+  --status-missed-bg: #fef2f2;
+  --status-missed-border: #fecaca;
+  --status-missed-solid: #dc2626;
+  --status-neutral: #475569;
+  --status-neutral-bg: #f1f5f9;
+  --status-neutral-border: #e2e8f0;
+  --status-neutral-solid: #94a3b8;
+  /* Next required action card: the app's teal as a 4px left line on a very light teal tint. */
+  --action-stripe: #0f766e;
+  --action-bg: #f0fdfa;
   color-scheme: light;
 }
 
@@ -40,6 +65,24 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-status-met: var(--status-met);
+  --color-status-met-bg: var(--status-met-bg);
+  --color-status-met-border: var(--status-met-border);
+  --color-status-met-solid: var(--status-met-solid);
+  --color-status-soon: var(--status-soon);
+  --color-status-soon-bg: var(--status-soon-bg);
+  --color-status-soon-border: var(--status-soon-border);
+  --color-status-soon-solid: var(--status-soon-solid);
+  --color-status-missed: var(--status-missed);
+  --color-status-missed-bg: var(--status-missed-bg);
+  --color-status-missed-border: var(--status-missed-border);
+  --color-status-missed-solid: var(--status-missed-solid);
+  --color-status-neutral: var(--status-neutral);
+  --color-status-neutral-bg: var(--status-neutral-bg);
+  --color-status-neutral-border: var(--status-neutral-border);
+  --color-status-neutral-solid: var(--status-neutral-solid);
+  --color-action-stripe: var(--action-stripe);
+  --color-action-bg: var(--action-bg);
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }

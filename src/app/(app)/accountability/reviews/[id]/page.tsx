@@ -321,7 +321,7 @@ export default async function ReviewPage({ params, searchParams }: { params: Pro
                           <Link href={`/records/tasks/${t.id}`} className="clamp-2 text-sm font-medium hover:underline">
                             {t.title}
                           </Link>
-                          <span className="block text-xs text-amber-700">{movedNote(t.times_moved)}</span>
+                          <span className="block text-xs text-status-soon">{movedNote(t.times_moved)}</span>
                         </span>
                         <span className="flex flex-wrap items-center gap-1.5">
                           <SubmitButton size="sm" name="op" value="done" className="h-8">
@@ -331,7 +331,7 @@ export default async function ReviewPage({ params, searchParams }: { params: Pro
                           <SubmitButton size="sm" variant="outline" name="op" value="reschedule" className="h-8">
                             Reschedule
                           </SubmitButton>
-                          <ConfirmSubmit size="sm" variant="ghost" name="op" value="delete" className="h-8 text-red-700" message={`Delete the task "${t.title}"?`}>
+                          <ConfirmSubmit size="sm" variant="ghost" name="op" value="delete" className="h-8 text-status-missed" message={`Delete the task "${t.title}"?`}>
                             Delete
                           </ConfirmSubmit>
                         </span>

@@ -75,7 +75,7 @@ export function ProposalCard({ p, back, labels }: { p: Row; back: string; labels
           </GuardedForm>
         </div>
       ) : p.error ? (
-        <p className="text-xs text-red-700">{p.error}</p>
+        <p className="text-xs text-status-missed">{p.error}</p>
       ) : null}
     </div>
   );

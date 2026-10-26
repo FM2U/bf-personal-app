@@ -123,7 +123,7 @@ export default async function BudgetPage({ searchParams }: { searchParams: Promi
                           {money(r.actual)}
                         </Link>
                       </TD>
-                      <TD className={`tabular text-right ${r.variance > 0 ? "text-red-700" : "text-emerald-700"}`}>{money(r.variance)}</TD>
+                      <TD className={`tabular text-right ${r.variance > 0 ? "text-status-missed" : "text-status-met"}`}>{money(r.variance)}</TD>
                     </TR>
                   ))}
                 </TBody>

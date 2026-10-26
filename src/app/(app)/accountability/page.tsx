@@ -3,7 +3,7 @@ import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
 import { Card, CardContent, CardDescription, CardHeader, CardNote, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+import { Badge, dueClass } from "@/components/ui/badge";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { EmptyState, PageHeader } from "@/components/app/page-header";
 import { SubmitButton } from "@/components/app/submit-button";
@@ -47,7 +47,7 @@ export default async function CommitmentsPage({ searchParams }: { searchParams: 
               pending.map((m) => {
                 const c = byId[m.commitment_id];
                 return (
-                  <GuardedForm key={m.id} action={resolveMiss} className={`grid grid-cols-1 gap-2 rounded-lg border p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] ${sp.miss === m.id ? "border-amber-400 bg-amber-50/50" : "border-border"}`}>
+                  <GuardedForm key={m.id} action={resolveMiss} className={`grid grid-cols-1 gap-2 rounded-lg border p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] ${sp.miss === m.id ? "border-status-soon-border bg-status-soon-bg" : "border-border"}`}>
                     <input type="hidden" name="miss_id" value={m.id} />
                     <div className="min-w-0">
                       <Link href={c ? recordHref(c.record_type, c.record_id) : "#"} className="clamp-2 text-sm font-medium hover:underline">
@@ -128,7 +128,7 @@ export default async function CommitmentsPage({ searchParams }: { searchParams: 
                         </Link>
                       </TD>
                       <TD>{c.record_type === "tasks" ? "Task" : c.record_type === "milestones" ? "Milestone" : "Goal"}</TD>
-                      <TD className={c.due_date < ctx.today ? "font-medium text-red-700" : ""}>{fmtDate(c.due_date)}</TD>
+                      <TD className={dueClass(c.due_date, ctx.today)}>{fmtDate(c.due_date)}</TD>
                       <TD>{fmtDate(c.original_due_date)}</TD>
                       <TD>{c.miss_count}</TD>
                     </TR>

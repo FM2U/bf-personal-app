@@ -214,7 +214,7 @@ export function OutreachQueueRow({ item, back, purposeAvailable = false, consult
               {item.name}
             </Link>
             {item.isDealSource ? (
-              <Badge variant="success" className="shrink-0" title="Can refer off-market deals">
+              <Badge variant="default" className="shrink-0" title="Can refer off-market deals">
                 Deal source
               </Badge>
             ) : null}
@@ -261,7 +261,7 @@ function Cell({ label, value, tone = "none" }: { label: string; value: string; t
   return (
     <div className="flex min-w-0 flex-col">
       <span className="text-[11px] text-muted-foreground md:hidden">{label}</span>
-      <span className={cn("clamp-2 tabular text-sm leading-5", tone === "bad" && "font-medium text-red-700", tone === "warn" && "font-medium text-amber-700")}>{value}</span>
+      <span className={cn("clamp-2 tabular text-sm leading-5", tone === "bad" && "font-medium text-status-missed", tone === "warn" && "font-medium text-status-soon")}>{value}</span>
     </div>
   );
 }

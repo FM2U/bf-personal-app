@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { dueClass } from "@/components/ui/badge";
 import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
 import { Card, CardContent, CardHeader, CardNote, CardTitle } from "@/components/ui/card";
@@ -55,7 +56,7 @@ export default async function FundingPage() {
                 <TBody>
                   {unpaid.slice(0, 12).map((r) => (
                     <TR key={r.id}>
-                      <TD className={r.due_date < ctx.today ? "font-medium text-red-700" : ""}>
+                      <TD className={dueClass(r.due_date, ctx.today)}>
                         <Link href={`/records/repayment_schedules/${r.id}`} className="hover:underline">
                           {fmtDate(r.due_date)}
                         </Link>

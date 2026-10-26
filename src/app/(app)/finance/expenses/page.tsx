@@ -145,7 +145,7 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
                           {t.pending ? " . pending" : ""}
                         </span>
                       </TD>
-                      <TD className={`tabular whitespace-nowrap text-right ${Number(t.amount) > 0 ? "text-emerald-700" : ""}`}>{money(t.amount, true)}</TD>
+                      <TD className={`tabular whitespace-nowrap text-right ${Number(t.amount) > 0 ? "text-status-met" : ""}`}>{money(t.amount, true)}</TD>
                       <TD>{t.is_transfer ? <Badge variant="neutral">{catName[t.category_id] ?? "Transfer"}</Badge> : <CategorySelect transactionId={t.id} value={t.category_id} categories={catList} source={t.category_source} />}</TD>
                     </TR>
                   ))}

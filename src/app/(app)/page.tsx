@@ -8,7 +8,9 @@ import { getGoogleConnection } from "@/lib/google";
 import { netWorthByMonth } from "@/lib/finance";
 import { Card, CardContent, CardDescription, CardHeader, CardNote, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { Badge, StatusDot } from "@/components/ui/badge";
+import { severityStatus } from "@/lib/status";
+import { ModuleTitle } from "@/components/app/module-icon";
 import { EmptyState, PageHeader, Stat, StatGrid } from "@/components/app/page-header";
 import { TaskList } from "@/components/app/task-list";
 import { Progress } from "@/components/app/charts";
@@ -115,8 +117,8 @@ export default async function HomePage() {
     <div>
       <PageHeader title="Home" description={`${fmtDate(today, "EEEE, MMMM d, yyyy")}. Runway, today's plan, meetings, overdue items, and alerts.`} />
       <div className={`mb-4 grid grid-cols-1 gap-4 ${productivityTiles.length > 3 ? "xl:grid-cols-2" : "lg:grid-cols-[minmax(0,3fr)_minmax(0,4fr)]"}`}>
-        <KpiGroup title="Productivity" tiles={productivityTiles} cols={productivityTiles.length > 3 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3"} />
-        <KpiGroup title="Accountability" tiles={accountabilityTiles} cols="grid-cols-2 sm:grid-cols-4" />
+        <KpiGroup title="Productivity" module="productivity" tiles={productivityTiles} cols={productivityTiles.length > 3 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3"} />
+        <KpiGroup title="Accountability" module="accountability" tiles={accountabilityTiles} cols="grid-cols-2 sm:grid-cols-4" />
       </div>
       {!metrics.targets.available || !pipelineUpdate ? (
         <div className="mb-4">
@@ -126,13 +128,15 @@ export default async function HomePage() {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         <Card>
           <CardHeader>
-            <CardDescription>Runway</CardDescription>
+            <CardDescription>
+              <ModuleTitle module="finance">Runway</ModuleTitle>
+            </CardDescription>
             <CardTitle className="text-3xl tabular">{hasAccounts ? fmtMonths(runway) : "No data yet"}</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             {hasAccounts ? (
               <>
-                <Progress value={runwayPct} tone={runwayPct !== null && runwayPct < 50 ? "red" : runwayPct !== null && runwayPct < 100 ? "amber" : "teal"} />
+                <Progress value={runwayPct} tone={runwayPct !== null && runwayPct < 50 ? "red" : runwayPct !== null && runwayPct < 100 ? "amber" : "green"} />
                 <StatGrid className="grid-cols-3">
                   <Stat label="Target" value={target ? `${target} months` : "Not set"} />
                   <Stat label="Available cash" value={money(snap.cash)} />
@@ -158,7 +162,9 @@ export default async function HomePage() {
 
         <Card>
           <CardHeader>
-            <CardDescription>This month</CardDescription>
+            <CardDescription>
+              <ModuleTitle module="finance">This month</ModuleTitle>
+            </CardDescription>
             <CardTitle className="text-3xl tabular">{money(snap.monthSpending)}</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
@@ -179,7 +185,7 @@ export default async function HomePage() {
         <Card id="alerts" className="md:col-span-2 xl:col-span-1">
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
-              Alerts {alerts.length ? <Badge variant="danger">{alerts.length}</Badge> : null}
+              <ModuleTitle module="home">Alerts</ModuleTitle> {alerts.length ? <Badge variant="danger">{alerts.length}</Badge> : null}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -187,7 +193,7 @@ export default async function HomePage() {
               <ul className="flex flex-col divide-y divide-slate-100">
                 {alerts.map((a) => (
                   <li key={a.id} className="flex items-start gap-2 py-2">
-                    <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${a.severity === "critical" ? "bg-red-500" : a.severity === "warning" ? "bg-amber-500" : "bg-sky-500"}`} />
+                    <StatusDot status={severityStatus(a.severity)} className="mt-1.5" />
                     <Link href={a.href ?? "/"} className="clamp-2 min-w-0 flex-1 text-sm hover:underline">
                       {a.message}
                     </Link>
@@ -210,7 +216,9 @@ export default async function HomePage() {
         <Card className="md:col-span-2">
           <CardHeader className="flex-row items-start justify-between gap-2">
             <div>
-              <CardTitle>Today</CardTitle>
+              <CardTitle>
+                <ModuleTitle module="productivity">Today</ModuleTitle>
+              </CardTitle>
               <CardDescription>
                 The morning plan and today&apos;s required tasks. {tasks.length ? `${doneCount} of ${tasks.length} done.` : ""}
               </CardDescription>
@@ -243,7 +251,9 @@ export default async function HomePage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Today&apos;s meetings</CardTitle>
+            <CardTitle>
+              <ModuleTitle module="productivity">Today&apos;s meetings</ModuleTitle>
+            </CardTitle>
           </CardHeader>
           <CardContent>
             {meetings === null ? (
@@ -273,7 +283,7 @@ export default async function HomePage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
-              Overdue {overdue.length + overdueMilestones.length ? <Badge variant="danger">{overdue.length + overdueMilestones.length}</Badge> : null}
+              <ModuleTitle module="productivity">Overdue</ModuleTitle> {overdue.length + overdueMilestones.length ? <Badge variant="danger">{overdue.length + overdueMilestones.length}</Badge> : null}
             </CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
@@ -281,7 +291,7 @@ export default async function HomePage() {
               <ul className="flex flex-col gap-1">
                 {overdueMilestones.map((m) => (
                   <li key={m.id} className="text-sm">
-                    <Link href={`/records/milestones/${m.id}`} className="font-medium text-red-700 hover:underline">
+                    <Link href={`/records/milestones/${m.id}`} className="font-medium text-status-missed hover:underline">
                       Milestone: {m.title}
                     </Link>{" "}
                     <span className="text-xs text-muted-foreground">due {fmtDate(m.due_date)}</span>
@@ -297,7 +307,9 @@ export default async function HomePage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Net worth</CardTitle>
+            <CardTitle>
+              <ModuleTitle module="finance">Net worth</ModuleTitle>
+            </CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <StatGrid className="grid-cols-3">
@@ -317,7 +329,9 @@ export default async function HomePage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>AI proposals</CardTitle>
+            <CardTitle>
+              <ModuleTitle module="settings">AI proposals</ModuleTitle>
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex items-end justify-between gap-3">

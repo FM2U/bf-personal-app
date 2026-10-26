@@ -1,5 +1,6 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { STATUS_BOX, STATUS_TEXT, toneStatus } from "@/lib/status";
 
 export function PageHeader({ title, description, actions, className }: { title: string; description?: React.ReactNode; actions?: React.ReactNode; className?: string }) {
   return (
@@ -24,9 +25,7 @@ export function Stat({ label, value, hint, tone }: { label: string; value: React
       <span
         className={cn(
           "tabular mt-1 text-lg font-semibold leading-tight text-slate-900",
-          tone === "good" && "text-emerald-700",
-          tone === "bad" && "text-red-700",
-          tone === "warn" && "text-amber-700",
+          tone && STATUS_TEXT[toneStatus(tone)],
         )}
       >
         {value}
@@ -65,10 +64,10 @@ export function Notice({ tone = "info", children }: { tone?: "info" | "warn" | "
     <div
       className={cn(
         "rounded-lg border px-4 py-3 text-sm",
-        tone === "info" && "border-sky-200 bg-sky-50 text-sky-900",
-        tone === "warn" && "border-amber-200 bg-amber-50 text-amber-900",
-        tone === "error" && "border-red-200 bg-red-50 text-red-900",
-        tone === "success" && "border-emerald-200 bg-emerald-50 text-emerald-900",
+        tone === "info" && cn(STATUS_BOX.neutral, "text-slate-800"),
+        tone === "warn" && cn(STATUS_BOX.soon, STATUS_TEXT.soon),
+        tone === "error" && cn(STATUS_BOX.missed, STATUS_TEXT.missed),
+        tone === "success" && cn(STATUS_BOX.met, STATUS_TEXT.met),
       )}
     >
       {children}

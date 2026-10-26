@@ -53,7 +53,7 @@ export function ReportView({ report }: { report: Row }) {
         ) : null}
         {s.milestones ? (
           <Section title="Milestones completed and missed">
-            <p className="mb-1 text-xs font-medium text-emerald-700">Completed ({s.milestones.completed.length})</p>
+            <p className="mb-1 text-xs font-medium text-status-met">Completed ({s.milestones.completed.length})</p>
             <ul className="mb-3 list-disc pl-5 text-sm">
               {(s.milestones.completed as Row[]).map((m, i) => (
                 <li key={i}>
@@ -62,7 +62,7 @@ export function ReportView({ report }: { report: Row }) {
               ))}
               {!s.milestones.completed.length ? <li className="text-muted-foreground">None this period</li> : null}
             </ul>
-            <p className="mb-1 text-xs font-medium text-red-700">Missed ({s.milestones.missed.length})</p>
+            <p className="mb-1 text-xs font-medium text-status-missed">Missed ({s.milestones.missed.length})</p>
             <ul className="mb-3 list-disc pl-5 text-sm">
               {(s.milestones.missed as Row[]).map((m, i) => (
                 <li key={i}>
@@ -94,7 +94,7 @@ export function ReportView({ report }: { report: Row }) {
             </div>
             {s.commitments.repeated_misses?.length ? (
               <>
-                <p className="mb-1 mt-3 text-xs font-medium text-red-700">Repeated misses</p>
+                <p className="mb-1 mt-3 text-xs font-medium text-status-missed">Repeated misses</p>
                 <ul className="list-disc pl-5 text-sm">
                   {(s.commitments.repeated_misses as Row[]).map((r, i) => (
                     <li key={i}>
@@ -146,7 +146,7 @@ export function ReportView({ report }: { report: Row }) {
                   <Pair label="Repaid to date" value={money(l.paid_to_date)} />
                   <Pair label="Remaining principal" value={money(l.remaining_principal)} />
                   <Pair label="Next payment" value={l.next_payment ? `${money(l.next_payment.amount)} on ${fmtDate(l.next_payment.due_date)}` : "None scheduled"} />
-                  {l.overdue_payments ? <p className="col-span-full text-sm text-red-700">{l.overdue_payments} payment(s) overdue.</p> : null}
+                  {l.overdue_payments ? <p className="col-span-full text-sm text-status-missed">{l.overdue_payments} payment(s) overdue.</p> : null}
                 </div>
               ))
             ) : (

@@ -27,11 +27,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <span className="flex items-center gap-2">
               <Sparkles className="h-4 w-4" /> AI proposals
             </span>
-            {pending ? <span className="rounded-full bg-amber-100 px-2 text-xs font-medium text-amber-800">{pending}</span> : null}
+            {pending ? <span className="rounded-full bg-status-soon-bg px-2 text-xs font-medium text-status-soon">{pending}</span> : null}
           </Link>
           <Link href="/#alerts" className="flex items-center justify-between rounded-md px-3 py-2 text-slate-600 hover:bg-slate-100">
             <span>Alerts</span>
-            {alerts ? <span className="rounded-full bg-red-100 px-2 text-xs font-medium text-red-800">{alerts}</span> : null}
+            {alerts ? <span className="rounded-full bg-status-missed-bg px-2 text-xs font-medium text-status-missed">{alerts}</span> : null}
           </Link>
           <form action={signOut}>
             <button className="w-full rounded-md px-3 py-2 text-left text-slate-500 hover:bg-slate-100">Sign out ({user.email})</button>

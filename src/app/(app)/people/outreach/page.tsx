@@ -159,7 +159,7 @@ export default async function OutreachQueuePage({ searchParams }: { searchParams
                               {r.name}
                             </Link>
                             {r.isDealSource ? (
-                              <Badge variant="success" className="shrink-0">
+                              <Badge variant="default" className="shrink-0">
                                 Deal source
                               </Badge>
                             ) : null}

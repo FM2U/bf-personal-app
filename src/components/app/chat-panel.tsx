@@ -93,7 +93,7 @@ export function ChatPanel({ aiReady }: { aiReady: boolean }) {
           </div>
           <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
             {!aiReady ? (
-              <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-900">The AI is not set up yet. Add ANTHROPIC_API_KEY in Vercel (see docs/SETUP-CHECKLIST.md).</p>
+              <p className="rounded-md bg-status-soon-bg p-3 text-sm text-status-soon">The AI is not set up yet. Add ANTHROPIC_API_KEY in Vercel (see docs/SETUP-CHECKLIST.md).</p>
             ) : null}
             {!messages.length ? (
               <div className="space-y-2 text-sm text-muted-foreground">
@@ -113,7 +113,7 @@ export function ChatPanel({ aiReady }: { aiReady: boolean }) {
                   m.role === "user"
                     ? "ml-8 rounded-lg bg-teal-700 px-3 py-2 text-sm text-white"
                     : m.role === "error"
-                      ? "mr-8 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-900"
+                      ? "mr-8 rounded-lg bg-status-missed-bg px-3 py-2 text-sm text-status-missed"
                       : "mr-8 rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-900"
                 }
               >

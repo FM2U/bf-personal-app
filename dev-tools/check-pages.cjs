@@ -59,6 +59,13 @@ async function keyPages() {
     if (acq) out.push(`/records/pipeline_items/${acq}?edit=1`);
     const contact = await one("select id from contacts where name = 'Jamie Fictional' limit 1").catch(() => null);
     if (contact) out.push(`/records/contacts/${contact}`);
+    // Next required action states: one item overdue (seed) and one due today (set here, local demo data only).
+    const late = await one("select id from pipeline_items where name = 'Demo Landscaping LLC' limit 1").catch(() => null);
+    if (late) out.push(`/records/pipeline_items/${late}#overdue`);
+    const dueToday = await one(
+      "update pipeline_items set next_action_due = (now() at time zone 'America/New_York')::date where name = 'Demo Bookkeeping Firm' returning id",
+    ).catch(() => null);
+    if (dueToday) out.push(`/records/pipeline_items/${dueToday}#due-today`);
     const org = await one("select id from organizations where name = 'Demo Retail Group' limit 1").catch(() => null);
     if (org) out.push(`/records/organizations/${org}`);
     const acqPipe = await one("select id from pipelines where kind = 'acquisition' limit 1").catch(() => null);
@@ -81,6 +88,8 @@ async function keyPages() {
     if (p.startsWith("/opportunities/") && p.includes("view=board")) return "board-closed-stages";
     if (p.startsWith("/records/organizations/") && !p.endsWith("/new")) return "organization-page";
     if (p.startsWith("/records/pipeline_items/") && p.endsWith("?edit=1")) return "acquisition-item-form";
+    if (p.startsWith("/records/pipeline_items/") && p.endsWith("#due-today")) return "pipeline-item-due-today";
+    if (p.startsWith("/records/pipeline_items/") && p.endsWith("#overdue")) return "pipeline-item-overdue";
     if (p.startsWith("/records/pipeline_items/")) return "consulting-item";
     if (p.startsWith("/records/contacts/")) return "contact-deal-credit";
     return null;

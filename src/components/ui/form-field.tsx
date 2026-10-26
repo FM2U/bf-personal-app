@@ -35,7 +35,7 @@ export function FormField({
       <label htmlFor={htmlFor} className="self-end pb-1.5 text-sm font-medium leading-5 text-slate-800">
         <span className="clamp-2">
           {label}
-          {required ? <span className="text-red-600"> *</span> : null}
+          {required ? <span className="text-status-missed"> *</span> : null}
         </span>
       </label>
       <div className="min-w-0">{children}</div>

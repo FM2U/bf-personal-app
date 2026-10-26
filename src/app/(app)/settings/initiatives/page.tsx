@@ -162,7 +162,7 @@ export default async function InitiativesSettingsPage({ searchParams }: { search
                                   <GuardedForm action={deleteStageTask}>
                                     <input type="hidden" name="id" value={t.id} />
                                     <input type="hidden" name="back" value={here} />
-                                    <ConfirmSubmit size="sm" variant="ghost" className="h-7 text-red-700" message={`Delete the stage task "${t.title}"? Tasks already created for items stay.`}>
+                                    <ConfirmSubmit size="sm" variant="ghost" className="h-7 text-status-missed" message={`Delete the stage task "${t.title}"? Tasks already created for items stay.`}>
                                       Delete
                                     </ConfirmSubmit>
                                   </GuardedForm>

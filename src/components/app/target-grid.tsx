@@ -8,10 +8,10 @@ import { cn } from "@/lib/utils";
 const DAY_HEADERS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 const CELL: Record<string, string> = {
-  met: "border-emerald-600 bg-emerald-600 text-white",
-  missed: "border-red-300 bg-red-50 text-red-700",
-  open: "border-teal-600 bg-white text-teal-800 border-2",
-  off: "border-slate-100 bg-slate-50 text-slate-300",
+  met: "border-status-met bg-status-met text-white",
+  missed: "border-status-missed-border bg-status-missed-bg text-status-missed",
+  open: "border-status-soon-solid bg-white text-status-soon border-2",
+  off: "border-status-neutral-border bg-status-neutral-bg text-status-neutral",
   future: "border-dashed border-slate-200 bg-white text-transparent",
 };
 
@@ -93,8 +93,8 @@ export function TargetLegend() {
 /** Small notice shown where a feature needs a database update (`file`: UPDATE_RUN_ONCE.sql, or UPDATE_0011_RUN_ONCE.sql for 0011 features). */
 export function DbUpdateNotice({ compact = false, features, file = DB_UPDATE_FILE }: { compact?: boolean; features?: string; file?: string }) {
   return (
-    <div className={cn("rounded-lg border border-amber-200 bg-amber-50 text-amber-900", compact ? "px-3 py-2 text-xs" : "px-4 py-3 text-sm")}>
-      <span className="font-semibold">Database update needed:</span> paste <code className="rounded bg-amber-100 px-1 text-[0.95em]">{file}</code> into the Supabase SQL Editor and run it.
+    <div className={cn("rounded-lg border border-status-soon-border bg-status-soon-bg text-status-soon", compact ? "px-3 py-2 text-xs" : "px-4 py-3 text-sm")}>
+      <span className="font-semibold">Database update needed:</span> paste <code className="rounded bg-white/70 px-1 text-[0.95em]">{file}</code> into the Supabase SQL Editor and run it.
       {compact ? null : (
         <>
           {" "}

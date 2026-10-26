@@ -5,11 +5,11 @@ import type { ItemStatus } from "@/lib/pipeline";
 export function DealSourceBadge({ type, showUnset = false }: { type: string | null | undefined; showUnset?: boolean }) {
   if (type === "proprietary")
     return (
-      <Badge variant="success" title="Off-market deal found directly">
+      <Badge variant="default" title="Off-market deal found directly">
         Proprietary
       </Badge>
     );
-  if (type === "brokered") return <Badge variant="outline">Brokered</Badge>;
+  if (type === "brokered") return <Badge variant="neutral">Brokered</Badge>;
   return showUnset ? <span className="text-xs text-muted-foreground">Not set</span> : null;
 }
 

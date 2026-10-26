@@ -24,7 +24,7 @@ export function CategorySelect({ transactionId, value, categories, source }: { t
           if (e.target.value) setAskRule(e.target.value);
           else save("", false);
         }}
-        className={`h-8 w-full rounded-md border px-2 text-xs ${current ? "border-input bg-white" : "border-amber-300 bg-amber-50"}`}
+        className={`h-8 w-full rounded-md border px-2 text-xs ${current ? "border-input bg-white" : "border-status-soon-border bg-status-soon-bg"}`}
       >
         <option value="">Uncategorized</option>
         {["expense", "income", "transfer"].map((k) => (

@@ -166,8 +166,8 @@ export function ImportWizard({ accounts, layouts, lastLayoutByAccount = {} }: { 
   const colSelect = (key: keyof ImportLayout, label: string, opts: { optional?: boolean; required?: boolean } = {}) => {
     const empty = showMissing && opts.required && !layout[key];
     return (
-      <FormField label={label} htmlFor={`csv_${key}`} required={opts.required} help={empty ? <span className="font-medium text-red-700">Choose the column.</span> : undefined}>
-        <NativeSelect id={`csv_${key}`} value={(layout[key] as string) ?? ""} onChange={(e) => change({ [key]: e.target.value })} className={cn(empty && "border-red-400")} aria-invalid={empty || undefined}>
+      <FormField label={label} htmlFor={`csv_${key}`} required={opts.required} help={empty ? <span className="font-medium text-status-missed">Choose the column.</span> : undefined}>
+        <NativeSelect id={`csv_${key}`} value={(layout[key] as string) ?? ""} onChange={(e) => change({ [key]: e.target.value })} className={cn(empty && "border-status-missed-solid")} aria-invalid={empty || undefined}>
           <option value="">{opts.optional ? "Not used" : "Choose a column"}</option>
           {headers.map((h) => (
             <option key={h} value={h}>
@@ -400,7 +400,7 @@ export function ImportWizard({ accounts, layouts, lastLayoutByAccount = {} }: { 
                       <TD className="max-w-xs">
                         <span className="clamp-1">{r.description}</span>
                       </TD>
-                      <TD className={`tabular text-right ${r.amount !== null && r.amount < 0 ? "" : "text-emerald-700"}`}>{r.amount !== null ? r.amount.toFixed(2) : ""}</TD>
+                      <TD className={`tabular text-right ${r.amount !== null && r.amount < 0 ? "" : "text-status-met"}`}>{r.amount !== null ? r.amount.toFixed(2) : ""}</TD>
                       <TD className="text-xs">{r.category ?? <span className="text-muted-foreground">None</span>}</TD>
                     </TR>
                   ))}

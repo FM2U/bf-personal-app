@@ -1,32 +1,48 @@
 import Link from "next/link";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { ArrowRight, FileText, Link2, Trash2 } from "lucide-react";
+import { ArrowRight, CalendarClock, FileText, Link2, Trash2 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, NativeSelect, Textarea } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+import { Badge, DueWord } from "@/components/ui/badge";
+import { STATUS_TEXT, dueStatus } from "@/lib/status";
 import { SubmitButton } from "@/components/app/submit-button";
 import { EmptyState } from "@/components/app/page-header";
 import { ResourceTable } from "@/components/app/resource-table";
 import { addLink, addNote, deleteDocument, deleteNote, removeLink, uploadDocument } from "@/app/actions/records";
 import { getResource, newRecordHref, recordHref, RESOURCES } from "@/lib/resources";
 import { titleOf } from "@/lib/data";
-import { dateTime } from "@/lib/format";
+import { date as fmtDateOnly, dateTime } from "@/lib/format";
 import type { NextAction } from "@/lib/next-action";
 import type { Row } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { GuardedForm } from "@/components/app/unsaved-changes";
 
-export function NextActionCard({ action }: { action: NextAction }) {
+/**
+ * The record's next required action. Shown first on every record page: teal line on the left, light teal tint,
+ * the action in larger semibold text, and its due date with "Overdue" (red) or "Due today" (amber).
+ * Nothing left to do (tone "done"): a gray line on a white card.
+ */
+export function NextActionCard({ action, today }: { action: NextAction; today: string }) {
+  const done = action.tone === "done";
+  const status = action.due ? dueStatus(action.due, today) : "neutral";
   return (
-    <Card className={cn(action.tone === "overdue" && "border-amber-300 bg-amber-50/50", action.tone === "done" && "bg-slate-50")}>
-      <CardHeader>
-        <CardDescription className="text-xs font-medium uppercase tracking-wide">Next required action</CardDescription>
-        <CardTitle className="text-sm font-medium leading-snug">{action.text}</CardTitle>
+    <Card id="next-action" className={cn("relative overflow-hidden", done ? "bg-card" : "border-action-stripe/25 bg-action-bg")}>
+      <span aria-hidden className={cn("absolute inset-y-0 left-0 w-1", done ? "bg-status-neutral-solid" : "bg-action-stripe")} />
+      <CardHeader className="gap-1.5">
+        <CardDescription className="text-xs font-medium uppercase tracking-wide text-slate-600">Next required action</CardDescription>
+        <CardTitle className={cn("text-lg font-semibold leading-snug", done ? "text-slate-700" : "text-slate-900")}>{action.text}</CardTitle>
+        {action.due ? (
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+            <CalendarClock aria-hidden className="h-4 w-4 shrink-0 text-slate-400" />
+            <span className={cn("tabular", status === "neutral" ? "text-slate-700" : cn(STATUS_TEXT[status], "font-medium"))}>Due {fmtDateOnly(action.due)}</span>
+            <DueWord due={action.due} today={today} />
+          </p>
+        ) : null}
       </CardHeader>
       {action.href ? (
         <CardContent>
-          <Button asChild size="sm" variant={action.tone === "overdue" ? "default" : "outline"}>
+          <Button asChild size="sm" variant={action.tone === "overdue" || status === "missed" ? "default" : "outline"} className={cn(action.tone !== "overdue" && status !== "missed" && "bg-white")}>
             <Link href={action.href}>
               {action.linkText ?? "Open"} <ArrowRight />
             </Link>
@@ -209,7 +225,7 @@ export async function NotesPanel({ sb, table, id }: { sb: SupabaseClient; table:
               {dateTime(n.created_at)}
               <GuardedForm action={deleteNote}>
                 <input type="hidden" name="id" value={n.id} />
-                <button className="hover:text-red-700" aria-label="Delete note">
+                <button className="hover:text-status-missed" aria-label="Delete note">
                   Delete
                 </button>
               </GuardedForm>

@@ -1,11 +1,9 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Briefcase, CheckSquare, Home, Scale, Settings, Target, Users, Wallet } from "lucide-react";
 import { NAV, moduleFor } from "@/lib/nav";
 import { cn } from "@/lib/utils";
-
-const ICONS = { home: Home, target: Target, wallet: Wallet, briefcase: Briefcase, users: Users, check: CheckSquare, scale: Scale, settings: Settings } as const;
+import { ModuleIcon } from "@/components/app/module-icon";
 
 export function SidebarLinks() {
   const path = usePathname();
@@ -13,7 +11,6 @@ export function SidebarLinks() {
   return (
     <nav className="flex flex-col gap-0.5">
       {NAV.map((m) => {
-        const Icon = ICONS[m.icon as keyof typeof ICONS];
         return (
           <Link
             key={m.key}
@@ -23,7 +20,7 @@ export function SidebarLinks() {
               active === m.key && "bg-teal-50 text-teal-800 hover:bg-teal-50",
             )}
           >
-            <Icon className="h-4 w-4" />
+            <ModuleIcon module={m.key} className={active === m.key ? "text-teal-700" : "text-slate-400"} />
             {m.label}
           </Link>
         );

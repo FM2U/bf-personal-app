@@ -30,7 +30,7 @@ export function TargetCounters({ available, summaries, back }: { available: bool
         const off = s.today.status === "off";
         const met = s.today.status === "met";
         return (
-          <div key={t.id} className={cn("flex min-w-0 flex-col gap-2 rounded-lg border bg-white p-3", met ? "border-emerald-300" : "border-border")}>
+          <div key={t.id} className={cn("flex min-w-0 flex-col gap-2 rounded-lg border bg-white p-3", met ? "border-status-met-border" : "border-border")}>
             <div className="min-w-0">
               <Link href="/accountability/targets" className="clamp-1 text-sm font-medium text-slate-900 hover:underline">
                 {t.name}
@@ -38,17 +38,17 @@ export function TargetCounters({ available, summaries, back }: { available: bool
               <p className="clamp-1 text-xs text-muted-foreground">{describeTarget(t.def)}</p>
             </div>
             <div className="flex items-baseline justify-between gap-2">
-              <span className={cn("tabular text-2xl font-semibold leading-none", met ? "text-emerald-700" : "text-slate-900")}>
+              <span className={cn("tabular text-2xl font-semibold leading-none", met ? "text-status-met" : "text-slate-900")}>
                 {off ? "Not today" : `${s.today.count} of ${s.today.required}`}
               </span>
-              <span className={cn("clamp-1 text-xs", met ? "text-emerald-700" : "text-muted-foreground")}>
+              <span className={cn("clamp-1 text-xs", met ? "font-medium text-status-met" : "text-muted-foreground")}>
                 {off ? "Inactive day" : met ? "Met" : `${s.today.required - s.today.count} to go${t.period === "week" ? " this week" : ""}`}
               </span>
             </div>
-            <Progress value={off ? 0 : (s.today.count / s.today.required) * 100} tone={met ? "teal" : "amber"} />
+            <Progress value={off ? 0 : (s.today.count / s.today.required) * 100} tone={met ? "green" : "amber"} />
             {s.breakdown ? (
               <p className="clamp-1 text-xs text-slate-700">
-                <span className="font-medium text-emerald-700">{s.breakdown.proprietary} proprietary</span>, {s.breakdown.brokered} brokered
+                <span className="font-medium text-primary">{s.breakdown.proprietary} proprietary</span>, {s.breakdown.brokered} brokered
                 {s.breakdown.notSet ? `, ${s.breakdown.notSet} not set` : ""}
               </p>
             ) : null}

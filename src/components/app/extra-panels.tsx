@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { Card, CardContent, CardDescription, CardHeader, CardNote, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, NativeSelect, Textarea } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+import { Badge, dueClass } from "@/components/ui/badge";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { SubmitButton } from "@/components/app/submit-button";
 import { DetailGrid, EmptyState, Notice, Stat, StatGrid } from "@/components/app/page-header";
@@ -391,21 +391,21 @@ async function PipelineItemPanels({ sb, ownerId, row, refOptions, today }: P) {
               {
                 label: "Next action",
                 value: row.next_action ? (
-                  <span className={row.next_action_due && row.next_action_due < today ? "font-medium text-red-700" : ""}>
+                  <span className={dueClass(row.next_action_due, today)}>
                     {row.next_action}
                     {row.next_action_due ? ` (due ${fmtDate(row.next_action_due)})` : ""}
                   </span>
                 ) : (
-                  <Link href="?edit=1" className="font-medium text-amber-700 underline">
+                  <Link href="?edit=1" className="font-medium text-status-soon underline">
                     Not set. Set it now
                   </Link>
                 ),
               },
-              { label: "Time in this stage", value: <span className={st?.limit?.over ? "font-medium text-red-700" : ""}>{limitText}</span> },
+              { label: "Time in this stage", value: <span className={st?.limit?.over ? "font-medium text-status-missed" : ""}>{limitText}</span> },
               {
                 label: "Last activity",
                 value: st?.lastActivity ? (
-                  <span className={st.stalled ? "font-medium text-amber-800" : ""}>
+                  <span className={st.stalled ? "font-medium text-status-soon" : ""}>
                     {fmtDate(st.lastActivity)} ({st.daysSinceActivity === 0 ? "today" : `${st.daysSinceActivity} days ago`})
                   </span>
                 ) : (
@@ -414,10 +414,10 @@ async function PipelineItemPanels({ sb, ownerId, row, refOptions, today }: P) {
               },
               {
                 label: nextStage ? `Needed before ${nextStage.name}` : "Needed before the next stage",
-                value: !nextStage || row.status !== "open" ? "No later stage" : nextMissing.length ? <span className="font-medium text-amber-800">{nextMissing.map((m) => m.label).join(", ")}</span> : "Nothing missing",
+                value: !nextStage || row.status !== "open" ? "No later stage" : nextMissing.length ? <span className="font-medium text-status-soon">{nextMissing.map((m) => m.label).join(", ")}</span> : "Nothing missing",
               },
               ...(isAcq
-                ? [{ label: "Deal source", value: row.deal_source_type ? <DealSourceBadge type={row.deal_source_type} /> : status.available ? <Link href="?edit=1" className="text-amber-700 underline">Not set</Link> : "Not available yet" }]
+                ? [{ label: "Deal source", value: row.deal_source_type ? <DealSourceBadge type={row.deal_source_type} /> : status.available ? <Link href="?edit=1" className="text-status-soon underline">Not set</Link> : "Not available yet" }]
                 : []),
               ...(showChain
                 ? [
@@ -582,7 +582,7 @@ async function ConsultingTermsPanel({ sb, row, detail, stage }: { sb: SupabaseCl
                   <Link href={recordHref("transactions", t.id)} className="clamp-1 hover:underline">
                     {t.merchant_name || t.description}
                   </Link>
-                  <span className={`tabular ${Number(t.amount) > 0 ? "text-emerald-700" : "text-slate-700"}`}>{money(t.amount, true)}</span>
+                  <span className={`tabular ${Number(t.amount) > 0 ? "text-status-met" : "text-slate-700"}`}>{money(t.amount, true)}</span>
                 </li>
               ))}
             </ul>
@@ -848,7 +848,7 @@ async function GoalProgress({ sb, row, today }: P) {
           <Stat label="Target" value={row.target_value ?? "Not set"} />
           <Stat label="Deadline" value={fmtDate(row.deadline)} />
         </StatGrid>
-        {met ? <p className="mt-3 text-sm text-emerald-700">The measured number meets the target. Mark the goal met when confirmed.</p> : null}
+        {met ? <p className="mt-3 text-sm text-status-met">The measured number meets the target. Mark the goal met when confirmed.</p> : null}
       </CardContent>
     </Card>
   );
@@ -962,13 +962,13 @@ async function ContactCreditPanel({ sb, row }: P) {
       <CardHeader>
         <CardTitle className="flex flex-wrap items-center gap-2">
           Deals from this contact
-          {introducedNote(credit) ? <Badge variant="success">{introducedNote(credit)}</Badge> : null}
+          {introducedNote(credit) ? <Badge variant="default">{introducedNote(credit)}</Badge> : null}
         </CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         {!available ? <DbUpdateNotice compact file={DB_UPDATE_FILE_0011} /> : null}
         <StatGrid className="sm:grid-cols-4">
-          <Stat label="Deals (came from or introduced)" value={credit.deals} tone={credit.deals ? "good" : undefined} />
+          <Stat label="Deals (came from or introduced)" value={credit.deals} />
           <Stat label="Deals: came from this contact" value={credit.dealsCameFrom} />
           <Stat label="Deals: introduced by this contact" value={available ? credit.dealsIntroduced : "Not yet"} />
           <Stat label="Consulting leads" value={available ? credit.consultingLeads : "Not yet"} />
@@ -1025,7 +1025,7 @@ async function ContactOutreachPanel({ sb, ownerId, row, today }: P) {
       <CardHeader>
         <CardTitle className="flex flex-wrap items-center gap-2">
           Outreach
-          {row.is_deal_source ? <Badge variant="success">Deal source</Badge> : null}
+          {row.is_deal_source ? <Badge variant="default">Deal source</Badge> : null}
           {row.is_consulting_lead ? <Badge variant="default">Consulting lead</Badge> : null}
         </CardTitle>
         <CardDescription>The last contact date comes from the latest communication. Set the relationship group, and whether this person can refer off-market deals, with Edit.</CardDescription>

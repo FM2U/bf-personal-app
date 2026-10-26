@@ -106,7 +106,7 @@ export default async function OpportunitiesPage({ searchParams }: { searchParams
                       </TD>
                       <TD className="whitespace-nowrap">{pipeName[i.pipeline_id] ?? ""}</TD>
                       <TD className="whitespace-nowrap">{stageName[i.stage_id] ?? ""}</TD>
-                      <TD className={cn(!i.next_action && "text-red-700")}>{i.next_action ? `${i.next_action}${i.next_action_due ? ` (${fmtDate(i.next_action_due, "MMM d")})` : ""}` : "Not set"}</TD>
+                      <TD className={cn(!i.next_action && "font-medium text-status-soon")}>{i.next_action ? `${i.next_action}${i.next_action_due ? ` (${fmtDate(i.next_action_due, "MMM d")})` : ""}` : "Not set"}</TD>
                       <TD>
                         <ItemStatusBadges status={status.byItem[i.id]} itemStatus={i.status} fallback />
                       </TD>

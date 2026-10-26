@@ -8,7 +8,7 @@ import { compareDeals } from "@/lib/calc/pipeline";
 import { loadPipelineStatus, type ItemStatus } from "@/lib/pipeline";
 import { Card, CardContent, CardHeader, CardNote, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { Badge, dueClass } from "@/components/ui/badge";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { PageHeader } from "@/components/app/page-header";
 import { DealSourceBadge, ItemStatusBadges } from "@/components/app/pipeline-badges";
@@ -113,9 +113,9 @@ export default async function PipelinePage({ params, searchParams }: { params: P
         {isAcq ? <DealSourceStrip items={items} stages={allStages.filter((s) => s.outcome === "open")} tz={ctx.tz} today={ctx.today} available={status.available} /> : null}
         {stalledCount || overCount ? (
           <p className="text-sm text-muted-foreground">
-            {stalledCount ? <span className="font-medium text-amber-800">{stalledCount} stalled</span> : null}
+            {stalledCount ? <span className="font-medium text-status-soon">{stalledCount} stalled</span> : null}
             {stalledCount && overCount ? ", " : null}
-            {overCount ? <span className="font-medium text-red-700">{overCount} over the stage time limit</span> : null}. Stalled = no stage change and no activity for {status.stallDays} days or more.
+            {overCount ? <span className="font-medium text-status-missed">{overCount} over the stage time limit</span> : null}. Stalled = no stage change and no activity for {status.stallDays} days or more.
           </p>
         ) : null}
       </div>
@@ -169,10 +169,10 @@ export default async function PipelinePage({ params, searchParams }: { params: P
                           <span className="clamp-2">{stageName[i.stage_id] ?? "None"}</span>
                         </TD>
                         <TD className="tabular text-right">{daysText(st)}</TD>
-                        <TD className={i.next_action ? "" : "font-medium text-amber-700"}>
+                        <TD className={i.next_action ? "" : "font-medium text-status-soon"}>
                           <span className="clamp-2">{i.next_action ?? "Set the next action"}</span>
                         </TD>
-                        <TD className={cn("tabular whitespace-nowrap", overdue && "font-medium text-red-700")}>{i.next_action_due ? fmtDate(i.next_action_due, "MMM d") : "Not set"}</TD>
+                        <TD className={cn("tabular whitespace-nowrap", i.status === "open" && dueClass(i.next_action_due, ctx.today))}>{i.next_action_due ? fmtDate(i.next_action_due, "MMM d") : "Not set"}</TD>
                         <TD>
                           <ItemStatusBadges status={st} itemStatus={i.status} fallback nextActionOverdue={!!overdue && i.status === "open"} />
                         </TD>
@@ -238,12 +238,12 @@ export default async function PipelinePage({ params, searchParams }: { params: P
                               <ItemStatusBadges status={st} itemStatus={i.status} />
                             </span>
                           ) : null}
-                          <span className={cn("clamp-2 text-[11px] leading-4", overdue ? "font-medium text-red-700" : i.next_action ? "text-slate-700" : "font-medium text-amber-700")}>
+                          <span className={cn("clamp-2 text-[11px] leading-4", overdue ? "font-medium text-status-missed" : i.next_action ? "text-slate-700" : "font-medium text-status-soon")}>
                             {i.next_action ?? "Set the next action"}
                           </span>
                           {i.next_action_due ? (
-                            <span className={cn("tabular clamp-1 text-[11px] leading-4", overdue ? "font-medium text-red-700" : "text-muted-foreground")}>
-                              {overdue ? "Overdue:" : "Due"} {fmtDate(i.next_action_due, "MMM d")}
+                            <span className={cn("tabular clamp-1 text-[11px] leading-4", overdue ? "font-medium text-status-missed" : i.next_action_due === ctx.today ? "font-medium text-status-soon" : "text-muted-foreground")}>
+                              {overdue ? `Overdue: ${fmtDate(i.next_action_due, "MMM d")}` : i.next_action_due === ctx.today ? "Due today" : `Due ${fmtDate(i.next_action_due, "MMM d")}`}
                             </span>
                           ) : null}
                         </Link>

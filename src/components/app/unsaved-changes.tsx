@@ -402,11 +402,11 @@ export function UnsavedChangesGuard() {
         </DialogContent>
       </Dialog>
       {error ? (
-        <div role="alert" className="fixed inset-x-4 bottom-4 z-50 mx-auto flex max-w-lg items-start gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900 shadow-lg">
+        <div role="alert" className="fixed inset-x-4 bottom-4 z-50 mx-auto flex max-w-lg items-start gap-3 rounded-lg border border-status-missed-border bg-status-missed-bg px-4 py-3 text-sm text-status-missed shadow-lg">
           <p className="min-w-0 flex-1">
             <span className="font-semibold">Not saved.</span> {error} You are still on this page.
           </p>
-          <button type="button" onClick={() => setError(null)} aria-label="Close" className="shrink-0 rounded p-0.5 hover:bg-red-100">
+          <button type="button" onClick={() => setError(null)} aria-label="Close" className="shrink-0 rounded p-0.5 hover:bg-white/60">
             <X className="h-4 w-4" />
           </button>
         </div>

@@ -159,7 +159,6 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
                     <Stat
                       label={t.period === "week" ? "This week: proprietary, brokered" : "Today: proprietary, brokered"}
                       value={`${s.breakdown.proprietary}, ${s.breakdown.brokered}`}
-                      tone={s.breakdown.proprietary ? "good" : undefined}
                       hint={s.breakdown.notSet ? `${s.breakdown.notSet} with no source set` : undefined}
                     />
                   ) : null}

@@ -52,7 +52,7 @@ export default async function ConnectionsPage({ searchParams }: { searchParams: 
               items={[
                 { label: "Account", value: google?.google_email ?? "None" },
                 { label: "Last checked", value: google?.last_checked_at ? dateTime(google.last_checked_at) : "Never" },
-                ...(google?.last_error ? [{ label: "Last error", value: <span className="text-red-700">{google.last_error}</span> }] : []),
+                ...(google?.last_error ? [{ label: "Last error", value: <span className="text-status-missed">{google.last_error}</span> }] : []),
               ]}
             />
             {!isGoogleConfigured() ? <Notice tone="warn">Not set up on the server yet. See docs/SETUP-CHECKLIST.md, step Google.</Notice> : null}

@@ -168,7 +168,7 @@ export default async function IncomePage() {
                       <Link href={`/records/transactions/${t.id}?edit=1`} className="clamp-1 hover:underline">
                         {t.merchant_name || t.description}
                       </Link>
-                      <span className="tabular text-emerald-700">{money(t.amount, true)}</span>
+                      <span className="tabular text-status-met">{money(t.amount, true)}</span>
                     </li>
                   ))}
                 </ul>

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { dueClass } from "@/components/ui/badge";
 import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
 import { Card, CardContent } from "@/components/ui/card";
@@ -50,8 +51,8 @@ export default async function PipelineActionsPage() {
               <TBody>
                 {list.map((i) => (
                   <TR key={i.id}>
-                    <TD className={`whitespace-nowrap ${i.next_action_due && i.next_action_due < ctx.today ? "font-medium text-red-700" : ""}`}>{i.next_action_due ? fmtDate(i.next_action_due) : "Not set"}</TD>
-                    <TD className={i.next_action ? "" : "text-amber-700"}>{i.next_action ?? "Set the next action"}</TD>
+                    <TD className={`whitespace-nowrap ${dueClass(i.next_action_due, ctx.today)}`}>{i.next_action_due ? fmtDate(i.next_action_due) : "Not set"}</TD>
+                    <TD className={i.next_action ? "" : "text-status-soon"}>{i.next_action ?? "Set the next action"}</TD>
                     <TD>
                       <span className="flex flex-wrap items-center gap-1.5">
                         <Link href={`/records/pipeline_items/${i.id}`} className="font-medium hover:underline">

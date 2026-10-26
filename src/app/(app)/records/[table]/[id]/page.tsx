@@ -71,6 +71,7 @@ export default async function RecordPage({ params, searchParams }: { params: Pro
       {table === "pipeline_items" ? <PipelineItemNotices sb={supabase} row={row} sp={sp} /> : null}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="flex min-w-0 flex-col gap-4 lg:col-span-2">
+          <NextActionCard action={next} today={ctx.today} />
           <Card id="details">
             <CardHeader>
               <CardTitle>{editing ? `Edit ${r.singular.toLowerCase()}` : "Details"}</CardTitle>
@@ -114,7 +115,6 @@ export default async function RecordPage({ params, searchParams }: { params: Pro
           ) : null}
         </div>
         <div className="flex min-w-0 flex-col gap-4">
-          <NextActionCard action={next} />
           <ExtraSidePanels sb={supabase} ownerId={ownerId} table={table} row={row} today={ctx.today} labels={labels} refOptions={refOptions} />
           <LinkedRecordsPanel sb={supabase} table={table} id={id} />
           {COMMS_TABLES.has(table) ? <CommunicationsPanel sb={supabase} table={table} id={id} /> : null}
