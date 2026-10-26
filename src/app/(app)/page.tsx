@@ -228,7 +228,7 @@ export default async function HomePage() {
               <Stat label="Debts" value={money(snap.netWorth.liabilities)} />
             </div>
             <p className="text-xs text-muted-foreground">
-              6 months ago: {money(nw[0]?.netWorth ?? 0)}. Emergency fund: {snap.emergencyFund.pct ?? 0}% of target.
+              6 months ago: {money(nw[0]?.netWorth ?? 0)}. Emergency fund: {Math.round(snap.emergencyFund.pct ?? 0)}% of target.
             </p>
             <Link href="/finance/savings" className="inline-flex items-center gap-1 text-sm text-teal-800 hover:underline">
               Savings and financial security <ArrowRight className="h-3.5 w-3.5" />

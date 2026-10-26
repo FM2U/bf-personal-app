@@ -1,6 +1,17 @@
 -- 0006: Row Level Security on every table, change log, updated_at triggers,
 -- AI proposal approval function, and the single-owner rule.
 
+-- True when the account still exists (used to skip logging while an account is being deleted).
+create or replace function public.owner_exists(p_owner uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, auth
+as $$
+  select exists (select 1 from auth.users where id = p_owner)
+$$;
+
 -- Change log: one row per changed field, with old value, new value, and actor.
 create or replace function public.log_change()
 returns trigger
@@ -30,7 +41,7 @@ begin
     return new;
   else
     -- Skip when the owner account itself is being deleted.
-    if exists (select 1 from auth.users where id = old.owner_id) then
+    if public.owner_exists(old.owner_id) then
       v_old := to_jsonb(old) - secret_fields;
       insert into public.change_log (owner_id, table_name, record_id, action, old_value, actor)
       values (old.owner_id, tg_table_name, (v_old ->> 'id')::uuid, 'delete', v_old, v_actor);

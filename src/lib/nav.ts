@@ -1,3 +1,4 @@
+import { getResource } from "@/lib/resources";
 export type NavTab = { href: string; label: string };
 export type NavModule = { key: string; label: string; href: string; icon: string; tabs: NavTab[] };
 
@@ -94,6 +95,12 @@ export const NAV: NavModule[] = [
 /** Which module a path belongs to. */
 export function moduleFor(path: string): NavModule {
   if (path === "/") return NAV[0];
+  const rec = path.match(/^\/records\/([a-z_]+)/);
+  if (rec) {
+    const r = getResource(rec[1]);
+    if (r && r.listHref !== "/") return moduleFor(r.listHref);
+  }
+  if (path.startsWith("/proposals")) return NAV[NAV.length - 1];
   const hit = NAV.slice(1).find((m) => path === m.href || path.startsWith(`${m.href}/`));
   if (hit) return hit;
   return NAV[0];

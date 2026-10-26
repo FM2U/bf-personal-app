@@ -1,0 +1,305 @@
+// LOCAL TESTING ONLY. Not used in production.
+// A small stand-in for the Supabase API (auth user endpoint + PostgREST subset + RPC) backed by a local
+// Postgres database that has the app's migrations applied. It lets the app run end to end on a laptop,
+// with Row Level Security enforced exactly as in Supabase (queries run as role "authenticated" with the
+// signed-in user's id and assurance level).
+//
+// Usage: DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/bf_scratch node dev-tools/mock-supabase.mjs
+// Then run the app with NEXT_PUBLIC_SUPABASE_URL=http://localhost:54321.
+
+import http from "node:http";
+import pg from "pg";
+
+const PORT = Number(process.env.MOCK_PORT || 54321);
+const SERVICE_KEY = process.env.MOCK_SERVICE_KEY || "service-role-test-key";
+const OWNER_EMAIL = process.env.OWNER_EMAIL || "owner@example.com";
+
+pg.types.setTypeParser(1700, (v) => (v === null ? null : parseFloat(v))); // numeric
+pg.types.setTypeParser(20, (v) => (v === null ? null : parseInt(v, 10))); // int8
+pg.types.setTypeParser(1082, (v) => v); // date as YYYY-MM-DD
+const ts = (v) => (v === null ? null : new Date(v.replace(" ", "T").replace(/([+-]\d\d)$/, "$1:00")).toISOString());
+pg.types.setTypeParser(1184, ts); // timestamptz
+pg.types.setTypeParser(1114, (v) => (v === null ? null : new Date(`${v.replace(" ", "T")}Z`).toISOString()));
+
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+
+function decodeJwt(token) {
+  try {
+    return JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+
+const q = (id) => `"${String(id).replace(/"/g, '""')}"`;
+
+function colExpr(c) {
+  // supports json paths: payload->>key, payload->key
+  const m = c.match(/^([a-zA-Z0-9_]+)(->>?)([a-zA-Z0-9_]+)$/);
+  if (m) return `${q(m[1])}${m[2]}'${m[3]}'`;
+  return q(c);
+}
+
+function splitTopLevel(s) {
+  const out = [];
+  let depth = 0;
+  let cur = "";
+  for (const ch of s) {
+    if (ch === "(") depth++;
+    if (ch === ")") depth--;
+    if (ch === "," && depth === 0) {
+      out.push(cur);
+      cur = "";
+    } else cur += ch;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+function condition(col, expr, params) {
+  let negate = false;
+  if (expr.startsWith("not.")) {
+    negate = true;
+    expr = expr.slice(4);
+  }
+  const dot = expr.indexOf(".");
+  const op = expr.slice(0, dot);
+  const val = expr.slice(dot + 1);
+  const c = colExpr(col);
+  let sql;
+  const p = (v) => {
+    params.push(v);
+    return `$${params.length}`;
+  };
+  switch (op) {
+    case "eq": sql = `${c} = ${p(val)}`; break;
+    case "neq": sql = `${c} <> ${p(val)}`; break;
+    case "gt": sql = `${c} > ${p(val)}`; break;
+    case "gte": sql = `${c} >= ${p(val)}`; break;
+    case "lt": sql = `${c} < ${p(val)}`; break;
+    case "lte": sql = `${c} <= ${p(val)}`; break;
+    case "like": sql = `${c}::text like ${p(val.replace(/\*/g, "%"))}`; break;
+    case "ilike": sql = `${c}::text ilike ${p(val.replace(/\*/g, "%"))}`; break;
+    case "is": sql = `${c} is ${val === "null" ? "null" : val === "true" ? "true" : "false"}`; break;
+    case "in": {
+      const items = val.replace(/^\(|\)$/g, "").split(",").map((x) => x.replace(/^"|"$/g, "")).filter((x) => x !== "");
+      sql = items.length ? `${c}::text = any(${p(items)}::text[])` : "false";
+      break;
+    }
+    case "cs": sql = `${c} @> ${p(val)}`; break;
+    default: throw Object.assign(new Error(`Unsupported operator ${op}`), { code: "PGRST100" });
+  }
+  return negate ? `not (${sql})` : sql;
+}
+
+function orGroup(expr, params) {
+  const inner = expr.replace(/^\(|\)$/g, "");
+  return `(${splitTopLevel(inner)
+    .map((part) => {
+      const i = part.indexOf(".");
+      return condition(part.slice(0, i), part.slice(i + 1), params);
+    })
+    .join(" or ")})`;
+}
+
+const RESERVED = new Set(["select", "order", "limit", "offset", "on_conflict", "columns"]);
+
+function buildWhere(url, params) {
+  const conds = [];
+  for (const [k, v] of url.searchParams.entries()) {
+    if (RESERVED.has(k)) continue;
+    if (k === "or") conds.push(orGroup(v, params));
+    else if (k === "and") conds.push(`(${splitTopLevel(v.replace(/^\(|\)$/g, "")).map((part) => { const i = part.indexOf("."); return condition(part.slice(0, i), part.slice(i + 1), params); }).join(" and ")})`);
+    else conds.push(condition(k, v, params));
+  }
+  return conds.length ? ` where ${conds.join(" and ")}` : "";
+}
+
+function selectList(s) {
+  if (!s || s === "*") return "*";
+  return s.split(",").map((c) => c.trim()).filter(Boolean).map((c) => (c === "*" ? "*" : colExpr(c))).join(", ");
+}
+
+function orderBy(o) {
+  if (!o) return "";
+  return ` order by ${o
+    .split(",")
+    .map((part) => {
+      const [col, ...mods] = part.split(".");
+      let s = colExpr(col);
+      if (mods.includes("desc")) s += " desc";
+      else s += " asc";
+      if (mods.includes("nullsfirst")) s += " nulls first";
+      if (mods.includes("nullslast")) s += " nulls last";
+      return s;
+    })
+    .join(", ")}`;
+}
+
+async function withRole(auth, fn) {
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+    if (auth.service) {
+      await client.query("set local role service_role");
+      await client.query("select set_config('request.jwt.claim.role', 'service_role', true)");
+    } else if (auth.sub) {
+      await client.query("set local role authenticated");
+      await client.query("select set_config('request.jwt.claim.sub', $1, true), set_config('request.jwt.claim.role', 'authenticated', true), set_config('request.jwt.claim.aal', $2, true)", [auth.sub, auth.aal || "aal1"]);
+    } else {
+      await client.query("set local role anon");
+    }
+    const out = await fn(client);
+    await client.query("commit");
+    return out;
+  } catch (e) {
+    await client.query("rollback").catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+function send(res, status, body, headers = {}) {
+  res.writeHead(status, { "Content-Type": "application/json", ...headers });
+  res.end(body === undefined ? "" : JSON.stringify(body));
+}
+
+function pgError(res, e) {
+  const status = e.code === "23505" ? 409 : e.code === "42501" ? 403 : e.code?.startsWith("PGRST") ? 400 : 400;
+  send(res, status, { code: e.code ?? "", message: e.message, details: e.detail ?? null, hint: e.hint ?? null });
+}
+
+async function readBody(req) {
+  const chunks = [];
+  for await (const c of req) chunks.push(c);
+  const s = Buffer.concat(chunks).toString("utf8");
+  return s ? JSON.parse(s) : null;
+}
+
+function authFrom(req) {
+  const token = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  const apikey = req.headers.apikey;
+  if (token === SERVICE_KEY || (!token && apikey === SERVICE_KEY)) return { service: true };
+  const payload = token ? decodeJwt(token) : null;
+  if (payload?.sub) return { sub: payload.sub, aal: payload.aal, email: payload.email };
+  return {};
+}
+
+const server = http.createServer(async (req, res) => {
+  const url = new URL(req.url, `http://localhost:${PORT}`);
+  try {
+    // Auth
+    if (url.pathname === "/auth/v1/user") {
+      const auth = authFrom(req);
+      if (!auth.sub) return send(res, 401, { code: 401, msg: "invalid JWT", message: "invalid JWT" });
+      return send(res, 200, {
+        id: auth.sub,
+        aud: "authenticated",
+        role: "authenticated",
+        email: auth.email || OWNER_EMAIL,
+        app_metadata: { provider: "email" },
+        user_metadata: {},
+        created_at: "2026-10-01T00:00:00Z",
+        last_sign_in_at: new Date().toISOString(),
+        factors: [{ id: "00000000-0000-0000-0000-00000000f001", friendly_name: "Authenticator (test)", factor_type: "totp", status: "verified", created_at: "2026-10-01T00:00:00Z", updated_at: "2026-10-01T00:00:00Z" }],
+      });
+    }
+    if (url.pathname.startsWith("/auth/v1/logout")) return send(res, 204);
+    if (url.pathname.startsWith("/auth/v1/")) return send(res, 400, { message: "Not supported by the local mock" });
+    if (url.pathname.startsWith("/storage/v1/")) return send(res, 400, { message: "Storage is not supported by the local mock" });
+
+    // RPC
+    const rpc = url.pathname.match(/^\/rest\/v1\/rpc\/([a-z_]+)$/);
+    if (rpc) {
+      const body = (await readBody(req)) || {};
+      const keys = Object.keys(body);
+      const params = keys.map((k) => (body[k] !== null && typeof body[k] === "object" ? JSON.stringify(body[k]) : body[k]));
+      const sql = `select ${q(rpc[1])}(${keys.map((k, i) => `${q(k)} => $${i + 1}`).join(", ")}) as result`;
+      const out = await withRole(authFrom(req), (c) => c.query(sql, params));
+      return send(res, 200, out.rows[0]?.result ?? null);
+    }
+
+    const m = url.pathname.match(/^\/rest\/v1\/([a-z_]+)$/);
+    if (!m) return send(res, 404, { message: "Not found" });
+    const table = q(m[1]);
+    const prefer = String(req.headers.prefer || "");
+    const wantCount = /count=(exact|planned|estimated)/.test(prefer);
+    const single = String(req.headers.accept || "").includes("vnd.pgrst.object");
+    const auth = authFrom(req);
+    const params = [];
+
+    if (req.method === "GET" || req.method === "HEAD") {
+      const where = buildWhere(url, params);
+      let limit = url.searchParams.get("limit");
+      let offset = url.searchParams.get("offset");
+      const range = req.headers.range;
+      if (range) {
+        const [a, b] = range.split("-").map(Number);
+        offset = String(a);
+        limit = String(b - a + 1);
+      }
+      const sql = `select ${selectList(url.searchParams.get("select"))} from ${table}${where}${orderBy(url.searchParams.get("order"))}${limit ? ` limit ${Number(limit)}` : ""}${offset ? ` offset ${Number(offset)}` : ""}`;
+      const out = await withRole(auth, async (c) => {
+        const rows = req.method === "HEAD" ? { rows: [] } : await c.query(sql, params);
+        let count = null;
+        if (wantCount) count = (await c.query(`select count(*)::int as n from ${table}${where}`, params)).rows[0].n;
+        return { rows: rows.rows, count };
+      });
+      const start = Number(offset || 0);
+      const headers = { "Content-Range": `${out.rows.length ? `${start}-${start + out.rows.length - 1}` : "*"}/${out.count ?? "*"}` };
+      if (req.method === "HEAD") return send(res, 200, undefined, headers);
+      if (single) {
+        if (out.rows.length !== 1) return send(res, 406, { code: "PGRST116", message: "JSON object requested, multiple (or no) rows returned", details: `Results contain ${out.rows.length} rows`, hint: null });
+        return send(res, 200, out.rows[0], headers);
+      }
+      return send(res, 200, out.rows, headers);
+    }
+
+    if (req.method === "POST") {
+      const body = await readBody(req);
+      const rows = Array.isArray(body) ? body : [body];
+      if (!rows.length) return send(res, 201, []);
+      const cols = [...new Set(rows.flatMap((r) => Object.keys(r)))];
+      const colList = cols.map(q).join(", ");
+      params.push(JSON.stringify(rows));
+      let sql = `insert into ${table} (${colList}) select ${colList} from json_populate_recordset(null::${table}, $1)`;
+      const onConflict = url.searchParams.get("on_conflict");
+      if (prefer.includes("resolution=ignore-duplicates")) sql += onConflict ? ` on conflict (${onConflict.split(",").map(q).join(", ")}) do nothing` : " on conflict do nothing";
+      else if (prefer.includes("resolution=merge-duplicates") && onConflict) {
+        const conflictCols = onConflict.split(",");
+        const updates = cols.filter((c) => !conflictCols.includes(c)).map((c) => `${q(c)} = excluded.${q(c)}`);
+        sql += ` on conflict (${conflictCols.map(q).join(", ")}) do ${updates.length ? `update set ${updates.join(", ")}` : "nothing"}`;
+      }
+      sql += ` returning ${selectList(url.searchParams.get("select"))}`;
+      const out = await withRole(auth, (c) => c.query(sql, params));
+      if (single) return send(res, 201, out.rows[0] ?? null);
+      return send(res, 201, prefer.includes("return=representation") ? out.rows : undefined);
+    }
+
+    if (req.method === "PATCH") {
+      const body = (await readBody(req)) || {};
+      const cols = Object.keys(body);
+      if (!cols.length) return send(res, 204);
+      params.push(JSON.stringify(body));
+      const where = buildWhere(url, params);
+      const colList = cols.map(q).join(", ");
+      const sql = `update ${table} set (${colList}) = (select ${colList} from json_populate_record(null::${table}, $1))${where} returning ${selectList(url.searchParams.get("select"))}`;
+      const out = await withRole(auth, (c) => c.query(sql, params));
+      if (single) return send(res, 200, out.rows[0] ?? null);
+      return send(res, prefer.includes("return=representation") ? 200 : 204, prefer.includes("return=representation") ? out.rows : undefined);
+    }
+
+    if (req.method === "DELETE") {
+      const where = buildWhere(url, params);
+      const out = await withRole(auth, (c) => c.query(`delete from ${table}${where} returning *`, params));
+      return send(res, prefer.includes("return=representation") ? 200 : 204, prefer.includes("return=representation") ? out.rows : undefined);
+    }
+    return send(res, 405, { message: "Method not allowed" });
+  } catch (e) {
+    if (process.env.MOCK_DEBUG) console.error(req.method, req.url, e.message);
+    return pgError(res, e);
+  }
+});
+
+server.listen(PORT, () => console.log(`Mock Supabase listening on http://localhost:${PORT}`));

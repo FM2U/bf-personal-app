@@ -11,8 +11,5 @@ for f in "$DIR"/migrations/*.sql; do
   echo "Applying $(basename "$f")"
   su postgres -c "$PSQL -d $DB -f $f"
 done
-if [ "${SEED_DEMO:-0}" = "1" ]; then
-  su postgres -c "$PSQL -d $DB -f $DIR/seed/demo_seed.sql"
-fi
 su postgres -c "$PSQL -d $DB -f $DIR/tests/smoke_test.sql"
 echo "All migrations applied and smoke test passed."

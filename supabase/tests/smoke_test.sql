@@ -106,5 +106,22 @@ do $$ begin
   assert (select completed_at from public.tasks where title = 'Option A') is not null, 'completed_at set';
 end $$;
 
+-- 9. Deleting a record as the owner works and is logged.
+delete from public.tasks where title = 'Option A';
+do $$ begin
+  assert exists (select 1 from public.change_log where table_name = 'tasks' and action = 'delete'), 'delete logged';
+end $$;
+
+-- 10. The anon role (public visitors) cannot read any table.
+reset role;
+set role anon;
+do $$ begin
+  begin
+    perform 1 from public.partner_links limit 1;
+    raise exception 'anon read allowed';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
 reset role;
 select 'smoke test passed' as result;

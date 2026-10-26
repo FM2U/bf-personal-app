@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getResource, RESOURCES } from "@/lib/resources";
 import type { Row } from "@/lib/types";
+import { date as fmtDate } from "@/lib/format";
 
 export type RefOption = { id: string; label: string; extra?: Row };
 
@@ -15,6 +16,8 @@ export function titleOf(table: string, row: Row | null | undefined, refLabels?: 
   if (table === "account_balances") return `Balance on ${row.as_of}`;
   if (table === "deal_financials" || table === "job_details" || table === "investor_details") return r?.singular ?? table;
   const v = r ? row[r.titleField] : row.name ?? row.title;
+  const tf = r?.fields.find((f) => f.name === r.titleField);
+  if (v && tf?.type === "date") return fmtDate(String(v));
   return v ? String(v) : r?.singular ?? "Record";
 }
 

@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# LOCAL TESTING ONLY: creates a local database with all migrations, one owner account, and the demo seed data.
+# Usage: bash dev-tools/setup-local-db.sh   (needs a local Postgres server and the postgres OS user)
+set -euo pipefail
+DB=${DB:-bf_dev}
+OWNER_ID=${OWNER_ID:-00000000-0000-0000-0000-000000000001}
+OWNER_EMAIL=${OWNER_EMAIL:-owner@example.com}
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PSQL="psql -v ON_ERROR_STOP=1 -q"
+su postgres -c "dropdb --if-exists $DB && createdb $DB"
+su postgres -c "$PSQL -d $DB -f $ROOT/supabase/tests/local_supabase_stub.sql"
+for f in "$ROOT"/supabase/migrations/*.sql; do su postgres -c "$PSQL -d $DB -f $f"; done
+su postgres -c "$PSQL -d $DB -c \"insert into auth.users (id, email) values ('$OWNER_ID', '$OWNER_EMAIL')\""
+if [ "${NO_DEMO:-0}" != "1" ]; then su postgres -c "$PSQL -d $DB -f $ROOT/supabase/seed/demo_seed.sql"; fi
+echo "Local database $DB is ready (owner $OWNER_EMAIL)."
