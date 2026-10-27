@@ -7,17 +7,20 @@ import { AskAiSidebarButton, ChatPanel } from "@/components/app/chat-panel";
 import { signOut } from "@/app/actions/auth";
 import { isAIConfigured } from "@/lib/env";
 import { UnsavedChangesGuard } from "@/components/app/unsaved-changes";
+import { WindowProvider } from "@/components/app/window-host";
 
-export default async function AppLayout({ children }: { children: React.ReactNode }) {
+export default async function AppLayout({ children, modal }: { children: React.ReactNode; modal: React.ReactNode }) {
   const { supabase, user } = await requireOwner();
   const [{ count: pending }, { count: alerts }] = await Promise.all([
     supabase.from("ai_proposals").select("id", { count: "exact", head: true }).eq("status", "pending"),
     supabase.from("alerts").select("id", { count: "exact", head: true }).eq("status", "open"),
   ]);
   return (
+    <WindowProvider>
     <div className="min-h-screen lg:pl-60">
       <aside className="no-print fixed inset-y-0 left-0 hidden w-60 flex-col border-r border-border bg-white px-3 py-4 lg:flex">
-        <Link href="/" className="mb-6 px-3 text-base font-semibold tracking-tight text-slate-900">
+        <Link href="/" className="mb-6 flex items-center gap-2 px-3 text-base font-semibold tracking-tight text-slate-900">
+          <span aria-hidden className="h-2.5 w-2.5 rotate-45 rounded-[2px] bg-gold" />
           BF Personal App
         </Link>
         <SidebarLinks />
@@ -40,7 +43,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       </aside>
       <header className="no-print sticky top-0 z-30 border-b border-border bg-white/95 pt-3 backdrop-blur lg:hidden">
         <div className="mb-2 flex items-center justify-between px-4">
-          <Link href="/" className="text-base font-semibold">
+          <Link href="/" className="flex items-center gap-2 text-base font-semibold">
+            <span aria-hidden className="h-2 w-2 rotate-45 rounded-[1px] bg-gold" />
             BF Personal App
           </Link>
           <div className="flex items-center gap-3 text-xs">
@@ -55,10 +59,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <MobileModuleBar />
       </header>
       <main className="mx-auto w-full max-w-7xl px-4 pt-6 pb-24 sm:px-6 lg:px-8">{children}</main>
+      {modal}
       <ChatPanel aiReady={isAIConfigured()} />
       <Suspense fallback={null}>
         <UnsavedChangesGuard />
       </Suspense>
     </div>
+    </WindowProvider>
   );
 }

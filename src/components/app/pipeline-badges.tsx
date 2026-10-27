@@ -5,7 +5,7 @@ import type { ItemStatus } from "@/lib/pipeline";
 export function DealSourceBadge({ type, showUnset = false }: { type: string | null | undefined; showUnset?: boolean }) {
   if (type === "proprietary")
     return (
-      <Badge variant="default" title="Off-market deal found directly">
+      <Badge variant="gold" title="Off-market deal found directly">
         Proprietary
       </Badge>
     );

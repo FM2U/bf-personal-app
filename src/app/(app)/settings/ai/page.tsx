@@ -42,7 +42,7 @@ export default async function AiUsagePage() {
             <CardTitle>This month</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
-            <Progress value={budget.cap ? (budget.spent / budget.cap) * 100 : 0} tone={budget.blocked ? "red" : "teal"} />
+            <Progress value={budget.cap ? (budget.spent / budget.cap) * 100 : 0} tone={budget.blocked ? "red" : "primary"} />
             <StatGrid className="grid-cols-3">
               <Stat label="Spent" value={money(budget.spent, true)} />
               <Stat label="Cap" value={money(budget.cap, true)} />

@@ -150,7 +150,7 @@ export default async function OpportunitiesPage({ searchParams }: { searchParams
                       .filter((s) => s.outcome === "open")
                       .map((s, i) => {
                         const n = open.filter((x) => x.stage_id === s.id).length;
-                        return n ? <div key={s.id} title={`${s.name}: ${n}`} style={{ flex: n, opacity: 0.35 + (0.65 * (i + 1)) / st.length }} className="bg-teal-700" /> : null;
+                        return n ? <div key={s.id} title={`${s.name}: ${n}`} style={{ flex: n, opacity: 0.35 + (0.65 * (i + 1)) / st.length }} className="bg-primary" /> : null;
                       })}
                   </div>
                   <p className="clamp-1 text-xs text-muted-foreground">{next ? `Next: ${next.name}: ${next.next_action} (${fmtDate(next.next_action_due)})` : "No next actions scheduled."}</p>

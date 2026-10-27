@@ -101,7 +101,7 @@ export default async function AccountsPage() {
                             {a.balance_as_of ? (
                               fmtDate(a.balance_as_of)
                             ) : (
-                              <Link href={`/records/account_balances/new?account_id=${a.id}`} className="text-teal-800 underline">
+                              <Link href={`/records/account_balances/new?account_id=${a.id}`} className="text-primary-strong underline">
                                 Record balance
                               </Link>
                             )}

@@ -93,7 +93,7 @@ export default async function SampleDataPage({ searchParams }: { searchParams: P
               <GuardedForm action={loadSampleData} className="flex flex-col gap-3" data-unsaved="off">
                 {real.total ? (
                   <label className="flex items-start gap-2 text-sm">
-                    <input type="checkbox" name="confirm_real" className="mt-0.5 h-4 w-4 accent-teal-700" data-testid="sample-confirm-real" required />
+                    <input type="checkbox" name="confirm_real" className="mt-0.5 h-4 w-4 accent-primary" data-testid="sample-confirm-real" required />
                     Load sample data next to my real records
                   </label>
                 ) : null}

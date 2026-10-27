@@ -17,7 +17,7 @@ export function TargetCounters({ available, summaries, back }: { available: bool
     return (
       <p className="text-sm text-muted-foreground">
         No daily targets yet.{" "}
-        <Link href="/records/targets/new" className="text-teal-800 underline">
+        <Link href="/records/targets/new" className="text-primary-strong underline">
           Add a target
         </Link>
       </p>
@@ -71,7 +71,7 @@ export function TargetCounters({ available, summaries, back }: { available: bool
                 </Button>
               ) : t.count_source === "deals_advanced" ? (
                 <Button asChild size="sm" variant="outline" className="w-full">
-                  <Link href={t.pipeline_id ? `/opportunities/${t.pipeline_id}?view=list` : "/opportunities"}>Open deals</Link>
+                  <Link href={t.pipeline_id ? `/opportunities/${t.pipeline_id}` : "/opportunities"}>Open deals</Link>
                 </Button>
               ) : (
                 <Button asChild size="sm" variant="outline" className="w-full">

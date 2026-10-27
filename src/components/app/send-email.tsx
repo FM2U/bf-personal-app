@@ -39,6 +39,7 @@ export function ReconnectGoogle({ message, stacked = false }: { message?: string
     >
       <span>{message ?? "Reconnect Google to allow sending from the app (1 minute)."}</span>
       <Button asChild size="sm" className={cn("shrink-0 self-start", !stacked && "sm:self-auto")}>
+        {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- the Google sign-in must be a full page load, not an app link */}
         <a href="/api/google/connect">Reconnect Google</a>
       </Button>
     </div>

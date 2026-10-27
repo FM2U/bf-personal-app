@@ -71,7 +71,7 @@ export default async function PipelineActionsPage() {
               </TBody>
             </Table>
           ) : (
-            <EmptyState title="No open pipeline items." body="Add items in Opportunities." action={<Link href="/opportunities" className="text-sm text-teal-800 underline">Open Opportunities</Link>} />
+            <EmptyState title="No open pipeline items." body="Add items in Opportunities." action={<Link href="/opportunities" className="text-sm text-primary-strong underline">Open Opportunities</Link>} />
           )}
         </CardContent>
       </Card>

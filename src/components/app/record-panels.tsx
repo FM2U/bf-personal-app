@@ -1,57 +1,21 @@
 import Link from "next/link";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { ArrowRight, CalendarClock, FileText, Link2, Trash2 } from "lucide-react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { FileText, Link2, Trash2 } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, NativeSelect, Textarea } from "@/components/ui/input";
-import { Badge, DueWord } from "@/components/ui/badge";
-import { STATUS_TEXT, dueStatus } from "@/lib/status";
+import { Badge } from "@/components/ui/badge";
 import { SubmitButton } from "@/components/app/submit-button";
 import { EmptyState } from "@/components/app/page-header";
 import { ResourceTable } from "@/components/app/resource-table";
 import { addLink, addNote, deleteDocument, deleteNote, removeLink, uploadDocument } from "@/app/actions/records";
 import { getResource, newRecordHref, recordHref, RESOURCES } from "@/lib/resources";
 import { titleOf } from "@/lib/data";
-import { date as fmtDateOnly, dateTime } from "@/lib/format";
-import type { NextAction } from "@/lib/next-action";
+import { dateTime } from "@/lib/format";
 import type { Row } from "@/lib/types";
-import { cn } from "@/lib/utils";
 import { GuardedForm } from "@/components/app/unsaved-changes";
 
-/**
- * The record's next required action. Shown first on every record page: teal line on the left, light teal tint,
- * the action in larger semibold text, and its due date with "Overdue" (red) or "Due today" (amber).
- * Nothing left to do (tone "done"): a gray line on a white card.
- */
-export function NextActionCard({ action, today }: { action: NextAction; today: string }) {
-  const done = action.tone === "done";
-  const status = action.due ? dueStatus(action.due, today) : "neutral";
-  return (
-    <Card id="next-action" className={cn("relative overflow-hidden", done ? "bg-card" : "border-action-stripe/25 bg-action-bg")}>
-      <span aria-hidden className={cn("absolute inset-y-0 left-0 w-1", done ? "bg-status-neutral-solid" : "bg-action-stripe")} />
-      <CardHeader className="gap-1.5">
-        <CardDescription className="text-xs font-medium uppercase tracking-wide text-slate-600">Next required action</CardDescription>
-        <CardTitle className={cn("text-lg font-semibold leading-snug", done ? "text-slate-700" : "text-slate-900")}>{action.text}</CardTitle>
-        {action.due ? (
-          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-            <CalendarClock aria-hidden className="h-4 w-4 shrink-0 text-slate-400" />
-            <span className={cn("tabular", status === "neutral" ? "text-slate-700" : cn(STATUS_TEXT[status], "font-medium"))}>Due {fmtDateOnly(action.due)}</span>
-            <DueWord due={action.due} today={today} />
-          </p>
-        ) : null}
-      </CardHeader>
-      {action.href ? (
-        <CardContent>
-          <Button asChild size="sm" variant={action.tone === "overdue" || status === "missed" ? "default" : "outline"} className={cn(action.tone !== "overdue" && status !== "missed" && "bg-white")}>
-            <Link href={action.href}>
-              {action.linkText ?? "Open"} <ArrowRight />
-            </Link>
-          </Button>
-        </CardContent>
-      ) : null}
-    </Card>
-  );
-}
+export { NextActionCard } from "@/components/app/next-action-card";
 
 const LINK_TARGET_TABLES = [
   "contacts", "organizations", "pipeline_items", "initiatives", "goals", "milestones", "decisions", "tasks", "debts",
@@ -102,7 +66,7 @@ export async function LinkedRecordsPanel({ sb, table, id }: { sb: SupabaseClient
                     {getResource(l.type)?.singular ?? l.type}
                     {l.relation ? ` (${l.relation})` : ""}
                   </span>
-                  <span className="clamp-1 font-medium text-teal-800">{titles[`${l.type}:${l.rid}`] ?? "Open record"}</span>
+                  <span className="clamp-1 font-medium text-primary-strong">{titles[`${l.type}:${l.rid}`] ?? "Open record"}</span>
                 </Link>
                 <GuardedForm action={removeLink}>
                   <input type="hidden" name="id" value={l.id} />
@@ -163,7 +127,7 @@ export async function DocumentsPanel({ sb, table, id }: { sb: SupabaseClient; ta
             {docs.map((d) => (
               <li key={d.id} className="flex items-center justify-between gap-2 py-1.5">
                 <a href={`/api/documents/${d.id}`} className="min-w-0 text-sm hover:underline" target="_blank" rel="noreferrer">
-                  <span className="clamp-1 font-medium text-teal-800">{d.file_name}</span>
+                  <span className="clamp-1 font-medium text-primary-strong">{d.file_name}</span>
                   <span className="block text-xs text-muted-foreground">
                     {d.kind.replace(/_/g, " ")} . {dateTime(d.created_at)}
                   </span>
@@ -265,7 +229,7 @@ export async function CommunicationsPanel({ sb, table, id }: { sb: SupabaseClien
                   <span className="block text-xs text-muted-foreground">
                     {dateTime(c.occurred_at)} . {c.method}
                   </span>
-                  <span className="clamp-1 font-medium text-teal-800">{c.subject ?? "Communication"}</span>
+                  <span className="clamp-1 font-medium text-primary-strong">{c.subject ?? "Communication"}</span>
                 </Link>
               </li>
             ))}

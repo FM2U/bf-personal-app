@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ChevronDown, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
 import { createRecordInline, saveRecord, type FormState } from "@/app/actions/records";
 import { DEAL_SOURCE_OPTIONS, getResource, type Field } from "@/lib/resources";
 import { initialSourceMode, resolveSourceFields, suggestForSource, type SourceMode } from "@/lib/calc/source-chain";
@@ -18,6 +18,7 @@ import { Notice } from "@/components/app/page-header";
 import { GuardedForm } from "@/components/app/unsaved-changes";
 import type { Row } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { fieldWidth, formLayout, moreStartsOpen, spanClasses, type FieldWidth } from "@/lib/form-layout";
 
 type RefOptions = Record<string, RefOption[]>;
 
@@ -37,20 +38,14 @@ function withExclusions(table: string, fields: Field[], exclude: Record<string, 
   });
 }
 
-/** Fields grouped by their section heading, in order (fields without a section form one group). */
-function sectionsOf(fields: Field[]): { section: string | null; fields: Field[] }[] {
-  const out: { section: string | null; fields: Field[] }[] = [];
-  for (const f of fields) {
-    const section = f.section ?? null;
-    const last = out[out.length - 1];
-    if (last && last.section === section) last.fields.push(f);
-    else out.push({ section, fields: [f] });
-  }
-  return out;
-}
-
+/** A small section heading with a short gold rule under it. */
 function SectionHeading({ children }: { children: React.ReactNode }) {
-  return <h3 className="mb-3 border-b border-slate-200 pb-1.5 text-sm font-semibold text-slate-900">{children}</h3>;
+  return (
+    <h3 className="relative mb-3 border-b border-slate-200 pb-1.5 text-sm font-semibold text-slate-900">
+      {children}
+      <span aria-hidden className="absolute -bottom-px left-0 h-px w-8 bg-gold" />
+    </h3>
+  );
 }
 
 /** "Deal came from" / "Lead came from": the contact list also offers "Not a person" with a typed source. */
@@ -86,7 +81,7 @@ function FieldInput({ field, value, idPrefix = "f_", source }: { field: Field; v
       const checked = value === null || value === undefined ? field.default === true : Boolean(value);
       return (
         <label className="flex h-9 items-center gap-2 text-sm">
-          <input type="checkbox" id={common.id} name={field.name} defaultChecked={checked} className="h-4 w-4 accent-teal-700" />
+          <input type="checkbox" id={common.id} name={field.name} defaultChecked={checked} className="h-4 w-4 accent-primary" />
           Yes
         </label>
       );
@@ -111,7 +106,7 @@ function FieldInput({ field, value, idPrefix = "f_", source }: { field: Field; v
         <div className="flex flex-wrap gap-x-4 gap-y-2 rounded-md border border-input bg-background px-3 py-2">
           {field.options?.map((o) => (
             <label key={o.value} className="flex items-center gap-2 text-sm">
-              <input type="checkbox" name={field.name} value={o.value} defaultChecked={selected.has(o.value)} className="h-4 w-4 accent-teal-700" />
+              <input type="checkbox" name={field.name} value={o.value} defaultChecked={selected.has(o.value)} className="h-4 w-4 accent-primary" />
               {o.label}
             </label>
           ))}
@@ -254,7 +249,7 @@ function RefPicker({ field, id, initial, source }: { field: Field; id: string; i
                 aria-selected={isChosen(o)}
                 className={cn(
                   "clamp-2 cursor-pointer px-3 py-1.5",
-                  i === active && "bg-teal-50 text-teal-900",
+                  i === active && "bg-primary-soft text-primary-strong",
                   (!o || o.id === TEXT_OPTION.id) && "text-muted-foreground",
                   o?.id === TEXT_OPTION.id && "border-b border-slate-100 italic",
                   isChosen(o) && "font-medium",
@@ -517,11 +512,28 @@ export function RecordForm({
   const fields = withExclusions(table, combineSource ? allFields.filter((f) => f.name !== "source") : allFields, excludeOptions);
   const sourceText: SourceText | undefined = combineSource ? { initialText: String(initial.source ?? ""), placeholder: text?.source?.placeholder } : undefined;
   const suggestType = table === "pipeline_items" && fields.some((f) => f.name === "deal_source_type") && fields.some((f) => f.name === "source_contact_id");
-  const groups = sectionsOf(fields);
+  const layout = formLayout(table, fields);
+  const [moreOpen] = useState(() => moreStartsOpen(layout.more, initial));
+  // Long forms on their own page keep Save and Cancel in view; forms inside a card (only = a few fields) do not.
+  const long = !only && layout.main.reduce((n, g) => n + g.fields.length, 0) > 8;
+  const widthOf = (f: Field): FieldWidth => (f.name === "source_contact_id" || f.name === "deal_source_type" ? "medium" : fieldWidth(f));
   const contactOptions = (options.contacts ?? []) as PersonOption[];
+  const renderField = (f: Field, span: string) => (
+    <FormField
+      key={f.name}
+      label={f.label}
+      htmlFor={`f_${f.name}`}
+      required={f.required}
+      help={suggestType && f.name === "deal_source_type" ? <DealSourceHint initialContact={initial.source_contact_id ?? ""} fallback={f.help} /> : f.help}
+      span={span}
+    >
+      <input type="hidden" name={`${f.name}__present`} value="1" />
+      <FieldInput field={f} value={initial[f.name]} source={f.name === "source_contact_id" ? sourceText : undefined} />
+    </FormField>
+  );
   return (
     <RefContext.Provider value={ctx}>
-      <GuardedForm action={(fd: FormData) => saveRecord(null, fd)} onResult={(r) => setState(r as FormState)} leaveTo className="flex flex-col gap-4">
+      <GuardedForm action={(fd: FormData) => saveRecord(null, fd)} onResult={(r) => setState(r as FormState)} leaveTo className="@container flex max-w-[55rem] flex-col gap-4">
         <input type="hidden" name="__table" value={table} />
         {id ? <input type="hidden" name="__id" value={id} /> : null}
         {redirectTo ? <input type="hidden" name="__redirect" value={redirectTo} /> : null}
@@ -542,27 +554,25 @@ export function RecordForm({
           </Notice>
         ) : null}
         <div className="flex flex-col">
-          {groups.map((g, gi) => (
-            <div key={g.section ?? `g${gi}`}>
+          {layout.main.map((g, gi) => (
+            <div key={g.section ?? `g${gi}`} className={cn(gi > 0 && "mt-1")}>
               {/* A section of one field with the same name (Notes) needs no heading over its label. */}
               {g.section && !(g.fields.length === 1 && g.fields[0].label === g.section) ? <SectionHeading>{g.section}</SectionHeading> : null}
-              <FieldGrid>
-                {g.fields.map((f) => (
-                  <FormField
-                    key={f.name}
-                    label={f.label}
-                    htmlFor={`f_${f.name}`}
-                    required={f.required}
-                    help={suggestType && f.name === "deal_source_type" ? <DealSourceHint initialContact={initial.source_contact_id ?? ""} fallback={f.help} /> : f.help}
-                    wide={["textarea", "actions", "multiselect"].includes(f.type)}
-                  >
-                    <input type="hidden" name={`${f.name}__present`} value="1" />
-                    <FieldInput field={f} value={initial[f.name]} source={f.name === "source_contact_id" ? sourceText : undefined} />
-                  </FormField>
-                ))}
-              </FieldGrid>
+              <FieldGrid cols="auto">{(() => { const spans = spanClasses(g.fields, widthOf); return g.fields.map((f, i) => renderField(f, spans[i])); })()}</FieldGrid>
             </div>
           ))}
+          {layout.more.length ? (
+            <details className="group mb-4 rounded-lg border border-slate-200 bg-slate-50/50" open={moreOpen} data-testid="more-details">
+              <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm font-medium text-slate-700 hover:text-slate-900 [&::-webkit-details-marker]:hidden">
+                <ChevronRight aria-hidden className="h-4 w-4 text-slate-500 transition-transform group-open:rotate-90" />
+                <span className="whitespace-nowrap">More details</span>
+                <span className="clamp-1 hidden min-w-0 text-xs font-normal text-muted-foreground sm:block">{layout.more.map((f) => f.label.split(" (")[0]).join(", ")}</span>
+              </summary>
+              <div className="border-t border-slate-200 px-3 pt-3">
+                <FieldGrid cols="auto">{(() => { const spans = spanClasses(layout.more, widthOf); return layout.more.map((f, i) => renderField(f, spans[i])); })()}</FieldGrid>
+              </div>
+            </details>
+          ) : null}
           {table === "organizations" && !only ? (
             <div className="pb-4">
               <SectionHeading>People at this organization</SectionHeading>
@@ -578,7 +588,7 @@ export function RecordForm({
         </div>
         {table === "tasks" && !id ? (
           <label className="flex items-start gap-2 text-sm">
-            <input type="checkbox" name="__is_commitment" className="mt-0.5 h-4 w-4 shrink-0 accent-teal-700" />
+            <input type="checkbox" name="__is_commitment" className="mt-0.5 h-4 w-4 shrink-0 accent-primary" />
             <span>
               <span className="font-medium text-slate-800">This is a commitment</span>
               <span className="block text-xs text-muted-foreground">Checked against its due date; a miss needs a reason. Unchecked: a regular task, which moves to the next day if it is not done.</span>
@@ -587,11 +597,11 @@ export function RecordForm({
         ) : null}
         {showSaveRule ? (
           <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" name="save_rule" defaultChecked className="h-4 w-4 accent-teal-700" />
+            <input type="checkbox" name="save_rule" defaultChecked className="h-4 w-4 accent-primary" />
             When I change the category, save it as a rule for this merchant
           </label>
         ) : null}
-        <div className="flex flex-wrap gap-2">
+        <div className={cn("flex flex-wrap gap-2", long && "sticky bottom-0 z-20 -mx-5 -mb-5 rounded-b-xl border-t border-border bg-white/95 px-5 py-3 backdrop-blur")} data-testid="form-actions">
           <SubmitButton data-save-and-leave>{submitLabel ?? (id ? "Save changes" : `Add ${resource.singular.toLowerCase()}`)}</SubmitButton>
           {cancelHref ? (
             <Button asChild variant="outline">
@@ -652,7 +662,7 @@ function DealSourceHint({ initialContact, fallback }: { initialContact: string; 
     <span ref={anchor} data-testid="deal-source-suggestion">
       Suggested: {label} ({why}).{" "}
       {current === suggestion ? null : (
-        <button type="button" onClick={use} className="font-medium text-teal-800 underline">
+        <button type="button" onClick={use} className="font-medium text-primary-strong underline">
           Use {label}
         </button>
       )}

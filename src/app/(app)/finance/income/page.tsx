@@ -73,7 +73,7 @@ export default async function IncomePage() {
               <CardHeader className="flex-row flex-wrap items-start justify-between gap-2 pb-2">
                 <CardTitle>Consulting engagements</CardTitle>
                 {consulting.pipelines[0] ? (
-                  <Link href={`/opportunities/${consulting.pipelines[0].id}`} className="text-sm text-teal-800 hover:underline">
+                  <Link href={`/opportunities/${consulting.pipelines[0].id}`} className="text-sm text-primary-strong hover:underline">
                     Open the Consulting pipeline
                   </Link>
                 ) : null}

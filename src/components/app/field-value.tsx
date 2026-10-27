@@ -32,7 +32,7 @@ export function FieldValue({ field, value, labels }: { field: Field | undefined;
       const id = String(value);
       const label = labels?.[field.ref!]?.[id] ?? "Open record";
       return (
-        <Link className="text-teal-800 underline-offset-2 hover:underline" href={recordHref(field.ref!, id)}>
+        <Link className="text-primary-strong underline-offset-2 hover:underline" href={recordHref(field.ref!, id)}>
           {label}
         </Link>
       );
@@ -76,7 +76,7 @@ export function FieldValue({ field, value, labels }: { field: Field | undefined;
       return <code className="text-xs">{JSON.stringify(value)}</code>;
     case "url":
       return (
-        <a className="text-teal-800 underline-offset-2 hover:underline" href={String(value)} target="_blank" rel="noreferrer">
+        <a className="text-primary-strong underline-offset-2 hover:underline" href={String(value)} target="_blank" rel="noreferrer">
           {String(value)}
         </a>
       );

@@ -19,7 +19,7 @@ export function KpiGroup({ title, module, tiles, className, cols }: { title: str
           <Link
             key={t.label}
             href={t.href}
-            className="group flex min-w-0 flex-col rounded-lg border border-slate-100 bg-slate-50/60 p-2.5 transition-colors hover:border-teal-200 hover:bg-teal-50/50 focus-visible:outline-2 focus-visible:outline-teal-700"
+            className="group flex min-w-0 flex-col rounded-lg border border-slate-100 bg-slate-50/60 p-2.5 transition-colors hover:border-primary-border hover:bg-primary-soft/50 focus-visible:outline-2 focus-visible:outline-primary"
           >
             <span className={cn(METRIC_LABEL, "group-hover:text-slate-900")}>{t.label}</span>
             <span

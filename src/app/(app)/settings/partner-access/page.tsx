@@ -73,7 +73,7 @@ export default async function PartnerAccessPage({ searchParams }: { searchParams
               </TBody>
             </Table>
           ) : (
-            <EmptyState title="No partner links yet." body="Open an accountability partner and press Create link." action={<Link href="/accountability/partners" className="text-sm text-teal-800 underline">Open accountability partners</Link>} />
+            <EmptyState title="No partner links yet." body="Open an accountability partner and press Create link." action={<Link href="/accountability/partners" className="text-sm text-primary-strong underline">Open accountability partners</Link>} />
           )}
         </CardContent>
       </Card>

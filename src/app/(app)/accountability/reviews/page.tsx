@@ -2,13 +2,11 @@ import { requireOwner } from "@/lib/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/app/page-header";
 import { ListCard } from "@/components/app/list-card";
-import { SubmitButton } from "@/components/app/submit-button";
-import { startReview } from "@/app/actions/domain";
-import { GuardedForm } from "@/components/app/unsaved-changes";
+import { OpenReviewButton } from "@/components/app/open-review-button";
 
 export const metadata = { title: "Reviews" };
 
-const KINDS = [
+const KINDS: { kind: "daily" | "weekly" | "monthly" | "quarterly"; title: string; body: string }[] = [
   { kind: "daily", title: "Daily close", body: "About 3 minutes, evening. Check off today's tasks, one reason for the commitments and targets missed today (or one per item), tomorrow's top 3 tasks." },
   { kind: "weekly", title: "Weekly review", body: "What changed, missed commitments, tasks moved 5 or more times, pipeline movement, spending vs. budget, next week's priorities, partner report draft." },
   { kind: "monthly", title: "Monthly review", body: "Budget vs. actual, net worth change, savings progress, debt payments confirmed, milestone status, connection status, full data export downloaded." },
@@ -28,12 +26,9 @@ export default async function ReviewsPage() {
               <CardDescription className="clamp-4 min-h-20">{k.body}</CardDescription>
             </CardHeader>
             <CardContent>
-              <GuardedForm action={startReview}>
-                <input type="hidden" name="kind" value={k.kind} />
-                <SubmitButton size="sm" variant="outline" pendingText="Drafting...">
-                  {k.kind === "daily" ? "Open today's daily close" : `Open the latest ${k.kind} review`}
-                </SubmitButton>
-              </GuardedForm>
+              <OpenReviewButton kind={k.kind} size="sm" variant="outline">
+                {k.kind === "daily" ? "Open today's daily close" : `Open the latest ${k.kind} review`}
+              </OpenReviewButton>
             </CardContent>
           </Card>
         ))}

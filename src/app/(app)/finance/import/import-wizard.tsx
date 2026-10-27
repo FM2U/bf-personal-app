@@ -195,7 +195,7 @@ export function ImportWizard({ accounts, layouts, lastLayoutByAccount = {} }: { 
               aria-current={state === "current" ? "step" : undefined}
               className={cn(
                 "flex items-center gap-2 rounded-full border px-3 py-1",
-                state === "current" && "border-teal-700 bg-teal-50 font-medium text-teal-900",
+                state === "current" && "border-primary bg-primary-soft font-medium text-primary-strong",
                 state === "done" && "border-slate-200 bg-white text-slate-600",
                 state === "next" && "border-slate-200 bg-white text-muted-foreground",
               )}
@@ -248,7 +248,7 @@ export function ImportWizard({ accounts, layouts, lastLayoutByAccount = {} }: { 
             {headers.length ? (
               <>
                 <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={layout.has_header} onChange={(e) => change({ has_header: e.target.checked })} className="h-4 w-4 accent-teal-700" />
+                  <input type="checkbox" checked={layout.has_header} onChange={(e) => change({ has_header: e.target.checked })} className="h-4 w-4 accent-primary" />
                   The first row has column names
                 </label>
                 <FieldGrid>
@@ -388,7 +388,7 @@ export function ImportWizard({ accounts, layouts, lastLayoutByAccount = {} }: { 
                                 else n.delete(r.rowNumber);
                                 setIncludeDup(n);
                               }}
-                              className="h-3.5 w-3.5 accent-teal-700"
+                              className="h-3.5 w-3.5 accent-primary"
                             />
                             <Badge variant="warning">Duplicate</Badge>
                           </label>

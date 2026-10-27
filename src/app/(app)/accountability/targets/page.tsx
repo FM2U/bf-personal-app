@@ -3,15 +3,16 @@ import { Pencil, Plus } from "lucide-react";
 import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
 import { addDaysISO, weekBounds } from "@/lib/calc/dates";
-import { describeTarget, rangeTotals } from "@/lib/calc/targets";
+import { rangeTotals } from "@/lib/calc/targets";
 import { loadOutreachStats, loadTargets, summarizeTargets, todayBreakdown } from "@/lib/targets";
-import { Card, CardContent, CardDescription, CardHeader, CardNote, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { EmptyState, Notice, PageHeader, Stat, StatGrid } from "@/components/app/page-header";
+import { EmptyState, Notice, PageHeader } from "@/components/app/page-header";
 import { SubmitButton } from "@/components/app/submit-button";
-import { DbUpdateNotice, TargetDayGrid, TargetLegend, TargetWeekGrid } from "@/components/app/target-grid";
+import { DbUpdateNotice } from "@/components/app/target-grid";
+import { TargetCard } from "@/components/app/target-card";
 import { addTargetEntry, saveTargetMissReason, undoTargetEntry } from "@/app/actions/targets";
 import { COUNT_SOURCE_OPTIONS } from "@/lib/resources";
 import { date as fmtDate } from "@/lib/format";
@@ -73,19 +74,17 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
         {summaries.map((s) => {
           const t = s.target;
           const weekTotals = rangeTotals(t.def, data.counts[t.id] ?? {}, week.start, week.end, addDaysISO(today, -1));
-          const unit = t.period === "week" ? "Weeks" : "Days";
           return (
-            <Card key={t.id} className={t.active ? "" : "opacity-70"}>
-              <CardHeader className="flex-row flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <CardTitle className="flex flex-wrap items-center gap-2">
-                    {t.name}
-                    {!t.active ? <Badge variant="neutral">Inactive</Badge> : null}
-                    {t.is_commitment ? <Badge variant="default">Commitment</Badge> : null}
-                    {t.show_to_partners ? <Badge variant="neutral">Shown to partners</Badge> : null}
-                  </CardTitle>
-                </div>
-                <div className="flex flex-wrap gap-2">
+            <TargetCard
+              key={t.id}
+              s={s}
+              today={today}
+              week={t.period === "day" ? weekTotals : null}
+              outreach30={t.count_source === "communications_outreach" ? outreach30 : null}
+              deals30={deals30[t.id] ?? null}
+              footnote={`${SOURCE_SHORT[t.count_source] ?? COUNT_SOURCE_OPTIONS.find((o) => o.value === t.count_source)?.label}. Counting since ${fmtDate(t.def.start_date)}.`}
+              actions={
+                <>
                   {t.count_source === "manual" && t.active ? (
                     <>
                       <GuardedForm action={addTargetEntry}>
@@ -115,7 +114,7 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
                   ) : null}
                   {t.count_source === "deals_advanced" ? (
                     <Button asChild size="sm" variant="outline">
-                      <Link href={t.pipeline_id ? `/opportunities/${t.pipeline_id}?view=list` : "/opportunities"}>Open deals</Link>
+                      <Link href={t.pipeline_id ? `/opportunities/${t.pipeline_id}` : "/opportunities"}>Open deals</Link>
                     </Button>
                   ) : null}
                   {t.count_source === "pipeline_items_created" ? (
@@ -128,58 +127,9 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
                       <Pencil /> Edit
                     </Link>
                   </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)]">
-                <StatGrid className="sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3">
-                  <Stat
-                    label={t.period === "week" ? "This week so far" : "Today"}
-                    value={s.today.status === "off" ? "Not counted" : `${s.today.count} of ${s.today.required}`}
-                    tone={s.today.status === "met" ? "good" : undefined}
-                    hint={s.today.status === "met" ? "Met" : s.today.status === "open" ? `${s.today.required - s.today.count} to go` : t.period === "day" ? "Not an active day" : undefined}
-                  />
-                  {t.period === "day" ? <Stat label="This week (active days)" value={`${weekTotals.total} of ${weekTotals.required}`} /> : null}
-                  <Stat label="Completion rate, last 26 weeks" value={s.rate.pct === null ? "No data yet" : `${s.rate.pct}%`} hint={`${s.rate.met} met, ${s.rate.missed} missed`} />
-                  <Stat label={`${unit} met in a row`} value={s.metInARow} tone={s.metInARow ? "good" : undefined} />
-                  <Stat label={`${unit} missed in a row`} value={s.missedInARow} tone={s.missedInARow ? "bad" : undefined} />
-                  {t.count_source === "communications_outreach" && outreach30 ? (
-                    <Stat label="Meetings booked, last 30 days" value={outreach30.meetings} />
-                  ) : null}
-                  {t.count_source === "communications_outreach" && outreach30 ? (
-                    <Stat label="Reply rate, last 30 days" value={outreach30.replyRatePct === null ? "No outreach" : `${outreach30.replyRatePct}%`} hint={`${outreach30.sent} sent`} />
-                  ) : null}
-                  {t.count_source === "communications_outreach" && outreach30 && outreach30.dealSourcing !== null ? (
-                    <Stat
-                      label="Deal-sourcing share, last 30 days"
-                      value={outreach30.dealSourcingSharePct === null ? "No outreach" : `${outreach30.dealSourcingSharePct}%`}
-                      hint={`${outreach30.dealSourcing} of ${outreach30.sent} asked about deals`}
-                    />
-                  ) : null}
-                  {s.breakdown ? (
-                    <Stat
-                      label={t.period === "week" ? "This week: proprietary, brokered" : "Today: proprietary, brokered"}
-                      value={`${s.breakdown.proprietary}, ${s.breakdown.brokered}`}
-                      hint={s.breakdown.notSet ? `${s.breakdown.notSet} with no source set` : undefined}
-                    />
-                  ) : null}
-                  {deals30[t.id] ? (
-                    <Stat
-                      label="Proprietary share, last 30 days"
-                      value={deals30[t.id]!.proprietarySharePct === null ? "No deals" : `${deals30[t.id]!.proprietarySharePct}%`}
-                      hint={`${deals30[t.id]!.proprietary} of ${deals30[t.id]!.total} deals`}
-                    />
-                  ) : null}
-                </StatGrid>
-                <div className="flex min-w-0 flex-col gap-3">
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t.period === "week" ? "History by week" : "History by day, last 8 weeks"}</p>
-                  {t.period === "week" ? <TargetWeekGrid history={s.history} today={today} /> : <TargetDayGrid history={s.history} today={today} />}
-                  <TargetLegend />
-                </div>
-              </CardContent>
-              <CardNote>
-                {describeTarget(t.def)}. {SOURCE_SHORT[t.count_source] ?? COUNT_SOURCE_OPTIONS.find((o) => o.value === t.count_source)?.label}. Counting since {fmtDate(t.def.start_date)}.
-              </CardNote>
-            </Card>
+                </>
+              }
+            />
           );
         })}
 

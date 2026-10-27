@@ -18,6 +18,7 @@ import { saveScenarioOverrides } from "@/app/actions/domain";
 import { money } from "@/lib/format";
 import type { Row } from "@/lib/types";
 import { GuardedForm } from "@/components/app/unsaved-changes";
+import { CHART_BASELINE, seriesColor } from "@/lib/status";
 
 export default async function ScenarioPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -77,7 +78,7 @@ export default async function ScenarioPage({ params }: { params: Promise<{ id: s
                 <CardTitle>Cash balance by month</CardTitle>
               </CardHeader>
               <CardContent>
-                <LineSeriesChart data={cashData} xKey="month" zeroLine series={[{ key: "current", label: "Current", color: "#94a3b8" }, { key: "scenario", label: scenario.name, color: "#0f766e" }]} />
+                <LineSeriesChart data={cashData} xKey="month" zeroLine series={[{ key: "current", label: "Current", color: CHART_BASELINE }, { key: "scenario", label: scenario.name, color: seriesColor(0) }]} />
               </CardContent>
             </Card>
             <Card>
@@ -85,7 +86,7 @@ export default async function ScenarioPage({ params }: { params: Promise<{ id: s
                 <CardTitle>Net worth by month</CardTitle>
               </CardHeader>
               <CardContent>
-                <LineSeriesChart data={nwData} xKey="month" series={[{ key: "current", label: "Current", color: "#94a3b8" }, { key: "scenario", label: scenario.name, color: "#0f766e" }]} />
+                <LineSeriesChart data={nwData} xKey="month" series={[{ key: "current", label: "Current", color: CHART_BASELINE }, { key: "scenario", label: scenario.name, color: seriesColor(0) }]} />
               </CardContent>
             </Card>
           </div>
@@ -100,9 +101,9 @@ export default async function ScenarioPage({ params }: { params: Promise<{ id: s
                 data={jva.rows.map((r) => ({ year: `Year ${r.year}`, job: r.jobCumulative, acquisition: r.acquisitionTotal, salary: r.acquisitionSalaryCumulative }))}
                 xKey="year"
                 series={[
-                  { key: "job", label: "Job: cumulative take-home pay", color: "#64748b" },
-                  { key: "acquisition", label: "Acquisition: salary plus equity value", color: "#0f766e" },
-                  { key: "salary", label: "Acquisition: salary only", color: "#5eead4" },
+                  { key: "job", label: "Job: cumulative take-home pay", color: seriesColor(2) },
+                  { key: "acquisition", label: "Acquisition: salary plus equity value", color: seriesColor(0) },
+                  { key: "salary", label: "Acquisition: salary only", color: seriesColor(1) },
                 ]}
               />
               <p className="text-sm">{jva.crossoverYear ? `The acquisition path is ahead from year ${jva.crossoverYear}.` : "The acquisition path does not pass the job path within the years compared."}</p>
@@ -146,9 +147,9 @@ export default async function ScenarioPage({ params }: { params: Promise<{ id: s
                 data={bridge.rows.map((r) => ({ year: `Year ${r.year}`, job: r.jobCumulative, bridge: r.bridgeTotal, without: r.withoutConsultingTotal }))}
                 xKey="year"
                 series={[
-                  { key: "job", label: "Job: cumulative take-home pay", color: "#64748b" },
-                  { key: "bridge", label: "Search with consulting, then acquisition", color: "#0f766e" },
-                  { key: "without", label: "Search without consulting, then acquisition", color: "#5eead4" },
+                  { key: "job", label: "Job: cumulative take-home pay", color: seriesColor(2) },
+                  { key: "bridge", label: "Search with consulting, then acquisition", color: seriesColor(0) },
+                  { key: "without", label: "Search without consulting, then acquisition", color: seriesColor(1) },
                 ]}
               />
               <p className="text-sm">{bridge.crossoverYear ? `The bridge path is ahead from year ${bridge.crossoverYear}.` : "The bridge path does not pass the job path within the years compared."}</p>
@@ -218,7 +219,7 @@ function OverrideGroup({ title, items, overrides }: { title: string; items: { ke
       {items.map((it) => (
         <label key={it.key} className="grid grid-cols-[minmax(0,1fr)_8rem] items-center gap-2 text-sm">
           <span className="clamp-2 leading-tight">{it.label}</span>
-          <Input name={`ov:${it.key}`} type="number" step="any" defaultValue={overrides[it.key] ?? ""} placeholder={it.current === null ? "Not set" : String(Math.round(it.current * 100) / 100)} className={overrides[it.key] !== undefined ? "border-teal-600 bg-teal-50/40" : ""} />
+          <Input name={`ov:${it.key}`} type="number" step="any" defaultValue={overrides[it.key] ?? ""} placeholder={it.current === null ? "Not set" : String(Math.round(it.current * 100) / 100)} className={overrides[it.key] !== undefined ? "border-primary bg-primary-soft/40" : ""} />
         </label>
       ))}
     </fieldset>

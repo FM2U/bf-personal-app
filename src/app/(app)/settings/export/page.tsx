@@ -34,7 +34,7 @@ export default async function ExportPage() {
             <ul className="grid grid-cols-1 gap-x-4 gap-y-1 text-sm sm:grid-cols-2 md:grid-cols-3">
               {EXPORT_TABLES.map((t) => (
                 <li key={t}>
-                  <a href={`/api/export/${t}`} className="text-teal-800 hover:underline">
+                  <a href={`/api/export/${t}`} className="text-primary-strong hover:underline">
                     {t.replace(/_/g, " ")}.csv
                   </a>
                 </li>

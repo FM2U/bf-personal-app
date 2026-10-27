@@ -33,7 +33,7 @@ export default async function ScenariosPage() {
                 <ul className="flex flex-col divide-y divide-slate-100">
                   {rows.map((s) => (
                     <li key={s.id} className="flex items-center gap-3 py-2">
-                      <input type="checkbox" name="ids" value={s.id} className="h-4 w-4 accent-teal-700" aria-label={`Compare ${s.name}`} />
+                      <input type="checkbox" name="ids" value={s.id} className="h-4 w-4 accent-primary" aria-label={`Compare ${s.name}`} />
                       <Link href={`/plan/scenarios/${s.id}`} className="min-w-0 flex-1 hover:underline">
                         <span className="clamp-1 text-sm font-medium">{s.name}</span>
                         <span className="block text-xs text-muted-foreground">

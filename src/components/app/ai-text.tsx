@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 export function AiText({ text, className }: { text: string | null | undefined; className?: string }) {
   const blocks = parseMarkdown(fixDashes(text ?? ""));
   if (!blocks.length) return null;
-  return <div className={cn("flex flex-col gap-2 text-sm leading-relaxed text-slate-800", className)}>{blocks.map((b, i) => renderBlock(b, i))}</div>;
+  return <div className={cn("flex max-w-[75ch] flex-col gap-2 text-sm leading-relaxed text-slate-800", className)}>{blocks.map((b, i) => renderBlock(b, i))}</div>;
 }
 
 function renderInline(inline: Inline): React.ReactNode {

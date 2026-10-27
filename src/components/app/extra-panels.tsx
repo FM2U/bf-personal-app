@@ -673,7 +673,7 @@ async function DiligenceList({ sb, itemId }: { sb: SupabaseClient; itemId: strin
                 <GuardedForm action={toggleDiligence}>
                   <input type="hidden" name="id" value={i.id} />
                   <input type="hidden" name="is_done" value={String(!i.is_done)} />
-                  <button className={`h-5 w-5 rounded border ${i.is_done ? "border-teal-700 bg-teal-700" : "border-slate-400"}`} aria-label={i.is_done ? "Mark not done" : "Mark done"} />
+                  <button className={`h-5 w-5 rounded border ${i.is_done ? "border-primary bg-primary" : "border-slate-400"}`} aria-label={i.is_done ? "Mark not done" : "Mark done"} />
                 </GuardedForm>
                 <Link href={recordHref("diligence_items", i.id)} className={`clamp-1 flex-1 text-sm hover:underline ${i.is_done ? "text-muted-foreground line-through" : ""}`}>
                   {i.title}
@@ -736,7 +736,7 @@ async function DecisionPanel({ sb, row }: P) {
         {opts.length ? (
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {opts.map((o) => (
-              <div key={o.id} className={`flex flex-col gap-2 rounded-lg border p-3 ${row.chosen_option_id === o.id ? "border-teal-600 bg-teal-50/50" : "border-border"}`}>
+              <div key={o.id} className={`flex flex-col gap-2 rounded-lg border p-3 ${row.chosen_option_id === o.id ? "border-primary bg-primary-soft/50" : "border-border"}`}>
                 <p className="font-medium">{o.label}</p>
                 {o.description ? <p className="text-sm text-muted-foreground">{o.description}</p> : null}
                 {o.numbers ? <p className="whitespace-pre-wrap text-sm">{o.numbers}</p> : null}

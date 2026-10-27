@@ -12,7 +12,7 @@ export function TaskCheckbox({ id, done, label }: { id: string; done: boolean; l
       type="checkbox"
       checked={optimistic}
       aria-label={`Mark "${label}" ${optimistic ? "not done" : "done"}`}
-      className="h-4 w-4 shrink-0 cursor-pointer accent-teal-700"
+      className="h-4 w-4 shrink-0 cursor-pointer accent-primary"
       onChange={(e) => {
         const next = e.target.checked;
         start(async () => {

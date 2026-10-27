@@ -13,6 +13,7 @@ import { BarSeriesChart } from "@/components/app/charts";
 import { ListCard } from "@/components/app/list-card";
 import { date as fmtDate, money } from "@/lib/format";
 import type { Row } from "@/lib/types";
+import { CHART_STATUS, seriesColor } from "@/lib/status";
 
 export const metadata = { title: "Budget" };
 
@@ -157,7 +158,7 @@ export default async function BudgetPage({ searchParams }: { searchParams: Promi
               <CardTitle>Last 6 months</CardTitle>
             </CardHeader>
             <CardContent>
-              <BarSeriesChart data={history} xKey="month" series={[{ key: "actual", label: "Actual", color: "#0f766e" }, { key: "budget", label: "Current budget", color: "#cbd5e1" }]} />
+              <BarSeriesChart data={history} xKey="month" series={[{ key: "actual", label: "Actual", color: seriesColor(0) }, { key: "budget", label: "Current budget", color: CHART_STATUS.muted }]} />
             </CardContent>
           </Card>
         </div>

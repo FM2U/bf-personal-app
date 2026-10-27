@@ -113,7 +113,7 @@ export function ChatPanel({ aiReady }: { aiReady: boolean }) {
                 key={i}
                 className={
                   m.role === "user"
-                    ? "ml-8 rounded-lg bg-teal-700 px-3 py-2 text-sm text-white"
+                    ? "ml-8 rounded-lg bg-primary px-3 py-2 text-sm text-white"
                     : m.role === "error"
                       ? "mr-8 rounded-lg bg-status-missed-bg px-3 py-2 text-sm text-status-missed"
                       : "mr-8 rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-900"
@@ -121,12 +121,12 @@ export function ChatPanel({ aiReady }: { aiReady: boolean }) {
               >
                 {m.role === "assistant" ? <AiText text={m.content} /> : <p className="whitespace-pre-wrap">{m.content}</p>}
                 {m.link ? (
-                  <Link href={m.link.href} className="mt-2 inline-block text-xs font-medium text-teal-800 underline" data-testid="chat-draft-link">
+                  <Link href={m.link.href} className="mt-2 inline-block text-xs font-medium text-primary-strong underline" data-testid="chat-draft-link">
                     {m.link.label}
                   </Link>
                 ) : null}
                 {m.proposals?.length ? (
-                  <Link href="/proposals" className="mt-2 inline-block text-xs font-medium text-teal-800 underline">
+                  <Link href="/proposals" className="mt-2 inline-block text-xs font-medium text-primary-strong underline">
                     {m.proposals.length} proposal(s) waiting for your approval
                   </Link>
                 ) : null}

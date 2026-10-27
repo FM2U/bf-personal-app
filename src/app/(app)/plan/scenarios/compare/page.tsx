@@ -8,8 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState, PageHeader } from "@/components/app/page-header";
 import { LineSeriesChart } from "@/components/app/charts";
 import { ScenarioComparisonTable, mergeSeries } from "@/components/app/scenario-results";
+import { CHART_BASELINE, CHART_SERIES } from "@/lib/status";
 
-const COLORS = ["#0f766e", "#2563eb", "#d97706", "#7c3aed", "#db2777"];
+const COLORS = CHART_SERIES;
 
 export default async function ComparePage({ searchParams }: { searchParams: Promise<{ ids?: string | string[] }> }) {
   const sp = await searchParams;
@@ -47,7 +48,7 @@ export default async function ComparePage({ searchParams }: { searchParams: Prom
                 zeroLine
                 data={mergeSeries([{ key: "current", result: current }, ...cols], "cash")}
                 xKey="month"
-                series={[{ key: "current", label: "Current", color: "#94a3b8" }, ...cols.map((c, i) => ({ key: c.key, label: c.name, color: COLORS[i % COLORS.length] }))]}
+                series={[{ key: "current", label: "Current", color: CHART_BASELINE }, ...cols.map((c, i) => ({ key: c.key, label: c.name, color: COLORS[i % COLORS.length] }))]}
               />
             </CardContent>
           </Card>

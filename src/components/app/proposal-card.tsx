@@ -59,7 +59,7 @@ export function ProposalCard({ p, back, labels }: { p: Row; back: string; labels
             ) : null}
             {isCategory ? (
               <label className="flex items-center gap-2 text-xs">
-                <input type="checkbox" name="save_rule" className="h-4 w-4 accent-teal-700" /> Also save as a rule for this merchant
+                <input type="checkbox" name="save_rule" className="h-4 w-4 accent-primary" /> Also save as a rule for this merchant
               </label>
             ) : null}
             <SubmitButton size="sm" pendingText="Saving...">

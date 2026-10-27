@@ -60,7 +60,7 @@ export function ResourceTable({
               return (
                 <TD key={c} className={i === 0 ? "max-w-[22rem]" : field?.type === "money" ? "text-right" : undefined}>
                   {i === 0 ? (
-                    <Link href={recordHref(table, row.id)} className="clamp-2 font-medium text-slate-900 hover:text-teal-800 hover:underline">
+                    <Link href={recordHref(table, row.id)} className="clamp-2 font-medium text-slate-900 hover:text-primary-strong hover:underline">
                       {c === "created_at" ? (
                         dateTime(row[c])
                       ) : c === r.titleField ? (

@@ -123,13 +123,12 @@ describe("+ New next to a reference field", () => {
 });
 
 describe("pipeline view", () => {
-  it("opens in list view; the address wins, then the remembered choice", async () => {
-    const { resolvePipelineView, pipelineViewCookie } = await import("./pipeline-view");
-    expect(resolvePipelineView(undefined, undefined)).toBe("list");
-    expect(resolvePipelineView(undefined, "board")).toBe("board");
-    expect(resolvePipelineView("list", "board")).toBe("list");
-    expect(resolvePipelineView("board", undefined)).toBe("board");
-    expect(resolvePipelineView("other", "nonsense")).toBe("list");
-    expect(pipelineViewCookie("ab-12;x")).toBe("pipeline_view_ab-12x");
+  it("always opens in list view; only ?view=board opens the board", async () => {
+    const { resolvePipelineView } = await import("./pipeline-view");
+    // Every visit opens in list view; a board chosen before is not remembered. ?view=board still opens the board.
+    expect(resolvePipelineView(undefined)).toBe("list");
+    expect(resolvePipelineView("list")).toBe("list");
+    expect(resolvePipelineView("board")).toBe("board");
+    expect(resolvePipelineView("other")).toBe("list");
   });
 });

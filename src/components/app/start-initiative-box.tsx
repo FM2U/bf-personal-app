@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Sparkles } from "lucide-react";
 import { Textarea } from "@/components/ui/input";
 import { SubmitButton } from "@/components/app/submit-button";
@@ -38,7 +39,7 @@ export function StartInitiativeBox({ back = "/plan/start", aiReady, compact = fa
           <Sparkles /> Draft the plan
         </SubmitButton>
         <MicButton value={text} onText={setText} label="Speak the initiative instead of typing" />
-        <button type="button" onClick={() => setText(MEAL_PLAN_EXAMPLE)} className="h-9 rounded-md px-2 text-sm text-teal-800 hover:underline">
+        <button type="button" onClick={() => setText(MEAL_PLAN_EXAMPLE)} className="h-9 rounded-md px-2 text-sm text-primary-strong hover:underline">
           Use the meal plan example
         </button>
       </div>
@@ -46,6 +47,12 @@ export function StartInitiativeBox({ back = "/plan/start", aiReady, compact = fa
         {aiReady
           ? "The AI proposes; you review every item on the next screen and approve the ones you want. Spoken words appear in the box for you to check before you press Draft the plan."
           : "The AI is not set up yet. Add ANTHROPIC_API_KEY in Vercel (see docs/SETUP-CHECKLIST.md)."}
+      </p>
+      <p className="text-xs text-muted-foreground">
+        Prefer to fill in a form?{" "}
+        <Link href="/records/initiatives/new" className="font-medium text-primary-strong underline-offset-2 hover:underline" data-testid="add-initiative-manually">
+          Add manually
+        </Link>
       </p>
     </GuardedForm>
   );

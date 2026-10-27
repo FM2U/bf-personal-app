@@ -100,14 +100,14 @@ export function MicButton({ value, onText, className, label = "Speak instead of 
         data-testid="mic-button"
         className={cn(
           "inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-md border px-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          listening ? "border-teal-600 bg-teal-50 text-teal-800" : "border-input bg-background text-slate-700 hover:bg-accent",
+          listening ? "border-primary bg-primary-soft text-primary-strong" : "border-input bg-background text-slate-700 hover:bg-accent",
           iconOnly && !listening && "w-9 px-0",
         )}
       >
         {listening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
         {listening ? (
           <span className="inline-flex items-center gap-1.5" data-testid="mic-listening">
-            <span aria-hidden className="h-2 w-2 animate-pulse rounded-full bg-teal-600" />
+            <span aria-hidden className="h-2 w-2 animate-pulse rounded-full bg-primary" />
             Listening
           </span>
         ) : iconOnly ? null : (

@@ -303,7 +303,7 @@ export function OutreachQueueRow({ item, back, purposeAvailable = false, consult
               </Badge>
             ) : null}
           </span>
-          {item.introducedNote ? <p className="clamp-1 text-xs font-medium text-teal-800">{item.introducedNote}</p> : null}
+          {item.introducedNote ? <p className="clamp-1 text-xs font-medium text-primary-strong">{item.introducedNote}</p> : null}
           <p className="text-xs text-muted-foreground md:hidden"><span className="clamp-1">{item.organization ?? "No organization"}</span></p>
         </div>
         <span className="hidden text-sm text-slate-700 md:block"><span className="clamp-1">{item.organization ?? "None"}</span></span>

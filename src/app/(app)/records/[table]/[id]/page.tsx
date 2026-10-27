@@ -23,6 +23,8 @@ import { DB_UPDATE_FILE_0011 } from "@/lib/schema-guard";
 import { GuardedForm } from "@/components/app/unsaved-changes";
 import { EmailButton } from "@/components/app/compose-email";
 import { loadComposeSetup } from "@/lib/compose-email";
+import { loadInitiativeSummary } from "@/lib/initiative/summary-server";
+import { ViewSummaryButton } from "@/components/app/view-summary-button";
 
 const COMMS_TABLES = new Set(["contacts", "organizations", "pipeline_items", "funding_sources", "debts", "partners", "decisions", "goals", "milestones"]);
 
@@ -47,11 +49,13 @@ export default async function RecordPage({ params, searchParams }: { params: Pro
   const next = await nextActionFor(supabase, table, row, ctx.today);
   const editing = sp.edit === "1" && !r.noEdit;
   const title = titleOf(table, row, labels);
-  const [rules, excludeOptions, compose] = await Promise.all([
+  const [rules, excludeOptions, compose, summary] = await Promise.all([
     formRules(supabase, table, row),
     editing ? optionExclusions(supabase) : Promise.resolve({}),
     // The "Email" button: contacts, organizations, and pipeline items (not while editing).
     editing ? Promise.resolve(null) : loadComposeSetup(supabase, ownerId, table, row),
+    // Initiatives: the summary window (View summary).
+    table === "initiatives" && !editing ? loadInitiativeSummary(supabase, row) : Promise.resolve(null),
   ]);
   // "Deal came from" / "Lead came from" shows the contact or the typed source ("Not a person"); "Where it came from" is not shown separately.
   const combineSource = table === "pipeline_items" && !rules.hide.includes("source_contact_id");
@@ -66,8 +70,9 @@ export default async function RecordPage({ params, searchParams }: { params: Pro
         title={title}
         description={r.singular}
         actions={
-          !editing && (compose || !r.noEdit) ? (
+          !editing && (compose || summary || !r.noEdit) ? (
             <>
+              {summary ? <ViewSummaryButton summary={summary} /> : null}
               {compose ? <EmailButton setup={compose} /> : null}
               {!r.noEdit ? (
                 <Button asChild variant="outline" size="sm">
@@ -109,6 +114,7 @@ export default async function RecordPage({ params, searchParams }: { params: Pro
                   cols={2}
                   items={detailFields.map((f) => ({
                     label: rules.text[f.name]?.label ?? f.label,
+                    wide: (f.type === "textarea" || f.type === "actions") && row[f.name] !== null && row[f.name] !== undefined && row[f.name] !== "",
                     value:
                       combineSource && f.name === "source_contact_id" && row.source ? (
                         <span>{describeSource(row.source_contact_id ? labels.contacts?.[row.source_contact_id] : null, row.source)}</span>

@@ -12,6 +12,7 @@ import { EmptyState, PageHeader, Stat, StatGrid } from "@/components/app/page-he
 import { LineSeriesChart } from "@/components/app/charts";
 import { ListCard } from "@/components/app/list-card";
 import { date as fmtDate, money, pct } from "@/lib/format";
+import { seriesColor } from "@/lib/status";
 
 export const metadata = { title: "Debt" };
 
@@ -58,13 +59,13 @@ export default async function DebtPage() {
                 <Stat label="Extra payment per month" value={money(extra)} hint={inputId ? undefined : ""} />
                 <Stat label="Payoff order in use" value={chosen === "avalanche" ? "Highest interest first" : "Smallest balance first"} />
               </StatGrid>
-                <Link href="/plan/inputs" className="mt-3 inline-block text-xs text-teal-800 hover:underline">
+                <Link href="/plan/inputs" className="mt-3 inline-block text-xs text-primary-strong hover:underline">
                   Change the extra payment or payoff order in Inputs and Assumptions
                 </Link>
               </CardContent>
             </Card>
             {[av, sn].map((r) => (
-              <Card key={r.method} className={r.method === chosen ? "border-teal-600" : ""}>
+              <Card key={r.method} className={r.method === chosen ? "border-primary" : ""}>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     {r.method === "avalanche" ? "Highest interest first" : "Smallest balance first"} {r.method === chosen ? <Badge>In use</Badge> : null}
@@ -127,7 +128,7 @@ export default async function DebtPage() {
                 <CardTitle>Total balance over time</CardTitle>
               </CardHeader>
               <CardContent>
-                <LineSeriesChart data={chart} xKey="month" series={[{ key: "avalanche", label: "Highest interest first", color: "#0f766e" }, { key: "snowball", label: "Smallest balance first", color: "#d97706" }]} />
+                <LineSeriesChart data={chart} xKey="month" series={[{ key: "avalanche", label: "Highest interest first", color: seriesColor(0) }, { key: "snowball", label: "Smallest balance first", color: seriesColor(1) }]} />
               </CardContent>
             </Card>
           </div>

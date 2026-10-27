@@ -41,7 +41,7 @@ export function CategorySelect({ transactionId, value, categories, source }: { t
       </select>
       {askRule ? (
         <span className="flex gap-2 text-[11px]">
-          <button type="button" className="font-medium text-teal-800 underline" onClick={() => save(askRule, true)}>
+          <button type="button" className="font-medium text-primary-strong underline" onClick={() => save(askRule, true)}>
             Save and make a rule
           </button>
           <button type="button" className="text-slate-600 underline" onClick={() => save(askRule, false)}>

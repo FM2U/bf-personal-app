@@ -17,10 +17,10 @@ export function SidebarLinks() {
             href={m.href}
             className={cn(
               "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900",
-              active === m.key && "bg-teal-50 text-teal-800 hover:bg-teal-50",
+              active === m.key && "bg-primary-soft text-primary-strong hover:bg-primary-soft",
             )}
           >
-            <ModuleIcon module={m.key} className={active === m.key ? "text-teal-700" : "text-slate-400"} />
+            <ModuleIcon module={m.key} />
             {m.label}
           </Link>
         );
@@ -40,7 +40,7 @@ export function MobileModuleBar() {
           href={m.href}
           className={cn(
             "shrink-0 rounded-full border px-3 py-1 text-xs font-medium",
-            active === m.key ? "border-teal-700 bg-teal-700 text-white" : "border-border bg-white text-slate-700",
+            active === m.key ? "border-primary bg-primary text-white" : "border-border bg-white text-slate-700",
           )}
         >
           {m.label}
@@ -68,7 +68,7 @@ export function ModuleTabs({ extra = [] }: { extra?: { href: string; label: stri
             href={t.href}
             className={cn(
               "-mb-px border-b-2 px-3 py-2 text-sm font-medium whitespace-nowrap",
-              activeHref === t.href ? "border-teal-700 text-teal-800" : "border-transparent text-slate-500 hover:text-slate-800",
+              activeHref === t.href ? "border-primary text-primary-strong" : "border-transparent text-slate-500 hover:text-slate-800",
             )}
           >
             {t.label}

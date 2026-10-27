@@ -1,5 +1,6 @@
 "use client";
 
+import { CHART_STATUS } from "@/lib/status";
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 export type Series = { key: string; label: string; color: string };
@@ -22,7 +23,7 @@ export function LineSeriesChart({ data, xKey, series, height = 220, zeroLine = f
           <YAxis tickFormatter={fmtMoney} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} width={56} />
           <Tooltip formatter={(v) => fmtFull(v)} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
           {series.length > 1 ? <Legend wrapperStyle={{ fontSize: 12 }} /> : null}
-          {zeroLine ? <ReferenceLine y={0} stroke="#dc2626" strokeDasharray="4 4" /> : null}
+          {zeroLine ? <ReferenceLine y={0} stroke={CHART_STATUS.negative} strokeDasharray="4 4" /> : null}
           {series.map((s) => (
             <Line key={s.key} type="monotone" dataKey={s.key} name={s.label} stroke={s.color} strokeWidth={2} dot={false} isAnimationActive={false} />
           ))}
@@ -53,7 +54,7 @@ export function BarSeriesChart({ data, xKey, series, height = 220, valueFormat =
 }
 
 /** Simple horizontal progress bar with an accessible label. */
-export function Progress({ value, tone = "teal" }: { value: number | null; tone?: "teal" | "green" | "amber" | "red" }) {
+export function Progress({ value, tone = "primary" }: { value: number | null; tone?: "primary" | "green" | "amber" | "red" }) {
   const v = Math.max(0, Math.min(100, value ?? 0));
   const color = tone === "red" ? "bg-status-missed-solid" : tone === "amber" ? "bg-status-soon-solid" : tone === "green" ? "bg-status-met-solid" : "bg-primary";
   return (

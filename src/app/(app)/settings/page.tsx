@@ -66,6 +66,7 @@ export default async function ConnectionsPage({ searchParams }: { searchParams: 
             <div className="flex flex-wrap gap-2">
               {sendPerm === "reconnect" ? null : (
                 <Button asChild size="sm" disabled={!isGoogleConfigured()}>
+                  {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- the Google sign-in must be a full page load, not an app link */}
                   <a href="/api/google/connect">{gStatus === "disconnected" ? "Connect Google" : "Reconnect Google"}</a>
                 </Button>
               )}

@@ -156,6 +156,13 @@ export async function startReview(fd: FormData) {
   done(id ? `/accountability/reviews/${id}` : "/accountability/reviews");
 }
 
+/** The review to open for a kind (today's daily close, the latest weekly review, ...), drafted now when there is none. */
+export async function openReviewId(kind: string): Promise<string | null> {
+  const { supabase, ownerId } = await requireOwner();
+  const ctx = await loadCtx(supabase, ownerId);
+  return (await ensureReview(ctx, kind as ReviewKind)) ?? null;
+}
+
 export async function saveReview(fd: FormData) {
   const { supabase, ownerId } = await requireOwner();
   const id = String(fd.get("id"));
@@ -185,7 +192,8 @@ export async function saveReview(fd: FormData) {
       // Keep what was typed, and show which items still need a reason.
       await supabase.from("reviews").update({ answers }).eq("id", id);
       revalidatePath("/", "layout");
-      redirect(`/accountability/reviews/${id}?missing=${encodeURIComponent(missing.map((m) => m.label).join("|"))}`);
+      // The form (ReviewForm) keeps what was typed and shows ?missing= on the same page or in the same window.
+      return { ok: false as const, error: "A reason is missing.", missing: missing.map((m) => m.label).join("|") };
     }
     // Completing the close completes its own task first, so it is never counted as missed.
     await supabase.from("tasks").update({ status: "done" }).eq("owner_id", ownerId).eq("title", "Complete the daily close").eq("status", "todo").lte("due_date", day);

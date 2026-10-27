@@ -81,7 +81,7 @@ export default async function PublicReportPage({ params, searchParams }: { param
                   <ul className="flex flex-col gap-1.5 text-sm">
                     {reports.map((r) => (
                       <li key={r.id}>
-                        <a href={`?r=${r.id}`} className={r.id === report.id ? "font-medium" : "text-teal-800 hover:underline"}>
+                        <a href={`?r=${r.id}`} className={r.id === report.id ? "font-medium" : "text-primary-strong hover:underline"}>
                           {fmtDate(r.period_start)} to {fmtDate(r.period_end)}
                         </a>
                       </li>

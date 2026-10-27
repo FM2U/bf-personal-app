@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CheckCircle2, Plus, Trash2 } from "lucide-react";
+import { CheckCircle2, LayoutGrid, Plus, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardNote, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input, NativeSelect, Textarea } from "@/components/ui/input";
 import { FieldGrid, FormField } from "@/components/ui/form-field";
@@ -14,6 +14,8 @@ import { METRICS } from "@/lib/metrics-list";
 import { budgetSavings, type Include, type Proposal } from "@/lib/initiative/proposal";
 import { approveDraft, approveDraftAsReduction, discardDraft, saveDraftEdits } from "@/app/actions/initiatives";
 import { cn } from "@/lib/utils";
+import { summaryFromProposal } from "@/lib/initiative/summary";
+import { useAppWindow } from "@/components/app/window-host";
 
 type State = { proposal: Proposal; include: Include };
 type Idea = { title: string; steps: string[]; estimated_monthly_savings: number; estimate_basis: string; target_label: string; current_monthly_cost: number };
@@ -35,7 +37,7 @@ function ItemCard({ title, kind, included, onInclude, children, note, locked = f
           <Badge variant="neutral">Always created</Badge>
         ) : (
           <label className="inline-flex shrink-0 cursor-pointer items-center gap-2 rounded-md border border-border bg-white px-2.5 py-1.5 text-sm font-medium">
-            <input type="checkbox" checked={included} onChange={(e) => onInclude?.(e.target.checked)} className="h-4 w-4 accent-teal-700" aria-label={`Include ${kind.toLowerCase()}: ${title}`} />
+            <input type="checkbox" checked={included} onChange={(e) => onInclude?.(e.target.checked)} className="h-4 w-4 accent-primary" aria-label={`Include ${kind.toLowerCase()}: ${title}`} />
             Include
           </label>
         )}
@@ -77,6 +79,7 @@ export function DraftReview(props: {
 
   const p = state.proposal;
   const inc = state.include;
+  const win = useAppWindow();
   const set = (fn: (s: State) => void) => {
     setSaved(false);
     setState((prev) => {
@@ -129,6 +132,9 @@ export function DraftReview(props: {
           ) : null}
           {mode === "initiative" ? (
             <>
+              <Button type="button" variant="outline" className="w-full bg-white" onClick={() => win.openSummary(summaryFromProposal(p, inc, budgetCurrent), { onField: () => {} })}>
+                <LayoutGrid /> View summary
+              </Button>
               <p className="text-sm text-slate-700">
                 <span className="font-semibold">{selected}</span> of {total} items selected. All are created together, linked to the initiative.
               </p>
@@ -178,8 +184,8 @@ export function DraftReview(props: {
                 ["initiative", "An initiative", "A goal, a milestone, a plan, a steps checklist, and a budget target when the idea is about a category."],
                 ["reduction", "A reduction action on the expense", "One action with a deadline and projected savings, listed in Finance, Budget."],
               ].map(([v, l, d]) => (
-                <label key={v} className={cn("flex cursor-pointer gap-3 rounded-lg border p-3", mode === v ? "border-teal-600 bg-teal-50/60" : "border-border")}>
-                  <input type="radio" name="mode" value={v} checked={mode === v} onChange={() => setMode(v as "initiative" | "reduction")} className="mt-1 accent-teal-700" />
+                <label key={v} className={cn("flex cursor-pointer gap-3 rounded-lg border p-3", mode === v ? "border-primary bg-primary-soft/60" : "border-border")}>
+                  <input type="radio" name="mode" value={v} checked={mode === v} onChange={() => setMode(v as "initiative" | "reduction")} className="mt-1 accent-primary" />
                   <span>
                     <span className="block text-sm font-medium">{l}</span>
                     <span className="clamp-2 text-xs text-muted-foreground">{d}</span>
@@ -433,7 +439,7 @@ function ChecklistEditor({ index: i, c, included, tasks, set }: { index: number;
         </FormField>
         <FormField label="Reset each week" htmlFor={`c-reset-${i}`}>
           <label className="flex h-9 items-center gap-2 text-sm">
-            <input id={`c-reset-${i}`} type="checkbox" checked={c.reset_weekly} onChange={(e) => set((s) => void (s.proposal.checklists[i].reset_weekly = e.target.checked))} className="h-4 w-4 accent-teal-700" />
+            <input id={`c-reset-${i}`} type="checkbox" checked={c.reset_weekly} onChange={(e) => set((s) => void (s.proposal.checklists[i].reset_weekly = e.target.checked))} className="h-4 w-4 accent-primary" />
             Uncheck every item weekly
           </label>
         </FormField>

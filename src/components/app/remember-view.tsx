@@ -2,18 +2,16 @@
 import { useEffect } from "react";
 
 /**
- * Remembers the pipeline view (list or board) and whether closed stages are shown, for this browser,
- * so the next visit opens the same way.
+ * Remembers whether closed stages are shown on a pipeline, for this browser, so the next visit opens the same way.
+ * The list or board view is not remembered: every pipeline opens in list view.
  */
-export function RememberPipelineView({ cookie, view, closedCookie, showClosed }: { cookie: string; view: "list" | "board"; closedCookie?: string; showClosed?: boolean }) {
+export function RememberPipelineView({ closedCookie, showClosed }: { closedCookie: string; showClosed: boolean }) {
   useEffect(() => {
     try {
-      const age = 60 * 60 * 24 * 365;
-      document.cookie = `${cookie}=${view}; path=/; max-age=${age}; samesite=lax`;
-      if (closedCookie) document.cookie = `${closedCookie}=${showClosed ? "show" : "hide"}; path=/; max-age=${age}; samesite=lax`;
+      document.cookie = `${closedCookie}=${showClosed ? "show" : "hide"}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
     } catch {
       // Cookies blocked: the page still works with its defaults.
     }
-  }, [cookie, view, closedCookie, showClosed]);
+  }, [closedCookie, showClosed]);
   return null;
 }

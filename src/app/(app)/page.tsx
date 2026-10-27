@@ -17,6 +17,7 @@ import { Progress } from "@/components/app/charts";
 import { SubmitButton } from "@/components/app/submit-button";
 import { dismissAlert } from "@/app/actions/records";
 import { regeneratePlan } from "@/app/actions/domain";
+import { OpenReviewButton } from "@/components/app/open-review-button";
 import { date as fmtDate, money, months as fmtMonths } from "@/lib/format";
 import { addDaysISO } from "@/lib/calc/dates";
 import { runwayExplanation } from "@/lib/calc/runway";
@@ -183,14 +184,14 @@ export default async function HomePage() {
             <CardTitle className="text-3xl tabular">{money(snap.monthSpending)}</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
-            <Progress value={budgetTotal ? (snap.monthSpending / budgetTotal) * 100 : 0} tone={budgetTotal && snap.monthSpending > budgetTotal ? "red" : "teal"} />
+            <Progress value={budgetTotal ? (snap.monthSpending / budgetTotal) * 100 : 0} tone={budgetTotal && snap.monthSpending > budgetTotal ? "red" : "primary"} />
             <StatGrid className="grid-cols-3">
               <Stat label="Monthly budget" value={budgetTotal ? money(budgetTotal) : "Not set"} />
               <Stat label="Remaining" value={budgetTotal ? money(budgetTotal - snap.monthSpending) : "Not set"} tone={budgetTotal && snap.monthSpending > budgetTotal ? "bad" : undefined} />
               <Stat label="Savings from reduction actions" value={`${money(metrics.values.savings_achieved_monthly)}/mo`} tone="good" />
             </StatGrid>
             {!budgetTotal ? (
-              <Link href="/finance/budget" className="text-sm text-teal-800 hover:underline">
+              <Link href="/finance/budget" className="text-sm text-primary-strong hover:underline">
                 Set a budget per category
               </Link>
             ) : null}
@@ -238,11 +239,16 @@ export default async function HomePage() {
                 The morning plan and today&apos;s required tasks. {tasks.length ? `${doneCount} of ${tasks.length} done.` : ""}
               </CardDescription>
             </div>
-            <GuardedForm action={regeneratePlan}>
-              <SubmitButton size="sm" variant="outline" pendingText="Writing plan...">
-                {planRes.data ? "Rewrite plan" : "Write today's plan"}
-              </SubmitButton>
-            </GuardedForm>
+            <div className="flex flex-wrap justify-end gap-2">
+              <OpenReviewButton kind="daily" size="sm" variant="outline">
+                Daily close
+              </OpenReviewButton>
+              <GuardedForm action={regeneratePlan}>
+                <SubmitButton size="sm" variant="outline" pendingText="Writing plan...">
+                  {planRes.data ? "Rewrite plan" : "Write today's plan"}
+                </SubmitButton>
+              </GuardedForm>
+            </div>
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-5 lg:grid-cols-2">
             <div className="min-w-0">
@@ -335,7 +341,7 @@ export default async function HomePage() {
             <p className="text-xs text-muted-foreground">
               6 months ago: {money(nw[0]?.netWorth ?? 0)}. Emergency fund: {Math.round(snap.emergencyFund.pct ?? 0)}% of target.
             </p>
-            <Link href="/finance/savings" className="inline-flex items-center gap-1 text-sm text-teal-800 hover:underline">
+            <Link href="/finance/savings" className="inline-flex items-center gap-1 text-sm text-primary-strong hover:underline">
               Savings and financial security <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </CardContent>

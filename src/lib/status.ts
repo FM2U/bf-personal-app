@@ -4,7 +4,8 @@
  * - soon: due soon or due today, and warnings (amber)
  * - missed: missed or overdue, and critical (red)
  * - neutral: not started or neutral (gray)
- * No other color carries meaning. Teal is the app color (links, buttons, Proprietary), not a status.
+ * No other color carries meaning. Cobalt is the app color (links, buttons, the Next required action card);
+ * gold is the secondary accent (Proprietary, highlights); violet, cyan, and coral mark modules and chart series.
  */
 export type Status = "met" | "soon" | "missed" | "neutral";
 
@@ -92,3 +93,70 @@ export function resultStatus(result: string | null | undefined): Status {
   if (result === "open" || result === "today" || result === "due_today" || result === "in_progress") return "soon";
   return "neutral";
 }
+
+/**
+ * Status of a count against its required number (daily targets): met when the count reaches the requirement,
+ * soon while the period is still open, missed when it closed short, neutral when the period is not counted.
+ */
+export function countStatus(count: number, required: number, open: boolean, counted = true): Status {
+  if (!counted) return "neutral";
+  if (count >= required && required > 0) return "met";
+  return open ? "soon" : "missed";
+}
+
+/** Width of a progress bar in percent (0 to 100). A requirement of 0 shows an empty bar. */
+export function progressPct(count: number, required: number): number {
+  if (!(required > 0) || !Number.isFinite(count)) return 0;
+  return Math.max(0, Math.min(100, Math.round((count / required) * 100)));
+}
+
+/**
+ * Accent colors (not statuses) as hex, for charts (SVG fill and stroke). Each one equals a token in globals.css
+ * (a test checks this): cobalt = --primary, gold = --gold, violet = --violet, cyan = --cyan, coral = --coral,
+ * gray = --status-neutral-solid.
+ */
+export type Accent = "cobalt" | "gold" | "violet" | "cyan" | "coral" | "gray";
+export const ACCENT_HEX: Record<Accent, string> = {
+  cobalt: "#1d4ed8",
+  gold: "#b8862b",
+  violet: "#6d28d9",
+  cyan: "#0e7c86",
+  coral: "#e0603f",
+  gray: "#94a3b8",
+};
+
+/** Chart series colors, in order: cobalt, gold, violet, cyan, coral. A "current" or baseline series uses gray. */
+export const CHART_SERIES: string[] = [ACCENT_HEX.cobalt, ACCENT_HEX.gold, ACCENT_HEX.violet, ACCENT_HEX.cyan, ACCENT_HEX.coral];
+export const CHART_BASELINE = ACCENT_HEX.gray;
+/**
+ * Chart colors that carry a status (tokens --status-met-solid, --status-missed-solid, --status-missed-border, --input):
+ * green = done or positive, red = negative (debts, below zero), light red = not done, light gray = a reference amount.
+ */
+export const CHART_STATUS = { positive: "#16a34a", negative: "#dc2626", negativeSoft: "#fecaca", muted: "#cbd5e1" };
+
+/** The n-th chart series color (wraps after five). */
+export function seriesColor(i: number): string {
+  return CHART_SERIES[((i % CHART_SERIES.length) + CHART_SERIES.length) % CHART_SERIES.length];
+}
+
+/** One accent per module, used for module icons (sidebar, Home card titles). Home and Settings stay gray. */
+export const MODULE_ACCENT: Record<string, Accent> = {
+  home: "gray",
+  plan: "violet",
+  finance: "gold",
+  opportunities: "coral",
+  people: "cyan",
+  productivity: "cobalt",
+  accountability: "violet",
+  settings: "gray",
+};
+
+/** Text color class for a module icon. */
+export const ACCENT_TEXT: Record<Accent, string> = {
+  cobalt: "text-primary",
+  gold: "text-gold",
+  violet: "text-violet",
+  cyan: "text-cyan",
+  coral: "text-coral",
+  gray: "text-slate-400",
+};

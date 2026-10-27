@@ -62,11 +62,11 @@ export default async function NewRecordPage({ params, searchParams }: { params: 
       </Link>
       <PageHeader title={`Add ${r.singular.toLowerCase()}`} description={r.empty} />
       {rules.updateNeeded && (table === "pipeline_items" || table === "contacts") ? (
-        <div className="mb-4 max-w-3xl">
+        <div className="mb-4 max-w-[57.5rem]">
           <DbUpdateNotice compact file={rules.updateNeeded === "0009" ? undefined : DB_UPDATE_FILE_0011} />
         </div>
       ) : null}
-      <Card className="max-w-3xl">
+      <Card className="max-w-[57.5rem]">
         <CardContent className="pt-5">
           <RecordForm table={table} initial={initial} refOptions={refOptions} cancelHref={r.listHref} extraHidden={extraHidden} hide={rules.hide} require={rules.require} text={rules.text} excludeOptions={excludeOptions} />
         </CardContent>

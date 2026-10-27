@@ -193,7 +193,7 @@ function ContactSearch({ id, options, where, onChoose }: { id: string; options: 
                 key={o.id}
                 role="option"
                 aria-selected={i === active}
-                className={cn("cursor-pointer px-3 py-1.5", i === active && "bg-teal-50 text-teal-900")}
+                className={cn("cursor-pointer px-3 py-1.5", i === active && "bg-primary-soft text-primary-strong")}
                 onMouseDown={(e) => e.preventDefault()}
                 onMouseEnter={() => setActive(i)}
                 onClick={() => choose(o)}

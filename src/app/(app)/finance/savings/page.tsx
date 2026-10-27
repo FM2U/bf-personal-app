@@ -8,6 +8,7 @@ import { Notice, PageHeader, Stat, StatGrid } from "@/components/app/page-header
 import { LineSeriesChart, Progress } from "@/components/app/charts";
 import { ListCard } from "@/components/app/list-card";
 import { date as fmtDate, money, pct, titleCase } from "@/lib/format";
+import { CHART_BASELINE, CHART_STATUS, seriesColor } from "@/lib/status";
 
 export const metadata = { title: "Savings and Financial Security" };
 
@@ -77,7 +78,7 @@ export default async function SavingsPage() {
             <CardTitle>Net worth by month</CardTitle>
           </CardHeader>
           <CardContent>
-            <LineSeriesChart data={nw.map((r) => ({ month: fmtDate(`${r.month}-01`, "MMM yy"), netWorth: r.netWorth, assets: r.assets, liabilities: r.liabilities }))} xKey="month" series={[{ key: "netWorth", label: "Net worth", color: "#0f766e" }, { key: "assets", label: "Assets", color: "#94a3b8" }, { key: "liabilities", label: "Debts", color: "#dc2626" }]} />
+            <LineSeriesChart data={nw.map((r) => ({ month: fmtDate(`${r.month}-01`, "MMM yy"), netWorth: r.netWorth, assets: r.assets, liabilities: r.liabilities }))} xKey="month" series={[{ key: "netWorth", label: "Net worth", color: seriesColor(0) }, { key: "assets", label: "Assets", color: CHART_BASELINE }, { key: "liabilities", label: "Debts", color: CHART_STATUS.negative }]} />
           </CardContent>
           <CardNote>Assets minus debts, from recorded balances.</CardNote>
         </Card>

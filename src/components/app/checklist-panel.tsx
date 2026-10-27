@@ -74,7 +74,7 @@ export function ChecklistCard({ list, items, template, compact = false }: { list
                     aria-label={`${it.checked ? "Uncheck" : "Check"} ${it.text}`}
                     aria-pressed={!!it.checked}
                     data-testid="checklist-item-toggle"
-                    className={cn("inline-flex h-6 w-6 items-center justify-center rounded border", it.checked ? "border-status-met bg-status-met text-white" : "border-slate-300 bg-white hover:border-teal-600")}
+                    className={cn("inline-flex h-6 w-6 items-center justify-center rounded border", it.checked ? "border-status-met bg-status-met text-white" : "border-slate-300 bg-white hover:border-primary")}
                   >
                     {it.checked ? <Check className="h-3.5 w-3.5" /> : null}
                   </button>
@@ -124,7 +124,7 @@ export function PlanDocumentCard({ doc }: { doc: Row }) {
     <Card data-testid="plan-document">
       <CardHeader className="flex-row items-start justify-between gap-3">
         <CardTitle className="clamp-2">{doc.title}</CardTitle>
-        <Link href={`/records/plan_documents/${doc.id}?edit=1`} className="shrink-0 text-sm text-teal-800 hover:underline">
+        <Link href={`/records/plan_documents/${doc.id}?edit=1`} className="shrink-0 text-sm text-primary-strong hover:underline">
           Edit
         </Link>
       </CardHeader>

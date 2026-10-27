@@ -9,6 +9,7 @@ import { EmptyState, PageHeader } from "@/components/app/page-header";
 import { SubmitButton } from "@/components/app/submit-button";
 import { StatusBadge } from "@/components/app/field-value";
 import { resolveMiss } from "@/app/actions/records";
+import { OpenReviewButton } from "@/components/app/open-review-button";
 import { recordHref } from "@/lib/resources";
 import { date as fmtDate } from "@/lib/format";
 import type { Row } from "@/lib/types";
@@ -35,6 +36,16 @@ export default async function CommitmentsPage({ searchParams }: { searchParams: 
       <PageHeader
         title="Commitments"
         description="Commitments are pipeline next actions, milestones, daily targets, and the scheduled reviews (plus any task marked as a commitment). A miss needs a one-line reason, then a new date or a decision. Other tasks are regular tasks: if not done, they move to the next day automatically."
+        actions={
+          <>
+            <OpenReviewButton kind="daily" size="sm">
+              Daily close
+            </OpenReviewButton>
+            <OpenReviewButton kind="weekly" size="sm" variant="outline">
+              Weekly review
+            </OpenReviewButton>
+          </>
+        }
       />
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <Card className="xl:col-span-2">
@@ -61,11 +72,11 @@ export default async function CommitmentsPage({ searchParams }: { searchParams: 
                       <Input name="reason" defaultValue={m.reason ?? ""} placeholder="One-line reason (required)" required maxLength={200} aria-label="Reason" />
                       <div className="flex flex-wrap items-center gap-3 text-sm">
                         <label className="flex items-center gap-1">
-                          <input type="radio" name="resolution" value="new_date" defaultChecked className="accent-teal-700" /> New date
+                          <input type="radio" name="resolution" value="new_date" defaultChecked className="accent-primary" /> New date
                         </label>
                         <Input name="new_due_date" type="date" className="w-40" aria-label="New due date" defaultValue={ctx.today} />
                         <label className="flex items-center gap-1">
-                          <input type="radio" name="resolution" value="decision" className="accent-teal-700" /> Open a decision
+                          <input type="radio" name="resolution" value="decision" className="accent-primary" /> Open a decision
                         </label>
                       </div>
                       <SubmitButton size="sm" className="self-start">

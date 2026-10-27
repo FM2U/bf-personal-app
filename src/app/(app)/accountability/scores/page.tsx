@@ -9,6 +9,7 @@ import { PageHeader, Stat, StatGrid } from "@/components/app/page-header";
 import { BarSeriesChart } from "@/components/app/charts";
 import { date as fmtDate } from "@/lib/format";
 import type { Row } from "@/lib/types";
+import { CHART_STATUS } from "@/lib/status";
 
 export const metadata = { title: "Completion scores" };
 
@@ -71,7 +72,7 @@ export default async function ScoresPage() {
             <CardTitle>Tasks done per day, last 30 days</CardTitle>
           </CardHeader>
           <CardContent>
-            <BarSeriesChart valueFormat="count" data={chart} xKey="day" series={[{ key: "done", label: "Done", color: "#0f766e" }, { key: "notDone", label: "Not done", color: "#fca5a5" }]} />
+            <BarSeriesChart valueFormat="count" data={chart} xKey="day" series={[{ key: "done", label: "Done", color: CHART_STATUS.positive }, { key: "notDone", label: "Not done", color: CHART_STATUS.negativeSoft }]} />
           </CardContent>
         </Card>
       </div>

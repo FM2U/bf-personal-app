@@ -17,18 +17,18 @@ const CELL: Record<string, string> = {
 
 const STATUS_WORD: Record<string, string> = { met: "met", missed: "missed", open: "in progress", off: "not counted", future: "not yet" };
 
-function Cell({ r, label, today }: { r: PeriodResult | null; label: string; today: string }) {
+function Cell({ r, label, today, compact = false }: { r: PeriodResult | null; label: string; today: string; compact?: boolean }) {
   const status = !r ? "future" : r.start > today ? "future" : r.status;
   const title = r ? `${label}: ${r.count} of ${r.required}, ${STATUS_WORD[status]}` : label;
   return (
-    <div title={title} aria-label={title} className={cn("tabular flex h-9 min-w-0 items-center justify-center rounded border text-xs font-medium", CELL[status])}>
+    <div title={title} aria-label={title} className={cn("tabular flex min-w-0 items-center justify-center rounded border text-xs font-medium", compact ? "h-7" : "h-9", CELL[status])}>
       {status === "future" ? "" : status === "off" ? (r && r.count ? r.count : "") : r?.count}
     </div>
   );
 }
 
 /** History by day: one row per week (Monday to Sunday), one aligned cell per day. */
-export function TargetDayGrid({ history, today, weeks = 8 }: { history: PeriodResult[]; today: string; weeks?: number }) {
+export function TargetDayGrid({ history, today, weeks = 8, compact = false }: { history: PeriodResult[]; today: string; weeks?: number; compact?: boolean }) {
   const byDay = new Map(history.map((h) => [h.start, h]));
   const firstMonday = weekBounds(addDaysISO(today, -7 * (weeks - 1))).start;
   const rows = Array.from({ length: weeks }, (_, w) => addDaysISO(firstMonday, w * 7));
@@ -45,7 +45,7 @@ export function TargetDayGrid({ history, today, weeks = 8 }: { history: PeriodRe
           <div className="flex items-center text-[11px] text-muted-foreground tabular">{fmtDate(monday, "MMM d")}</div>
           {Array.from({ length: 7 }, (_, i) => {
             const d = addDaysISO(monday, i);
-            return <Cell key={d} r={d > today ? null : byDay.get(d) ?? null} label={fmtDate(d, "EEE MMM d")} today={today} />;
+            return <Cell key={d} r={d > today ? null : byDay.get(d) ?? null} label={fmtDate(d, "EEE MMM d")} today={today} compact={compact} />;
           })}
         </div>
       ))}

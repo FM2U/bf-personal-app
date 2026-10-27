@@ -16,7 +16,7 @@ import { DbUpdateNotice } from "@/components/app/target-grid";
 import { date as fmtDate, money } from "@/lib/format";
 import type { Row } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { pipelineClosedCookie, pipelineViewCookie, resolvePipelineView, resolveShowClosed } from "@/lib/pipeline-view";
+import { pipelineClosedCookie, resolvePipelineView, resolveShowClosed } from "@/lib/pipeline-view";
 import { RememberPipelineView } from "@/components/app/remember-view";
 import { Stat, StatGrid } from "@/components/app/page-header";
 import { loadConsulting, loadConsultingIncome, type ConsultingData } from "@/lib/consulting";
@@ -54,9 +54,8 @@ export default async function PipelinePage({ params, searchParams }: { params: P
   const month = monthBounds(ctx.today);
   const incomeThisMonth = isConsulting && consulting?.available ? await loadConsultingIncome(supabase, { ownerId, from: month.start, to: month.end, itemIds: consulting.items.map((c) => c.item.id) }) : null;
   const jar = await cookies();
-  const viewCookie = pipelineViewCookie(pipelineId);
   const closedCookie = pipelineClosedCookie(pipelineId);
-  const view = resolvePipelineView(sp.view, jar.get(viewCookie)?.value);
+  const view = resolvePipelineView(sp.view);
   const showClosed = resolveShowClosed(sp.closed, jar.get(closedCookie)?.value);
   const listView = view === "list";
   const stageList = allStages.filter((s) => showClosed || s.outcome === "open");
@@ -72,8 +71,9 @@ export default async function PipelinePage({ params, searchParams }: { params: P
   const stalledCount = items.filter((i) => status.byItem[i.id]?.stalled).length;
   const overCount = items.filter((i) => status.byItem[i.id]?.limit?.over).length;
   const href = (p: Record<string, string>) => {
-    const q = new URLSearchParams({ view, ...p });
-    for (const [k, v] of [...q.entries()]) if (!v) q.delete(k);
+    // The list is the default, so it is left out of the address; the board keeps ?view=board.
+    const q = new URLSearchParams({ view: view === "board" ? "board" : "", ...p });
+    for (const [k, v] of [...q.entries()]) if (!v || (k === "view" && v === "list")) q.delete(k);
     const s = q.toString();
     return `/opportunities/${pipelineId}${s ? `?${s}` : ""}`;
   };
@@ -106,7 +106,7 @@ export default async function PipelinePage({ params, searchParams }: { params: P
           </>
         }
       />
-      <RememberPipelineView cookie={viewCookie} view={view} closedCookie={closedCookie} showClosed={showClosed} />
+      <RememberPipelineView closedCookie={closedCookie} showClosed={showClosed} />
       <div className="mb-4 flex flex-col gap-4">
         {!status.available ? <DbUpdateNotice compact /> : null}
         {isConsulting && consulting ? <ConsultingStrip data={consulting} incomeThisMonth={incomeThisMonth?.total ?? 0} pipelineId={pipelineId} /> : null}
@@ -228,7 +228,7 @@ export default async function PipelinePage({ params, searchParams }: { params: P
                                 ? `${money(cItem[i.id].expectedMonthly)} per month, ${cItem[i.id].probabilityPct}%`
                                 : null;
                       return (
-                        <Link key={i.id} href={`/records/pipeline_items/${i.id}`} className="flex min-w-0 flex-col gap-1 rounded-lg border border-border bg-white p-2 shadow-xs hover:border-teal-600">
+                        <Link key={i.id} href={`/records/pipeline_items/${i.id}`} className="flex min-w-0 flex-col gap-1 rounded-lg border border-border bg-white p-2 shadow-xs hover:border-primary">
                           <span className="clamp-2 text-[13px] font-medium leading-4 text-slate-900">{i.name}</span>
                           {i.organization_id ? <span className="clamp-1 text-[11px] leading-4 text-muted-foreground">{orgName[i.organization_id]}</span> : null}
                           {money1 ? <span className="clamp-1 text-[11px] leading-4 text-slate-600">{money1}</span> : null}
@@ -267,7 +267,11 @@ function daysText(st: ItemStatus | undefined): string {
   return String(st.limit?.daysInStage ?? "");
 }
 
-/** Counts of proprietary and brokered deals: sourced this week, open, and open per stage. */
+/**
+ * Counts of proprietary and brokered deals: sourced this week, active deals per stage, and "Active (all stages)"
+ * (deals not won or passed), which is the total of the stage columns, so it comes last after a thin divider.
+ * Numbers are centered under their headings in equal columns, so no number sits far from its heading.
+ */
 function DealSourceStrip({ items, stages, tz, today, available }: { items: Row[]; stages: Row[]; tz: string; today: string; available: boolean }) {
   if (!available) return null;
   const week = weekBounds(today);
@@ -284,51 +288,63 @@ function DealSourceStrip({ items, stages, tz, today, available }: { items: Row[]
   };
   const open = items.filter((i) => i.status === "open");
   const share = open.length ? Math.round((open.filter((i) => i.deal_source_type === "proprietary").length / open.length) * 100) : null;
+  const num = "tabular px-2 py-2 text-center";
   return (
-    <Card>
-      <CardHeader className="flex-row flex-wrap items-start justify-between gap-2 pb-2">
-        <div className="min-w-0">
-          <CardTitle>Deal source</CardTitle>
-        </div>
+    <Card data-testid="deal-source">
+      <CardHeader className="flex-row flex-wrap items-baseline justify-between gap-x-6 gap-y-1 pb-2">
+        <CardTitle>Deal source</CardTitle>
         <p className="text-sm text-slate-700">
-          Proprietary share of open deals: <span className="tabular font-semibold">{share === null ? "No open deals" : `${share}%`}</span>
+          Proprietary share of active deals: <span className="tabular font-semibold text-gold-strong">{share === null ? "No active deals" : `${share}%`}</span>
         </p>
       </CardHeader>
       <CardContent>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[40rem] table-fixed border-collapse text-sm">
+            <colgroup>
+              <col className="w-[8rem]" />
+              <col />
+              {stages.map((s) => (
+                <col key={s.id} />
+              ))}
+              <col />
+            </colgroup>
             <thead>
-              <tr className="border-b border-border text-xs text-muted-foreground">
-                <th className="w-[7.5rem] py-2 pr-2 text-left font-medium">Type</th>
-                <th className="w-[5.5rem] px-2 py-2 text-right align-bottom font-medium">
+              <tr className="border-b border-border text-xs text-slate-600">
+                <th className="py-2 pr-2 text-left align-bottom font-medium">Type</th>
+                <th className="border-r border-slate-200 px-2 py-2 text-center align-bottom font-medium">
                   <span className="clamp-2">Sourced this week</span>
                 </th>
-                <th className="w-[4.5rem] px-2 py-2 text-right align-bottom font-medium">Open</th>
                 {stages.map((s) => (
-                  <th key={s.id} className="px-2 py-2 text-right align-bottom font-medium">
+                  <th key={s.id} className="px-2 py-2 text-center align-bottom font-medium" title={s.name}>
                     <span className="clamp-2">{s.name}</span>
                   </th>
                 ))}
+                <th className="border-l border-slate-200 px-2 py-2 text-center align-bottom font-semibold text-slate-800" title="Deals not won or passed, in every stage: the total of the stage columns">
+                  <span className="clamp-2">Active (all stages)</span>
+                </th>
               </tr>
             </thead>
             <tbody>
               {types.map((t) => (
                 <tr key={t.key || "unset"} className="border-b border-slate-100 last:border-0">
                   <td className="py-2 pr-2">{t.key ? <DealSourceBadge type={t.key} /> : <span className="text-muted-foreground">{t.label}</span>}</td>
-                  <td className="tabular px-2 py-2 text-right font-semibold">{items.filter((i) => is(i, t.key) && createdThisWeek(i)).length}</td>
-                  <td className="tabular px-2 py-2 text-right font-semibold">{open.filter((i) => is(i, t.key)).length}</td>
-                  {stages.map((s) => (
-                    <td key={s.id} className="tabular px-2 py-2 text-right text-slate-700">
-                      {open.filter((i) => is(i, t.key) && i.stage_id === s.id).length}
-                    </td>
-                  ))}
+                  <td className={cn(num, "border-r border-slate-200 font-semibold")}>{items.filter((i) => is(i, t.key) && createdThisWeek(i)).length}</td>
+                  {stages.map((s) => {
+                    const n = open.filter((i) => is(i, t.key) && i.stage_id === s.id).length;
+                    return (
+                      <td key={s.id} className={cn(num, n ? "text-slate-900" : "text-slate-400")}>
+                        {n}
+                      </td>
+                    );
+                  })}
+                  <td className={cn(num, "border-l border-slate-200 font-semibold")}>{open.filter((i) => is(i, t.key)).length}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </CardContent>
-      <CardNote>Proprietary = off-market, found directly. Brokered = listed by a broker.</CardNote>
+      <CardNote>Proprietary = off-market, found directly. Brokered = listed by a broker. Active = not won or passed.</CardNote>
     </Card>
   );
 }

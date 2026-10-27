@@ -7,7 +7,7 @@ export function PageHeader({ title, description, actions, className }: { title: 
     <div className={cn("mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between", className)}>
       <div className="min-w-0 sm:flex-1">
         <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">{title}</h1>
-        {description ? <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{description}</p> : null}
+        {description ? <p className="mt-1 max-w-[75ch] text-sm text-muted-foreground">{description}</p> : null}
       </div>
       {actions ? <div className="no-print flex flex-wrap gap-2 sm:max-w-[55%] sm:shrink-0 sm:justify-end">{actions}</div> : null}
     </div>
@@ -70,7 +70,7 @@ export function Notice({ tone = "info", children }: { tone?: "info" | "warn" | "
         tone === "success" && cn(STATUS_BOX.met, STATUS_TEXT.met),
       )}
     >
-      {children}
+      <div className="max-w-[75ch]">{children}</div>
     </div>
   );
 }
@@ -92,14 +92,21 @@ export function Bento({ children, cols = 3, className }: { children: React.React
   );
 }
 
-/** Aligned label and value list for record details. Labels wrap to at most 2 lines. */
-export function DetailGrid({ items, cols = 1 }: { items: { label: string; value: React.ReactNode }[]; cols?: 1 | 2 }) {
+/**
+ * Label and value list for record details: each label sits directly above its value, in a compact grid that fills
+ * the width with as many columns as fit (at least 12rem each), so no value is far from its label.
+ * Labels are held to 2 lines and values in a row start on the same line (subgrid). `wide` items (long text) take
+ * the whole row. `cols` is kept for older callers and is not needed.
+ */
+export function DetailGrid({ items }: { items: { label: string; value: React.ReactNode; wide?: boolean }[]; cols?: 1 | 2 }) {
+  // Short values first (they fill the columns), long text after them, so no row is left half empty.
+  items = [...items.filter((i) => !i.wide), ...items.filter((i) => i.wide)];
   return (
-    <dl className={cn("grid grid-cols-1 gap-x-6 gap-y-3", cols === 2 && "md:grid-cols-2")}>
+    <dl className="grid grid-cols-[repeat(auto-fill,minmax(min(12rem,100%),1fr))] gap-x-6">
       {items.map((it, i) => (
-        <div key={i} className="grid grid-cols-[minmax(0,40%)_minmax(0,1fr)] items-start gap-3 border-b border-slate-100 pb-2">
-          <dt className="clamp-2 text-xs leading-4 text-muted-foreground">{it.label}</dt>
-          <dd className="min-w-0 break-words text-sm text-slate-900">{it.value}</dd>
+        <div key={i} className={cn("row-span-2 grid min-w-0 grid-rows-subgrid border-b border-slate-100 pb-2.5 mb-2.5", it.wide && "col-span-full")}>
+          <dt className="clamp-2 self-end text-xs font-medium leading-4 text-slate-500">{it.label}</dt>
+          <dd className={cn("mt-1 min-w-0 break-words text-sm text-slate-900", it.wide && "max-w-[75ch]")}>{it.value}</dd>
         </div>
       ))}
     </dl>

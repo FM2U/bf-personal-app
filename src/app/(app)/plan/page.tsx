@@ -37,11 +37,6 @@ export default async function InitiativesPage({ searchParams }: { searchParams: 
       <PageHeader
         title="Initiatives"
         description="The main efforts. Each initiative holds its own goals, milestones, decision conditions, and pipelines."
-        actions={
-          <Button asChild size="sm">
-            <Link href="/records/initiatives/new">Add initiative</Link>
-          </Button>
-        }
       />
       {sp.notice ? (
         <div className="mb-4">
