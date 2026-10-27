@@ -14,10 +14,12 @@ import { loadTargets, summarizeTargets } from "@/lib/targets";
 import { TargetCounters } from "@/components/app/target-counters";
 import type { Row } from "@/lib/types";
 import { AiText } from "@/components/app/ai-text";
+import { splitMorningPlan } from "@/lib/morning-plan";
 import { sortTasksProprietaryFirst } from "@/lib/calc/pipeline";
 import { loadDealRanks, loadDealTypes } from "@/lib/pipeline";
 import { DealSourceBadge } from "@/components/app/pipeline-badges";
 import { GuardedForm } from "@/components/app/unsaved-changes";
+import { WorkThroughTasksButton } from "@/components/app/work-through-button";
 
 export const metadata = { title: "Today's plan" };
 
@@ -76,7 +78,26 @@ export default async function TodayPage() {
             <CardTitle>Morning plan</CardTitle>
             <CardDescription>{plan ? `Written ${plan.generated_by === "ai" ? "by the AI" : "from your data (AI not available)"}.` : "Written each morning after the bank sync."}</CardDescription>
           </CardHeader>
-          <CardContent>{plan ? <AiText text={plan.content} /> : <EmptyState title="No plan written yet today." body='Press "Write plan" to write it now.' />}</CardContent>
+          <CardContent>
+            {plan ? (
+              (() => {
+                const parts = splitMorningPlan(String(plan.content ?? ""));
+                return (
+                  <div className="flex flex-col gap-2">
+                    <AiText text={parts.main} />
+                    {parts.rest ? (
+                      <details className="border-t border-slate-100 pt-2">
+                        <summary className="cursor-pointer text-sm font-medium text-primary-strong hover:underline">Show all</summary>
+                        <AiText text={parts.rest} className="mt-2" />
+                      </details>
+                    ) : null}
+                  </div>
+                );
+              })()
+            ) : (
+              <EmptyState title="No plan written yet today." body='Press "Write plan" to write it now.' />
+            )}
+          </CardContent>
         </Card>
         <Card>
           <CardHeader>
@@ -107,9 +128,12 @@ export default async function TodayPage() {
               <CardTitle>Due today and overdue</CardTitle>
               <CardDescription>{fmtDate(ctx.today, "EEEE, MMMM d")}. Regular tasks not done move to the next day; commitments keep their date.</CardDescription>
             </div>
-            <Button asChild size="sm" variant="outline">
-              <Link href={`/records/tasks/new?due_date=${ctx.today}`}>Add task</Link>
-            </Button>
+            <div className="flex flex-wrap justify-end gap-2">
+              <WorkThroughTasksButton count={list.filter((t) => t.status === "todo").length} />
+              <Button asChild size="sm" variant="outline">
+                <Link href={`/records/tasks/new?due_date=${ctx.today}`}>Add task</Link>
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>{list.length ? <TaskList tasks={list} today={ctx.today} dealTypes={dealTypes} /> : <EmptyState title="Nothing due today." body="Add a task, or create today's recurring tasks now." />}</CardContent>
         </Card>

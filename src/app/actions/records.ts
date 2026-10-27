@@ -104,6 +104,38 @@ export async function saveRecord(_prev: FormState, fd: FormData): Promise<FormSt
 }
 
 /**
+ * Saving a record from its editor inside a window: the same checks and after-save rules as saveRecord, but no
+ * redirect. The window goes back to the record's overview with a "Saved" note.
+ */
+export async function saveRecordInWindow(fd: FormData): Promise<{ ok: true; id: string; title: string } | { ok: false; error: string; link?: { href: string; label: string } }> {
+  const table = String(fd.get("__table") ?? "");
+  const resource = getResource(table);
+  if (!resource) return { ok: false, error: "Unknown record type." };
+  for (const k of ["__redirect", "__leave_to"]) fd.delete(k);
+  const result = await writeRecord(table, fd, resource.fields);
+  if (!result.ok) return result;
+  if (!result.id) return { ok: false, error: "The record was not saved." };
+  // No revalidatePath: the window reloads the page underneath after it moves on (see src/app/actions/window.ts).
+  return { ok: true, id: result.id, title: titleOf(table, { ...result.row, id: result.id }) };
+}
+
+/** Changes a few fields of one record (Move to tomorrow, Mark done) with the same checks and after-save rules. */
+export async function updateRecordFields(table: string, id: string, values: Record<string, string>): Promise<{ ok: true } | { ok: false; error: string }> {
+  const resource = getResource(table);
+  if (!resource || resource.noEdit) return { ok: false, error: "This record cannot be changed here." };
+  const fd = new FormData();
+  fd.set("__id", id);
+  for (const [k, v] of Object.entries(values)) {
+    fd.set(k, v);
+    fd.set(`${k}__present`, "1");
+  }
+  const fields = resource.fields.filter((f) => f.name in values);
+  const result = await writeRecord(table, fd, fields);
+  if (!result.ok) return { ok: false, error: result.error };
+  return { ok: true };
+}
+
+/**
  * "+ New" next to a reference field: creates the record from its short form without leaving the page.
  * Same validation and after-save rules as saveRecord; only the short form's fields are read.
  */
@@ -360,12 +392,13 @@ export async function deleteDocument(fd: FormData) {
   revalidatePath("/", "layout");
 }
 
-export async function setTaskStatus(taskId: string, done: boolean) {
+/** Marks a task done or not done. `quiet` (inside a window): no revalidation; the window reloads the page itself. */
+export async function setTaskStatus(taskId: string, done: boolean, quiet = false) {
   const { supabase, ownerId } = await requireOwner();
   await supabase.from("tasks").update({ status: done ? "done" : "todo" }).eq("id", taskId);
   const ctx = await loadCtx(supabase, ownerId);
   await checkCommitments(ctx, false);
-  revalidatePath("/", "layout");
+  if (!quiet) revalidatePath("/", "layout");
 }
 
 export async function dismissAlert(fd: FormData) {

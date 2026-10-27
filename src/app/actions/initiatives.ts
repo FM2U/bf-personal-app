@@ -8,7 +8,7 @@ import { AIInvalidReply, AIUnavailable } from "@/lib/ai/claude";
 import { loadCtx } from "@/lib/engine/helpers";
 import { evaluateConditions } from "@/lib/engine/rules";
 import { approveInitiativeDraft, createInitiativeDraft, UpdateNeeded } from "@/lib/initiative/server";
-import { describeCounts, IncludeSchema, validateProposal } from "@/lib/initiative/proposal";
+import { describeCounts, IncludeSchema, validateForApproval } from "@/lib/initiative/proposal";
 import { ideaToReductionAction } from "@/lib/savings/ideas";
 import { money } from "@/lib/format";
 import type { Row } from "@/lib/types";
@@ -62,7 +62,7 @@ function parseState(raw: string): { ok: true; state: { proposal: never; include:
   } catch {
     return { ok: false, error: "The review screen sent no readable data. Reload the page and try again." };
   }
-  const p = validateProposal(v.proposal);
+  const p = validateForApproval(v.proposal);
   if (!p.ok) return { ok: false, error: `Some fields need a fix: ${p.error}` };
   const inc = IncludeSchema.safeParse(v.include);
   if (!inc.success) return { ok: false, error: "The include choices could not be read. Reload the page and try again." };

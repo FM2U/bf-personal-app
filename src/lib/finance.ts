@@ -1,7 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDaysISO, monthBounds, previousMonthKeys } from "@/lib/calc/dates";
-import { computeRunway, monthlyAverages, round2 } from "@/lib/calc/runway";
+import { computeRunway, monthlyAverages, round2, runwayAtMonthEnds } from "@/lib/calc/runway";
 import { CASH_KINDS, emergencyFundProgress, netWorth, requiredMonthlySavings, retirementTarget, type AccountKind } from "@/lib/calc/savings";
 import type { DebtInput } from "@/lib/calc/debt";
 import type { Row } from "@/lib/types";
@@ -221,4 +221,35 @@ export async function netWorthByMonth(sb: SupabaseClient, today: string, monthsB
     }
     return { month: k, assets: round2(assets), liabilities: round2(liabilities + unlinkedDebt), netWorth: round2(assets - liabilities - unlinkedDebt) };
   });
+}
+
+/**
+ * Runway at the end of each of the last `monthsBack` full months plus today's runway (the Home runway card's trend),
+ * from balance history and transactions of the accounts counted in runway (src/lib/calc/runway.ts runwayAtMonthEnds).
+ */
+export async function loadRunwayHistory(sb: SupabaseClient, snap: FinanceSnapshot, monthsBack = 11): Promise<{ month: string; months: number | null; now?: boolean }[]> {
+  const lookback = Math.max(1, Math.round(snap.inputs.num.runway_lookback_months ?? 3));
+  const includeBusiness = snap.includeBusiness;
+  const runwayAccounts = snap.accounts.filter((a) => a.is_active && a.include_in_runway && (includeBusiness || a.entity_kind !== "business"));
+  const cashIds = runwayAccounts.filter((a) => CASH_KINDS.includes(a.kind as AccountKind)).map((a) => a.id);
+  const allIds = runwayAccounts.map((a) => a.id);
+  const keys = previousMonthKeys(snap.today, monthsBack);
+  if (!keys.length || !allIds.length) return [];
+  const since = `${previousMonthKeys(snap.today, monthsBack + lookback)[0]}-01`;
+  const [balances, txns] = await Promise.all([
+    cashIds.length ? fetchAll((from, to) => sb.from("account_balances").select("account_id,as_of,balance").in("account_id", cashIds).order("as_of").range(from, to)) : Promise.resolve([] as Row[]),
+    fetchAll((from, to) => sb.from("transactions").select("date,amount,is_transfer").in("account_id", allIds).gte("date", since).order("date").range(from, to)),
+  ]);
+  const points = runwayAtMonthEnds({
+    monthKeys: keys,
+    balances: (balances as Row[]).map((b) => ({ account_id: b.account_id, as_of: String(b.as_of), balance: Number(b.balance) })),
+    cashAccountIds: cashIds,
+    txns: (txns as Row[]).map((t) => ({ date: String(t.date), amount: Number(t.amount), is_transfer: !!t.is_transfer })),
+    lookbackMonths: lookback,
+    subtractIncome: (snap.inputs.num.runway_subtract_income ?? 1) >= 1,
+  });
+  // Months before the first runway number are left out, so the chart starts where the history starts.
+  const first = points.findIndex((p) => p.months !== null);
+  const shown = first < 0 ? [] : points.slice(first);
+  return [...shown.map((p) => ({ month: p.month, months: p.months })), { month: snap.today.slice(0, 7), months: snap.runway.months, now: true }];
 }

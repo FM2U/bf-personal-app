@@ -23,7 +23,6 @@ import { DB_UPDATE_FILE_0011 } from "@/lib/schema-guard";
 import { GuardedForm } from "@/components/app/unsaved-changes";
 import { EmailButton } from "@/components/app/compose-email";
 import { loadComposeSetup } from "@/lib/compose-email";
-import { loadInitiativeSummary } from "@/lib/initiative/summary-server";
 import { ViewSummaryButton } from "@/components/app/view-summary-button";
 
 const COMMS_TABLES = new Set(["contacts", "organizations", "pipeline_items", "funding_sources", "debts", "partners", "decisions", "goals", "milestones"]);
@@ -54,8 +53,8 @@ export default async function RecordPage({ params, searchParams }: { params: Pro
     editing ? optionExclusions(supabase) : Promise.resolve({}),
     // The "Email" button: contacts, organizations, and pipeline items (not while editing).
     editing ? Promise.resolve(null) : loadComposeSetup(supabase, ownerId, table, row),
-    // Initiatives: the summary window (View summary).
-    table === "initiatives" && !editing ? loadInitiativeSummary(supabase, row) : Promise.resolve(null),
+    // Initiatives: "View summary" opens the overview window.
+    Promise.resolve(table === "initiatives" && !editing ? row.id : null),
   ]);
   // "Deal came from" / "Lead came from" shows the contact or the typed source ("Not a person"); "Where it came from" is not shown separately.
   const combineSource = table === "pipeline_items" && !rules.hide.includes("source_contact_id");
@@ -72,7 +71,7 @@ export default async function RecordPage({ params, searchParams }: { params: Pro
         actions={
           !editing && (compose || summary || !r.noEdit) ? (
             <>
-              {summary ? <ViewSummaryButton summary={summary} /> : null}
+              {summary ? <ViewSummaryButton initiativeId={summary} /> : null}
               {compose ? <EmailButton setup={compose} /> : null}
               {!r.noEdit ? (
                 <Button asChild variant="outline" size="sm">

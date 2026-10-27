@@ -60,7 +60,9 @@ export default async function AppLayout({ children, modal }: { children: React.R
       </header>
       <main className="mx-auto w-full max-w-7xl px-4 pt-6 pb-24 sm:px-6 lg:px-8">{children}</main>
       {modal}
-      <ChatPanel aiReady={isAIConfigured()} />
+      <Suspense fallback={null}>
+        <ChatPanel aiReady={isAIConfigured()} />
+      </Suspense>
       <Suspense fallback={null}>
         <UnsavedChangesGuard />
       </Suspense>

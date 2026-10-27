@@ -167,3 +167,25 @@ export function moreStartsOpen(more: Field[], initial: Record<string, unknown>):
     return true;
   });
 }
+
+/** The name a form section is remembered by ("Details" for fields with no section heading). */
+export function sectionName(g: FormGroup): string {
+  return g.section ?? "Details";
+}
+
+/**
+ * Which sections of the form start open inside a window (collapsible sections): the first section, every section with
+ * a required field, and every section a viewer left open before (`saved`, kept per record type in this browser).
+ * A section the viewer closed stays closed unless it has a required field that is empty.
+ */
+export function sectionsOpen(groups: FormGroup[], saved: Record<string, boolean> | null, values: Record<string, unknown> = {}): Record<string, boolean> {
+  const out: Record<string, boolean> = {};
+  groups.forEach((g, i) => {
+    const name = sectionName(g);
+    const required = g.fields.some((f) => f.required);
+    const emptyRequired = g.fields.some((f) => f.required && (values[f.name] === null || values[f.name] === undefined || values[f.name] === ""));
+    const byDefault = i === 0 || required;
+    out[name] = emptyRequired ? true : saved && name in saved ? saved[name] : byDefault;
+  });
+  return out;
+}

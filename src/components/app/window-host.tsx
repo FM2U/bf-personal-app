@@ -1,39 +1,158 @@
 "use client";
 
 /**
- * The app's shared window (one at a time, never one on top of another):
- * - Summary window ("View summary"): large (85% wide, max 1400px).
- * - Quick view of a linked record: medium (60% wide, max 960px), opened by clicking a link to a task, contact,
- *   organization, pipeline item, goal, or milestone anywhere in the app (a page, a list, a Home card).
- * - Inside the window, a link to any record opens in the same window with a Back control; "Open full page" and any
- *   other link close the window and go to that page. Links inside other windows (the daily close, dialogs) are left alone.
- * Ctrl, Cmd, Shift, or a middle click on a link still opens the full page as usual.
+ * The app's window: one at a time, never one on top of another, each with its own web address.
+ *
+ * - The window is named in the `w` parameter of the page underneath (src/lib/window-route.ts), for example
+ *   `/plan?w=r/initiatives/<id>`. Opening it adds a browser history entry, so browser Back closes it (or goes back one
+ *   step inside it), and a refresh or a bookmarked link opens the same window over the same page.
+ * - Escape, a click outside, and Close return to the page exactly as it was (the page is never reloaded, so the scroll
+ *   position stays). When the window holds changes that are not saved, closing asks first.
+ * - A link to a record opens its window: an overview first for initiatives, goals, pipeline items, and scenarios; the
+ *   quick view for tasks, contacts, organizations, milestones. Inside the window, every record link (and Edit, and
+ *   "+ Add") opens in the same window with Back; "Open full page" and any other link go to that page.
+ * - Ctrl, Cmd, Shift, or a middle click on a link still opens the full page.
+ *
+ * The draft review page keeps a local summary window (openSummary) whose lines scroll to fields on that page.
  */
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { ArrowUpRight, CheckCircle2, Circle, Mail, Pencil, Phone } from "lucide-react";
-import { WindowFrame } from "@/components/ui/window";
+import { createContext, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { CheckCircle2 } from "lucide-react";
+import { WindowFrame, WindowShell } from "@/components/ui/window";
 import { Button } from "@/components/ui/button";
-import { StatusBadge } from "@/components/ui/badge";
-import { NextActionCard } from "@/components/app/next-action-card";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { SummaryContent } from "@/components/app/initiative-summary";
-import { AiText } from "@/components/app/ai-text";
-import { Notice } from "@/components/app/page-header";
-import { loadQuickView, type QuickViewData } from "@/app/actions/quick-view";
-import { setTaskStatus } from "@/app/actions/records";
-import { parseRecordHref } from "@/lib/quick-view";
+import { WindowView as WindowViewContent } from "@/components/app/windows/views";
+import { guardHistory, hasUnsavedIn } from "@/components/app/unsaved-changes";
+import { fullPageHref, hrefToView, parentView, parseWindowParam, WINDOW_PARAM, windowParam, windowSize, withWindow, type WindowView } from "@/lib/window-route";
 import type { InitiativeSummary, SummaryRef } from "@/lib/initiative/summary";
 
-type View =
-  | { type: "summary"; summary: InitiativeSummary; onField?: (anchor: string) => void }
-  | { type: "record"; table: string; id: string }
-  | { type: "plan"; title: string; body: string };
+// ---------- History (module level: buttons anywhere can open a window) ----------
+
+/** This page load. History entries made by an earlier page load cannot be stepped back through without a reload. */
+const DOC = typeof window === "undefined" ? "server" : Math.random().toString(36).slice(2);
+
+type WinState = { __winDoc?: string; __winDepth?: number; __winPrev?: string | null; __winRootDoc?: string };
+
+function histState(): WinState {
+  return ((typeof window !== "undefined" && window.history.state) || {}) as WinState;
+}
+function currentW(): string | null {
+  return new URL(window.location.href).searchParams.get(WINDOW_PARAM);
+}
+const here = () => `${window.location.pathname}${window.location.search}`;
+
+/**
+ * The page underneath is reloaded once, when the window closes, after something changed in the window. Reloading it
+ * while the window moves from step to step would hold up each step (Next.js handles one navigation at a time).
+ */
+const pageState = { stale: false };
+
+/** A message shown in the window (or at the bottom of the page) for a few seconds: "Saved", "Saved for later". */
+const flashListeners = new Set<(m: string) => void>();
+export function flashMessage(message: string) {
+  flashListeners.forEach((l) => l(message));
+}
+
+/**
+ * Opens a window. From a page this adds one history entry; inside a window it adds the next step ("push", with Back)
+ * or swaps the current one ("replace"). The unsaved changes guard's extra entry is reused, never left behind.
+ */
+export function openWindowView(v: WindowView, how: "push" | "replace" = "push") {
+  const cur = currentW();
+  const s = histState();
+  const same = s.__winDoc === DOC;
+  const url = withWindow(here(), v);
+  if (!cur) {
+    const state: WinState = { __winDoc: DOC, __winDepth: 0, __winPrev: null, __winRootDoc: DOC };
+    if (guardHistory.sentinel) {
+      guardHistory.sentinel = false;
+      window.history.replaceState(state, "", url);
+    } else window.history.pushState(state, "", url);
+    return;
+  }
+  if (how === "replace") {
+    window.history.replaceState({ __winDoc: DOC, __winDepth: same ? s.__winDepth ?? 0 : 0, __winPrev: same ? s.__winPrev ?? null : null, __winRootDoc: same ? s.__winRootDoc : undefined }, "", url);
+    return;
+  }
+  const state: WinState = { __winDoc: DOC, __winDepth: (same ? s.__winDepth ?? 0 : 0) + 1, __winPrev: cur, __winRootDoc: same ? s.__winRootDoc : undefined };
+  if (guardHistory.sentinel) {
+    guardHistory.sentinel = false;
+    window.history.replaceState(state, "", url);
+  } else window.history.pushState(state, "", url);
+}
+
+/** True when Back inside the window can step back through history made in this page load. */
+function canStepBack(): boolean {
+  const s = histState();
+  return s.__winDoc === DOC && (s.__winDepth ?? 0) > 0;
+}
+
+/** Back inside the window: the previous step, or (opened straight at this view) the view it belongs to. */
+export function windowBack(view: WindowView | null) {
+  if (canStepBack()) {
+    const extra = guardHistory.sentinel ? 1 : 0;
+    guardHistory.sentinel = false;
+    window.history.go(-(1 + extra));
+    return;
+  }
+  const p = view ? parentView(view) : null;
+  if (p) openWindowView(p, "replace");
+}
+
+/** Closes the window: back to the page entry it was opened from, or (opened by a refresh or a link) the page without it. */
+function closeWindowHistory() {
+  if (!currentW()) return;
+  const s = histState();
+  const extra = guardHistory.sentinel ? 1 : 0;
+  guardHistory.sentinel = false;
+  if (s.__winDoc === DOC && s.__winRootDoc === DOC) {
+    window.history.go(-((s.__winDepth ?? 0) + 1 + extra));
+  } else {
+    window.history.replaceState({ ...s, __winDoc: undefined, __winDepth: undefined, __winPrev: undefined, __winRootDoc: undefined }, "", withWindow(here(), null));
+  }
+}
+
+/** The current view's save ("Save and close" when closing with unsaved changes). */
+const windowSaver: { fn: (() => Promise<boolean>) | null } = { fn: null };
+
+// ---------- Window context (for the views) ----------
+
+export type WindowNav = {
+  view: WindowView;
+  /** Opens the next view in the same window (Back returns). */
+  push: (v: WindowView) => void;
+  /** Swaps the current view (no new Back step). */
+  replace: (v: WindowView) => void;
+  back: () => void;
+  canBack: boolean;
+  /** Close as the Close button does (asks first when there are unsaved changes). */
+  requestClose: () => void;
+  /** Close without asking (after Save for later, after Approve). */
+  close: () => void;
+  /** After a record was saved in its editor: back to where Edit was pressed (or the record's overview), with "Saved". */
+  afterSave: (table: string, id: string, message?: string) => void;
+  /** The current view's save, used by "Save and close" when closing with unsaved changes. */
+  setSaver: (fn: (() => Promise<boolean>) | null) => void;
+  /** Marks the page underneath as changed: it reloads once when the window closes. */
+  refreshPage: () => void;
+};
+
+const WindowNavContext = createContext<WindowNav | null>(null);
+export function useWindowNav(): WindowNav {
+  const ctx = useContext(WindowNavContext);
+  if (!ctx) throw new Error("useWindowNav is used inside a window view");
+  return ctx;
+}
+
+// ---------- Local summary window (draft review page) ----------
 
 type WindowApi = {
+  /** The draft review page's summary: each line closes the window and goes to that field on the page. */
   openSummary: (summary: InitiativeSummary, opts?: { onField?: (anchor: string) => void }) => void;
+  /** Opens a record's window (overview or quick view). */
   openRecord: (table: string, id: string) => void;
-  close: () => void;
+  open: (v: WindowView) => void;
 };
 
 const WindowContext = createContext<WindowApi | null>(null);
@@ -55,271 +174,267 @@ export function focusField(anchor: string) {
 }
 
 export function WindowProvider({ children }: { children: React.ReactNode }) {
-  const [stack, setStack] = useState<View[]>([]);
-  const [open, setOpen] = useState(false);
+  const [local, setLocal] = useState<{ summary: InitiativeSummary; onField?: (anchor: string) => void } | null>(null);
+  const [localOpen, setLocalOpen] = useState(false);
   const focusAfterClose = useRef<string | null>(null);
-
   const api = useMemo<WindowApi>(
     () => ({
       openSummary: (summary, opts) => {
-        setStack([{ type: "summary", summary, onField: opts?.onField }]);
-        setOpen(true);
+        setLocal({ summary, onField: opts?.onField });
+        setLocalOpen(true);
       },
-      openRecord: (table, id) => {
-        setStack([{ type: "record", table, id }]);
-        setOpen(true);
-      },
-      close: () => setOpen(false),
+      openRecord: (table, id) => openWindowView({ kind: "record", table, id }),
+      open: (v) => openWindowView(v),
     }),
     [],
   );
-  const push = useCallback((v: View) => setStack((s) => [...s, v]), []);
-  const back = useCallback(() => setStack((s) => (s.length > 1 ? s.slice(0, -1) : s)), []);
-
-  const top = stack[stack.length - 1];
-  const root = stack[0];
-
   const pick = (r: SummaryRef) => {
-    const s = root?.type === "summary" ? root : null;
-    if (r.kind === "field") {
-      if (s?.onField) {
-        focusAfterClose.current = r.anchor;
-        setOpen(false);
-      }
-    } else if (r.kind === "record") push({ type: "record", table: r.table, id: r.id });
-    else if (r.kind === "plan" && s?.summary.plan) {
-      if (s.onField && s.summary.plan.ref.kind === "field") {
-        focusAfterClose.current = s.summary.plan.ref.anchor;
-        setOpen(false);
-      } else push({ type: "plan", title: s.summary.plan.title, body: s.summary.plan.body });
+    if (!local) return;
+    const anchor = r.kind === "field" ? r.anchor : r.kind === "plan" && local.summary.plan?.ref.kind === "field" ? local.summary.plan.ref.anchor : null;
+    if (anchor && local.onField) {
+      focusAfterClose.current = anchor;
+      setLocalOpen(false);
     }
   };
-
-  let body: React.ReactNode = null;
-  let title: React.ReactNode = "";
-  let subtitle: React.ReactNode = null;
-  let footer: React.ReactNode = null;
-  let testId = "app-window";
-  if (top?.type === "summary") {
-    title = `Summary: ${top.summary.name}`;
-    subtitle = top.onField ? "Select a line to edit it on the review screen." : "Select a line to open it.";
-    body = <SummaryContent s={top.summary} pick={pick} />;
-    testId = "summary-window";
-  } else if (top?.type === "plan") {
-    title = top.title;
-    subtitle = "Plan document";
-    body = <AiText text={top.body} className="max-w-[75ch]" />;
-    testId = "plan-window";
-  } else if (top?.type === "record") {
-    const rv = <RecordView key={`${top.table}:${top.id}`} table={top.table} id={top.id} onClose={() => setOpen(false)} />;
-    title = <RecordTitle table={top.table} id={top.id} />;
-    body = rv;
-    footer = <RecordFooter table={top.table} id={top.id} onClose={() => setOpen(false)} />;
-    testId = "quick-view";
-  }
-
   return (
     <WindowContext.Provider value={api}>
-      {/* First child, so its click listener is registered before the unsaved changes guard's (it runs first). */}
-      <LinkCatcher openRecord={api.openRecord} push={push} close={api.close} />
+      <Suspense fallback={null}>
+        {/* First child, so its click listener is registered before the unsaved changes guard's (it runs first). */}
+        <UrlWindow />
+      </Suspense>
       {children}
-      {stack.length ? (
+      {local ? (
         <WindowFrame
           host
-          open={open}
-          onOpenChange={(o) => {
-            setOpen(o);
-          }}
-          size={root?.type === "record" ? "medium" : "large"}
-          title={title}
-          subtitle={subtitle}
-          onBack={stack.length > 1 ? back : undefined}
-          footer={footer}
-          testId={testId}
+          open={localOpen}
+          onOpenChange={setLocalOpen}
+          size="large"
+          title={`Summary: ${local.summary.name}`}
+          subtitle="Select a line to edit it on the review screen."
+          testId="summary-window"
           onCloseAutoFocus={(e) => {
             const anchor = focusAfterClose.current;
             focusAfterClose.current = null;
-            setStack([]);
+            const onField = local.onField;
+            setLocal(null);
             if (anchor) {
               e.preventDefault();
-              const s = root;
-              if (s?.type === "summary" && s.onField) s.onField(anchor);
+              onField?.(anchor);
               requestAnimationFrame(() => focusField(anchor));
             }
           }}
         >
-          {body}
+          <SummaryContent s={local.summary} pick={pick} />
         </WindowFrame>
       ) : null}
     </WindowContext.Provider>
   );
 }
 
-/** A record link opens the quick view; inside the window it opens the next view in the same window. */
-function LinkCatcher({ openRecord, push, close }: { openRecord: (table: string, id: string) => void; push: (v: View) => void; close: () => void }) {
+// ---------- The window named in the address ----------
+
+function testIdFor(v: WindowView): string {
+  if (v.kind === "record") return v.table === "initiatives" ? "summary-window" : (["goals", "pipeline_items", "scenarios"] as string[]).includes(v.table) ? "overview-window" : "quick-view";
+  if (v.kind === "edit" || v.kind === "new") return "edit-window";
+  if (v.kind === "setup") return "setup-window";
+  if (v.kind === "work") return "tasks-window";
+  if (v.kind === "plan") return "plan-window";
+  return "draft-window";
+}
+
+/** Views that keep their state while moving between steps (the setup keeps its edits; Work through tasks its counts). */
+function viewKey(v: WindowView): string {
+  if (v.kind === "setup") return `setup:${v.draftId ?? (v.manual ? "manual" : "new")}`;
+  if (v.kind === "work") return "work";
+  return windowParam(v);
+}
+
+function UrlWindow() {
+  const router = useRouter();
+  const w = useSearchParams().get(WINDOW_PARAM);
+  const view = useMemo(() => parseWindowParam(w), [w]);
+  // Closed by the owner: hidden at once while the address catches up.
+  const [hiddenFor, setHiddenFor] = useState<string | null>(null);
+  const [lastW, setLastW] = useState(w);
+  if (lastW !== w) {
+    setLastW(w);
+    setHiddenFor(null);
+  }
+  const [confirm, setConfirm] = useState<null | { proceed: () => void; canSave: boolean }>(null);
+  const [saving, setSaving] = useState(false);
+  const [flash, setFlash] = useState<string | null>(null);
+
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const l = (m: string) => {
+      setFlash(m);
+      clearTimeout(t);
+      t = setTimeout(() => setFlash(null), 5000);
+    };
+    flashListeners.add(l);
+    return () => {
+      flashListeners.delete(l);
+      clearTimeout(t);
+    };
+  }, []);
+
+  const open = !!view && hiddenFor !== w;
+
+  // The window closed (Close, Escape, Back, or a link): reload the page underneath if something changed in the window.
+  useEffect(() => {
+    if (w || !pageState.stale) return;
+    pageState.stale = false;
+    router.refresh();
+  }, [w, router]);
+
+  const close = useCallback(() => {
+    setHiddenFor(w);
+    windowSaver.fn = null;
+    closeWindowHistory();
+  }, [w]);
+
+  const ask = useCallback((proceed: () => void) => {
+    if (hasUnsavedIn(document.querySelector("[data-url-window]"))) setConfirm({ proceed, canSave: !!windowSaver.fn });
+    else proceed();
+  }, []);
+
+  const requestClose = useCallback(() => ask(close), [ask, close]);
+
+  const nav = useMemo<WindowNav | null>(
+    () =>
+      view
+        ? {
+            view,
+            push: (v) => openWindowView(v, "push"),
+            replace: (v) => openWindowView(v, "replace"),
+            back: () => ask(() => windowBack(view)),
+            canBack: typeof window !== "undefined" && (canStepBack() || !!parentView(view)),
+            requestClose,
+            close,
+            afterSave: (table, id, message = "Saved") => {
+              windowSaver.fn = null;
+              flashMessage(message);
+              const s = histState();
+              pageState.stale = true;
+              if (s.__winDoc === DOC && (s.__winDepth ?? 0) > 0 && s.__winPrev) windowBack(view);
+              else openWindowView({ kind: "record", table, id }, "replace");
+            },
+            setSaver: (fn) => {
+              windowSaver.fn = fn;
+            },
+            refreshPage: () => {
+              pageState.stale = true;
+            },
+          }
+        : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [w, requestClose, close, ask, router],
+  );
+
+  // Links: record links open their window; inside the window, links open the next view.
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
       if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       const a = (e.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
       if (!a || (a.target && a.target !== "_self") || a.hasAttribute("download")) return;
       if (a.protocol !== "http:" && a.protocol !== "https:") return; // mailto:, tel:
-      const inHost = !!a.closest("[data-window-host]");
-      if (!inHost && a.closest("[role=dialog], [data-app-window]")) return; // another window: its links go to the full page
-      const rec = a.dataset.fullPage !== undefined ? null : parseRecordHref(a.href, { anyTable: inHost, origin: window.location.origin });
-      if (!rec) {
-        // Any other link inside the window goes to its page, and the window closes.
-        if (inHost) close();
+      const host = a.closest("[data-url-window]");
+      const inHost = !!host;
+      if (!inHost && a.closest("[role=dialog], [data-app-window]")) return; // another window or dialog: its links go to the page
+      const v = a.dataset.window ? parseWindowParam(a.dataset.window) : a.dataset.fullPage !== undefined ? null : hrefToView(a.href, { origin: window.location.origin, inWindow: inHost });
+      if (!v) {
+        // Any other link inside the window goes to its page (the unsaved changes guard asks first when needed).
+        if (inHost && !hasUnsavedIn(host)) {
+          windowSaver.fn = null;
+          setHiddenFor(currentW());
+        }
         return;
       }
-      if (!inHost && window.location.pathname === `/records/${rec.table}/${rec.id}`) return;
+      // A link to the record whose full page is open stays a link.
+      if (!inHost && window.location.pathname === fullPageHref(v).split("?")[0] && v.kind === "record") return;
       e.preventDefault();
       e.stopPropagation();
-      if (inHost) push({ type: "record", ...rec });
-      else openRecord(rec.table, rec.id);
+      if (inHost && hasUnsavedIn(host)) setConfirm({ proceed: () => openWindowView(v, "push"), canSave: !!windowSaver.fn });
+      else openWindowView(v, "push");
     };
     window.addEventListener("click", onClick, true);
     return () => window.removeEventListener("click", onClick, true);
-  }, [openRecord, push, close]);
-  return null;
-}
-
-// ---------- Quick view of one record ----------
-
-const cache = new Map<string, QuickViewData>();
-const listeners = new Set<() => void>();
-
-function useQuickView(table: string, id: string): { data: QuickViewData | null; reload: () => void } {
-  const key = `${table}:${id}`;
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    const l = () => setTick((t) => t + 1);
-    listeners.add(l);
-    return () => void listeners.delete(l);
   }, []);
-  const load = useCallback(() => {
-    loadQuickView(table, id)
-      .then((d) => cache.set(key, d))
-      .catch(() => cache.set(key, { ok: false, error: "This record could not be loaded. Try Open full page." }))
-      .finally(() => listeners.forEach((l) => l()));
-  }, [key, table, id]);
-  useEffect(() => {
-    cache.delete(key);
-    load();
-  }, [key, load]);
-  return { data: cache.get(key) ?? null, reload: load };
-}
 
-function RecordTitle({ table, id }: { table: string; id: string }) {
-  const { data } = useQuickView(table, id);
-  if (!data) return <span className="text-slate-400">Loading...</span>;
-  return <>{data.ok ? data.title : "Record"}</>;
-}
+  const saveAndGo = async () => {
+    const c = confirm;
+    if (!c) return;
+    if (!windowSaver.fn) return;
+    setSaving(true);
+    const ok = await windowSaver.fn().catch(() => false);
+    setSaving(false);
+    setConfirm(null);
+    if (ok) c.proceed();
+  };
 
-function RecordView({ table, id }: { table: string; id: string; onClose: () => void }) {
-  const { data } = useQuickView(table, id);
-  if (!data)
-    return (
-      <div className="flex flex-col gap-3" aria-busy="true">
-        <div className="h-24 animate-pulse rounded-xl bg-slate-100" />
-        <div className="h-32 animate-pulse rounded-xl bg-slate-100" />
-      </div>
-    );
-  if (!data.ok) return <Notice tone="warn">{data.error}</Notice>;
-  const short = data.fields.filter((f) => !f.wide);
-  const wide = data.fields.filter((f) => f.wide);
-  return (
-    <div className="flex flex-col gap-4" data-testid="quick-view-body">
-      <p className="-mt-2 text-xs font-medium text-slate-500">{data.singular}</p>
-      <NextActionCard action={data.next} today={data.today} compact />
-      {short.length ? (
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-3 rounded-xl border border-border bg-white p-4 lg:grid-cols-3">
-          {short.map((f, i) => (
-            <div key={i} className="min-w-0">
-              <dt className="clamp-2 text-xs font-medium leading-4 text-slate-500">{f.label}</dt>
-              <dd className="mt-0.5 min-w-0 break-words text-sm text-slate-900">
-                {f.href ? (
-                  <Link href={f.href} className="font-medium text-primary-strong underline-offset-2 hover:underline">
-                    {f.text}
-                  </Link>
-                ) : f.status ? (
-                  <StatusBadge status={f.status}>{f.text}</StatusBadge>
-                ) : (
-                  f.text
-                )}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      ) : null}
-      {wide.map((f, i) => (
-        <div key={i} className="rounded-xl border border-border bg-white p-4">
-          <p className="text-xs font-medium text-slate-500">{f.label}</p>
-          <p className="mt-1 max-w-[75ch] whitespace-pre-wrap text-sm leading-relaxed text-slate-800">{f.text}</p>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function RecordFooter({ table, id, onClose }: { table: string; id: string; onClose: () => void }) {
-  const { data, reload } = useQuickView(table, id);
-  const router = useRouter();
-  const [pending, start] = useTransition();
-  if (!data?.ok) {
-    return (
-      <Button asChild variant="outline" size="sm">
-        <Link href={`/records/${table}/${id}`} data-full-page="" onClick={onClose}>
-          Open full page
-        </Link>
-      </Button>
-    );
-  }
   return (
     <>
-      {data.taskDone !== null ? (
-        <Button
-          size="sm"
-          variant={data.taskDone ? "outline" : "default"}
-          disabled={pending}
-          onClick={() =>
-            start(async () => {
-              await setTaskStatus(id, !data.taskDone);
-              reload();
-              router.refresh();
-            })
-          }
-          data-testid="quick-view-task-toggle"
+      {view && nav ? (
+        <WindowShell
+          host
+          urlWindow
+          open={open}
+          onOpenChange={(o) => {
+            if (!o) requestClose();
+          }}
+          size={windowSize(view)}
+          testId={testIdFor(view)}
+          minHeight={view.kind === "setup" || view.kind === "work"}
         >
-          {data.taskDone ? <Circle /> : <CheckCircle2 />} {pending ? "Saving..." : data.taskDone ? "Mark as not done" : "Mark as done"}
-        </Button>
+          <WindowNavContext.Provider value={nav}>
+            <WindowViewContent key={viewKey(view)} />
+          </WindowNavContext.Provider>
+          {flash && open ? (
+            <div role="status" className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center px-24" data-testid="window-flash">
+              <span className="clamp-2 inline-flex max-w-xl items-center gap-1.5 rounded-full border border-status-met-border bg-status-met-bg px-3 py-1.5 text-sm font-medium text-status-met shadow-md">
+                <CheckCircle2 className="h-4 w-4 shrink-0" /> {flash}
+              </span>
+            </div>
+          ) : null}
+        </WindowShell>
       ) : null}
-      {data.email ? (
-        <Button asChild size="sm" variant="outline">
-          <a href={`mailto:${data.email}`}>
-            <Mail /> {data.email}
-          </a>
-        </Button>
+      {flash && !open ? (
+        <div role="status" className="fixed inset-x-0 bottom-6 z-50 flex justify-center px-4" data-testid="page-flash">
+          <span className="inline-flex max-w-lg items-center gap-1.5 rounded-full border border-status-met-border bg-status-met-bg px-4 py-2 text-sm font-medium text-status-met shadow-lg">
+            <CheckCircle2 className="h-4 w-4 shrink-0" /> {flash}
+          </span>
+        </div>
       ) : null}
-      {data.phone ? (
-        <Button asChild size="sm" variant="outline" className="hidden sm:inline-flex">
-          <a href={`tel:${data.phone}`}>
-            <Phone /> {data.phone}
-          </a>
-        </Button>
-      ) : null}
-      <span className="flex-1" />
-      {data.canEdit ? (
-        <Button asChild size="sm" variant="outline">
-          <Link href={`${data.href}?edit=1`} data-full-page="">
-            <Pencil /> Edit
-          </Link>
-        </Button>
-      ) : null}
-      <Button asChild size="sm">
-        <Link href={data.href} data-full-page="" data-testid="quick-view-full-page">
-          Open full page <ArrowUpRight />
-        </Link>
-      </Button>
+      <Dialog open={!!confirm} onOpenChange={(o) => (!o && !saving ? setConfirm(null) : null)}>
+        <DialogContent className="max-w-md" aria-describedby="window-unsaved-desc" data-testid="window-unsaved">
+          <DialogTitle>Close without saving?</DialogTitle>
+          <DialogDescription id="window-unsaved-desc">This window has changes that are not saved yet.</DialogDescription>
+          <div className="flex flex-col gap-2 sm:flex-row-reverse sm:flex-wrap sm:justify-start">
+            {confirm?.canSave ? (
+              <Button onClick={saveAndGo} disabled={saving} data-testid="window-unsaved-save">
+                {saving ? "Saving..." : "Save and close"}
+              </Button>
+            ) : null}
+            <Button
+              variant="outline"
+              disabled={saving}
+              data-testid="window-unsaved-discard"
+              onClick={() => {
+                const c = confirm;
+                setConfirm(null);
+                windowSaver.fn = null;
+                // The window closes (or moves on) without saving.
+                c?.proceed();
+              }}
+            >
+              Close without saving
+            </Button>
+            <Button variant="ghost" disabled={saving} onClick={() => setConfirm(null)} data-testid="window-unsaved-stay">
+              Keep editing
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

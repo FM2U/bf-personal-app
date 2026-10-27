@@ -1,6 +1,6 @@
 "use client";
 
-import { CHART_STATUS } from "@/lib/status";
+import { CHART_SERIES, CHART_STATUS } from "@/lib/status";
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 export type Series = { key: string; label: string; color: string };
@@ -60,6 +60,30 @@ export function Progress({ value, tone = "primary" }: { value: number | null; to
   return (
     <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-valuenow={v} aria-valuemin={0} aria-valuemax={100}>
       <div className={`h-full ${color}`} style={{ width: `${v}%` }} />
+    </div>
+  );
+}
+
+/**
+ * Runway trend (Home runway card): months of runway at each month end, with the target as a dashed gold line.
+ * Cobalt line; a month with no runway number (cash not decreasing, or no balance yet) is a gap.
+ */
+export function RunwayTrendChart({ data, target, height = 132 }: { data: { label: string; months: number | null; now?: boolean }[]; target: number | null; height?: number }) {
+  const values = data.map((d) => d.months).filter((v): v is number => v !== null);
+  const top = Math.max(target ?? 0, ...values, 1);
+  const max = Math.ceil((top * 1.15) / 3) * 3;
+  return (
+    <div style={{ height }} className="w-full" data-testid="runway-chart" role="img" aria-label={`Runway at each month end${target ? `, target ${target} months` : ""}`}>
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={data} margin={{ top: 6, right: 8, left: -18, bottom: 0 }}>
+          <CartesianGrid stroke="#eef2f7" vertical={false} />
+          <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#64748b" }} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={10} />
+          <YAxis domain={[0, max]} tickCount={4} allowDecimals={false} tick={{ fontSize: 10, fill: "#64748b" }} tickLine={false} axisLine={false} width={40} />
+          <Tooltip formatter={(v) => (typeof v === "number" ? `${v} months` : "Not decreasing")} labelFormatter={(l) => String(l)} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+          {target ? <ReferenceLine y={target} stroke={CHART_SERIES[1]} strokeDasharray="5 4" strokeWidth={1.5} label={{ value: `Target ${target}`, position: "insideTopRight", fontSize: 10, fill: "#7a5714" }} /> : null}
+          <Line type="monotone" dataKey="months" name="Runway (months)" stroke={CHART_SERIES[0]} strokeWidth={2} dot={{ r: 2, fill: CHART_SERIES[0] }} activeDot={{ r: 4 }} connectNulls={false} isAnimationActive={false} />
+        </LineChart>
+      </ResponsiveContainer>
     </div>
   );
 }

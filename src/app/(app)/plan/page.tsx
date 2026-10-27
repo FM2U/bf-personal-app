@@ -48,7 +48,7 @@ export default async function InitiativesPage({ searchParams }: { searchParams: 
           <CardHeader>
             <CardTitle>Start an initiative</CardTitle>
           </CardHeader>
-          <CardContent>{has14 ? <StartInitiativeBox back="/plan" aiReady={isAIConfigured()} compact /> : <DbUpdateNotice file={DB_UPDATE_FILE_0014} features="Start an initiative (typed or spoken), plan documents, and checklists appear after the update." />}</CardContent>
+          <CardContent>{has14 ? <StartInitiativeBox aiReady={isAIConfigured()} compact /> : <DbUpdateNotice file={DB_UPDATE_FILE_0014} features="Start an initiative (typed or spoken), plan documents, and checklists appear after the update." />}</CardContent>
           <CardNote>Type or speak a few sentences. The AI drafts the whole plan; you approve the items you want.</CardNote>
         </Card>
         <Card>

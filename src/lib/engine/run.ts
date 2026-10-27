@@ -10,6 +10,7 @@ import { money, months as fmtMonths } from "@/lib/format";
 import { describeTarget } from "@/lib/calc/targets";
 import { summarizeTargets } from "@/lib/targets";
 import { loadOutreachQueue } from "@/lib/outreach";
+import { trimMorningPlan } from "@/lib/morning-plan";
 import type { Row } from "@/lib/types";
 import { createAlert, createTask, loadCtx, type Ctx } from "./helpers";
 import { checkMilestones, evaluateConditions } from "./rules";
@@ -240,45 +241,26 @@ export async function buildMorningPlan(ctx: Ctx, force = false): Promise<string>
     sb,
     ownerId,
     purpose: "morning_plan",
-    prompt: `Write today's morning plan for Bram (${today}). Tasks are already in priority order; tasks marked deal "proprietary" (off-market deals) come before "brokered" ones, so keep that order. Sections, each a short bold label on its own line followed by bullets: **Top 3** (exactly 3 bullets), **Daily targets** (each target: count needed today, and who in the outreach queue to contact first), **Also today**, **Watch** (alerts, overdue items, milestones due soon, open decisions, any change in runway or spending that needs action). Leave out a section with nothing in it. Under 220 words. Data (JSON): ${JSON.stringify(data).slice(0, 12000)}`,
+    prompt: `Write today's morning plan for Bram (${today}). Keep it short: Home already lists every task, so do not repeat the task list. Two sections only, each a short bold label on its own line followed by bullets: **Top 3** (exactly 3 bullets: the three things to do first today; tasks are already in priority order and tasks marked deal "proprietary" (off-market deals) come before "brokered" ones, so keep that order; a daily target that is behind may be one of the three) and **Watch** (at most 4 bullets: open alerts, runway against its target, open decisions; leave out anything with nothing to say). Under 110 words. Data (JSON): ${JSON.stringify(data).slice(0, 12000)}`,
     maxTokens: 700,
   });
-  const content = ai ?? templatePlan(data, metrics.snapshot.cash);
+  // Stored short: only Top 3 and Watch (src/lib/morning-plan.ts), whatever the AI wrote around them.
+  const content = ai ? trimMorningPlan(ai) : templatePlan(data, metrics.snapshot.cash);
   await sb.from("daily_plans").upsert({ owner_id: ownerId, plan_date: today, content, generated_by: ai ? "ai" : "template" }, { onConflict: "owner_id,plan_date" });
   return content;
 }
 
+/** The plan without AI: the first three tasks (overdue first) and what to watch (alerts, runway, open decisions). */
 function templatePlan(d: Row, cash: number): string {
   const top = [...d.overdue, ...d.due_today].slice(0, 3) as Row[];
   const lines = ["**Top 3**"];
   if (top.length) top.forEach((t, i) => lines.push(`- **Task ${i + 1}:** ${t.title}${t.deal === "proprietary" ? " (proprietary deal)" : ""}${t.due_date < d.date ? " (overdue)" : ""}`));
   else lines.push("- **No tasks due:** add today's priorities in Productivity.");
-  const targets = (d.targets_today ?? []) as Row[];
-  if (targets.length) {
-    lines.push("", "**Daily targets**");
-    targets.forEach((t) => lines.push(`- **${t.name}:** ${t.done_so_far} of ${t.required} done${t.period === "week" ? " this week" : " today"}.`));
-    const due = (d.outreach_due ?? []) as Row[];
-    if (due.length) {
-      lines.push(`- **Outreach queue:** ${d.outreach_due_count} contacts due.`);
-      due.slice(0, 3).forEach((c) => lines.push(`  - **${c.name}:** ${c.never_contacted ? "never contacted" : `${c.days_overdue} days overdue`}`));
-    }
-  }
-  const rest = [...d.overdue, ...d.due_today].slice(3) as Row[];
-  if (rest.length) {
-    lines.push("", "**Also today**");
-    rest.slice(0, 10).forEach((t) => lines.push(`- **Task:** ${t.title}`));
-  }
-  if ((d.meetings ?? []).length) {
-    lines.push("", "**Meetings**");
-    (d.meetings as Row[]).forEach((m) => lines.push(`- **Meeting:** ${m.title}`));
-  }
   lines.push("", "**Watch**");
-  lines.push(`- **Runway:** ${d.runway} (target ${d.runway_target ?? "not set"} months).`);
-  lines.push(`  - **Cash:** ${money(cash)}`);
-  (d.alerts as Row[]).slice(0, 5).forEach((a) => lines.push(`- **Alert:** ${a.message}`));
-  (d.milestones_due_14_days as Row[]).forEach((m) => lines.push(`- **Milestone due ${m.due_date}:** ${m.title}`));
-  (d.open_decisions as Row[]).forEach((x) => lines.push(`- **Open decision:** ${x.title}`));
-  return lines.join("\n");
+  lines.push(`- **Runway:** ${d.runway} (target ${d.runway_target ?? "not set"} months; cash ${money(cash)}).`);
+  (d.alerts as Row[]).slice(0, 2).forEach((a) => lines.push(`- **Alert:** ${a.message}`));
+  (d.open_decisions as Row[]).slice(0, 1).forEach((x) => lines.push(`- **Open decision:** ${x.title}${(d.open_decisions as Row[]).length > 1 ? ` (and ${(d.open_decisions as Row[]).length - 1} more)` : ""}`));
+  return trimMorningPlan(lines.join("\n"));
 }
 
 /** Morning job: sync, checks, task generation, missed regular tasks moved to today, reviews due, partner reports, time blocks, then the morning plan. */

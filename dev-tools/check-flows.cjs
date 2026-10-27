@@ -165,8 +165,13 @@ const expectText = async (page, text) => {
 
   await step("Scenario: change monthly spending and recalculate", async () => {
     await page.goto(`${BASE}/plan/scenarios`);
+    // A scenario opens its overview in the window first; Open full page has the charts and the numbers to change.
     await page.locator("ul a").first().click();
-    await page.waitForURL(/\/plan\/scenarios\/.+/);
+    await page.getByTestId("overview-window").waitFor();
+    await expectText(page, "Numbers changed");
+    await page.screenshot({ path: path.join(OUT, "desktop-window-scenario.png") });
+    await page.getByTestId("quick-view-full-page").click();
+    await page.waitForURL(/\/plan\/scenarios\/[0-9a-f-]{36}$/);
     await page.fill('input[name="ov:monthly_spending"]', "4000");
     await page.getByRole("button", { name: "Save and recalculate" }).click();
     await page.waitForLoadState("networkidle");
@@ -1041,7 +1046,11 @@ const expectText = async (page, text) => {
   await step("Start an initiative: box with a microphone on Plan, a button on Home; speech fills the box and never submits", async () => {
     await page.goto(`${BASE}/`);
     await page.getByRole("link", { name: "Start an initiative" }).first().click();
-    await page.waitForURL(/\/plan\/start/);
+    await page.getByTestId("setup-window").waitFor();
+    await page.waitForURL(/[?&]w=setup$/);
+    await expectText(page, "Step 1 of 8: Describe");
+    await page.keyboard.press("Escape");
+    await page.getByTestId("setup-window").waitFor({ state: "detached" });
     await page.goto(`${BASE}/plan`);
     await page.locator("#initiative-description").waitFor();
     const vctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -1079,30 +1088,80 @@ const expectText = async (page, text) => {
     await shoot3(`${BASE}/plan/start`, "start-initiative-box", async (p_) => p_.locator("#initiative-description").fill("Weekly meal plan: shop once a week, cook Sunday for lunches and dinners, separate breakfast plan, cut food spending"));
   });
 
-  await step("Start an initiative: the meal plan draft, review screen, and Approve selected create linked records", async () => {
+  await step("Start an initiative, step by step in the window: Draft the plan, Save moves on, jump to a step, Save for later, then approve the meal plan", async () => {
     await aipost("/__reset");
     const initsBefore = (await one("select count(*)::int n from initiatives")).n;
     await page.goto(`${BASE}/plan`);
     await page.getByRole("button", { name: "Use the meal plan example" }).click();
     await page.getByRole("button", { name: "Draft the plan" }).click();
-    await page.waitForURL(/\/plan\/initiatives\/drafts\//, { timeout: 30000 });
-    await expectText(page, "Estimated monthly savings");
-    await expectText(page, "Grocery list (24 items)");
-    await expectText(page, "Shop for the week's groceries");
-    await expectText(page, "Breakfast plan (separate)");
+    // The setup opens in the window over Plan, at Name and purpose, with its own address.
+    await page.getByTestId("setup-body-name").waitFor({ timeout: 30000 });
+    if (!/\/plan\?w=setup%2F[0-9a-f-]{36}%2Fname$/.test(page.url())) throw new Error(`setup address: ${page.url()}`);
+    await page.getByTestId("setup-steps").waitFor();
+    if ((await page.inputValue("#i-name")) !== "Weekly meal plan") throw new Error("name not drafted");
     if ((await one("select count(*)::int n from initiatives")).n !== initsBefore) throw new Error("records saved before approval");
-    const draftUrl = page.url();
+    const draftId = page.url().match(/setup%2F([0-9a-f-]{36})/)[1];
+    // Save moves to the next step.
+    await page.getByTestId("setup-save").click();
+    await page.getByTestId("setup-body-goals").waitFor();
+    await expectText(page, "Step 3 of 8: Goals");
     for (const [vp, pg_] of VIEWS) {
-      await pg_.goto(draftUrl);
+      if (pg_ !== page) {
+        await pg_.goto(page.url());
+        await pg_.getByTestId("setup-body-goals").waitFor({ timeout: 20000 });
+      }
+      await pg_.waitForTimeout(300);
+      await pg_.screenshot({ path: path.join(OUT, `${vp}-window-setup-goals.png`) });
+    }
+    // A step's check: an empty goal title is refused with a plain message, and the step stays.
+    const title = await page.inputValue("#g-title-0");
+    await page.fill("#g-title-0", "");
+    await page.getByTestId("setup-save").click();
+    await page.getByTestId("setup-error").waitFor();
+    if (!(await page.getByTestId("setup-error").innerText()).includes("Goal 1")) throw new Error("goal error not shown");
+    await page.fill("#g-title-0", title);
+    // Any step opens directly from the step bar.
+    await page.getByTestId("setup-step-tasks").click();
+    await page.getByTestId("setup-body-tasks").waitFor();
+    await page.locator("#t-title-1").fill("Cook lunches and dinners for the week");
+    await page.getByTestId("setup-save").click();
+    await page.getByTestId("setup-body-target").waitFor();
+    // Browser Back goes back one step inside the window.
+    await page.goBack();
+    await page.getByTestId("setup-body-tasks").waitFor();
+    if ((await page.inputValue("#t-title-1")) !== "Cook lunches and dinners for the week") throw new Error("edit lost on Back");
+    // Save for later keeps the draft (Drafts waiting for review) and closes the window.
+    await page.getByTestId("setup-save-later").click();
+    await page.getByTestId("setup-window").waitFor({ state: "detached" });
+    await page.getByTestId("page-flash").waitFor();
+    if (new URL(page.url()).search) throw new Error(`window address left behind: ${page.url()}`);
+    const saved = await one("select status, proposal from initiative_drafts where id = $1", [draftId]);
+    if (saved.status !== "draft" || saved.proposal.proposal.recurring_tasks[1].title !== "Cook lunches and dinners for the week") throw new Error("draft not kept with the edit");
+    // The full review page still shows every item (Open full page).
+    for (const [vp, pg_] of VIEWS) {
+      await pg_.goto(`${BASE}/plan/initiatives/drafts/${draftId}`);
       await pg_.getByTestId("approve-selected").waitFor();
       await pg_.screenshot({ path: path.join(OUT, `${vp}-initiative-review.png`), fullPage: true });
     }
-    await page.goto(draftUrl);
-    // Edit one item: the Sunday cook task becomes "Cook lunches and dinners for the week".
-    await page.locator("#t-title-1").fill("Cook lunches and dinners for the week");
-    await page.getByTestId("approve-selected").click();
-    await page.waitForURL(/\/records\/initiatives\//, { timeout: 30000 });
-    await expectText(page, "Approved and saved: Weekly meal plan");
+    await expectText(page, "Grocery list (24 items)");
+    await expectText(page, "Shop for the week's groceries");
+    await expectText(page, "Breakfast plan (separate)");
+    // Drafts waiting for review: the draft opens in the window; Review and approve; Approve selected.
+    await page.goto(`${BASE}/plan/start`);
+    await page.locator(`a[href="/plan/initiatives/drafts/${draftId}"]`).click();
+    await page.getByTestId("draft-window").waitFor();
+    await page.getByTestId("draft-continue").click();
+    await page.getByTestId("setup-review").waitFor();
+    await expectText(page, "Cook lunches and dinners for the week");
+    await expectText(page, "Estimated monthly savings");
+    await page.getByTestId("setup-approve").click();
+    await page.getByTestId("summary-window").waitFor({ timeout: 30000 });
+    await page.getByTestId("window-flash").waitFor();
+    if (!(await page.getByTestId("window-flash").innerText()).includes("Approved and saved: Weekly meal plan")) throw new Error("approval message");
+    if (!/w=r%2Finitiatives%2F/.test(page.url())) throw new Error(`after approval: ${page.url()}`);
+    await expectText(page, "Weekly meal plan: menu and recipes");
+    await page.getByTestId("quick-view-full-page").click();
+    await page.waitForURL(/\/records\/initiatives\/[0-9a-f-]{36}$/);
     const init = await one("select i.*, p.name parent from initiatives i left join initiatives p on p.id = i.parent_initiative_id where i.id = (select result_initiative_id from initiative_drafts where status = 'approved' order by decided_at desc limit 1)");
     mealInitiative = init.id;
     if (init.parent !== "Personal Finance") throw new Error("not under Personal Finance");
@@ -1132,25 +1191,41 @@ const expectText = async (page, text) => {
   // ---------- Windows: summary, quick view, focused work windows; Add manually ----------
   const dialogs = (p_) => p_.locator("[role=dialog]").count();
 
-  await step("Add manually: a small link under the Start an initiative box (Plan and Start an initiative); no Add initiative button in the Plan header", async () => {
+  await step("Add manually: a small link under the Start an initiative box opens the same steps at Name and purpose (no AI); approve with only a name", async () => {
     for (const url of [`${BASE}/plan`, `${BASE}/plan/start`]) {
       await page.goto(url);
       const link = page.getByTestId("add-initiative-manually");
       await link.waitFor();
-      if ((await link.getAttribute("href")) !== "/records/initiatives/new") throw new Error("Add manually does not open the initiative form");
+      if ((await link.getAttribute("href")) !== "/records/initiatives/new") throw new Error("Add manually has no full page fallback");
       if ((await link.innerText()).trim() !== "Add manually") throw new Error("link text");
     }
     await page.goto(`${BASE}/plan`);
     if (await page.locator("main h1 ~ * a, main a").filter({ hasText: /^Add initiative$/ }).count()) throw new Error("Add initiative button still shown");
+    const calls = (await aicalls()).length;
     await page.getByTestId("add-initiative-manually").first().click();
-    await page.waitForURL(/\/records\/initiatives\/new/);
+    await page.getByTestId("setup-body-name").waitFor({ timeout: 20000 });
+    if ((await aicalls()).length !== calls) throw new Error("Add manually called the AI");
+    await page.fill("#i-name", "Morning walk");
+    await page.getByTestId("setup-save").click();
+    await page.getByTestId("setup-body-goals").waitFor();
+    await expectText(page, "No goals yet");
+    await page.getByTestId("setup-step-review").click();
+    await page.getByTestId("setup-approve").click();
+    await page.getByTestId("summary-window").waitFor({ timeout: 30000 });
+    await expectText(page, "Morning walk");
+    if (!(await one("select count(*)::int n from initiatives where name = 'Morning walk'")).n) throw new Error("initiative not created");
+    await page.keyboard.press("Escape");
+    await page.getByTestId("summary-window").waitFor({ state: "detached" });
   });
 
   await step("View summary on the review screen: large window; a line closes it and focuses that item's field", async () => {
     await page.goto(`${BASE}/plan`);
     await page.getByRole("button", { name: "Use the meal plan example" }).click();
     await page.getByRole("button", { name: "Draft the plan" }).click();
-    await page.waitForURL(/\/plan\/initiatives\/drafts\//, { timeout: 30000 });
+    await page.getByTestId("setup-body-name").waitFor({ timeout: 30000 });
+    // "Open full page": the review page with every item.
+    await page.locator("[data-url-window] [data-testid=quick-view-full-page]").click();
+    await page.waitForURL(/\/plan\/initiatives\/drafts\/[0-9a-f-]{36}$/, { timeout: 30000 });
     await page.getByRole("button", { name: "View summary" }).click();
     const win = page.getByTestId("summary-window");
     await win.waitFor();
@@ -1181,8 +1256,9 @@ const expectText = async (page, text) => {
     await page.getByRole("button", { name: "View summary" }).click();
     await page.getByTestId("summary-window").waitFor();
     if (!(await page.getByTestId("summary-content").innerText()).includes("Cook lunches and dinners for the week")) throw new Error("saved recurring task not listed");
+    if (!/\?w=r%2Finitiatives%2F/.test(page.url())) throw new Error("View summary has no address");
     await page.locator('[data-summary-ref^="goals:"]').first().click();
-    await page.getByTestId("quick-view-body").waitFor();
+    await page.getByTestId("goal-overview").waitFor();
     if ((await dialogs(page)) !== 1) throw new Error("a second window opened");
     await page.getByTestId("window-back").click();
     await page.getByTestId("summary-content").waitFor();
@@ -1264,10 +1340,11 @@ const expectText = async (page, text) => {
     await page.goto(`${BASE}/plan/start`);
     await page.locator("#initiative-description").fill("Morning walk plan: walk 30 minutes before work.");
     await page.getByRole("button", { name: "Draft the plan" }).click();
-    await page.waitForURL(/\/plan\/initiatives\/drafts\//, { timeout: 30000 });
+    await page.getByTestId("setup-body-name").waitFor({ timeout: 30000 });
     if ((await aicalls()).filter((x) => x === "initiative_proposal").length !== 2) throw new Error("expected one retry");
-    await page.getByRole("button", { name: "Discard this draft" }).click();
-    await page.waitForURL(/\/plan\/start/);
+    await page.getByTestId("setup-step-review").click();
+    await page.getByTestId("setup-discard").click();
+    await page.getByTestId("setup-window").waitFor({ state: "detached" });
     await aipost("/__mode", { initiative: "invalid" });
     await page.locator("#initiative-description").fill("Morning walk plan: walk 30 minutes before work.");
     await page.getByRole("button", { name: "Draft the plan" }).click();
@@ -1300,18 +1377,233 @@ const expectText = async (page, text) => {
     await shoot3(`${BASE}/records/initiatives/${mealInitiative}`, "initiative-plan-checklist");
   });
 
-  await step("Chat command: Start an initiative drafts the plan and links to the review screen", async () => {
+  await step("Chat command: Start an initiative drafts the plan and opens the setup in the window", async () => {
     await page.goto(`${BASE}/`);
     await page.getByRole("button", { name: "Open AI chat" }).first().click();
     await page.fill("textarea[aria-label='Message']", "Start an initiative: weekly meal plan, shop once a week and cook on Sunday");
     await page.getByRole("button", { name: "Send", exact: true }).click();
     await page.getByTestId("chat-draft-link").click();
-    await page.waitForURL(/\/plan\/initiatives\/drafts\//);
-    await expectText(page, "Approve selected");
+    // The setup opens in the window at Name and purpose; the chat closes so it never covers the window.
+    await page.getByTestId("setup-body-name").waitFor({ timeout: 20000 });
+    if (await page.locator("textarea[aria-label='Message']").count()) throw new Error("chat still open over the window");
     if ((await one("select source from initiative_drafts order by created_at desc limit 1")).source !== "chat") throw new Error("draft source");
-    await page.getByRole("button", { name: "Close AI chat" }).click();
-    await page.getByRole("button", { name: "Discard this draft" }).click();
-    await page.waitForURL(/\/plan\/start/);
+    await page.getByTestId("setup-step-review").click();
+    await page.getByTestId("setup-discard").click();
+    await page.getByTestId("setup-window").waitFor({ state: "detached" });
+  });
+
+  // ---------- Windows with their own address (Build A) ----------
+  const winBox = async (p_) => p_.locator("[data-url-window]").boundingBox();
+
+  await step("Window address: an initiative from Plan opens its overview with its own address; Back closes it; Forward and reload open it again; Escape keeps the page and its scroll", async () => {
+    await page.goto(`${BASE}/plan`);
+    await page.evaluate(() => (window.__samePage = 1));
+    const link = page.locator("main a[href^='/records/initiatives/']:not([href$='/new'])").last();
+    await link.scrollIntoViewIfNeeded();
+    const y0 = await page.evaluate(() => window.scrollY);
+    await link.click();
+    await page.getByTestId("summary-window").waitFor();
+    await page.getByTestId("summary-content").waitFor();
+    if (!/\/plan\?w=r%2Finitiatives%2F[0-9a-f-]{36}$/.test(page.url())) throw new Error(`address: ${page.url()}`);
+    const box = await winBox(page);
+    if (box.width < 1440 * 0.8 || box.width > 1440 * 0.9) throw new Error(`window width ${box.width}`);
+    const winUrl = page.url();
+    await page.goBack();
+    await page.getByTestId("summary-window").waitFor({ state: "detached" });
+    if (page.url() !== `${BASE}/plan`) throw new Error(`Back went to ${page.url()}`);
+    await page.goForward();
+    await page.getByTestId("summary-content").waitFor();
+    if ((await page.evaluate(() => window.__samePage)) !== 1) throw new Error("the page reloaded");
+    // Escape closes it and leaves the page exactly where it was.
+    await page.keyboard.press("Escape");
+    await page.getByTestId("summary-window").waitFor({ state: "detached" });
+    if (page.url() !== `${BASE}/plan`) throw new Error(`Escape left ${page.url()}`);
+    const y1 = await page.evaluate(() => window.scrollY);
+    if (Math.abs(y1 - y0) > 2) throw new Error(`scroll moved from ${y0} to ${y1}`);
+    if ((await page.evaluate(() => window.__samePage)) !== 1) throw new Error("the page reloaded");
+    // A refresh or a bookmarked link opens the same window over the same page.
+    for (const [vp, pg_] of VIEWS) {
+      await pg_.goto(winUrl);
+      await pg_.getByTestId("summary-content").waitFor({ timeout: 20000 });
+      await pg_.waitForTimeout(300);
+      await pg_.screenshot({ path: path.join(OUT, `${vp}-window-initiative-overview.png`) });
+    }
+    if (!(await page.locator("main h1").count())) throw new Error("no page under the window");
+    await page.reload();
+    await page.getByTestId("summary-content").waitFor();
+    await page.getByTestId("window-close").click();
+    await page.getByTestId("summary-window").waitFor({ state: "detached" });
+    if (page.url() !== `${BASE}/plan`) throw new Error(`Close after a reload left ${page.url()}`);
+  });
+
+  await step("Edit inside the window: collapsible sections (remembered per viewer, Expand all, Collapse all); closing with changes asks; Save returns to the overview with Saved", async () => {
+    await page.goto(`${BASE}/people`);
+    await page.locator("main a[href^='/records/contacts/']:not([href$='/new'])").first().click();
+    await page.getByTestId("quick-view-body").waitFor();
+    await page.getByTestId("window-edit").click();
+    await page.getByTestId("edit-window").waitFor();
+    await page.locator("[data-url-window] form[data-window-form]").waitFor({ timeout: 20000 });
+    if (!/w=e%2Fcontacts%2F/.test(page.url())) throw new Error(`edit address: ${page.url()}`);
+    const editUrl = page.url();
+    const contactId = editUrl.match(/contacts%2F([0-9a-f-]{36})/)[1];
+    const box = await winBox(page);
+    if (box.width < 1440 * 0.8) throw new Error(`editor window is not large: ${box.width}`);
+    const section = (name) => page.locator(`[data-url-window] [data-section="${name}"]`);
+    if (await section("Name and contact details").isHidden()) throw new Error("first section closed");
+    if (await section("Follow-up").isVisible()) throw new Error("Follow-up should start closed");
+    await page.getByTestId("form-section-toggle").filter({ hasText: "Follow-up" }).click();
+    await section("Follow-up").waitFor();
+    await page.reload();
+    await section("Follow-up").waitFor({ timeout: 20000 });
+    await page.getByRole("button", { name: "Collapse all" }).click();
+    if (await section("Name and contact details").isVisible()) throw new Error("Collapse all left a section open");
+    await page.getByRole("button", { name: "Expand all" }).click();
+    await section("Notes").waitFor();
+    for (const [vp, pg_] of VIEWS) {
+      if (pg_ === page) continue;
+      await pg_.goto(editUrl);
+      await pg_.locator("[data-url-window] form[data-window-form]").waitFor({ timeout: 20000 });
+      await pg_.waitForTimeout(300);
+      await pg_.screenshot({ path: path.join(OUT, `${vp}-window-edit.png`) });
+    }
+    await page.screenshot({ path: path.join(OUT, "desktop-window-edit.png") });
+    const value = `Owner ${Date.now() % 100000}`;
+    await page.locator("[data-url-window] input[name=title]").fill(value);
+    await page.keyboard.press("Escape");
+    await page.getByTestId("window-unsaved").waitFor();
+    await page.getByTestId("window-unsaved-stay").click();
+    if (!page.url().includes("w=e%2Fcontacts")) throw new Error("Keep editing closed the window");
+    await page.locator("[data-url-window] [data-save-and-leave]").click();
+    await page.getByTestId("quick-view-body").waitFor({ timeout: 20000 });
+    await page.getByTestId("window-flash").waitFor();
+    if (!(await page.getByTestId("window-flash").innerText()).includes("Saved")) throw new Error("no Saved note");
+    if (!/w=r%2Fcontacts%2F/.test(page.url())) throw new Error(`after save: ${page.url()}`);
+    if ((await one("select title from contacts where id = $1", [contactId])).title !== value) throw new Error("not saved");
+    await expectText(page, value);
+    await page.keyboard.press("Escape");
+    await page.getByTestId("quick-view").waitFor({ state: "detached" });
+    // The initiative overview has Edit too; Save returns to the overview.
+    await page.goto(`${BASE}/plan`);
+    await page.locator("main a[href^='/records/initiatives/']:not([href$='/new'])").first().click();
+    await page.getByTestId("summary-content").waitFor();
+    await page.getByTestId("window-edit").click();
+    await page.locator("[data-url-window] textarea[name=description]").fill("Expense reduction, debt payoff, savings, and a weekly review.");
+    await page.locator("[data-url-window] [data-save-and-leave]").click();
+    await page.getByTestId("summary-content").waitFor({ timeout: 20000 });
+    await expectText(page, "and a weekly review.");
+    await page.keyboard.press("Escape");
+  });
+
+  await step("Work through tasks: today's tasks one at a time (3 of 12), Done, Move to tomorrow, Skip, linked record, end summary", async () => {
+    await page.goto(`${BASE}/`);
+    await page.getByTestId("work-through-tasks").first().click();
+    await page.getByTestId("work-task").waitFor();
+    if (!/\/\?w=work/.test(page.url())) throw new Error(`address: ${page.url()}`);
+    const progress = async () => (await page.getByTestId("work-progress").innerText()).match(/(\d+) of (\d+)/);
+    const [, first, total] = await progress();
+    if (first !== "1" || Number(total) < 3) throw new Error(`progress ${first} of ${total}`);
+    await page.getByTestId("work-task-title").waitFor();
+    for (const [vp, pg_] of VIEWS) {
+      if (pg_ !== page) {
+        await pg_.goto(`${BASE}/?w=work`);
+        await pg_.getByTestId("work-task-title").waitFor({ timeout: 20000 });
+      }
+      await pg_.waitForTimeout(300);
+      await pg_.screenshot({ path: path.join(OUT, `${vp}-window-work-tasks.png`) });
+    }
+    const t1 = (await page.getByTestId("work-task-title").innerText()).trim();
+    await page.getByTestId("work-done").click();
+    await page.waitForFunction(() => /^2 of/.test(document.querySelector("[data-testid=work-progress]")?.innerText ?? ""));
+    if ((await one("select status from tasks where title = $1 order by updated_at desc limit 1", [t1])).status !== "done") throw new Error("Done did not save");
+    // Move to tomorrow on the first regular task (a commitment keeps its date).
+    let moved = false;
+    for (let i = 0; i < Number(total) && !moved; i++) {
+      if (await page.getByTestId("work-summary").count()) break;
+      await page.getByTestId("work-task-title").waitFor();
+      const tomorrow = page.getByTestId("work-tomorrow");
+      if (await tomorrow.isEnabled()) {
+        const title = (await page.getByTestId("work-task-title").innerText()).trim();
+        await tomorrow.click();
+        await page.waitForFunction((t) => (document.querySelector("[data-testid=work-task-title]")?.innerText ?? "").trim() !== t || !!document.querySelector("[data-testid=work-summary]"), title);
+        const row = await one("select due_date::text d, (now() at time zone 'America/New_York')::date + 1 = due_date tomorrow from tasks where title = $1 order by updated_at desc limit 1", [title]);
+        if (!row.tomorrow) throw new Error(`not moved to tomorrow: ${row.d}`);
+        moved = true;
+      } else await page.getByTestId("work-skip").click();
+    }
+    if (!moved) throw new Error("no regular task to move");
+    // The linked record opens in the same window, and Back returns to the task.
+    const linked = page.getByTestId("work-linked-record");
+    if (!(await page.getByTestId("work-summary").count()) && (await linked.count())) {
+      const before = page.url();
+      await linked.click();
+      await page.getByTestId("window-back").waitFor();
+      if ((await dialogs(page)) !== 1) throw new Error("a second window opened");
+      await page.getByTestId("window-back").click();
+      await page.getByTestId("work-task").waitFor();
+      if (page.url() !== before) throw new Error("Back did not return to the task");
+    }
+    for (let i = 0; i < Number(total) + 2 && !(await page.getByTestId("work-summary").count()); i++) {
+      await page.getByTestId("work-skip").click();
+      await page.waitForTimeout(150);
+    }
+    await page.getByTestId("work-summary").waitFor();
+    const summary = await page.getByTestId("work-summary").innerText();
+    if (!/Done\s*1/.test(summary) || !/Moved to tomorrow\s*1/.test(summary)) throw new Error(`summary: ${summary.slice(0, 120)}`);
+    await page.getByTestId("work-close").click();
+    await page.getByTestId("tasks-window").waitFor({ state: "detached" });
+    // Productivity has the button too.
+    await page.goto(`${BASE}/productivity`);
+    await page.getByTestId("work-through-tasks").waitFor();
+  });
+
+  await step("Pipeline next actions: an item opens its overview in the window with Move to tomorrow, Log activity, and Move stage inside it", async () => {
+    await page.goto(`${BASE}/productivity/pipeline-actions`);
+    const item = await one("select id, name from pipeline_items where status = 'open' and next_action is not null and next_action_due is not null order by next_action_due limit 1");
+    await page.locator(`main a[href="/records/pipeline_items/${item.id}"]`).first().click();
+    await page.getByTestId("pipeline-overview").waitFor();
+    if (!page.url().includes(`/productivity/pipeline-actions?w=r%2Fpipeline_items%2F${item.id}`)) throw new Error(`address: ${page.url()}`);
+    const box = await winBox(page);
+    if (box.width < 1440 * 0.8) throw new Error(`overview is not large: ${box.width}`);
+    await page.screenshot({ path: path.join(OUT, "desktop-window-pipeline-item.png") });
+    const comms = (await one("select count(*)::int n from communications where pipeline_item_id = $1", [item.id])).n;
+    await page.locator("[data-testid=pipeline-log-activity] input").fill("Called the owner about timing");
+    await page.getByTestId("pipeline-log").click();
+    await expectText(page, "Activity logged.");
+    if ((await one("select count(*)::int n from communications where pipeline_item_id = $1", [item.id])).n !== comms + 1) throw new Error("activity not saved");
+    await page.getByTestId("pipeline-tomorrow").click();
+    await page.waitForFunction(() => !document.querySelector("[data-testid=pipeline-tomorrow]")?.hasAttribute("disabled"));
+    await page.waitForTimeout(500);
+    if (!(await one("select (now() at time zone 'America/New_York')::date + 1 = next_action_due ok from pipeline_items where id = $1", [item.id])).ok) throw new Error("next action not moved to tomorrow");
+    const stageBefore = (await one("select stage_id from pipeline_items where id = $1", [item.id])).stage_id;
+    await page.getByTestId("pipeline-move").click();
+    await page.waitForTimeout(1500);
+    const stageAfter = (await one("select stage_id from pipeline_items where id = $1", [item.id])).stage_id;
+    const refused = await page.locator("[data-url-window] [role=alert]").count();
+    if (stageAfter === stageBefore && !refused) throw new Error("Move stage did nothing and said nothing");
+    // The page underneath is reloaded once the window closes.
+    await page.keyboard.press("Escape");
+    await page.getByTestId("overview-window").waitFor({ state: "detached" });
+    if (!page.url().endsWith("/productivity/pipeline-actions")) throw new Error(`closed to ${page.url()}`);
+  });
+
+  await step("Home: the morning plan shows only Top 3 and Watch (Show all for the rest); the runway card has the runway trend chart", async () => {
+    await page.goto(`${BASE}/`);
+    await page.getByRole("button", { name: /Rewrite plan|Write today's plan/ }).click();
+    await page.waitForLoadState("networkidle");
+    await page.getByTestId("morning-plan").waitFor();
+    const stored = (await one("select content from daily_plans where plan_date = (now() at time zone 'America/New_York')::date")).content;
+    if (!stored.includes("**Top 3**") || !stored.includes("**Watch**") || /Also today|Daily targets/.test(stored)) throw new Error(`stored plan: ${stored.slice(0, 200)}`);
+    const plan = await page.getByTestId("morning-plan").innerText();
+    if (!plan.includes("Top 3") || !plan.includes("Watch")) throw new Error("plan sections");
+    const more = page.getByTestId("morning-plan-more");
+    if (await more.count()) {
+      await more.locator("summary").click();
+      await expectText(page, "Daily targets");
+    }
+    const chart = page.getByTestId("runway-chart");
+    await chart.waitFor();
+    if (!(await chart.locator("svg path.recharts-curve").count())) throw new Error("no runway line");
+    await shoot3(`${BASE}/`, "home");
   });
 
   await step("Load sample data: warns about real records first, then loads marked sample rows", async () => {

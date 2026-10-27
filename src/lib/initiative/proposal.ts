@@ -78,38 +78,50 @@ export const ChecklistSchema = z.object({
     .max(80),
 });
 
-export const ProposalSchema = z
-  .object({
-    initiative: z.object({ name: text(80), purpose: text(500), parent_initiative: optText(80) }),
-    goals: z.array(GoalSchema).min(1).max(3),
-    milestones: z.array(MilestoneSchema).max(4).default([]),
-    recurring_tasks: z.array(RecurringTaskSchema).max(6).default([]),
-    target: TargetSchema.nullish(),
-    budget_change: BudgetChangeSchema.nullish(),
-    decision_condition: ConditionSchema.nullish(),
-    plan_document: PlanDocumentSchema.nullish(),
-    checklists: z.array(ChecklistSchema).max(4).default([]),
-    estimated_monthly_savings: z.number().finite().min(0).nullish(),
-  })
-  .superRefine((p, ctx) => {
-    p.goals.forEach((g, i) => {
-      if (g.metric_key && !METRIC_KEYS.has(g.metric_key)) ctx.addIssue({ code: "custom", path: ["goals", i, "metric_key"], message: `unknown measured number "${g.metric_key}"` });
-      if (g.metric_key?.startsWith("category_") && !g.categories?.length) ctx.addIssue({ code: "custom", path: ["goals", i, "categories"], message: "a category measured number needs categories" });
-    });
-    p.milestones.forEach((m, i) => {
-      if (m.goal >= p.goals.length) ctx.addIssue({ code: "custom", path: ["milestones", i, "goal"], message: "goal index out of range" });
-    });
-    p.recurring_tasks.forEach((t, i) => {
-      if (t.cadence === "weekly" && (t.weekday === null || t.weekday === undefined)) ctx.addIssue({ code: "custom", path: ["recurring_tasks", i, "weekday"], message: "a weekly task needs a weekday (0 = Sunday)" });
-    });
-    p.checklists.forEach((c, i) => {
-      if (c.recurring_task !== null && c.recurring_task !== undefined && c.recurring_task >= p.recurring_tasks.length) {
-        ctx.addIssue({ code: "custom", path: ["checklists", i, "recurring_task"], message: "recurring task index out of range" });
-      }
-    });
-    const dc = p.decision_condition;
-    if (dc && !METRIC_KEYS.has(dc.metric_key)) ctx.addIssue({ code: "custom", path: ["decision_condition", "metric_key"], message: `unknown measured number "${dc.metric_key}"` });
+const ProposalObject = z.object({
+  initiative: z.object({ name: text(80), purpose: text(500), parent_initiative: optText(80) }),
+  goals: z.array(GoalSchema).min(1).max(3),
+  milestones: z.array(MilestoneSchema).max(4).default([]),
+  recurring_tasks: z.array(RecurringTaskSchema).max(6).default([]),
+  target: TargetSchema.nullish(),
+  budget_change: BudgetChangeSchema.nullish(),
+  decision_condition: ConditionSchema.nullish(),
+  plan_document: PlanDocumentSchema.nullish(),
+  checklists: z.array(ChecklistSchema).max(4).default([]),
+  estimated_monthly_savings: z.number().finite().min(0).nullish(),
+});
+
+/**
+ * What the owner may approve (step-by-step setup and the review screen): the AI's rules, except that a purpose and
+ * goals are optional, so an initiative added manually can be approved with only a name.
+ */
+const ApprovalObject = ProposalObject.extend({
+  initiative: z.object({ name: text(80), purpose: z.string().trim().max(500).default(""), parent_initiative: optText(80) }),
+  goals: z.array(GoalSchema).max(3),
+});
+
+function refineProposal(p: z.infer<typeof ApprovalObject>, ctx: z.RefinementCtx) {
+  p.goals.forEach((g, i) => {
+    if (g.metric_key && !METRIC_KEYS.has(g.metric_key)) ctx.addIssue({ code: "custom", path: ["goals", i, "metric_key"], message: `unknown measured number "${g.metric_key}"` });
+    if (g.metric_key?.startsWith("category_") && !g.categories?.length) ctx.addIssue({ code: "custom", path: ["goals", i, "categories"], message: "a category measured number needs categories" });
   });
+  p.milestones.forEach((m, i) => {
+    if (m.goal >= Math.max(1, p.goals.length)) ctx.addIssue({ code: "custom", path: ["milestones", i, "goal"], message: "goal index out of range" });
+  });
+  p.recurring_tasks.forEach((t, i) => {
+    if (t.cadence === "weekly" && (t.weekday === null || t.weekday === undefined)) ctx.addIssue({ code: "custom", path: ["recurring_tasks", i, "weekday"], message: "a weekly task needs a weekday (0 = Sunday)" });
+  });
+  p.checklists.forEach((c, i) => {
+    if (c.recurring_task !== null && c.recurring_task !== undefined && c.recurring_task >= p.recurring_tasks.length) {
+      ctx.addIssue({ code: "custom", path: ["checklists", i, "recurring_task"], message: "recurring task index out of range" });
+    }
+  });
+  const dc = p.decision_condition;
+  if (dc && !METRIC_KEYS.has(dc.metric_key)) ctx.addIssue({ code: "custom", path: ["decision_condition", "metric_key"], message: `unknown measured number "${dc.metric_key}"` });
+}
+
+export const ProposalSchema = ProposalObject.superRefine(refineProposal);
+export const ApprovalSchema = ApprovalObject.superRefine(refineProposal);
 
 export type Proposal = z.infer<typeof ProposalSchema>;
 
@@ -125,6 +137,12 @@ export function issuesText(error: z.ZodError): string {
 export function validateProposal(value: unknown): { ok: true; proposal: Proposal } | { ok: false; error: string } {
   const r = ProposalSchema.safeParse(value);
   return r.success ? { ok: true, proposal: r.data } : { ok: false, error: issuesText(r.error) };
+}
+
+/** Validates what the owner approves (purpose and goals optional; see ApprovalSchema). */
+export function validateForApproval(value: unknown): { ok: true; proposal: Proposal } | { ok: false; error: string } {
+  const r = ApprovalSchema.safeParse(value);
+  return r.success ? { ok: true, proposal: r.data as Proposal } : { ok: false, error: issuesText(r.error) };
 }
 
 /** Which items the owner keeps. The initiative itself is always created. */

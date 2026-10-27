@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { MessageSquare, Send, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
@@ -34,6 +34,13 @@ export function ChatPanel({ aiReady }: { aiReady: boolean }) {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const path = usePathname();
   const endRef = useRef<HTMLDivElement>(null);
+  // A window opening (for example from the chat's "Open the setup" link) closes the chat, so it never covers the window.
+  const win = useSearchParams().get("w");
+  const [lastWin, setLastWin] = useState(win);
+  if (lastWin !== win) {
+    setLastWin(win);
+    if (win && open) setOpen(false);
+  }
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });

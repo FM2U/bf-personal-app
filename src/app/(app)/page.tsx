@@ -1,11 +1,11 @@
 import Link from "next/link";
-import { ArrowRight, Sparkles, X } from "lucide-react";
+import { ArrowRight, ChevronRight, Sparkles, X } from "lucide-react";
 import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
 import { computeMetrics } from "@/lib/metrics";
 import { todaysMeetings } from "@/lib/engine/run";
 import { getGoogleConnection } from "@/lib/google";
-import { netWorthByMonth } from "@/lib/finance";
+import { loadRunwayHistory, netWorthByMonth } from "@/lib/finance";
 import { Card, CardContent, CardDescription, CardHeader, CardNote, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge, StatusDot } from "@/components/ui/badge";
@@ -13,7 +13,7 @@ import { severityStatus } from "@/lib/status";
 import { ModuleTitle } from "@/components/app/module-icon";
 import { EmptyState, PageHeader, Stat, StatGrid } from "@/components/app/page-header";
 import { TaskList } from "@/components/app/task-list";
-import { Progress } from "@/components/app/charts";
+import { Progress, RunwayTrendChart } from "@/components/app/charts";
 import { SubmitButton } from "@/components/app/submit-button";
 import { dismissAlert } from "@/app/actions/records";
 import { regeneratePlan } from "@/app/actions/domain";
@@ -32,6 +32,8 @@ import { sortTasksProprietaryFirst } from "@/lib/calc/pipeline";
 import { hasPipelineUpdate, loadDealRanks, loadDealTypes } from "@/lib/pipeline";
 import { GuardedForm } from "@/components/app/unsaved-changes";
 import { loadSavingsIdeas } from "@/lib/engine/savings-ideas";
+import { splitMorningPlan } from "@/lib/morning-plan";
+import { WorkThroughTasksButton } from "@/components/app/work-through-button";
 
 export const metadata = { title: "Home" };
 
@@ -59,6 +61,7 @@ export default async function HomePage() {
     ]),
   ]);
   const snap = metrics.snapshot;
+  const hasAccounts = snap.accounts.length > 0;
   const target = snap.inputs.num.runway_target_months;
   const runway = snap.runway.months;
   const runwayPct = runway === null ? 100 : target ? (runway / target) * 100 : null;
@@ -71,12 +74,14 @@ export default async function HomePage() {
   const alerts = (alertsRes.data ?? []) as Row[];
   const overdue = sortTasksProprietaryFirst((overdueTasks.data ?? []) as Row[], rankOf);
   const overdueMilestones = (overdueMs.data ?? []) as Row[];
-  const nw = await netWorthByMonth(supabase, today, 6);
+  const [nw, runwayTrend] = await Promise.all([netWorthByMonth(supabase, today, 6), hasAccounts ? loadRunwayHistory(supabase, snap).catch(() => []) : Promise.resolve([])]);
+  const trendData = runwayTrend.map((p) => ({ label: p.now ? "Now" : fmtDate(`${p.month}-01`, "MMM"), months: p.months, now: p.now }));
+  const plan = planRes.data ? splitMorningPlan(String(planRes.data.content ?? "")) : null;
+  const openToday = tasks.filter((t) => t.status !== "done").length + overdue.length;
   const ideas = await loadSavingsIdeas(supabase);
   const ideaSavings = ideas.pending.reduce((sum, i) => sum + Number(i.estimated_monthly_savings ?? 0), 0);
   const { count: draftCount } = ideas.available ? await supabase.from("initiative_drafts").select("id", { count: "exact", head: true }).eq("status", "draft") : { count: 0 };
   const waiting = (proposalsRes.count ?? 0) + ideas.pending.length + (draftCount ?? 0);
-  const hasAccounts = snap.accounts.length > 0;
 
   // KPI tiles
   const [pipeRes, streakRes, missRes, draftRes] = kpiExtra;
@@ -126,7 +131,7 @@ export default async function HomePage() {
         description={`${fmtDate(today, "EEEE, MMMM d, yyyy")}. Runway, today's plan, meetings, overdue items, and alerts.`}
         actions={
           <Button asChild size="sm">
-            <Link href="/plan/start">
+            <Link href="/plan/start" data-window="setup" data-testid="home-start-initiative">
               <Sparkles /> Start an initiative
             </Link>
           </Button>
@@ -158,6 +163,24 @@ export default async function HomePage() {
                   <Stat label="Available cash" value={money(snap.cash)} />
                   <Stat label="Net monthly burn" value={money(snap.runway.netMonthlyBurn)} />
                 </StatGrid>
+                {trendData.length > 1 ? (
+                  <div className="border-t border-slate-100 pt-2">
+                    <p className="mb-1 flex items-center justify-between gap-2 text-xs font-medium text-slate-700">
+                      <span>Months of runway at each month end</span>
+                      <span className="flex items-center gap-3 font-normal text-slate-500">
+                        <span className="flex items-center gap-1">
+                          <span aria-hidden className="h-0.5 w-3 rounded bg-primary" /> Runway
+                        </span>
+                        {target ? (
+                          <span className="flex items-center gap-1">
+                            <span aria-hidden className="h-0 w-3 border-t-2 border-dashed border-gold" /> Target
+                          </span>
+                        ) : null}
+                      </span>
+                    </p>
+                    <RunwayTrendChart data={trendData} target={target ?? null} />
+                  </div>
+                ) : null}
               </>
             ) : (
               <EmptyState title="Add an account and its balance to calculate runway." action={<Button asChild size="sm"><Link href="/records/accounts/new">Add account</Link></Button>} />
@@ -229,9 +252,9 @@ export default async function HomePage() {
           <CardNote>Decision conditions met, missed commitments, pipeline items that need action, broken connections.</CardNote>
         </Card>
 
-        <Card className="md:col-span-2">
-          <CardHeader className="flex-row items-start justify-between gap-2">
-            <div>
+        <Card className="md:col-span-2" id="today">
+          <CardHeader className="flex-row flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0">
               <CardTitle>
                 <ModuleTitle module="productivity">Today</ModuleTitle>
               </CardTitle>
@@ -240,6 +263,7 @@ export default async function HomePage() {
               </CardDescription>
             </div>
             <div className="flex flex-wrap justify-end gap-2">
+              <WorkThroughTasksButton count={openToday} />
               <OpenReviewButton kind="daily" size="sm" variant="outline">
                 Daily close
               </OpenReviewButton>
@@ -253,8 +277,50 @@ export default async function HomePage() {
           <CardContent className="grid grid-cols-1 gap-5 lg:grid-cols-2">
             <div className="min-w-0">
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Morning plan {planRes.data?.generated_by === "ai" ? "(AI)" : ""}</p>
-              {planRes.data ? (
-                <AiText text={planRes.data.content} className="rounded-md bg-slate-50 p-3" />
+              {plan ? (
+                <div className="flex flex-col gap-2 rounded-md bg-slate-50 p-3" data-testid="morning-plan">
+                  <AiText text={plan.main} />
+                  {plan.rest || dayTargets.length || meetings?.length ? (
+                    <details className="group border-t border-slate-200 pt-2" data-testid="morning-plan-more">
+                      <summary className="flex cursor-pointer list-none items-center gap-1.5 text-sm font-medium text-primary-strong hover:underline [&::-webkit-details-marker]:hidden">
+                        <ChevronRight aria-hidden className="h-4 w-4 transition-transform group-open:rotate-90" /> Show all
+                        <span className="font-normal text-muted-foreground">
+                          ({[dayTargets.length ? "daily targets" : null, meetings?.length ? "meetings" : null, plan.rest ? "the rest of the plan" : null].filter(Boolean).join(", ")})
+                        </span>
+                      </summary>
+                      <div className="mt-2 flex flex-col gap-2">
+                        {dayTargets.length ? (
+                          <div>
+                            <p className="text-sm font-semibold text-slate-900">Daily targets</p>
+                            <ul className="mt-1 flex flex-col gap-0.5 text-sm text-slate-800">
+                              {dayTargets.map((t) => (
+                                <li key={t.target.id} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3">
+                                  <span className="clamp-1">{t.target.name}</span>
+                                  <span className={`tabular ${t.today.status === "met" ? "text-status-met" : "text-slate-700"}`}>
+                                    {t.today.count} of {t.today.required}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
+                        {meetings?.length ? (
+                          <div>
+                            <p className="text-sm font-semibold text-slate-900">Meetings</p>
+                            <ul className="mt-1 flex flex-col gap-0.5 text-sm text-slate-800">
+                              {meetings.map((m) => (
+                                <li key={m.id} className="clamp-1">
+                                  {m.title}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
+                        {plan.rest ? <AiText text={plan.rest} /> : null}
+                      </div>
+                    </details>
+                  ) : null}
+                </div>
               ) : (
                 <p className="text-sm text-muted-foreground">The plan is written each morning after the bank sync. Press &quot;Write today&apos;s plan&quot; to write it now.</p>
               )}

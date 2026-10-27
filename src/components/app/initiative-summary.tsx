@@ -45,7 +45,7 @@ function Section({ title, icon: Icon, count, children, className }: { title: str
  * timeline), recurring tasks by weekday, target and budget, checklists, and the plan in a grid of 1 to 3 columns.
  * Every line is clickable (`pick`).
  */
-export function SummaryContent({ s, pick }: { s: InitiativeSummary; pick: (r: SummaryRef) => void }) {
+export function SummaryContent({ s, pick, aside }: { s: InitiativeSummary; pick: (r: SummaryRef) => void; /** Shown between the name and the savings (the Next required action in the window). */ aside?: React.ReactNode }) {
   const groups = groupRecurringByWeekday(s.recurring);
   const tiles: React.ReactNode[] = [];
   if (s.goals.length)
@@ -157,8 +157,8 @@ export function SummaryContent({ s, pick }: { s: InitiativeSummary; pick: (r: Su
 
   return (
     <div className="flex flex-col gap-4" data-testid="summary-content">
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_minmax(14rem,20rem)]">
-        <div className="min-w-0 rounded-xl border border-border bg-white px-4 py-3">
+      <div className={cn("grid grid-cols-1 gap-4", aside ? "md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)_minmax(13rem,17rem)]" : "md:grid-cols-[minmax(0,1fr)_minmax(14rem,20rem)]")}>
+        <div className={cn("min-w-0 rounded-xl border border-border bg-white px-4 py-3", aside && "md:col-span-2 xl:col-span-1")}>
           <Line r={s.ref} pick={pick}>
             <span className="block text-xs font-medium text-slate-500">{s.parent ? `Initiative, part of ${s.parent}` : "Initiative"}</span>
             <span className="clamp-2 text-xl font-semibold leading-snug text-slate-900">{s.name}</span>
@@ -170,14 +170,25 @@ export function SummaryContent({ s, pick }: { s: InitiativeSummary; pick: (r: Su
             </Line>
           ) : null}
         </div>
-        <div className="flex flex-col justify-center rounded-xl border border-status-met-border bg-status-met-bg px-4 py-3" data-testid="summary-savings">
-          <span className="flex items-center gap-1.5 text-xs font-medium text-slate-700">
-            <PiggyBank aria-hidden className="h-4 w-4 text-status-met-solid" strokeWidth={1.75} /> Estimated monthly savings
-          </span>
-          <span className="tabular mt-1 text-3xl font-semibold leading-none text-status-met">{s.savings !== null ? usd(s.savings) : "Not estimated"}</span>
-          {s.savings !== null ? <span className="mt-0.5 text-sm text-status-met">per month</span> : null}
-          {s.savingsBasis ? <span className="clamp-2 mt-1 text-xs text-slate-600">{s.savingsBasis}</span> : null}
-        </div>
+        {aside ? <div className="min-w-0">{aside}</div> : null}
+        {s.savings !== null ? (
+          <div className="flex flex-col justify-center rounded-xl border border-status-met-border bg-status-met-bg px-4 py-3" data-testid="summary-savings">
+            <span className="flex items-center gap-1.5 text-xs font-medium text-slate-700">
+              <PiggyBank aria-hidden className="h-4 w-4 text-status-met-solid" strokeWidth={1.75} /> Estimated monthly savings
+            </span>
+            <span className="tabular mt-1 text-3xl font-semibold leading-none text-status-met">{usd(s.savings)}</span>
+            <span className="mt-0.5 text-sm text-status-met">per month</span>
+            {s.savingsBasis ? <span className="clamp-2 mt-1 text-xs text-slate-600">{s.savingsBasis}</span> : null}
+          </div>
+        ) : (
+          <div className="flex flex-col justify-center rounded-xl border border-border bg-white px-4 py-3" data-testid="summary-savings">
+            <span className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
+              <PiggyBank aria-hidden className="h-4 w-4 text-slate-400" strokeWidth={1.75} /> Estimated monthly savings
+            </span>
+            <span className="mt-1 text-lg font-semibold text-slate-500">Not estimated</span>
+            <span className="clamp-2 mt-0.5 text-xs text-slate-500">Add a budget change to estimate it.</span>
+          </div>
+        )}
       </div>
       {tiles.length ? (
         <div className={cn("grid grid-cols-1 items-start gap-4 md:grid-cols-2", tiles.length >= 3 && "xl:grid-cols-3")}>{tiles}</div>

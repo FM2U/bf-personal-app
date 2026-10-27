@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
-import { createRecordInline, saveRecord, type FormState } from "@/app/actions/records";
+import { createRecordInline, saveRecord, saveRecordInWindow, type FormState } from "@/app/actions/records";
 import { DEAL_SOURCE_OPTIONS, getResource, type Field } from "@/lib/resources";
 import { initialSourceMode, resolveSourceFields, suggestForSource, type SourceMode } from "@/lib/calc/source-chain";
 import type { FieldText } from "@/lib/pipeline-labels";
@@ -18,7 +18,7 @@ import { Notice } from "@/components/app/page-header";
 import { GuardedForm } from "@/components/app/unsaved-changes";
 import type { Row } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { fieldWidth, formLayout, moreStartsOpen, spanClasses, type FieldWidth } from "@/lib/form-layout";
+import { fieldWidth, formLayout, moreStartsOpen, sectionName, sectionsOpen, spanClasses, type FieldWidth } from "@/lib/form-layout";
 
 type RefOptions = Record<string, RefOption[]>;
 
@@ -47,6 +47,40 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
     </h3>
   );
 }
+
+/** A section heading that opens and closes its fields (forms inside a window). Closed: the field names, on one line. */
+function SectionToggle({ name, open, onToggle, fieldNames }: { name: string; open: boolean; onToggle: () => void; fieldNames: string }) {
+  return (
+    <h3 className={cn("relative border-b border-slate-200 text-sm font-semibold text-slate-900", open ? "mb-3" : "mb-2")}>
+      <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full items-center gap-2 pb-1.5 text-left hover:text-primary-strong" data-testid="form-section-toggle">
+        <ChevronRight aria-hidden className={cn("h-4 w-4 shrink-0 text-slate-500 transition-transform", open && "rotate-90")} />
+        <span className="whitespace-nowrap">{name}</span>
+        {!open ? <span className="clamp-1 min-w-0 text-xs font-normal text-muted-foreground">{fieldNames}</span> : null}
+      </button>
+      <span aria-hidden className="absolute -bottom-px left-0 h-px w-8 bg-gold" />
+    </h3>
+  );
+}
+
+const SECTIONS_KEY = (table: string) => `form-sections:${table}`;
+function readSavedSections(table: string): Record<string, boolean> | null {
+  try {
+    const raw = window.localStorage.getItem(SECTIONS_KEY(table));
+    return raw ? (JSON.parse(raw) as Record<string, boolean>) : null;
+  } catch {
+    return null;
+  }
+}
+function saveSections(table: string, open: Record<string, boolean>) {
+  try {
+    window.localStorage.setItem(SECTIONS_KEY(table), JSON.stringify(open));
+  } catch {
+    // Private windows and blocked storage: sections still open and close, they are just not remembered.
+  }
+}
+
+/** The form inside a window: saved without leaving the window; Cancel goes back. */
+export type WindowFormMode = { onSaved: (r: { id: string; title: string }) => void; onCancel: () => void; onFailed?: () => void };
 
 /** "Deal came from" / "Lead came from": the contact list also offers "Not a person" with a typed source. */
 type SourceText = { initialText: string; placeholder?: string };
@@ -469,6 +503,7 @@ export function RecordForm({
   allowCreate = true,
   text,
   excludeOptions = {},
+  inWindow,
 }: {
   table: string;
   id?: string | null;
@@ -490,6 +525,8 @@ export function RecordForm({
   text?: Record<string, FieldText>;
   /** Option values not available yet, keyed "table.field" (src/lib/form-rules.ts optionExclusions). */
   excludeOptions?: Record<string, string[]>;
+  /** Inside a window: collapsible sections (remembered per viewer), saved without a page change. */
+  inWindow?: WindowFormMode;
 }) {
   const resource = getResource(table)!;
   const [state, setState] = useState<FormState>(null);
@@ -518,6 +555,31 @@ export function RecordForm({
   const long = !only && layout.main.reduce((n, g) => n + g.fields.length, 0) > 8;
   const widthOf = (f: Field): FieldWidth => (f.name === "source_contact_id" || f.name === "deal_source_type" ? "medium" : fieldWidth(f));
   const contactOptions = (options.contacts ?? []) as PersonOption[];
+  // Inside a window, sections open and close (most-used open first; each viewer's choice is remembered).
+  const collapsible = !!inWindow && layout.main.length >= 2;
+  const [openMap, setOpenMap] = useState<Record<string, boolean>>(() => (collapsible ? sectionsOpen(layout.main, typeof window === "undefined" ? null : readSavedSections(table), initial) : {}));
+  const setSections = (next: Record<string, boolean>) => {
+    setOpenMap(next);
+    saveSections(table, next);
+  };
+  const isOpen = (name: string) => !collapsible || openMap[name] !== false;
+  const sectionsRef = useRef<HTMLDivElement>(null);
+  // A required field in a closed section: the section opens so the browser can point at the field.
+  useEffect(() => {
+    const el = sectionsRef.current;
+    if (!collapsible || !el) return;
+    const onInvalid = (e: Event) => {
+      const field = e.target as HTMLElement;
+      const box = field.closest<HTMLElement>("[data-section]");
+      const name = box?.dataset.section;
+      if (box?.hidden && name) {
+        setOpenMap((m) => ({ ...m, [name]: true }));
+        requestAnimationFrame(() => (field as HTMLInputElement).reportValidity?.());
+      }
+    };
+    el.addEventListener("invalid", onInvalid, true);
+    return () => el.removeEventListener("invalid", onInvalid, true);
+  }, [collapsible]);
   const renderField = (f: Field, span: string) => (
     <FormField
       key={f.name}
@@ -533,7 +595,20 @@ export function RecordForm({
   );
   return (
     <RefContext.Provider value={ctx}>
-      <GuardedForm action={(fd: FormData) => saveRecord(null, fd)} onResult={(r) => setState(r as FormState)} leaveTo className="@container flex max-w-[55rem] flex-col gap-4">
+      <GuardedForm
+        action={inWindow ? (fd: FormData) => saveRecordInWindow(fd) : (fd: FormData) => saveRecord(null, fd)}
+        onResult={(r) => {
+          const res = r as { ok?: boolean; id?: string; title?: string } | null;
+          if (inWindow && res?.ok && res.id) inWindow.onSaved({ id: res.id, title: res.title ?? "" });
+          else {
+            setState(r as FormState);
+            inWindow?.onFailed?.();
+          }
+        }}
+        leaveTo={!inWindow}
+        data-window-form={inWindow ? "" : undefined}
+        className={cn("@container flex flex-col gap-4", inWindow ? "max-w-none" : "max-w-[55rem]")}
+      >
         <input type="hidden" name="__table" value={table} />
         {id ? <input type="hidden" name="__id" value={id} /> : null}
         {redirectTo ? <input type="hidden" name="__redirect" value={redirectTo} /> : null}
@@ -553,14 +628,35 @@ export function RecordForm({
             ) : null}
           </Notice>
         ) : null}
-        <div className="flex flex-col">
-          {layout.main.map((g, gi) => (
-            <div key={g.section ?? `g${gi}`} className={cn(gi > 0 && "mt-1")}>
-              {/* A section of one field with the same name (Notes) needs no heading over its label. */}
-              {g.section && !(g.fields.length === 1 && g.fields[0].label === g.section) ? <SectionHeading>{g.section}</SectionHeading> : null}
-              <FieldGrid cols="auto">{(() => { const spans = spanClasses(g.fields, widthOf); return g.fields.map((f, i) => renderField(f, spans[i])); })()}</FieldGrid>
-            </div>
-          ))}
+        {collapsible ? (
+          <div className="relative z-10 -mb-[2.6rem] flex h-7 items-center justify-end gap-1 self-end bg-background pl-2 text-xs" data-testid="form-section-controls">
+            <button type="button" className="rounded px-2 py-1 font-medium text-primary-strong hover:bg-primary-soft" onClick={() => setSections(Object.fromEntries(layout.main.map((g) => [sectionName(g), true])))}>
+              Expand all
+            </button>
+            <span aria-hidden className="text-slate-300">|</span>
+            <button type="button" className="rounded px-2 py-1 font-medium text-primary-strong hover:bg-primary-soft" onClick={() => setSections(Object.fromEntries(layout.main.map((g) => [sectionName(g), false])))}>
+              Collapse all
+            </button>
+          </div>
+        ) : null}
+        <div className="flex flex-col" ref={sectionsRef}>
+          {layout.main.map((g, gi) => {
+            const name = sectionName(g);
+            const open = isOpen(name);
+            return (
+              <div key={g.section ?? `g${gi}`} className={cn(gi > 0 && "mt-1")}>
+                {collapsible ? (
+                  <SectionToggle name={name} open={open} onToggle={() => setSections({ ...openMap, [name]: !open })} fieldNames={g.fields.map((f) => f.label.split(" (")[0]).join(", ")} />
+                ) : g.section && !(g.fields.length === 1 && g.fields[0].label === g.section) ? (
+                  /* A section of one field with the same name (Notes) needs no heading over its label. */
+                  <SectionHeading>{g.section}</SectionHeading>
+                ) : null}
+                <div hidden={!open} data-section={name}>
+                  <FieldGrid cols="auto">{(() => { const spans = spanClasses(g.fields, widthOf); return g.fields.map((f, i) => renderField(f, spans[i])); })()}</FieldGrid>
+                </div>
+              </div>
+            );
+          })}
           {layout.more.length ? (
             <details className="group mb-4 rounded-lg border border-slate-200 bg-slate-50/50" open={moreOpen} data-testid="more-details">
               <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm font-medium text-slate-700 hover:text-slate-900 [&::-webkit-details-marker]:hidden">
@@ -601,9 +697,21 @@ export function RecordForm({
             When I change the category, save it as a rule for this merchant
           </label>
         ) : null}
-        <div className={cn("flex flex-wrap gap-2", long && "sticky bottom-0 z-20 -mx-5 -mb-5 rounded-b-xl border-t border-border bg-white/95 px-5 py-3 backdrop-blur")} data-testid="form-actions">
+        <div
+          className={cn(
+            "flex flex-wrap gap-2",
+            inWindow
+              ? "sticky bottom-0 z-20 -mx-4 -mb-4 border-t border-border bg-white/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:-mb-5 sm:px-6"
+              : long && "sticky bottom-0 z-20 -mx-5 -mb-5 rounded-b-xl border-t border-border bg-white/95 px-5 py-3 backdrop-blur",
+          )}
+          data-testid="form-actions"
+        >
           <SubmitButton data-save-and-leave>{submitLabel ?? (id ? "Save changes" : `Add ${resource.singular.toLowerCase()}`)}</SubmitButton>
-          {cancelHref ? (
+          {inWindow ? (
+            <Button type="button" variant="outline" onClick={inWindow.onCancel}>
+              Cancel
+            </Button>
+          ) : cancelHref ? (
             <Button asChild variant="outline">
               <Link href={cancelHref}>Cancel</Link>
             </Button>

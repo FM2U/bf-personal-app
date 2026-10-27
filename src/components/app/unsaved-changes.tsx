@@ -86,6 +86,19 @@ function hasChanges(): boolean {
   return changedForms().length > 0 || unsavedWork.size > 0;
 }
 
+/**
+ * The guard's extra history entry (added at the first change so Back can be answered by the dialog). Shared with the
+ * window (src/components/app/window-host.tsx), which counts it when it closes and replaces it when it moves on.
+ */
+export const guardHistory = { sentinel: false };
+
+/** True when a form inside `root` holds a change that is not saved, or work outside a form is in progress. */
+export function hasUnsavedIn(root: Element | null): boolean {
+  if (unsavedWork.size > 0) return true;
+  if (!root) return false;
+  return [...root.querySelectorAll("form")].some((f) => isChecked(f) && formHasChanges(f));
+}
+
 // ---------- GuardedForm ----------
 
 type SaveResult = { ok: true; redirected: boolean } | { ok: false; error: string; field?: boolean };
@@ -215,7 +228,6 @@ export function UnsavedChangesGuard() {
   const [pending, setPending] = useState<Pending | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const sentinel = useRef(false);
   const bypass = useRef(false);
 
   // A new page starts clean; an earlier extra history entry stays behind as an ordinary entry of that page.
@@ -226,7 +238,7 @@ export function UnsavedChangesGuard() {
     setError(null);
   }
   useEffect(() => {
-    sentinel.current = false;
+    guardHistory.sentinel = false;
   }, [pageKey]);
 
   // The first change adds one extra history entry for this page, so the Back button can be answered by the dialog.
@@ -235,9 +247,9 @@ export function UnsavedChangesGuard() {
     const check = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        if (!sentinel.current && hasChanges()) {
+        if (!guardHistory.sentinel && hasChanges()) {
           window.history.pushState(window.history.state, "", window.location.href);
-          sentinel.current = true;
+          guardHistory.sentinel = true;
         }
       });
     };
@@ -274,8 +286,8 @@ export function UnsavedChangesGuard() {
   // Browser Back: the extra entry was left; this page is still shown.
   useEffect(() => {
     const onPop = (e: PopStateEvent) => {
-      if (!sentinel.current) return;
-      sentinel.current = false;
+      if (!guardHistory.sentinel) return;
+      guardHistory.sentinel = false;
       e.stopImmediatePropagation();
       if (hasChanges()) {
         setError(null);
@@ -312,9 +324,9 @@ export function UnsavedChangesGuard() {
         return;
       }
       const internal = safeLeaveTarget(p.href);
-      if (internal && sentinel.current) {
+      if (internal && guardHistory.sentinel) {
         // Replace the extra history entry, so Back from the next page returns here once.
-        sentinel.current = false;
+        guardHistory.sentinel = false;
         router.replace(internal);
         return;
       }
@@ -330,9 +342,9 @@ export function UnsavedChangesGuard() {
   const stay = () => {
     const wasBack = pending?.kind === "back";
     setPending(null);
-    if (wasBack && hasChanges() && !sentinel.current) {
+    if (wasBack && hasChanges() && !guardHistory.sentinel) {
       window.history.pushState(window.history.state, "", window.location.href);
-      sentinel.current = true;
+      guardHistory.sentinel = true;
     }
   };
 
@@ -358,9 +370,9 @@ export function UnsavedChangesGuard() {
     if (!last.ok) {
       // Stay on the page; keep the extra history entry so Back still asks.
       setPending(null);
-      if (p.kind === "back" && !sentinel.current) {
+      if (p.kind === "back" && !guardHistory.sentinel) {
         window.history.pushState(window.history.state, "", window.location.href);
-        sentinel.current = true;
+        guardHistory.sentinel = true;
       }
       if (!last.field) setError(last.error);
       return;

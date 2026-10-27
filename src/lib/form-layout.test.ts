@@ -66,3 +66,19 @@ describe("form layout: packing fields into rows of 12", () => {
     expect(cls[2]).toContain("@2xl:col-span-3");
   });
 });
+
+describe("collapsible sections in a window", () => {
+  it("the first section and sections with a required field start open; a viewer's choice is kept; an empty required field reopens", async () => {
+    const { sectionsOpen } = await import("./form-layout");
+    const f = (name: string, required = false) => ({ name, label: name, type: "text" as const, required });
+    const groups = [
+      { section: "Name and contact details", fields: [f("name", true)] },
+      { section: "Relationship and outreach", fields: [f("roles")] },
+      { section: "Follow-up", fields: [f("follow_up_date")] },
+      { section: null, fields: [f("due", true)] },
+    ];
+    expect(sectionsOpen(groups, null)).toEqual({ "Name and contact details": true, "Relationship and outreach": false, "Follow-up": false, Details: true });
+    expect(sectionsOpen(groups, { "Follow-up": true, "Name and contact details": false }, { name: "Pat", due: "2026-10-27" })).toEqual({ "Name and contact details": false, "Relationship and outreach": false, "Follow-up": true, Details: true });
+    expect(sectionsOpen(groups, { "Name and contact details": false }, { name: "" })["Name and contact details"]).toBe(true);
+  });
+});

@@ -101,3 +101,42 @@ export function runwayExplanation(p: { lookbackMonths: number; subtractIncome: b
       : " Signed consulting income is not counted (Inputs: Count signed consulting income in runway = 0).";
   return base + consulting;
 }
+
+export type BalancePoint = { account_id: string; as_of: string; balance: number };
+export type RunwayPoint = { month: string; months: number | null; cash: number | null; burn: number | null };
+
+/** Last day of a "YYYY-MM" month. */
+function monthEnd(key: string): string {
+  const [y, m] = key.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m, 0));
+  return d.toISOString().slice(0, 10);
+}
+/** First day of the month after a "YYYY-MM" month. */
+function nextMonthStart(key: string): string {
+  const [y, m] = key.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m, 1));
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Months of runway at the end of each month in `monthKeys` ("YYYY-MM"), with the same formula as today's runway:
+ * cash at that month end (each runway cash account's latest balance on or before it) divided by the net monthly burn
+ * (average spending minus average income over the `lookbackMonths` full months up to and including that month).
+ * `months` is null when cash was not decreasing then (income covered spending) or no balance was recorded yet.
+ * Signed consulting income is not added for past months (it is a forecast of the time).
+ */
+export function runwayAtMonthEnds(p: { monthKeys: string[]; balances: BalancePoint[]; cashAccountIds: string[]; txns: CashTxn[]; lookbackMonths: number; subtractIncome: boolean }): RunwayPoint[] {
+  const ids = new Set(p.cashAccountIds);
+  const balances = p.balances.filter((b) => ids.has(b.account_id)).sort((a, b) => a.as_of.localeCompare(b.as_of));
+  return p.monthKeys.map((k) => {
+    const end = monthEnd(k);
+    const latest = new Map<string, number>();
+    for (const b of balances) if (b.as_of <= end) latest.set(b.account_id, Number(b.balance));
+    const cash = latest.size ? round2([...latest.values()].reduce((s, v) => s + v, 0)) : null;
+    const avg = monthlyAverages(p.txns.filter((t) => t.date <= end), nextMonthStart(k), p.lookbackMonths);
+    if (!avg.monthsUsed) return { month: k, months: null, cash, burn: null };
+    const burn = round2(avg.avgSpending - (p.subtractIncome ? avg.avgIncome : 0));
+    const months = cash !== null && burn > 0 ? round1(Math.max(0, cash) / burn) : null;
+    return { month: k, months, cash, burn };
+  });
+}

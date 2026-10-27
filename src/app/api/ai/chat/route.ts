@@ -39,9 +39,9 @@ export async function POST(req: Request) {
     }
     try {
       const draftId = await createInitiativeDraft(sb, ownerId, description, "chat");
-      const reply = "- **Draft ready:** the AI drafted the initiative.\n- **Next step:** open the review screen, edit any item, and press Approve selected.\n- **Nothing is saved** until you approve.";
+      const reply = "- **Draft ready:** the AI drafted the initiative.\n- **Next step:** open the setup, check each step, and press Approve selected on the last step.\n- **Nothing is saved** until you approve.";
       await sb.from("ai_messages").insert({ owner_id: ownerId, conversation_id: conversationId, role: "assistant", content: reply });
-      return NextResponse.json({ reply, conversationId, proposals: [], link: { href: `/plan/initiatives/drafts/${draftId}`, label: "Open the review screen" } });
+      return NextResponse.json({ reply, conversationId, proposals: [], link: { href: `/plan/initiatives/drafts/${draftId}?step=name`, label: "Open the setup" } });
     } catch (e) {
       const text = e instanceof AIUnavailable || e instanceof AIInvalidReply || e instanceof UpdateNeeded ? e.message : "The AI request failed. Try again.";
       return NextResponse.json({ error: text, conversationId }, { status: e instanceof AIUnavailable && e.reason !== "error" ? 403 : 500 });

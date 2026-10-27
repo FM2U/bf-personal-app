@@ -8,13 +8,12 @@ import { loadCtx } from "@/lib/engine/helpers";
 import { hasUpdate0014 } from "@/lib/update-0014";
 import { DB_UPDATE_NOTICE_0014 } from "@/lib/schema-guard";
 import type { Row } from "@/lib/types";
+import { emptyProposal, normalizeDraft, type DraftState } from "@/lib/initiative/draft";
 import {
   includeAll,
-  IncludeSchema,
   mapProposalToBatches,
   proposalPrompt,
   validateProposal,
-  type Include,
   type MappedPlan,
   type Proposal,
   type Setup,
@@ -66,7 +65,7 @@ export async function loadPlanSetup(sb: SupabaseClient, ownerId: string, today: 
   };
 }
 
-export type DraftState = { proposal: Proposal; include: Include };
+export type { DraftState } from "@/lib/initiative/draft";
 
 /** Asks the AI for a structured initiative proposal and saves it as a draft (nothing else is saved). Returns the draft id. */
 export async function createInitiativeDraft(sb: SupabaseClient, ownerId: string, description: string, source: "typed" | "chat"): Promise<string> {
@@ -97,13 +96,20 @@ export async function createInitiativeDraft(sb: SupabaseClient, ownerId: string,
   return data.id as string;
 }
 
-/** Reads and checks a draft's saved state (proposal and which items are included). */
+/** Reads a draft's saved state (proposal and which items are included); a half-filled draft keeps what it has. */
 export function readDraftState(value: unknown): DraftState | null {
-  const v = (value ?? {}) as Row;
-  const p = validateProposal(v.proposal);
-  if (!p.ok) return null;
-  const inc = IncludeSchema.safeParse(v.include);
-  return { proposal: p.proposal, include: inc.success ? inc.data : includeAll(p.proposal) };
+  return normalizeDraft(value);
+}
+
+/** "Add manually" (no AI): an empty draft the step-by-step setup fills in, starting at Name and purpose. */
+export async function createManualDraft(sb: SupabaseClient, ownerId: string): Promise<string> {
+  if (!(await hasUpdate0014(sb))) throw new UpdateNeeded();
+  const proposal = emptyProposal();
+  const state: DraftState = { proposal, include: includeAll(proposal) };
+  // An empty prompt marks a draft that was added manually (the source list has no separate value for it).
+  const { data, error } = await sb.from("initiative_drafts").insert({ owner_id: ownerId, prompt: "", proposal: state, source: "typed", status: "draft" }).select("id").single();
+  if (error || !data) throw new Error(error?.message ?? "The draft could not be saved.");
+  return data.id as string;
 }
 
 /**
