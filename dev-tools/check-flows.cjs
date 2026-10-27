@@ -1123,6 +1123,8 @@ const expectText = async (page, text) => {
     // Any step opens directly from the step bar.
     await page.getByTestId("setup-step-tasks").click();
     await page.getByTestId("setup-body-tasks").waitFor();
+    // The second of two tasks starts collapsed: Edit opens it.
+    await page.locator("[data-repeat-item]").nth(1).getByTestId("repeat-item-toggle").click();
     await page.locator("#t-title-1").fill("Cook lunches and dinners for the week");
     await page.getByTestId("setup-save").click();
     await page.getByTestId("setup-body-target").waitFor();
@@ -1143,7 +1145,9 @@ const expectText = async (page, text) => {
       await pg_.getByTestId("approve-selected").waitFor();
       await pg_.screenshot({ path: path.join(OUT, `${vp}-initiative-review.png`), fullPage: true });
     }
-    await expectText(page, "Grocery list (24 items)");
+    // The only checklist starts open with its 24 items.
+    await expectText(page, "Grocery list");
+    if ((await page.getByTestId("review-checklist-0").locator('input[aria-label^="Item "]').count()) !== 24) throw new Error("checklist does not show 24 items");
     await expectText(page, "Shop for the week's groceries");
     await expectText(page, "Breakfast plan (separate)");
     // Drafts waiting for review: the draft opens in the window; Review and approve; Approve selected.
@@ -1186,6 +1190,100 @@ const expectText = async (page, text) => {
     if ((await one("select status from initiative_drafts order by created_at desc limit 1")).status !== "approved") throw new Error("draft not marked approved");
     await expectText(page, "Weekly meal plan: menu and recipes");
     await expectText(page, "0 of 24 checked");
+  });
+
+  await step("Repeated items: collapsed rows with Expand all, a 2-row grid when open, an item with an empty required field starts open, edits save", async () => {
+    await page.goto(`${BASE}/plan`);
+    await page.getByRole("button", { name: "Use the meal plan example" }).click();
+    await page.getByRole("button", { name: "Draft the plan" }).click();
+    await page.getByTestId("setup-body-name").waitFor({ timeout: 30000 });
+    const draftId = page.url().match(/setup%2F([0-9a-f-]{36})/)[1];
+    const stepUrl = (s) => `${BASE}/plan?w=setup%2F${draftId}%2F${s}`;
+    await page.goto(stepUrl("milestones"));
+    await page.getByTestId("setup-body-milestones").waitFor({ timeout: 20000 });
+    const items = page.locator("[data-repeat-item]");
+    const openCount = (p_) => p_.locator("[data-repeat-item][data-open]").count();
+    // One milestone: it starts open. Added blank milestones start open (empty required fields).
+    if ((await items.count()) !== 1 || (await openCount(page)) !== 1) throw new Error("a single milestone should start open");
+    await page.getByTestId("add-milestone").click();
+    await page.getByTestId("add-milestone").click();
+    if ((await openCount(page)) !== 3) throw new Error("added blank milestones should start open");
+    for (const [i, t, c] of [[1, "Shopping list made", "List saved in the app"], [2, "First Sunday cook done", "Cook task marked done"]]) {
+      await page.fill(`#m-title-${i}`, t);
+      await page.fill(`#m-test-${i}`, c);
+    }
+    // Filling the fields does not close an item while it is being edited.
+    if ((await openCount(page)) !== 3) throw new Error("an item closed while typing");
+    await page.getByTestId("setup-save").click();
+    await page.getByTestId("setup-body-tasks").waitFor();
+    const saved = await one("select proposal from initiative_drafts where id = $1", [draftId]);
+    if (saved.proposal.proposal.milestones.length !== 3 || saved.proposal.proposal.milestones[2].title !== "First Sunday cook done") throw new Error("milestone edits not saved");
+    // A new viewer (nothing remembered): 3 milestones show as collapsed rows with Expand all.
+    const c2 = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    await c2.addCookies([cookie]);
+    const p2 = await c2.newPage();
+    await p2.goto(stepUrl("milestones"));
+    await p2.getByTestId("setup-body-milestones").waitFor({ timeout: 20000 });
+    const rows = p2.locator("[data-repeat-item]");
+    if ((await rows.count()) !== 3) throw new Error("3 milestones expected");
+    if (await openCount(p2)) throw new Error("rows should start collapsed when there are more than 2");
+    await p2.getByTestId("expand-all").waitFor();
+    const facts = await rows.nth(2).getByTestId("item-facts").innerText();
+    for (const t of ["Due", "Goal", "Test", "Cook task marked done"]) if (!facts.includes(t)) throw new Error(`collapsed row has no "${t}": ${facts}`);
+    await p2.waitForTimeout(300);
+    await p2.screenshot({ path: path.join(OUT, "desktop-setup-milestones-collapsed.png") });
+    // Expand all opens every row; each open row is a 2-row grid: name, due date, goal; then test and options side by side.
+    await p2.getByTestId("expand-all").click();
+    if ((await openCount(p2)) !== 3) throw new Error("Expand all did not open every row");
+    const box = async (sel) => (await p2.locator(sel).boundingBox());
+    const [n, d, g, t, o] = await Promise.all(["#m-title-0", "#m-due-0", "#m-goal-0", "#m-test-0", "#m-opts-0"].map(box));
+    if (Math.abs(n.y - d.y) > 2 || Math.abs(n.y - g.y) > 2 || !(n.x < d.x && d.x < g.x)) throw new Error("row 1 is not Milestone, Due date, Belongs to goal side by side");
+    if (Math.abs(t.y - o.y) > 2 || !(t.x < o.x) || !(t.y > n.y + n.height)) throw new Error("row 2 is not the test and options side by side");
+    if (t.width > o.width * 1.8 || t.width < o.width) throw new Error(`test and options widths ${t.width} ${o.width}`);
+    await p2.getByTestId("collapse-all").click();
+    if (await openCount(p2)) throw new Error("Collapse all did not close every row");
+    await rows.nth(0).getByTestId("repeat-item-toggle").click();
+    await p2.waitForTimeout(300);
+    await p2.screenshot({ path: path.join(OUT, "desktop-setup-milestones-expanded.png") });
+    // The open state is remembered for this viewer.
+    await p2.reload();
+    await p2.getByTestId("setup-body-milestones").waitFor({ timeout: 20000 });
+    await p2.waitForTimeout(300);
+    if ((await openCount(p2)) !== 1 || !(await rows.nth(0).getAttribute("data-open") !== null)) throw new Error("open state not remembered");
+    // An item with an empty required field starts open, even for a viewer who closed it.
+    await rows.nth(0).getByTestId("repeat-item-toggle").click();
+    await rows.nth(1).getByTestId("repeat-item-toggle").click();
+    await p2.fill("#m-test-1", "");
+    await rows.nth(1).getByTestId("repeat-item-toggle").click();
+    await p2.getByTestId("setup-save-later").click();
+    await p2.getByTestId("setup-window").waitFor({ state: "detached" });
+    await p2.goto(stepUrl("milestones"));
+    await p2.getByTestId("setup-body-milestones").waitFor({ timeout: 20000 });
+    await p2.waitForTimeout(300);
+    if ((await rows.nth(1).getAttribute("data-open")) === null) throw new Error("item with an empty required field should start open");
+    if ((await openCount(p2)) !== 1) throw new Error("only the item with the empty field should be open");
+    // Save refuses it with the plain message, and the item stays open.
+    await p2.getByTestId("setup-save").click();
+    await p2.getByTestId("setup-error").waitFor();
+    if (!(await p2.getByTestId("setup-error").innerText()).includes("Milestone 2")) throw new Error("milestone error not shown");
+    await p2.fill("#m-test-1", "List saved in the app");
+    if ((await rows.nth(1).getAttribute("data-open")) === null) throw new Error("item closed once fixed");
+    await p2.getByTestId("setup-save").click();
+    await p2.getByTestId("setup-body-tasks").waitFor();
+    // Phone: the fields of an open item stack in one column.
+    const ph2 = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    await ph2.addCookies([cookie]);
+    const pp = await ph2.newPage();
+    await pp.goto(stepUrl("milestones"));
+    await pp.getByTestId("setup-body-milestones").waitFor({ timeout: 20000 });
+    await pp.getByTestId("expand-all").click();
+    const [pn, pd] = [await pp.locator("#m-title-0").boundingBox(), await pp.locator("#m-due-0").boundingBox()];
+    if (!(pd.y > pn.y + pn.height)) throw new Error("phone: fields should stack");
+    await ph2.close();
+    await p2.getByTestId("setup-step-review").click();
+    await p2.getByTestId("setup-discard").click();
+    await p2.getByTestId("setup-window").waitFor({ state: "detached" });
+    await c2.close();
   });
 
   // ---------- Windows: summary, quick view, focused work windows; Add manually ----------

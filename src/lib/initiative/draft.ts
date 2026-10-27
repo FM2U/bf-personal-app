@@ -132,6 +132,57 @@ function check<T extends z.ZodType>(schema: T, value: unknown, label: string): s
   return r.success ? null : `${label}: ${issuesText(r.error)}`;
 }
 
+export type ItemKind = "goals" | "milestones" | "recurring_tasks" | "checklists" | "target" | "budget_change" | "decision_condition" | "plan_document";
+
+/**
+ * The problem in one item, or null (the same checks as Save on its step). Used by Save (validateStep) and to open
+ * the items that need attention in a list of collapsed items. A missing item has no problem.
+ */
+export function itemIssue(s: DraftState, kind: ItemKind, i = 0): string | null {
+  const p = s.proposal;
+  switch (kind) {
+    case "goals": {
+      const g = p.goals[i];
+      if (!g) return null;
+      const e = check(GoalSchema, g, `Goal ${i + 1}`);
+      if (e) return e;
+      if (g.metric_key?.startsWith("category_") && !g.categories?.length) return `Goal ${i + 1}: a category measured number needs at least one category.`;
+      return null;
+    }
+    case "milestones": {
+      const m = p.milestones[i];
+      if (!m) return null;
+      const e = check(MilestoneSchema, m, `Milestone ${i + 1}`);
+      if (e) return e;
+      if (!p.goals.some((_, j) => s.include.goals[j])) return `Milestone ${i + 1}: every milestone belongs to a goal. Add or include a goal first.`;
+      return null;
+    }
+    case "recurring_tasks": {
+      const t = p.recurring_tasks[i];
+      if (!t) return null;
+      const e = check(RecurringTaskSchema, t, `Recurring task ${i + 1}`);
+      if (e) return e;
+      if (t.cadence === "weekly" && (t.weekday === null || t.weekday === undefined)) return `Recurring task ${i + 1}: choose the day of the week.`;
+      return null;
+    }
+    case "checklists":
+      return p.checklists[i] ? check(ChecklistSchema, p.checklists[i], `Checklist ${i + 1}`) : null;
+    case "target":
+      return p.target ? check(TargetSchema, p.target, "Target") : null;
+    case "budget_change":
+      return p.budget_change ? check(BudgetChangeSchema, p.budget_change, "Budget change") : null;
+    case "plan_document":
+      return p.plan_document ? check(PlanDocumentSchema, p.plan_document, "Plan") : null;
+    case "decision_condition":
+      return null;
+  }
+}
+
+/** Per item of a list: true when it is included and has a problem (it starts open in a list of collapsed items). */
+export function itemsNeedingAttention(s: DraftState, kind: "goals" | "milestones" | "recurring_tasks" | "checklists"): boolean[] {
+  return s.proposal[kind].map((_, i) => !!s.include[kind][i] && itemIssue(s, kind, i) !== null);
+}
+
 /**
  * Checks the items of one setup step that are included (Save on that step). Returns the first problem, or null.
  * Items that are not included are never checked; they are not created.
@@ -139,6 +190,14 @@ function check<T extends z.ZodType>(schema: T, value: unknown, label: string): s
 export function validateStep(s: DraftState, step: SetupStep): string | null {
   const p = s.proposal;
   const inc = s.include;
+  const first = (kind: "goals" | "milestones" | "recurring_tasks" | "checklists") => {
+    for (let i = 0; i < p[kind].length; i++) {
+      if (!inc[kind][i]) continue;
+      const e = itemIssue(s, kind, i);
+      if (e) return e;
+    }
+    return null;
+  };
   switch (step) {
     case "name": {
       const name = p.initiative.name.trim();
@@ -148,50 +207,15 @@ export function validateStep(s: DraftState, step: SetupStep): string | null {
       return null;
     }
     case "goals":
-      for (const [i, g] of p.goals.entries()) {
-        if (!inc.goals[i]) continue;
-        const e = check(GoalSchema, g, `Goal ${i + 1}`);
-        if (e) return e;
-        if (g.metric_key?.startsWith("category_") && !g.categories?.length) return `Goal ${i + 1}: a category measured number needs at least one category.`;
-      }
-      return null;
+      return first("goals");
     case "milestones":
-      for (const [i, m] of p.milestones.entries()) {
-        if (!inc.milestones[i]) continue;
-        const e = check(MilestoneSchema, m, `Milestone ${i + 1}`);
-        if (e) return e;
-        if (!p.goals.some((_, j) => inc.goals[j])) return `Milestone ${i + 1}: every milestone belongs to a goal. Add or include a goal first.`;
-      }
-      return null;
+      return first("milestones");
     case "tasks":
-      for (const [i, t] of p.recurring_tasks.entries()) {
-        if (!inc.recurring_tasks[i]) continue;
-        const e = check(RecurringTaskSchema, t, `Recurring task ${i + 1}`);
-        if (e) return e;
-        if (t.cadence === "weekly" && (t.weekday === null || t.weekday === undefined)) return `Recurring task ${i + 1}: choose the day of the week.`;
-      }
-      return null;
+      return first("recurring_tasks");
     case "target":
-      if (p.target && inc.target) {
-        const e = check(TargetSchema, p.target, "Target");
-        if (e) return e;
-      }
-      if (p.budget_change && inc.budget_change) {
-        const e = check(BudgetChangeSchema, p.budget_change, "Budget change");
-        if (e) return e;
-      }
-      return null;
+      return (inc.target ? itemIssue(s, "target") : null) ?? (inc.budget_change ? itemIssue(s, "budget_change") : null);
     case "plan":
-      if (p.plan_document && inc.plan_document) {
-        const e = check(PlanDocumentSchema, p.plan_document, "Plan");
-        if (e) return e;
-      }
-      for (const [i, c] of p.checklists.entries()) {
-        if (!inc.checklists[i]) continue;
-        const e = check(ChecklistSchema, c, `Checklist ${i + 1}`);
-        if (e) return e;
-      }
-      return null;
+      return (inc.plan_document ? itemIssue(s, "plan_document") : null) ?? first("checklists");
     default:
       return null;
   }

@@ -22,6 +22,7 @@ export function FormField({
   htmlFor,
   required,
   help,
+  hint,
   wide,
   span,
   className,
@@ -31,6 +32,8 @@ export function FormField({
   htmlFor?: string;
   required?: boolean;
   help?: React.ReactNode;
+  /** One short line directly under the label (what the field is for), held to 1 line. */
+  hint?: React.ReactNode;
   /** Spans the full row (long text, checklists). */
   wide?: boolean;
   /** Grid classes for a 12-column FieldGrid (cols="auto"). */
@@ -45,6 +48,7 @@ export function FormField({
           {label}
           {required ? <span className="text-status-missed"> *</span> : null}
         </span>
+        {hint ? <span className="clamp-1 mt-0.5 text-xs font-normal leading-4 text-muted-foreground">{hint}</span> : null}
       </label>
       <div className="min-w-0">{children}</div>
       <div className="pb-4">{help ? <p className="clamp-3 mt-1 text-xs text-muted-foreground">{help}</p> : null}</div>

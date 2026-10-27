@@ -206,7 +206,7 @@ function DraftSteps({ data, step }: { data: Extract<SetupData, { ok: true }>; st
       return next;
     });
   };
-  const editor: EditorProps = { state, set, initiatives: data.initiatives, categories: data.categories, categorySpend: data.categorySpend, today: data.today };
+  const editor: EditorProps = { state, set, initiatives: data.initiatives, categories: data.categories, categorySpend: data.categorySpend, today: data.today, draftId: data.id };
   const { budgetCurrent } = draftSavings(state, data.categorySpend, data.savingsIdea?.estimate_basis);
   const { selected, total } = selectedCount(state);
   const name = state.proposal.initiative.name.trim();

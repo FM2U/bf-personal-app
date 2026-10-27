@@ -41,6 +41,20 @@ export function fieldWidth(f: Field): FieldWidth {
   }
 }
 
+/**
+ * Widths set per record type where the content type alone would stretch a short value across the row. A milestone's
+ * completion test is one or two lines ("3 LOIs submitted"), so it sits beside the due date and target number.
+ */
+export const WIDTH_BY_TABLE: Record<string, Record<string, FieldWidth>> = {
+  milestones: { completion_test: "medium" },
+  pipeline_items: { source_contact_id: "medium", deal_source_type: "medium" },
+};
+
+/** The width of a field on one record type's form (WIDTH_BY_TABLE first, then the content type). */
+export function tableFieldWidth(table: string, f: Field): FieldWidth {
+  return WIDTH_BY_TABLE[table]?.[f.name] ?? fieldWidth(f);
+}
+
 /** Grid classes per width (12 columns; the form is a size container, so the spans follow the form's own width). */
 export const WIDTH_CLASS: Record<FieldWidth, string> = {
   short: "col-span-12 @md:col-span-6 @2xl:col-span-3",

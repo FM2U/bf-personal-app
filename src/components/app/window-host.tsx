@@ -168,6 +168,8 @@ export function useAppWindow(): WindowApi {
 export function focusField(anchor: string) {
   const el = document.getElementById(anchor);
   if (!el) return;
+  // A field inside a collapsed item (src/components/app/repeat-items.tsx) opens its item first.
+  el.dispatchEvent(new CustomEvent("bf:reveal", { bubbles: true }));
   el.scrollIntoView({ block: "center", behavior: "smooth" });
   (el as HTMLElement).focus({ preventScroll: true });
   el.classList.add("field-flash");

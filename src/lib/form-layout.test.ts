@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fieldWidth, formLayout, groupFields, moreStartsOpen, packSpans, spanClasses } from "./form-layout";
+import { fieldWidth, formLayout, groupFields, moreStartsOpen, packSpans, spanClasses, tableFieldWidth } from "./form-layout";
 import { getResource, RESOURCES } from "./resources";
 
 const fields = (t: string) => getResource(t)!.fields.filter((f) => !f.hideOnForm && !f.readOnly);
@@ -17,6 +17,17 @@ describe("form layout: field widths by content", () => {
     const t = Object.fromEntries(fields("targets").map((f) => [f.name, fieldWidth(f)]));
     expect(t.count_source).toBe("medium"); // long option labels
     expect(t.active_weekdays).toBe("full");
+  });
+});
+
+describe("form layout: widths per record type", () => {
+  it("a milestone's completion test sits beside the due date and target number (not stretched across the row)", () => {
+    const { main } = formLayout("milestones", fields("milestones"));
+    const g = main[0].fields;
+    expect(g.map((f) => f.name)).toEqual(["title", "goal_id", "completion_test", "due_date", "target_value"]);
+    expect(packSpans(g.map((f) => tableFieldWidth("milestones", f)))).toEqual([6, 6, 6, 3, 3]);
+    // Other forms keep long text across the row.
+    expect(tableFieldWidth("goals", fields("goals").find((f) => f.name === "notes")!)).toBe("full");
   });
 });
 

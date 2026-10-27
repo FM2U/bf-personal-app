@@ -20,7 +20,7 @@ import type { Row } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useSavedOpen } from "@/components/app/collapsible";
 import { parseSaved } from "@/lib/disclosure";
-import { fieldWidth, formLayout, moreStartsOpen, sectionName, sectionsOpen, spanClasses, type FieldWidth } from "@/lib/form-layout";
+import { formLayout, tableFieldWidth, moreStartsOpen, sectionName, sectionsOpen, spanClasses, type FieldWidth } from "@/lib/form-layout";
 
 type RefOptions = Record<string, RefOption[]>;
 
@@ -547,7 +547,7 @@ export function RecordForm({
   const [moreOpen] = useState(() => moreStartsOpen(layout.more, initial));
   // Long forms on their own page keep Save and Cancel in view; forms inside a card (only = a few fields) do not.
   const long = !only && layout.main.reduce((n, g) => n + g.fields.length, 0) > 8;
-  const widthOf = (f: Field): FieldWidth => (f.name === "source_contact_id" || f.name === "deal_source_type" ? "medium" : fieldWidth(f));
+  const widthOf = (f: Field): FieldWidth => tableFieldWidth(table, f);
   const contactOptions = (options.contacts ?? []) as PersonOption[];
   // Inside a window, and on long forms on their own page, sections open and close (most-used open first; each
   // viewer's choice is remembered per record type in this browser, applied after the first render).
