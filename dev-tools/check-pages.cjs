@@ -34,7 +34,7 @@ const PAGES = (process.env.PAGES || [
   "/productivity", "/productivity/tasks", "/productivity/recurring", "/productivity/calendar", "/productivity/pipeline-actions",
   "/accountability", "/accountability/targets", "/accountability/reviews", "/accountability/scores", "/accountability/partners", "/accountability/reports",
   "/settings", "/settings/ai", "/settings/imports", "/settings/partner-access", "/settings/initiatives", "/settings/categories", "/settings/export", "/settings/profile", "/settings/change-log",
-  "/proposals", "/records/tasks/new", "/records/decision_conditions/new", "/records/pipeline_items/new", "/records/contacts/new", "/records/organizations/new",
+  "/proposals", "/plan/start", "/settings/data", "/records/tasks/new", "/records/decision_conditions/new", "/records/pipeline_items/new", "/records/contacts/new", "/records/organizations/new",
 ].join(",")).split(",");
 
 // Record pages found in the local demo database (consulting list and item, acquisition item form, contact with deal credit).

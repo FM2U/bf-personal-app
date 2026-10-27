@@ -88,6 +88,7 @@ export const NAV: NavModule[] = [
       { href: "/settings/initiatives", label: "Initiatives and pipelines" },
       { href: "/settings/categories", label: "Categories" },
       { href: "/settings/export", label: "Export" },
+      { href: "/settings/data", label: "Sample data and reset" },
       { href: "/settings/profile", label: "Profile and security" },
       { href: "/settings/change-log", label: "Change log" },
     ],

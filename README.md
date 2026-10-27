@@ -10,13 +10,13 @@ Built from `docs/` in the project: Architecture v2 and the Decisions Log (both a
 | Module | What it does |
 |---|---|
 | Home | Number tiles (Productivity: tasks done, targets met, pipeline actions due; Accountability: commitment score, days in a row, open misses, next review), runway vs. target, today's plan and tasks, meetings, overdue items, alerts, this month's spending vs. budget |
-| Plan | Initiatives, goals, milestones, decision conditions, Inputs and Assumptions, scenarios (incl. job vs. acquisition), decisions log |
+| Plan | Initiatives (with Start an initiative, plan documents, checklists), goals, milestones, decision conditions, Inputs and Assumptions, scenarios (incl. job vs. acquisition), decisions log |
 | Finance | Accounts (Personal or Cyan Arc LLC) and transfers, expenses with categories and recurring charges, CSV import, budget, debt payoff (avalanche and snowball), funding and repayments, income received, savings and financial security |
 | Opportunities | One pipeline system with 6 seeded pipelines (Acquisitions, Jobs, Rosara Co-founder Search, Rosara Investor Outreach, Other Income Opportunities, Consulting); board and list views; stage task lists, stage time limits, required details, stalled items; deal source (proprietary or brokered) and the source chain (Deal came from: a contact or a typed source; Introduced by); consulting engagement terms, expected income, and pipeline value; stage history |
 | People | Contacts, organizations with their people (link, unlink, add), communication history; follow-up dates create tasks and calendar events; Outreach Queue (contacts due for a message, Log outreach, Draft message) |
 | Productivity | Today's plan with daily target counters, task lists, recurring task templates, calendar time blocks, pipeline next actions |
 | Accountability | Commitments, Daily Targets, missed-commitment flow, daily/weekly/monthly/quarterly reviews, completion scores, accountability partners and reports |
-| Settings | Connections (Google, Plaid, AI), AI usage, imports, partner links, initiatives and pipelines, categories, export, profile, change log |
+| Settings | Connections (Google, Plaid, AI), AI usage, imports, partner links, initiatives and pipelines, categories, export, sample data and reset, profile, change log |
 
 ### Daily Targets and Outreach Queue (database update 0008)
 
@@ -92,6 +92,25 @@ Built from `docs/` in the project: Architecture v2 and the Decisions Log (both a
 - **Database update 0013** (`supabase/UPDATE_0013_RUN_ONCE.sql`): adds `communications.gmail_message_id`, `communications.gmail_thread_id`, `partner_reports.sent_at`, `partner_reports.gmail_message_id` (no existing column fit). **Before it runs,** sending still works: the communication is saved without the Gmail ids, the report is marked sent in Delivered, and the Gmail id and date are kept in the change log (the report page reads the date from there).
 - **Local checks:** `dev-tools/mock-supabase.mjs` also runs a Google stand-in on port 54329 (`GOOGLE_API_MOCK_URL` in `dev-tools/local.env`; the app honors it only for a localhost address). Real Gmail sending cannot be checked locally.
 
+### Start an initiative, savings ideas, voice input, sample data, Reset (database update 0014)
+
+- **Start an initiative (typed or spoken):** a box on Plan, Initiatives and on Plan, Start an initiative (`/plan/start`); the "Start an initiative" button on Home opens it; in the AI chat, type "Start an initiative: ..." (also "/initiative ..."). Example: "Weekly meal plan: shop once a week, cook Sunday for lunches and dinners, separate breakfast plan, cut food spending".
+- **What the AI returns:** one strict JSON proposal, checked with Zod (`src/lib/initiative/proposal.ts`); an invalid reply is retried once with the problems listed, then a plain message is shown. It holds the initiative (name, purpose, the initiative it belongs under), 1 to 3 goals (measured number, target, deadline), milestones (completion test, due date, options if missed written now), recurring tasks (cadence and day), an optional target (counted with +1), an optional budget target change (category and new monthly amount), an optional decision condition, an optional plan document (bulleted markdown), and checklists.
+- **Review screen** (`/plan/initiatives/drafts/<id>`): every item editable, each with an Include checkbox; estimated monthly savings at the top (budget change: the category's average spending over the last 3 full months minus the new amount). "Approve selected" creates every selected record in one transaction (`public.insert_record_batch`), linked by foreign keys and `record_links` to the new initiative, logged as "AI (approved)". Nothing is saved before approval except the draft itself (`initiative_drafts`). "Save edits" keeps edits for later; "Discard this draft" saves nothing.
+- **Commitment rule kept:** milestones get a commitment; the target counts as a commitment; a recurring task is a commitment only when it is a review (`isReviewCommitment`); every other recurring task is a regular task.
+- **Category measured numbers:** goals and decision conditions can measure "Spending in a category this month / last month / average of the last 3 full months" with details such as `{"categories":["Groceries","Dining"]}` (`goals.metric_params`). "Food" maps to Groceries (`matchCategory`).
+- **Checklists** (`checklists`, `checklist_items`): a named list of items with optional quantity and notes, linked to the initiative and optionally to a recurring task. Shown on the initiative page and on every task created from that recurring task. Check, add, remove, Uncheck all. "Reset each week" unchecks every item when its recurring task is created (at most once in 6 days; `src/lib/checklists.ts`, `resetChecklistsFor` in the morning job).
+- **Plan documents** (`plan_documents`): shown on the initiative page with the AI text renderer (bullets and bold, no raw markdown). Initiatives can be part of another one (`initiatives.parent_initiative_id`).
+- **Meal plan example (verified locally with the AI stand-in):** a 7-day menu (lunches and dinners from one Sunday cook, separate breakfast plan, recipes), a 24-item grocery list that resets each week with the Saturday task "Shop for the week's groceries", the Sunday task "Cook meals for the week", a Groceries budget target, the goal "Food spending under $X per month by <date>", a milestone with options if missed, and a weekly target.
+- **Weekly savings ideas:** on the weekly review day the morning job analyzes the last 90 days (by category, the 15 largest merchants, active recurring charges, unused-subscription flags) and asks for up to 3 ideas (`src/lib/savings/ideas.ts`, `src/lib/engine/savings-ideas.ts`). Each idea: title, targeted expense(s), estimated monthly savings computed from the real numbers by the AI's method (cancel, cut by a percent, lower to an amount; another method is held to the current cost) with a line saying how, effort, and 2 to 4 steps. Also "Propose savings ideas now" on Finance, Expenses, and the job `/api/cron/savings-ideas`.
+- **Where ideas show:** Finance, Expenses, "Savings ideas" (with Approve, Edit, Decline, Later), and the Home "AI proposals" card (count of changes, savings ideas, and initiative drafts waiting). Approve opens the same review screen, prefilled; choose "An initiative" or "A reduction action on the expense". Decline takes an optional one-line reason; ideas for the same expense are not proposed again for 90 days. Later keeps the idea out of the Home count; no new idea is proposed for that expense until it is decided. At the AI monthly cap the plain message shows and nothing is proposed.
+- **Voice input:** a microphone button on the AI chat input and the Start an initiative box (`src/components/app/mic-button.tsx`), using the browser's speech recognition (`SpeechRecognition` or `webkitSpeechRecognition` in Safari). It shows "Listening", puts the words in the box for review, and never sends or submits. Hidden when the browser has no speech recognition (Firefox). No paid service.
+- **Settings, Sample data and reset** (`/settings/data`):
+  - **Load sample data:** 5 accounts (checking, savings, 2 cards, 1 Cyan Arc LLC account), 12 months of transactions (rent, 3 storage units about $1,000 a month, food about $1,500 a month, phone, utilities, 5 software subscriptions with 2 left unused, consulting and other income), debts on both cards, 3 acquisition deals (proprietary and brokered), 1 consulting engagement, contacts (deal sources, friends, a broker, a client), and an accountability partner (`src/lib/sample-data.ts`). Every name starts with "Sample", every email ends in example.com. Every row is recorded in `sample_records`. When real records exist, a warning and a required checkbox come first.
+  - **Remove sample data:** `public.remove_sample_data()` deletes only the recorded sample rows and what the app made from them (stage tasks and commitments of sample pipeline items, links, notes, recurring charges found only in sample transactions, ideas and drafts made while sample data was loaded). One change log entry each for load and removal.
+  - **Reset all data:** step 1 downloads the full export in this browser session (the export sets a session cookie; the server checks it, valid 2 hours); step 2 is enabled after that, and the button only when RESET is typed. `public.reset_all_data('RESET')` (security definer, owner check) deletes every record the owner created or imported in one transaction and keeps the setup: default initiatives, pipelines, stages, stage task lists, targets ("Counting starts on" set to today), recurring tasks, categories and rules, saved CSV layouts, Inputs and Assumptions, owner profile, Google and Plaid connections, AI usage, and the change log (one "All data reset" entry with the counts). The "Monthly budget", the Emergency fund and Retirement savings targets, and the "Runway under 6 months" condition are deleted and created again as defaults. Document files are removed from storage afterward. The page shows the counts deleted. Lists: `src/lib/reset.ts` (a test checks they match the SQL function).
+- **Before the update is applied,** these features show "Database update needed" naming `supabase/UPDATE_0013_0014_RUN_ONCE.sql`, the new form fields stay hidden, the weekly savings step skips, and every other screen and both scheduled jobs keep working. Voice input in the chat works without the update.
+
 ### Shared form and card rules (UI)
 
 - **Unsaved changes:** every form uses `GuardedForm` (`src/components/app/unsaved-changes.tsx`). When a field holds a change that is not saved, an in-app link or the browser Back button shows a dialog: Save and leave, Leave without saving, Stay on this page. Closing or reloading the tab shows the browser's prompt. A value changed back to the original is not a change. Filter forms (`method="get"`) and forms marked `data-unsaved="off"` are not checked. Screens that are not one form report work in progress with `useUnsavedWork` (the CSV import once a file is chosen): the dialog then offers Leave and discard, and Stay on this page.
@@ -137,12 +156,13 @@ docs/                 SETUP-CHECKLIST.md and screenshots
 
 Exact values to paste are in `docs/SETUP-CHECKLIST.md`. Summary:
 
-1. **Supabase:** create a project. In SQL Editor, paste and run `supabase/ALL_MIGRATIONS_RUN_ONCE.sql` (0001 to 0013),
+1. **Supabase:** create a project. In SQL Editor, paste and run `supabase/ALL_MIGRATIONS_RUN_ONCE.sql` (0001 to 0014),
    or run each file in `supabase/migrations/` in number order. Or with the Supabase CLI: `supabase link` then `supabase db push`.
-   **Live database (has 0001 to 0012):** paste and run `supabase/UPDATE_0013_RUN_ONCE.sql` once (safe to run twice).
-   A database with 0001 to 0010 (or 0011) runs `supabase/UPDATE_0011_0012_RUN_ONCE.sql` first, then `UPDATE_0013_RUN_ONCE.sql`.
+   **Live database (has 0001 to 0012, or 0001 to 0013 if `UPDATE_0013_RUN_ONCE.sql` was already run):** paste and run `supabase/UPDATE_0013_0014_RUN_ONCE.sql` once (safe to run twice).
+   A database with 0001 to 0013 can also run `supabase/UPDATE_0014_RUN_ONCE.sql`.
+   A database with 0001 to 0010 (or 0011) runs `supabase/UPDATE_0011_0012_RUN_ONCE.sql` first, then `UPDATE_0013_0014_RUN_ONCE.sql`.
    **Older database (0001 to 0007, 0008, or 0009):** paste and run `supabase/UPDATE_RUN_ONCE.sql` once.
-   It holds 0008 to 0013 and is safe to run twice. (`UPDATE_0008_RUN_ONCE.sql`, `UPDATE_0011_RUN_ONCE.sql`, and `UPDATE_0012_RUN_ONCE.sql` are kept for reference.)
+   It holds 0008 to 0014 and is safe to run twice. (`UPDATE_0008_RUN_ONCE.sql`, `UPDATE_0011_RUN_ONCE.sql`, `UPDATE_0012_RUN_ONCE.sql`, and `UPDATE_0013_RUN_ONCE.sql` are kept for reference.)
    After changing a migration, regenerate the combined files with `python3 supabase/build_combined.py`.
    In Authentication, turn on "Allow new users to sign up" only until you create your account, then turn it off.
    In Authentication, Multi-Factor, make sure TOTP is enabled.
@@ -157,13 +177,13 @@ Vercel Hobby allows jobs that run once a day, so `vercel.json` has two:
 
 | Job | Time (UTC) | Time (New York) | Runs |
 |---|---|---|---|
-| `/api/cron/morning` | 10:00 | 6:00 or 5:00 am | Plaid sync, category rules, recurring charge detection, Google and Plaid connection checks, recurring tasks, pipeline next-action tasks, pipeline checks (missing next action, stage time limits, stalled items), follow-ups, commitment check, missed regular tasks moved to today, missed milestones, decision conditions, weekly/monthly/quarterly review drafts (on their days), partner report drafts, calendar time blocks and review events, morning plan |
+| `/api/cron/morning` | 10:00 | 6:00 or 5:00 am | Plaid sync, category rules, recurring charge detection, Google and Plaid connection checks, recurring tasks, pipeline next-action tasks, pipeline checks (missing next action, stage time limits, stalled items), follow-ups, commitment check, missed regular tasks moved to today, missed milestones, decision conditions, weekly/monthly/quarterly review drafts (on their days), weekly AI savings ideas (on the weekly review day), checklist weekly reset (when a recurring task is created), partner report drafts, calendar time blocks and review events, morning plan |
 | `/api/cron/evening` | 00:30 | 8:30 or 7:30 pm | Daily close draft (the AI's evening check), commitment check for the day, decision conditions |
 
 Vercel sends `Authorization: Bearer <CRON_SECRET>`. Any job can also be run alone, for example
 `curl -H "Authorization: Bearer $CRON_SECRET" https://<app>/api/cron/decision-conditions`.
 Jobs: morning, evening, plaid-sync, decision-conditions, connection-checks, recurring-tasks, morning-plan,
-daily-close, weekly-review, monthly-review, quarterly-review, partner-reports, commitments, task-rollover, milestones, pipeline-checks.
+daily-close, weekly-review, monthly-review, quarterly-review, partner-reports, commitments, task-rollover, milestones, pipeline-checks, savings-ideas.
 Settings, Connections also has "Run the morning job now" and "Run the evening job now".
 Decision conditions are also checked right after each relevant change in the app.
 
@@ -173,14 +193,21 @@ Decision conditions are also checked right after each relevant change in the app
 npm install
 npm test              # unit tests for the calculations
 npm run lint
-npm run typecheck
-npm run build
-bash supabase/tests/run_local.sh      # applies all migrations to a local Postgres and runs a smoke test
-bash supabase/tests/upgrade_test.sh   # UPDATE_RUN_ONCE on 0001-0007 (twice), 0001-0008, 0001-0009 (twice); UPDATE_0011_0012_RUN_ONCE on 0001-0010 and 0001-0011 (twice each); UPDATE_0013_RUN_ONCE on 0001-0012 (twice); existing owner
-bash dev-tools/setup-local-db.sh      # local database with demo data (UP_TO=0012 for the live database before update 0013)
+npm run typecheck     # tsc with a 4 GB memory limit (the type check needs a little over 2 GB)
+npm run build         # locally: NODE_OPTIONS=--max-old-space-size=6144 npm run build (Vercel has enough memory)
+bash supabase/tests/run_local.sh      # applies all migrations to a local Postgres and runs a smoke test (includes reset and sample removal)
+bash supabase/tests/upgrade_test.sh   # UPDATE_RUN_ONCE on 0001-0007 (twice), 0001-0008, 0001-0009 (twice); UPDATE_0011_0012_RUN_ONCE on 0001-0010 and 0001-0011 (twice each); UPDATE_0013_RUN_ONCE on 0001-0012 (twice); UPDATE_0013_0014_RUN_ONCE on 0001-0012 and 0001-0013 (twice each); UPDATE_0014_RUN_ONCE on 0001-0013 (twice); existing owner
+bash dev-tools/setup-local-db.sh      # local database with demo data (UP_TO=0012 for the live database before update 0013 and 0014)
 bash dev-tools/start-local.sh         # mock Supabase API + the built app on http://localhost:3000
 NODE_PATH=$(npm root -g) node dev-tools/check-pages.cjs   # renders every screen, saves screenshots
 NODE_PATH=$(npm root -g) node dev-tools/check-flows.cjs   # clicks through the main workflows (FLOWS="Send" runs only matching steps)
 ```
+
+Run the morning job once after `setup-local-db.sh` and before `check-flows.cjs`:
+`curl -H "Authorization: Bearer test-cron-secret" http://localhost:3000/api/cron/morning`.
+The AI is a local stand-in (`dev-tools/mock-supabase.mjs`, port 54330, `ANTHROPIC_API_MOCK_URL` in `dev-tools/local.env`; the app honors it only
+for a localhost address). It answers "Start an initiative" with the meal plan in `dev-tools/fixtures/meal-plan.cjs`, savings ideas from the
+expense keys it is sent, and chat with a short fixed reply; other AI requests get an error, so drafts use their templates. Real AI output
+cannot be checked locally.
 
 The local scripts need a Postgres server and are for testing only. Production uses Supabase.

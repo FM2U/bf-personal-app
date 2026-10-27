@@ -108,6 +108,14 @@ export async function nextActionFor(sb: SupabaseClient, table: string, row: Row,
     case "initiatives": {
       const t = await openTask("initiative_id", row.id);
       if (t) return { text: `Next task: ${t.title}.`, due: t.due_date, href: recordHref("tasks", t.id), linkText: "Open task", tone: t.due_date && t.due_date < today ? "overdue" : "normal" };
+      // No open task yet (example: a new initiative whose recurring tasks start on their day): the next milestone.
+      const { data: goals } = await sb.from("goals").select("id").eq("initiative_id", row.id).eq("status", "active");
+      const goalIds = ((goals ?? []) as Row[]).map((g) => g.id);
+      if (goalIds.length) {
+        const { data: ms } = await sb.from("milestones").select("id,title,due_date").in("goal_id", goalIds).in("status", ["planned", "active"]).order("due_date").limit(1);
+        const m = (ms?.[0] as Row | undefined) ?? null;
+        if (m) return { text: `Next milestone: ${m.title}.`, due: m.due_date, href: recordHref("milestones", m.id), linkText: "Open milestone", tone: m.due_date < today ? "overdue" : "normal" };
+      }
       return { text: "No open tasks. Add a goal or a task.", href: newRecordHref("goals", { initiative_id: row.id }), linkText: "Add goal", tone: "normal" };
     }
   }

@@ -4,7 +4,7 @@ import { addDaysISO, parseDate } from "@/lib/calc/dates";
 import { checkGoogle, listEventsForDay, type MeetingItem } from "@/lib/google";
 import { checkPlaidItem, syncPlaidItem } from "@/lib/plaid";
 import { env, isAIConfigured, isPlaidConfigured } from "@/lib/env";
-import { tryDraft } from "@/lib/ai/claude";
+import { anthropicBaseUrl, tryDraft } from "@/lib/ai/claude";
 import { computeMetrics } from "@/lib/metrics";
 import { money, months as fmtMonths } from "@/lib/format";
 import { describeTarget } from "@/lib/calc/targets";
@@ -18,6 +18,7 @@ import { applyCategoryRules, detectAndSaveRecurring } from "./finance-jobs";
 import { ensureReview } from "./reviews";
 import { schedulePartnerReports } from "./partners";
 import { checkPipelineAccountability } from "./pipeline-jobs";
+import { proposeSavingsIdeas } from "./savings-ideas";
 import { sortTasksProprietaryFirst } from "@/lib/calc/pipeline";
 import { loadDealRanks, loadDealTypes } from "@/lib/pipeline";
 
@@ -76,7 +77,7 @@ async function ensureKeyExpiryInput(ctx: Ctx): Promise<string | null> {
 async function checkAnthropicKey(): Promise<{ ok: boolean; skipped?: boolean; error?: string }> {
   if (!isAIConfigured()) return { ok: false, skipped: true };
   try {
-    const res = await fetch("https://api.anthropic.com/v1/models?limit=1", {
+    const res = await fetch(`${anthropicBaseUrl()}/v1/models?limit=1`, {
       headers: { "x-api-key": env.anthropicKey, "anthropic-version": "2023-06-01" },
       cache: "no-store",
     });
@@ -297,7 +298,11 @@ export async function runMorning(sb: SupabaseClient, ownerId: string) {
   await step("task_rollover", () => rolloverRegularTasks(ctx), log);
   await step("milestones", () => checkMilestones(ctx), log);
   await step("decision_conditions", () => evaluateConditions(ctx), log);
-  if (d.getDay() === Number(ctx.profile.weekly_review_weekday ?? 0)) await step("weekly_review", () => ensureReview(ctx, "weekly"), log);
+  if (d.getDay() === Number(ctx.profile.weekly_review_weekday ?? 0)) {
+    await step("weekly_review", () => ensureReview(ctx, "weekly"), log);
+    // Up to 3 AI savings ideas from the last 90 days (skipped before update 0014 and when the AI cap is reached)
+    await step("savings_ideas", () => proposeSavingsIdeas(ctx, "weekly"), log);
+  }
   if (d.getDate() === 1) await step("monthly_review", () => ensureReview(ctx, "monthly"), log);
   if (d.getDate() === 1 && [0, 3, 6, 9].includes(d.getMonth())) await step("quarterly_review", () => ensureReview(ctx, "quarterly"), log);
   await step("partner_reports", () => schedulePartnerReports(ctx), log);

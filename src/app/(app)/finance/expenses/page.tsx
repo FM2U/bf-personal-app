@@ -16,6 +16,7 @@ import { isAIConfigured } from "@/lib/env";
 import { date as fmtDate, money, titleCase } from "@/lib/format";
 import type { Row } from "@/lib/types";
 import { GuardedForm } from "@/components/app/unsaved-changes";
+import { SavingsIdeasSection } from "@/components/app/savings-ideas";
 
 export const metadata = { title: "Expenses" };
 
@@ -57,7 +58,7 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
     <div>
       <PageHeader
         title="Expenses"
-        description="Every transaction, with category, merchant, and recurring status. Open an expense to get 3 reduction suggestions."
+        description="Every transaction, with category, merchant, and recurring status. Savings ideas from the AI are at the top; open an expense to get 3 reduction suggestions."
         actions={
           <>
             <Button asChild size="sm" variant="outline">
@@ -76,6 +77,7 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
           </Notice>
         </div>
       ) : null}
+      <SavingsIdeasSection sb={supabase} ownerId={ownerId} notice={sp.notice} />
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <Card className="xl:col-span-2">
           <CardHeader className="gap-3">
@@ -175,7 +177,6 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
               <Button asChild size="sm" variant="outline">
                 <Link href="/settings/categories">Categories and rules</Link>
               </Button>
-              {sp.notice ? <p className="text-xs text-teal-800">{sp.notice}</p> : null}
             </CardContent>
             <CardNote>Rules run on every import. The AI can suggest categories for the rest; you approve each one.</CardNote>
           </Card>

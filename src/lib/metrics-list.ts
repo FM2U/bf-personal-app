@@ -36,6 +36,24 @@ export const METRICS: { key: string; label: string; unit: "usd" | "months" | "pe
     params: 'Target name and weeks, for example {"target":"Network outreach","weeks":4}',
   },
   { key: "target_missed_in_a_row", label: "Daily target: periods missed in a row", unit: "count", params: 'Target name, for example {"target":"Network outreach"}' },
+  {
+    key: "category_spending_month",
+    label: "Spending in a category this month so far",
+    unit: "usd",
+    params: 'Category name or names, for example {"category":"Groceries"} or {"categories":["Groceries","Dining"]}',
+  },
+  {
+    key: "category_spending_last_month",
+    label: "Spending in a category last month",
+    unit: "usd",
+    params: 'Category name or names, for example {"category":"Groceries"} or {"categories":["Groceries","Dining"]}',
+  },
+  {
+    key: "category_spending_avg_3m",
+    label: "Average monthly spending in a category (last 3 full months)",
+    unit: "usd",
+    params: 'Category name or names, for example {"category":"Groceries"} or {"categories":["Groceries","Dining"]}',
+  },
   { key: "target_met_in_a_row", label: "Daily target: periods met in a row", unit: "count", params: 'Target name, for example {"target":"Network outreach"}' },
 ];
 

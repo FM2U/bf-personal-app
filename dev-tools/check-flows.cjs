@@ -27,10 +27,15 @@ async function step(name, fn) {
     results.push(["ok  ", name]);
   } catch (e) {
     results.push(["FAIL", `${name}: ${e.message.split("\n")[0]}`]);
+    if (process.env.FAIL_SHOTS && global.__page) await global.__page.screenshot({ path: `/tmp/fail-${results.length}.png`, fullPage: true }).catch(() => {});
   }
 }
 const expectText = async (page, text) => {
-  await page.waitForFunction((t) => document.body.innerText.includes(t), text, { timeout: 15000 });
+  try {
+    await page.waitForFunction((t) => document.body.innerText.includes(t), text, { timeout: 15000 });
+  } catch {
+    throw new Error(`text not shown: "${text}" on ${page.url()}`);
+  }
 };
 
 (async () => {
@@ -38,6 +43,7 @@ const expectText = async (page, text) => {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
   await ctx.addCookies([cookie]);
   const page = await ctx.newPage();
+  global.__page = page;
   page.on("dialog", (d) => d.accept());
 
   await step("Resolve a missed commitment with a reason and new date", async () => {
@@ -299,13 +305,13 @@ const expectText = async (page, text) => {
     await page.screenshot({ path: path.join(OUT, "flow-settings.png"), fullPage: true });
   });
 
-  await step("Chat panel opens and explains the AI is not set up", async () => {
+  await step("Chat panel opens and answers (local AI stand-in)", async () => {
     await page.goto(`${BASE}/`);
     await page.getByRole("button", { name: "Open AI chat" }).click();
-    await expectText(page, "The AI is not set up yet");
     await page.fill("textarea[aria-label='Message']", "What is my runway?");
-    await page.getByRole("button", { name: "Send" }).click();
-    await expectText(page, "ANTHROPIC_API_KEY");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    await expectText(page, "this is the local test AI");
+    await page.getByRole("button", { name: "Close AI chat" }).click();
   });
 
   await step("Change log shows changes", async () => {
@@ -815,6 +821,354 @@ const expectText = async (page, text) => {
     await page.goto(`${BASE}/settings/change-log`);
     await expectText(page, "Email sent from the app");
   });
+
+  // ---------- Start an initiative, savings ideas, voice input, sample data, Reset (database update 0014) ----------
+  // The AI stand-in on :54330 (dev-tools/mock-supabase.mjs) answers with the meal plan proposal and savings ideas.
+  const AIMOCK = process.env.ANTHROPIC_API_MOCK_URL || "http://localhost:54330";
+  const aipost = async (pathName, body = {}) => (await fetch(`${AIMOCK}${pathName}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
+  const aicalls = async () => (await fetch(`${AIMOCK}/__calls`)).json();
+  const cron = async (job) => (await fetch(`${BASE}/api/cron/${job}`, { headers: { Authorization: "Bearer test-cron-secret" } })).json();
+  // A stand-in for the browser's speech recognition: "hears" one sentence, then stops.
+  const FAKE_SPEECH = () => {
+    class FakeRecognition {
+      start() {
+        window.__micStarts = (window.__micStarts || 0) + 1;
+        setTimeout(() => this.onresult && this.onresult({ resultIndex: 0, results: [Object.assign([{ transcript: "weekly meal plan, shop on Saturday and cook on Sunday" }], { isFinal: true })] }), 400);
+        setTimeout(() => this.onend && this.onend(), 1500);
+      }
+      stop() { this.onend && this.onend(); }
+      abort() {}
+    }
+    window.webkitSpeechRecognition = FakeRecognition;
+    window.SpeechRecognition = FakeRecognition;
+  };
+  const d1280 = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  await d1280.addCookies([cookie]);
+  const p1280 = await d1280.newPage();
+  const VIEWS = [["desktop", page], ["desktop1280", p1280], ["phone", ph]];
+  const shoot3 = async (url, name, prep) => {
+    for (const [vp, pg_] of VIEWS) {
+      await pg_.goto(url);
+      await pg_.waitForLoadState("networkidle");
+      if (prep) await prep(pg_);
+      await pg_.screenshot({ path: path.join(OUT, `${vp}-${name}.png`), fullPage: true });
+    }
+  };
+  let mealInitiative = null;
+  const sampleLike = () => one(`select (select count(*)::int from accounts where name like 'Sample %') sa,
+      (select count(*)::int from transactions where merchant_name like 'Sample %') st,
+      (select count(*)::int from recurring_series where merchant_name like 'Sample %') ss,
+      (select count(*)::int from pipeline_items where name like 'Sample %') si,
+      (select count(*)::int from tasks where title like 'Sample %') tasks`);
+  let sampleBefore = null;
+
+  await step("Start an initiative: box with a microphone on Plan, a button on Home; speech fills the box and never submits", async () => {
+    await page.goto(`${BASE}/`);
+    await page.getByRole("link", { name: "Start an initiative" }).first().click();
+    await page.waitForURL(/\/plan\/start/);
+    await page.goto(`${BASE}/plan`);
+    await page.locator("#initiative-description").waitFor();
+    const vctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    await vctx.addCookies([cookie]);
+    await vctx.addInitScript(FAKE_SPEECH);
+    const vp = await vctx.newPage();
+    const draftsBefore = (await one("select count(*)::int n from initiative_drafts")).n;
+    await vp.goto(`${BASE}/plan/start`);
+    await vp.locator("#initiative-description").fill("Cut food spending.");
+    await vp.getByTestId("mic-button").click();
+    await vp.getByTestId("mic-listening").waitFor();
+    await vp.screenshot({ path: path.join(OUT, "desktop-start-initiative-listening.png"), fullPage: true });
+    await vp.waitForFunction(() => document.querySelector("#initiative-description").value.includes("cook on Sunday"));
+    const v = await vp.inputValue("#initiative-description");
+    if (v !== "Cut food spending. weekly meal plan, shop on Saturday and cook on Sunday") throw new Error(`speech text: ${v}`);
+    await vp.waitForFunction(() => !document.querySelector("[data-testid=mic-listening]"));
+    if (!/\/plan\/start$/.test(vp.url())) throw new Error("speech submitted the form");
+    if ((await one("select count(*)::int n from initiative_drafts")).n !== draftsBefore) throw new Error("a draft was created by speech");
+    // Chat input has the microphone too, and spoken words wait for Send.
+    await vp.getByRole("button", { name: "Open AI chat" }).first().click();
+    await vp.locator("textarea[aria-label='Message']").waitFor();
+    await vp.locator("[aria-label^='Speak your message']").click();
+    await vp.waitForFunction(() => document.querySelector("textarea[aria-label='Message']").value.includes("cook on Sunday"));
+    if ((await aicalls()).filter((c) => c === "chat").length > 1) throw new Error("spoken chat text was sent");
+    await vctx.close();
+    // Without speech recognition (Firefox) the button is hidden.
+    const nctx = await browser.newContext();
+    await nctx.addCookies([cookie]);
+    await nctx.addInitScript(() => { delete window.webkitSpeechRecognition; delete window.SpeechRecognition; });
+    const np = await nctx.newPage();
+    await np.goto(`${BASE}/plan/start`);
+    await np.locator("#initiative-description").waitFor();
+    if (await np.getByTestId("mic-button").count()) throw new Error("mic shown without speech recognition");
+    await nctx.close();
+    await shoot3(`${BASE}/plan/start`, "start-initiative-box", async (p_) => p_.locator("#initiative-description").fill("Weekly meal plan: shop once a week, cook Sunday for lunches and dinners, separate breakfast plan, cut food spending"));
+  });
+
+  await step("Start an initiative: the meal plan draft, review screen, and Approve selected create linked records", async () => {
+    await aipost("/__reset");
+    const initsBefore = (await one("select count(*)::int n from initiatives")).n;
+    await page.goto(`${BASE}/plan`);
+    await page.getByRole("button", { name: "Use the meal plan example" }).click();
+    await page.getByRole("button", { name: "Draft the plan" }).click();
+    await page.waitForURL(/\/plan\/initiatives\/drafts\//, { timeout: 30000 });
+    await expectText(page, "Estimated monthly savings");
+    await expectText(page, "Grocery list (24 items)");
+    await expectText(page, "Shop for the week's groceries");
+    await expectText(page, "Breakfast plan (separate)");
+    if ((await one("select count(*)::int n from initiatives")).n !== initsBefore) throw new Error("records saved before approval");
+    const draftUrl = page.url();
+    for (const [vp, pg_] of VIEWS) {
+      await pg_.goto(draftUrl);
+      await pg_.getByTestId("approve-selected").waitFor();
+      await pg_.screenshot({ path: path.join(OUT, `${vp}-initiative-review.png`), fullPage: true });
+    }
+    await page.goto(draftUrl);
+    // Edit one item: the Sunday cook task becomes "Cook lunches and dinners for the week".
+    await page.locator("#t-title-1").fill("Cook lunches and dinners for the week");
+    await page.getByTestId("approve-selected").click();
+    await page.waitForURL(/\/records\/initiatives\//, { timeout: 30000 });
+    await expectText(page, "Approved and saved: Weekly meal plan");
+    const init = await one("select i.*, p.name parent from initiatives i left join initiatives p on p.id = i.parent_initiative_id where i.id = (select result_initiative_id from initiative_drafts where status = 'approved' order by decided_at desc limit 1)");
+    mealInitiative = init.id;
+    if (init.parent !== "Personal Finance") throw new Error("not under Personal Finance");
+    const c = await one(`select
+      (select count(*)::int from goals where initiative_id = $1) goals,
+      (select count(*)::int from milestones m join goals g on g.id = m.goal_id where g.initiative_id = $1) milestones,
+      (select count(*)::int from milestone_options o join milestones m on m.id = o.milestone_id join goals g on g.id = m.goal_id where g.initiative_id = $1) options,
+      (select count(*)::int from commitments c join milestones m on m.id = c.record_id join goals g on g.id = m.goal_id where g.initiative_id = $1) commitments,
+      (select count(*)::int from task_templates where initiative_id = $1 and not is_commitment) templates,
+      (select count(*)::int from task_templates where initiative_id = $1 and title = 'Cook lunches and dinners for the week') edited,
+      (select count(*)::int from targets where initiative_id = $1 and count_source = 'manual') targets,
+      (select count(*)::int from plan_documents where initiative_id = $1) plans,
+      (select count(*)::int from checklists where initiative_id = $1 and reset_weekly and task_template_id is not null) checklists,
+      (select count(*)::int from checklist_items i join checklists c on c.id = i.checklist_id where c.initiative_id = $1) items,
+      (select count(*)::int from record_links where from_type = 'initiatives' and from_id = $1) links,
+      (select count(*)::int from change_log where record_id = $1 and actor = 'ai') ai_logged`, [init.id]);
+    const want = { goals: 1, milestones: 1, options: 3, commitments: 1, templates: 2, edited: 1, targets: 1, plans: 1, checklists: 1, items: 24, ai_logged: 1 };
+    for (const [k, v] of Object.entries(want)) if (c[k] !== v) throw new Error(`${k}: ${c[k]} (expected ${v})`);
+    if (c.links < 8) throw new Error(`links: ${c.links}`);
+    const line = await one("select bl.target_monthly from budget_lines bl join categories c on c.id = bl.category_id where c.name = 'Groceries'");
+    if (Number(line.target_monthly) !== 700) throw new Error("groceries budget target");
+    if ((await one("select status from initiative_drafts order by created_at desc limit 1")).status !== "approved") throw new Error("draft not marked approved");
+    await expectText(page, "Weekly meal plan: menu and recipes");
+    await expectText(page, "0 of 24 checked");
+  });
+
+  await step("Start an initiative: an invalid AI reply is retried once; a second invalid reply shows a plain message", async () => {
+    await aipost("/__reset");
+    await aipost("/__mode", { initiative: "invalid_once" });
+    await page.goto(`${BASE}/plan/start`);
+    await page.locator("#initiative-description").fill("Morning walk plan: walk 30 minutes before work.");
+    await page.getByRole("button", { name: "Draft the plan" }).click();
+    await page.waitForURL(/\/plan\/initiatives\/drafts\//, { timeout: 30000 });
+    if ((await aicalls()).filter((x) => x === "initiative_proposal").length !== 2) throw new Error("expected one retry");
+    await page.getByRole("button", { name: "Discard this draft" }).click();
+    await page.waitForURL(/\/plan\/start/);
+    await aipost("/__mode", { initiative: "invalid" });
+    await page.locator("#initiative-description").fill("Morning walk plan: walk 30 minutes before work.");
+    await page.getByRole("button", { name: "Draft the plan" }).click();
+    await expectText(page, "could not be used, even after one retry");
+    await aipost("/__reset");
+  });
+
+  await step("Grocery checklist: check items, shown on the Saturday shop task, and reset when the weekly task is created", async () => {
+    await page.goto(`${BASE}/records/initiatives/${mealInitiative}`);
+    await page.getByTestId("checklist-item-toggle").nth(0).click();
+    await expectText(page, "1 of 24 checked");
+    await page.getByTestId("checklist-item-toggle").nth(1).click();
+    await expectText(page, "2 of 24 checked");
+    // Make the shop task due today (local test only) and pretend the list was last reset a week ago.
+    const tpl = await one("select id from task_templates where initiative_id = $1 and title = 'Shop for the week''s groceries'", [mealInitiative]);
+    await pg.query("update task_templates set weekday = extract(dow from (now() at time zone 'America/New_York'))::int where id = $1", [tpl.id]);
+    await pg.query("update checklists set last_reset_on = (now() at time zone 'America/New_York')::date - 7 where task_template_id = $1", [tpl.id]);
+    await cron("recurring-tasks");
+    const task = await one("select id from tasks where template_id = $1", [tpl.id]);
+    if (!task) throw new Error("shop task not created");
+    if ((await one("select count(*)::int n from checklist_items i join checklists c on c.id = i.checklist_id where c.task_template_id = $1 and i.checked", [tpl.id])).n !== 0) throw new Error("items not unchecked");
+    await page.goto(`${BASE}/records/tasks/${task.id}`);
+    await expectText(page, "Grocery list");
+    await expectText(page, "0 of 24 checked");
+    await page.getByTestId("checklist-item-toggle").first().click();
+    await expectText(page, "1 of 24 checked");
+    // Created again the same day: no second reset.
+    await cron("recurring-tasks");
+    if ((await one("select count(*)::int n from checklist_items i join checklists c on c.id = i.checklist_id where c.task_template_id = $1 and i.checked", [tpl.id])).n !== 1) throw new Error("reset twice");
+    await shoot3(`${BASE}/records/initiatives/${mealInitiative}`, "initiative-plan-checklist");
+  });
+
+  await step("Chat command: Start an initiative drafts the plan and links to the review screen", async () => {
+    await page.goto(`${BASE}/`);
+    await page.getByRole("button", { name: "Open AI chat" }).first().click();
+    await page.fill("textarea[aria-label='Message']", "Start an initiative: weekly meal plan, shop once a week and cook on Sunday");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    await page.getByTestId("chat-draft-link").click();
+    await page.waitForURL(/\/plan\/initiatives\/drafts\//);
+    await expectText(page, "Approve selected");
+    if ((await one("select source from initiative_drafts order by created_at desc limit 1")).source !== "chat") throw new Error("draft source");
+    await page.getByRole("button", { name: "Close AI chat" }).click();
+    await page.getByRole("button", { name: "Discard this draft" }).click();
+    await page.waitForURL(/\/plan\/start/);
+  });
+
+  await step("Load sample data: warns about real records first, then loads marked sample rows", async () => {
+    const before = await one("select (select count(*)::int from transactions) t, (select count(*)::int from accounts) a");
+    sampleBefore = await sampleLike();
+    await page.goto(`${BASE}/settings/data`);
+    await expectText(page, "You already have");
+    await page.getByTestId("sample-load").click();
+    // The checkbox is required: nothing is loaded without it.
+    if ((await one("select count(*)::int n from sample_records")).n !== 0) throw new Error("loaded without confirming");
+    await page.getByTestId("sample-confirm-real").check();
+    await page.getByTestId("sample-load").click();
+    await expectText(page, "Sample data loaded:");
+    const s = await one(`select (select count(*)::int from sample_records) marked,
+      (select count(*)::int from sample_records where table_name = 'recurring_series') series,
+      (select count(*)::int from accounts where name like 'Sample %') accounts,
+      (select count(*)::int from transactions) t,
+      (select count(*)::int from recurring_series s where review_flag and review_status = 'unreviewed' and exists (select 1 from sample_records r where r.record_id = s.id)) unused`);
+    if (s.marked < 450 || s.accounts !== 5 || s.t <= before.t) throw new Error(JSON.stringify(s));
+    if (s.unused !== 2) throw new Error(`unused subscriptions flagged: ${s.unused}`);
+    if (s.series < 10) throw new Error(`recurring charges found: ${s.series}`);
+    const unmarked = await one("select count(*)::int n from accounts a where a.name like 'Sample %' and not exists (select 1 from sample_records r where r.record_id = a.id)");
+    if (unmarked.n) throw new Error("an unmarked sample account");
+    await expectText(page, "Sample data is loaded");
+  });
+
+  await step("Savings ideas: propose now, shown on Home with a count, Edit, Later, Decline (not proposed again), Approve as a reduction action", async () => {
+    await aipost("/__reset");
+    await page.goto(`${BASE}/finance/expenses`);
+    await page.getByRole("button", { name: "Propose savings ideas now" }).click();
+    await expectText(page, "3 savings ideas are ready");
+    if ((await page.getByTestId("savings-idea").count()) !== 3) throw new Error("expected 3 idea cards");
+    await expectText(page, "Cancel it: the current cost is");
+    for (const [vp, pg_] of VIEWS) {
+      await pg_.goto(`${BASE}/finance/expenses#savings-ideas`);
+      await pg_.getByTestId("savings-idea").first().waitFor();
+      await pg_.locator("#savings-ideas").screenshot({ path: path.join(OUT, `${vp}-savings-ideas.png`) });
+    }
+    await page.goto(`${BASE}/`);
+    await expectText(page, "Savings ideas");
+    if ((await page.getByTestId("home-savings-ideas").locator("li").count()) !== 3) throw new Error("Home lists the ideas");
+    // Edit the storage idea's savings
+    await page.goto(`${BASE}/finance/expenses`);
+    const ideaCard = (re) => page.getByTestId("savings-idea").filter({ has: page.getByRole("heading", { name: re }) }).first();
+    const storage = ideaCard(/storage/i);
+    await storage.getByText("Edit", { exact: true }).click();
+    await storage.locator("input[name='estimated_monthly_savings']").fill("250");
+    await storage.getByRole("button", { name: "Save idea" }).click();
+    await expectText(page, "Savings idea saved.");
+    if (Number((await one("select estimated_monthly_savings from savings_ideas where title ilike '%storage%'")).estimated_monthly_savings) !== 250) throw new Error("edit not saved");
+    // Later
+    const grocery = ideaCard(/Shop once a week/);
+    await grocery.getByRole("button", { name: "Later" }).click();
+    await expectText(page, "Saved for later.");
+    await expectText(page, "saved for later");
+    // Decline with a reason
+    const cancel = ideaCard(/^Cancel /);
+    await cancel.getByText("Decline", { exact: true }).click();
+    await cancel.locator("input[name='reason']").fill("I use it every week.");
+    await cancel.getByTestId("idea-decline").click();
+    await expectText(page, "Declined. Ideas for this expense");
+    const declined = await one("select target_key, decline_reason from savings_ideas where status = 'declined'");
+    if (declined.decline_reason !== "I use it every week.") throw new Error("reason");
+    // Propose again: the declined expense and the open ideas' expenses are not proposed again.
+    await page.getByRole("button", { name: "Propose savings ideas now" }).click();
+    await page.waitForLoadState("networkidle");
+    const dup = await one("select count(*)::int n from savings_ideas where target_key = $1", [declined.target_key]);
+    if (dup.n !== 1) throw new Error("declined expense proposed again");
+    // Approve the storage idea as a reduction action (the same review screen)
+    await page.goto(`${BASE}/finance/expenses`);
+    const edited = (await one("select title from savings_ideas where estimated_monthly_savings = 250 and status = 'pending'")).title;
+    await page.getByTestId("savings-idea").filter({ has: page.getByRole("heading", { name: edited, exact: true }) }).first().getByTestId("idea-approve").click();
+    await page.waitForURL(/\/plan\/initiatives\/drafts\//);
+    await expectText(page, "Turn this savings idea into");
+    await page.getByText("A reduction action on the expense").click();
+    await page.getByTestId("approve-reduction").click();
+    await page.waitForURL(/\/records\/reduction_actions\//);
+    await expectText(page, "Approved and saved as a reduction action");
+    const ra = await one("select r.projected_monthly_savings, r.recurring_series_id, i.status from reduction_actions r join savings_ideas i on i.result_id = r.id order by r.created_at desc limit 1");
+    if (!ra || ra.status !== "approved" || !ra.recurring_series_id || Number(ra.projected_monthly_savings) !== 250) throw new Error(JSON.stringify(ra));
+    // Approve the grocery idea (from Later) as an initiative
+    await page.goto(`${BASE}/finance/expenses`);
+    await page.locator("li", { hasText: "Shop once a week" }).getByRole("button", { name: "Approve" }).click();
+    await page.waitForURL(/\/plan\/initiatives\/drafts\//);
+    await page.getByTestId("approve-selected").click();
+    await page.waitForURL(/\/records\/initiatives\//);
+    await expectText(page, "Approved and saved: Shop once a week");
+  });
+
+  await step("Savings ideas: when the AI monthly cap is reached, the plain message shows and the weekly step skips", async () => {
+    await pg.query("insert into ai_usage (owner_id, purpose, model, cost_usd) values ($1, 'test_cap', 'test', 1000)", [OWNER]);
+    try {
+      await page.goto(`${BASE}/finance/expenses`);
+      await expectText(page, "The AI monthly cap is reached, so no savings ideas were proposed");
+      if (!(await page.getByRole("button", { name: "Propose savings ideas now" }).isDisabled())) throw new Error("button enabled at the cap");
+      await pg.query("delete from savings_ideas where source = 'weekly'");
+      const r = await cron("savings-ideas");
+      const res = Object.values(r.results)[0];
+      if (res.skipped !== "cap") throw new Error(JSON.stringify(res));
+    } finally {
+      await pg.query("delete from ai_usage where purpose = 'test_cap'");
+    }
+  });
+
+  await step("Sample data and reset tab screenshots", async () => {
+    await shoot3(`${BASE}/settings/data`, "sample-data-reset");
+  });
+
+  await step("Remove sample data deletes only sample rows", async () => {
+    const demo = await one("select (select count(*)::int from accounts where name not like 'Sample %') a, (select count(*)::int from contacts where name not like 'Sample %') c, (select count(*)::int from transactions t where not exists (select 1 from sample_records r where r.record_id = t.id)) t");
+    await page.goto(`${BASE}/settings/data`);
+    await page.getByTestId("sample-remove").click();
+    await expectText(page, "Sample data removed:");
+    const after = await one(`select (select count(*)::int from sample_records) marked,
+      (select count(*)::int from accounts where name not like 'Sample %') a, (select count(*)::int from contacts where name not like 'Sample %') c, (select count(*)::int from transactions) t`);
+    // Rows named "Sample ..." that were there before loading (the demo data has a few) stay; every other one is gone.
+    const left = await sampleLike();
+    if (after.marked || JSON.stringify(left) !== JSON.stringify(sampleBefore)) throw new Error(`sample rows left: ${JSON.stringify({ left, sampleBefore })}`);
+    if (after.a !== demo.a || after.c !== demo.c || after.t !== demo.t) throw new Error(`real rows changed: ${JSON.stringify({ demo, after })}`);
+    if (!(await one("select 1 x from change_log where field = 'sample_data_removed'"))) throw new Error("no change log entry");
+  });
+
+  await step("Reset all data: export first, RESET typed, data deleted, setup kept", async () => {
+    const before = await one(`select (select count(*)::int from pipelines) p, (select count(*)::int from stage_tasks) st, (select count(*)::int from task_templates) tt,
+      (select count(*)::int from targets) tg, (select count(*)::int from categories) cat, (select count(*)::int from inputs) inp, (select count(*)::int from ai_usage) ai`);
+    const rctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
+    await rctx.addCookies([cookie]);
+    const rp = await rctx.newPage();
+    await rp.goto(`${BASE}/settings/data`);
+    if (!(await rp.locator("#reset-confirm").isDisabled())) throw new Error("step 2 enabled before the export");
+    const dl = rp.waitForEvent("download").catch((e) => e);
+    await rp.getByTestId("reset-download-export").click();
+    await dl;
+    await rp.getByTestId("reset-export-done").waitFor({ timeout: 30000 });
+    await rp.fill("#reset-confirm", "reset");
+    if (!(await rp.getByTestId("reset-submit").isDisabled())) throw new Error("enabled for lowercase reset");
+    await rp.fill("#reset-confirm", "RESET");
+    await rp.screenshot({ path: path.join(OUT, "flow-reset-ready.png"), fullPage: true });
+    await rp.getByTestId("reset-submit").click();
+    await rp.waitForURL(/reset=done/, { timeout: 30000 });
+    await expectText(rp, "All data was reset on");
+    await rp.getByTestId("reset-summary").waitFor();
+    await rp.screenshot({ path: path.join(OUT, "flow-reset-done.png"), fullPage: true });
+    const after = await one(`select (select count(*)::int from transactions) t, (select count(*)::int from accounts) a, (select count(*)::int from contacts) c,
+      (select count(*)::int from pipeline_items) pi, (select count(*)::int from tasks) tasks, (select count(*)::int from checklists) cl, (select count(*)::int from savings_ideas) si,
+      (select count(*)::int from initiatives) inits, (select count(*)::int from pipelines) p, (select count(*)::int from stage_tasks) st, (select count(*)::int from task_templates) tt,
+      (select count(*)::int from targets) tg, (select count(*)::int from categories) cat, (select count(*)::int from inputs) inp, (select count(*)::int from ai_usage) ai,
+      (select bool_and(start_date = (now() at time zone 'America/New_York')::date) from targets) today,
+      (select count(*)::int from change_log where field = 'all_data_reset') logged`);
+    for (const k of ["t", "a", "c", "pi", "tasks", "cl", "si"]) if (after[k]) throw new Error(`${k} not deleted: ${after[k]}`);
+    if (after.inits !== 6) throw new Error(`initiatives: ${after.inits}`);
+    for (const k of ["p", "st", "tt", "tg", "cat", "inp", "ai"]) if (after[k] !== before[k]) throw new Error(`${k} changed: ${before[k]} to ${after[k]}`);
+    if (!after.today || after.logged !== 1) throw new Error(JSON.stringify(after));
+    // A second reset in the same session needs a new export.
+    await rp.goto(`${BASE}/settings/data`);
+    if (!(await rp.locator("#reset-confirm").isDisabled())) throw new Error("export cookie not cleared");
+    await rctx.close();
+    await page.goto(`${BASE}/settings/change-log`);
+    await expectText(page, "All data reset");
+  });
+
+  await d1280.close();
 
   await phone.close();
   await pg.end();

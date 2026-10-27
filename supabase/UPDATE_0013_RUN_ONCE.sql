@@ -1,3 +1,6 @@
+-- USE supabase/UPDATE_0013_0014_RUN_ONCE.sql INSTEAD. That file runs this update (0013) and the next one (0014).
+-- This file is kept for reference only. Running it first does no harm: the combined file is safe after it.
+--
 -- BF Personal App: database update 0013 (send email from the app).
 -- For the live database, which has 0001 to 0012. Paste this whole file into the Supabase SQL Editor and press Run.
 -- Safe to run more than once: nothing is duplicated. It only adds empty columns and a check function:

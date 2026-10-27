@@ -7,8 +7,9 @@ import { MessageSquare, Send, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
 import { AiText } from "@/components/app/ai-text";
+import { MicButton } from "@/components/app/mic-button";
 
-type Msg = { role: "user" | "assistant" | "error"; content: string; proposals?: string[] };
+type Msg = { role: "user" | "assistant" | "error"; content: string; proposals?: string[]; link?: { href: string; label: string } };
 
 const OPEN_EVENT = "bf-open-ai-chat";
 
@@ -60,7 +61,7 @@ export function ChatPanel({ aiReady }: { aiReady: boolean }) {
       const data = await res.json();
       if (data.conversationId) setConversationId(data.conversationId);
       if (!res.ok) setMessages((m) => [...m, { role: "error", content: data.error ?? "The request failed." }]);
-      else setMessages((m) => [...m, { role: "assistant", content: data.reply, proposals: data.proposals }]);
+      else setMessages((m) => [...m, { role: "assistant", content: data.reply, proposals: data.proposals, link: data.link }]);
     } catch {
       setMessages((m) => [...m, { role: "error", content: "The request failed. Check the connection and try again." }]);
     } finally {
@@ -103,6 +104,7 @@ export function ChatPanel({ aiReady }: { aiReady: boolean }) {
                   <li>Which debt should I pay first? Show the tradeoffs.</li>
                   <li>Draft a follow-up email to the broker on this deal.</li>
                   <li>Does this deal fit my acquisition criteria?</li>
+                  <li>Start an initiative: weekly meal plan, shop once a week, cook on Sunday.</li>
                 </ul>
               </div>
             ) : null}
@@ -118,6 +120,11 @@ export function ChatPanel({ aiReady }: { aiReady: boolean }) {
                 }
               >
                 {m.role === "assistant" ? <AiText text={m.content} /> : <p className="whitespace-pre-wrap">{m.content}</p>}
+                {m.link ? (
+                  <Link href={m.link.href} className="mt-2 inline-block text-xs font-medium text-teal-800 underline" data-testid="chat-draft-link">
+                    {m.link.label}
+                  </Link>
+                ) : null}
                 {m.proposals?.length ? (
                   <Link href="/proposals" className="mt-2 inline-block text-xs font-medium text-teal-800 underline">
                     {m.proposals.length} proposal(s) waiting for your approval
@@ -150,9 +157,12 @@ export function ChatPanel({ aiReady }: { aiReady: boolean }) {
               className="min-h-0 resize-none"
               aria-label="Message"
             />
-            <Button type="submit" size="icon" disabled={busy || !input.trim()} aria-label="Send">
-              <Send />
-            </Button>
+            <div className="flex flex-col gap-1">
+              <MicButton value={input} onText={setInput} label="Speak your message (it appears in the box; press Send yourself)" iconOnly />
+              <Button type="submit" size="icon" disabled={busy || !input.trim()} aria-label="Send">
+                <Send />
+              </Button>
+            </div>
           </form>
         </div>
       ) : null}

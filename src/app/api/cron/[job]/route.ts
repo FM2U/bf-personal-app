@@ -8,6 +8,7 @@ import { checkCommitments, generateFollowUps, generatePipelineTasks, generateRec
 import { ensureReview } from "@/lib/engine/reviews";
 import { schedulePartnerReports } from "@/lib/engine/partners";
 import { checkPipelineAccountability } from "@/lib/engine/pipeline-jobs";
+import { proposeSavingsIdeas } from "@/lib/engine/savings-ideas";
 
 export const maxDuration = 300;
 
@@ -29,6 +30,7 @@ const JOBS: Record<string, (sb: ReturnType<typeof createServiceClient>, ownerId:
   "task-rollover": (_sb, _id, ctx) => rolloverRegularTasks(ctx),
   milestones: (_sb, _id, ctx) => checkMilestones(ctx),
   "pipeline-checks": (_sb, _id, ctx) => checkPipelineAccountability(ctx),
+  "savings-ideas": (_sb, _id, ctx) => proposeSavingsIdeas(ctx, "weekly"),
 };
 
 function authorized(req: Request): boolean {

@@ -23,7 +23,7 @@ import {
   toggleDiligence,
 } from "@/app/actions/domain";
 import { requestReductionSuggestions } from "@/app/actions/ai";
-import { computeMetrics } from "@/lib/metrics";
+import { computeMetrics, metricValue } from "@/lib/metrics";
 import { daysBetween } from "@/lib/calc/dates";
 import { date as fmtDate, dateTime, money, num } from "@/lib/format";
 import { decrypt } from "@/lib/crypto";
@@ -54,6 +54,9 @@ import { GuardedForm } from "@/components/app/unsaved-changes";
 import { OrgPeopleAddForm, type PersonOption } from "@/components/app/org-people";
 import { unlinkOrgPerson } from "@/app/actions/people";
 import { optionExclusions } from "@/lib/form-rules";
+import { ChecklistCard, loadChecklists, PlanDocumentCard } from "@/components/app/checklist-panel";
+import { hasUpdate0014 } from "@/lib/update-0014";
+import { DB_UPDATE_FILE_0014 } from "@/lib/schema-guard";
 
 type P = {
   sb: SupabaseClient;
@@ -93,6 +96,10 @@ export async function ExtraPanels(p: P) {
       );
     case "targets":
       return <TargetHistoryPanel {...p} />;
+    case "initiatives":
+      return <InitiativePlanPanels {...p} />;
+    case "tasks":
+      return <TaskChecklists {...p} />;
     case "organizations":
       // While editing, the form has its own "People at this organization" section.
       return p.sp?.edit === "1" ? null : <OrgPeoplePanel {...p} />;
@@ -835,7 +842,7 @@ async function InputHistoryPanel({ sb, row }: P) {
 async function GoalProgress({ sb, row, today }: P) {
   if (!row.metric_key) return null;
   const metrics = await computeMetrics(sb, today);
-  const current = metrics.values[row.metric_key] ?? null;
+  const current = metricValue(metrics, row.metric_key, row.metric_params);
   const met = current !== null && row.target_value !== null && (row.comparison === "lte" ? current <= Number(row.target_value) : current >= Number(row.target_value));
   return (
     <Card>
@@ -1117,5 +1124,137 @@ async function TargetHistoryPanel({ sb, ownerId, row, today }: P) {
       </CardContent>
       <CardNote>{describeTarget(s.target.def)}.</CardNote>
     </Card>
+  );
+}
+
+const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+/**
+ * Initiative page: the plan document, checklists (example: the weekly grocery list), recurring tasks, targets,
+ * the budget target set by the initiative, and initiatives that are part of this one. Database update 0014.
+ */
+async function InitiativePlanPanels({ sb, row }: P) {
+  if (!(await hasUpdate0014(sb))) {
+    return (
+      <Card>
+        <CardContent className="pt-5">
+          <DbUpdateNotice compact file={DB_UPDATE_FILE_0014} features="Plan documents, checklists, and Start an initiative appear after the update." />
+        </CardContent>
+      </Card>
+    );
+  }
+  const [{ data: docs }, checklists, { data: subs }, { data: templates }, { data: targets }, { data: links }] = await Promise.all([
+    sb.from("plan_documents").select("*").eq("initiative_id", row.id).order("created_at"),
+    loadChecklists(sb, { initiativeId: row.id }),
+    sb.from("initiatives").select("id,name,description").eq("parent_initiative_id", row.id).order("sort_order"),
+    sb.from("task_templates").select("*").eq("initiative_id", row.id).order("cadence"),
+    sb.from("targets").select("id,name,period,minimum_count,active").eq("initiative_id", row.id),
+    sb.from("record_links").select("to_id").eq("from_type", "initiatives").eq("from_id", row.id).eq("to_type", "budget_lines"),
+  ]);
+  const lineIds = ((links ?? []) as Row[]).map((l) => l.to_id);
+  const { data: lines } = lineIds.length ? await sb.from("budget_lines").select("id,category_id,current_monthly,target_monthly").in("id", lineIds) : { data: [] };
+  const catIds = ((lines ?? []) as Row[]).map((l) => l.category_id);
+  const { data: cats } = catIds.length ? await sb.from("categories").select("id,name").in("id", catIds) : { data: [] };
+  const catName = Object.fromEntries(((cats ?? []) as Row[]).map((c) => [c.id, c.name]));
+  const tpl = (templates ?? []) as Row[];
+  const tg = (targets ?? []) as Row[];
+  const bl = (lines ?? []) as Row[];
+  return (
+    <>
+      {((docs ?? []) as Row[]).map((d) => (
+        <PlanDocumentCard key={d.id} doc={d} />
+      ))}
+      {checklists?.lists.length ? (
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          {checklists.lists.map((l) => (
+            <ChecklistCard key={l.id} list={l} items={checklists.items.filter((i) => i.checklist_id === l.id)} template={l.task_template_id ? checklists.templates[l.task_template_id] : null} />
+          ))}
+        </div>
+      ) : null}
+      {tpl.length || tg.length || bl.length ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Recurring tasks, targets, and budget</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <THead>
+                <TR className="hover:bg-transparent">
+                  <TH>Item</TH>
+                  <TH>Kind</TH>
+                  <TH>When or amount</TH>
+                  <TH>Commitment</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {tpl.map((t) => (
+                  <TR key={t.id}>
+                    <TD>
+                      <Link href={recordHref("task_templates", t.id)} className="clamp-1 font-medium hover:underline">{t.title}</Link>
+                    </TD>
+                    <TD className="text-sm">Recurring task</TD>
+                    <TD className="text-sm">{t.cadence === "weekly" ? `Every ${WEEKDAY_NAMES[Number(t.weekday ?? 0)]}` : t.cadence === "monthly" ? `Monthly, day ${t.day_of_month ?? 1}` : t.cadence === "daily" ? "Every day" : t.cadence}</TD>
+                    <TD className="text-sm">{t.is_commitment ? "Yes (review)" : "No (regular task)"}</TD>
+                  </TR>
+                ))}
+                {tg.map((t) => (
+                  <TR key={t.id}>
+                    <TD>
+                      <Link href={recordHref("targets", t.id)} className="clamp-1 font-medium hover:underline">{t.name}</Link>
+                    </TD>
+                    <TD className="text-sm">Target</TD>
+                    <TD className="text-sm">{t.minimum_count} per {t.period}</TD>
+                    <TD className="text-sm">Yes</TD>
+                  </TR>
+                ))}
+                {bl.map((l) => (
+                  <TR key={l.id}>
+                    <TD>
+                      <Link href="/finance/budget" className="clamp-1 font-medium hover:underline">{catName[l.category_id] ?? "Budget line"}</Link>
+                    </TD>
+                    <TD className="text-sm">Budget target</TD>
+                    <TD className="tabular text-sm">{money(l.target_monthly)} per month (budget now {money(l.current_monthly)})</TD>
+                    <TD className="text-sm">No</TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+          </CardContent>
+          <CardNote>Recurring tasks are created each morning on their day. Only reviews, milestones, and targets are commitments.</CardNote>
+        </Card>
+      ) : null}
+      {((subs ?? []) as Row[]).length ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Part of this initiative</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="flex flex-col divide-y divide-slate-100">
+              {((subs ?? []) as Row[]).map((s) => (
+                <li key={s.id} className="py-2">
+                  <Link href={recordHref("initiatives", s.id)} className="text-sm font-medium hover:underline">{s.name}</Link>
+                  {s.description ? <span className="clamp-1 text-xs text-muted-foreground">{s.description}</span> : null}
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+          <CardNote>Initiatives that belong under this one.</CardNote>
+        </Card>
+      ) : null}
+    </>
+  );
+}
+
+/** Task page: the checklists that go with the task's recurring task (example: the grocery list on "Shop for the week's groceries"). */
+async function TaskChecklists({ sb, row }: P) {
+  if (!row.template_id) return null;
+  const data = await loadChecklists(sb, { templateId: row.template_id });
+  if (!data?.lists.length) return null;
+  return (
+    <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+      {data.lists.map((l) => (
+        <ChecklistCard key={l.id} list={l} items={data.items.filter((i) => i.checklist_id === l.id)} template={l.task_template_id ? data.templates[l.task_template_id] : null} />
+      ))}
+    </div>
   );
 }

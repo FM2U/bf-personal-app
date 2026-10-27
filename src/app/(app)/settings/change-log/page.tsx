@@ -12,6 +12,14 @@ import type { Row } from "@/lib/types";
 
 export const metadata = { title: "Change log" };
 
+/** One summary entry instead of one entry per row (bulk sample data and Reset all data). */
+const SUMMARY_FIELDS: Record<string, string> = {
+  all_data_reset: "All data reset",
+  sample_data_loaded: "Sample data loaded",
+  sample_data_removed: "Sample data removed",
+};
+const totalOf = (v: unknown) => Object.values((v ?? {}) as Record<string, unknown>).reduce<number>((s, n) => s + (Number(n) || 0), 0);
+
 export default async function ChangeLogPage({ searchParams }: { searchParams: Promise<{ table?: string; actor?: string }> }) {
   const sp = await searchParams;
   const { supabase } = await requireOwner();
@@ -67,13 +75,17 @@ export default async function ChangeLogPage({ searchParams }: { searchParams: Pr
                           {r.singular}
                         </Link>
                       ) : (
-                        r?.singular ?? (c.table_name === "partner_reports" ? "Partner report" : c.table_name)
+                        r?.singular ?? (c.table_name === "partner_reports" ? "Partner report" : c.table_name === "sample_records" ? "Sample data" : c.field === "all_data_reset" ? "All data" : c.table_name)
                       )}
                     </TD>
                     <TD className="max-w-md text-sm">
                       {c.action === "update" ? (
                         <>
                           <span className="font-medium">{r?.fields.find((f) => f.name === c.field)?.label ?? c.field}</span>: {show(c.old_value)} to {show(c.new_value)}
+                        </>
+                      ) : c.field && SUMMARY_FIELDS[c.field] ? (
+                        <>
+                          <span className="font-medium">{SUMMARY_FIELDS[c.field]}</span>: {totalOf(c.new_value)} records
                         </>
                       ) : c.field === "email_sent" ? (
                         <>

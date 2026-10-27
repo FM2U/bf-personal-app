@@ -10,7 +10,7 @@ export type RefOption = { id: string; label: string; extra?: Row };
 export function titleOf(table: string, row: Row | null | undefined, refLabels?: Record<string, Record<string, string>>): string {
   if (!row) return "";
   const r = getResource(table);
-  if (table === "budget_lines" && refLabels?.categories) return refLabels.categories[row.category_id] ?? "Budget line";
+  if (table === "budget_lines") return refLabels?.categories?.[row.category_id] ?? "Budget line";
   if (table === "reviews") return `${cap(row.kind)} review, ${row.period_start}${row.period_end !== row.period_start ? ` to ${row.period_end}` : ""}`;
   if (table === "partner_reports") return `Report for ${row.period_start} to ${row.period_end}`;
   if (table === "account_balances") return `Balance on ${row.as_of}`;

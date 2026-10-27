@@ -4,7 +4,8 @@ import { addDaysISO } from "@/lib/calc/dates";
 import { hasPipelineUpdate } from "@/lib/pipeline";
 import { hasConsultingUpdate } from "@/lib/consulting";
 import { fieldTextForKind, hiddenForKind, type FieldText } from "@/lib/pipeline-labels";
-import { COLUMNS_0009, COLUMNS_0011, OPTIONS_0012, PROBE_0012 } from "@/lib/schema-guard";
+import { COLUMNS_0009, COLUMNS_0011, COLUMNS_0014, OPTIONS_0012, PROBE_0012 } from "@/lib/schema-guard";
+import { hasUpdate0014 } from "@/lib/update-0014";
 import type { Row } from "@/lib/types";
 
 /**
@@ -20,6 +21,11 @@ export async function formRules(
 ): Promise<{ hide: string[]; require: string[]; updateNeeded: false | "0009" | "0011" | "0012"; kind: string | null; text: Record<string, FieldText> }> {
   const watched9 = COLUMNS_0009[table];
   const watched11 = COLUMNS_0011[table];
+  const watched14 = COLUMNS_0014[table];
+  // Columns from update 0014 (parent initiative, goal measured number details) are left out until it is applied.
+  if (watched14 && !watched9 && !watched11) {
+    return { hide: (await hasUpdate0014(sb)) ? [] : watched14, require: [], updateNeeded: false, kind: null, text: {} };
+  }
   if (!watched9 && !watched11) return { hide: [], require: [], updateNeeded: false, kind: null, text: {} };
   const missing12 = OPTIONS_0012[table] ? !(await hasContactOptionsUpdate(sb)) : false;
   const [available9, available11] = await Promise.all([watched9 ? hasPipelineUpdate(sb) : Promise.resolve(true), watched11 ? hasConsultingUpdate(sb) : Promise.resolve(true)]);

@@ -6,6 +6,7 @@ import type { Row } from "@/lib/types";
 import { groupMovesByCount, planRollover } from "@/lib/calc/commitment-rule";
 import { isMissingSchemaError } from "@/lib/schema-guard";
 import { createAlert, createTask, type Ctx } from "./helpers";
+import { checklistsToReset, type ChecklistRow } from "@/lib/checklists";
 
 /** True when a recurring template is due on the given date. */
 export function templateDueOn(t: Row, today: string): boolean {
@@ -46,6 +47,7 @@ export async function generateRecurringTasks(ctx: Ctx): Promise<{ created: numbe
     });
     if (id) {
       created++;
+      await resetChecklistsFor(ctx, t.id);
       if (t.is_commitment) {
         await insertIgnoreDuplicate(sb, "commitments", { owner_id: ownerId, title: t.title, record_type: "tasks", record_id: id, due_date: today, original_due_date: today });
       }
@@ -53,6 +55,21 @@ export async function generateRecurringTasks(ctx: Ctx): Promise<{ created: numbe
     await sb.from("task_templates").update({ last_generated_on: today }).eq("id", t.id);
   }
   return { created };
+}
+
+/**
+ * Checklists with "Reset each week" that go with this recurring task: every item is unchecked when the task is
+ * created (at most once in 6 days). Before database update 0014 there are no checklists and nothing happens.
+ */
+export async function resetChecklistsFor(ctx: Pick<Ctx, "sb" | "ownerId" | "today">, templateId: string): Promise<number> {
+  const { sb, ownerId, today } = ctx;
+  const { data, error } = await sb.from("checklists").select("id,task_template_id,reset_weekly,last_reset_on").eq("owner_id", ownerId).eq("task_template_id", templateId);
+  if (error) return 0;
+  const ids = checklistsToReset((data ?? []) as ChecklistRow[], templateId, today);
+  if (!ids.length) return 0;
+  await sb.from("checklist_items").update({ checked: false }).eq("owner_id", ownerId).in("checklist_id", ids).eq("checked", true);
+  await sb.from("checklists").update({ last_reset_on: today }).eq("owner_id", ownerId).in("id", ids);
+  return ids.length;
 }
 
 /**

@@ -15,6 +15,8 @@ export type MetricContext = {
   /** Daily Targets data (available = false until database update 0008 is applied). */
   targets: TargetsData;
   targetMetric: (key: string, params: Row) => number | null;
+  /** Spending in one or more categories ({"category":"Groceries"} or {"categories":[...]}). */
+  categoryMetric: (key: string, params: Row) => number | null;
 };
 
 /** Calculates every measured number used by decision conditions, goals, Home, and partner reports. */
@@ -25,7 +27,7 @@ export async function computeMetrics(sb: SupabaseClient, today: string, ownerId?
   const week = weekBounds(today);
 
   const tz = await ownerTimezone(sb, ownerId);
-  const [targets, budgetsRes, linesRes, reductionsRes, commitmentsRes, missesRes, overdueRes, pipesRes, stagesRes, itemsRes] = await Promise.all([
+  const [targets, budgetsRes, linesRes, reductionsRes, commitmentsRes, missesRes, overdueRes, pipesRes, stagesRes, itemsRes, catsRes] = await Promise.all([
     loadTargets(sb, { ownerId, tz, from: addDaysISO(today, -182), to: today }),
     s(sb.from("budgets").select("id").eq("is_active", true)),
     s(sb.from("budget_lines").select("*")),
@@ -36,6 +38,7 @@ export async function computeMetrics(sb: SupabaseClient, today: string, ownerId?
     s(sb.from("pipelines").select("id,name")),
     s(sb.from("pipeline_stages").select("id,pipeline_id,name,position,outcome")),
     s(sb.from("pipeline_items").select("id,pipeline_id,stage_id,status")),
+    s(sb.from("categories").select("id,name")),
   ]);
 
   const activeBudgetIds = new Set(((budgetsRes.data ?? []) as Row[]).map((b) => b.id));
@@ -109,7 +112,26 @@ export async function computeMetrics(sb: SupabaseClient, today: string, ownerId?
     return null;
   };
 
-  return { values, snapshot, pipelineMetric, targets, targetMetric: (key: string, params: Row) => targetMetric(targets, today, key, params) };
+  const cats = (catsRes.data ?? []) as Row[];
+  const categoryMetric = (key: string, params: Row): number | null => {
+    const names = categoryNamesFromParams(params);
+    const ids = new Set(cats.filter((c) => names.includes(String(c.name).toLowerCase()) || names.includes(String(c.id))).map((c) => c.id));
+    if (!ids.size) return null;
+    const monthStartKey = today.slice(0, 7);
+    const lm = lastMonth.start.slice(0, 7);
+    const threeStart = monthBounds(addMonthsISO(monthBounds(today).start, -3)).start;
+    let total = 0;
+    for (const t of snapshot.transactions) {
+      if (t.is_transfer || Number(t.amount) >= 0 || !ids.has(t.category_id)) continue;
+      const m = String(t.date).slice(0, 7);
+      if (key === "category_spending_month" && m === monthStartKey && t.date <= today) total -= Number(t.amount);
+      else if (key === "category_spending_last_month" && m === lm) total -= Number(t.amount);
+      else if (key === "category_spending_avg_3m" && t.date >= threeStart && t.date < monthBounds(today).start) total -= Number(t.amount);
+    }
+    return round2(key === "category_spending_avg_3m" ? total / 3 : total);
+  };
+
+  return { values, snapshot, pipelineMetric, targets, targetMetric: (key: string, params: Row) => targetMetric(targets, today, key, params), categoryMetric };
 }
 
 async function ownerTimezone(sb: SupabaseClient, ownerId?: string): Promise<string> {
@@ -121,5 +143,13 @@ async function ownerTimezone(sb: SupabaseClient, ownerId?: string): Promise<stri
 export function metricValue(ctx: MetricContext, key: string, params: Row | null | undefined): number | null {
   if (key.startsWith("pipeline_")) return ctx.pipelineMetric(key, params ?? {});
   if (key.startsWith("target_")) return ctx.targetMetric(key, params ?? {});
+  if (key.startsWith("category_")) return ctx.categoryMetric(key, params ?? {});
   return ctx.values[key] ?? null;
+}
+
+/** Lowercase category names (or ids) from metric details: {"category":"Groceries"} or {"categories":["Groceries","Dining"]}. */
+export function categoryNamesFromParams(params: Row | null | undefined): string[] {
+  const p = params ?? {};
+  const list = Array.isArray(p.categories) ? p.categories : p.category ? [p.category] : [];
+  return list.map((x: unknown) => String(x).trim().toLowerCase()).filter(Boolean);
 }

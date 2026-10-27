@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, X } from "lucide-react";
+import { ArrowRight, Sparkles, X } from "lucide-react";
 import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
 import { computeMetrics } from "@/lib/metrics";
@@ -30,6 +30,7 @@ import { AiText } from "@/components/app/ai-text";
 import { sortTasksProprietaryFirst } from "@/lib/calc/pipeline";
 import { hasPipelineUpdate, loadDealRanks, loadDealTypes } from "@/lib/pipeline";
 import { GuardedForm } from "@/components/app/unsaved-changes";
+import { loadSavingsIdeas } from "@/lib/engine/savings-ideas";
 
 export const metadata = { title: "Home" };
 
@@ -70,6 +71,10 @@ export default async function HomePage() {
   const overdue = sortTasksProprietaryFirst((overdueTasks.data ?? []) as Row[], rankOf);
   const overdueMilestones = (overdueMs.data ?? []) as Row[];
   const nw = await netWorthByMonth(supabase, today, 6);
+  const ideas = await loadSavingsIdeas(supabase);
+  const ideaSavings = ideas.pending.reduce((sum, i) => sum + Number(i.estimated_monthly_savings ?? 0), 0);
+  const { count: draftCount } = ideas.available ? await supabase.from("initiative_drafts").select("id", { count: "exact", head: true }).eq("status", "draft") : { count: 0 };
+  const waiting = (proposalsRes.count ?? 0) + ideas.pending.length + (draftCount ?? 0);
   const hasAccounts = snap.accounts.length > 0;
 
   // KPI tiles
@@ -115,7 +120,17 @@ export default async function HomePage() {
 
   return (
     <div>
-      <PageHeader title="Home" description={`${fmtDate(today, "EEEE, MMMM d, yyyy")}. Runway, today's plan, meetings, overdue items, and alerts.`} />
+      <PageHeader
+        title="Home"
+        description={`${fmtDate(today, "EEEE, MMMM d, yyyy")}. Runway, today's plan, meetings, overdue items, and alerts.`}
+        actions={
+          <Button asChild size="sm">
+            <Link href="/plan/start">
+              <Sparkles /> Start an initiative
+            </Link>
+          </Button>
+        }
+      />
       <div className={`mb-4 grid grid-cols-1 gap-4 ${productivityTiles.length > 3 ? "xl:grid-cols-2" : "lg:grid-cols-[minmax(0,3fr)_minmax(0,4fr)]"}`}>
         <KpiGroup title="Productivity" module="productivity" tiles={productivityTiles} cols={productivityTiles.length > 3 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3"} />
         <KpiGroup title="Accountability" module="accountability" tiles={accountabilityTiles} cols="grid-cols-2 sm:grid-cols-4" />
@@ -327,21 +342,47 @@ export default async function HomePage() {
           <CardNote>Assets minus debts.</CardNote>
         </Card>
 
-        <Card>
+        <Card id="ai-proposals">
           <CardHeader>
-            <CardTitle>
-              <ModuleTitle module="settings">AI proposals</ModuleTitle>
+            <CardTitle className="flex items-center justify-between">
+              <ModuleTitle module="settings">AI proposals</ModuleTitle> {waiting ? <Badge variant="default" data-testid="ai-proposals-count">{waiting}</Badge> : null}
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="flex items-end justify-between gap-3">
-              <Stat label="Waiting for approval" value={proposalsRes.count ?? 0} />
+          <CardContent className="flex flex-col gap-3">
+            <StatGrid className="grid-cols-3">
+              <Stat label="Changes waiting" value={proposalsRes.count ?? 0} />
+              <Stat label="Savings ideas" value={ideas.available ? ideas.pending.length : "Not yet"} hint={ideaSavings ? `About ${money(ideaSavings)}/mo` : undefined} tone={ideaSavings ? "good" : undefined} />
+              <Stat label="Initiative drafts" value={ideas.available ? draftCount ?? 0 : "Not yet"} />
+            </StatGrid>
+            {ideas.pending.length ? (
+              <ul className="flex flex-col divide-y divide-slate-100" data-testid="home-savings-ideas">
+                {ideas.pending.slice(0, 3).map((i) => (
+                  <li key={i.id} className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 py-1.5 text-sm">
+                    <Link href="/finance/expenses#savings-ideas" className="clamp-1 hover:underline">
+                      {i.title}
+                    </Link>
+                    <span className="tabular text-status-met">{money(i.estimated_monthly_savings)}/mo</span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <div className="flex flex-wrap gap-2">
               <Button asChild size="sm" variant="outline">
                 <Link href="/proposals">Review proposals</Link>
               </Button>
+              {ideas.pending.length ? (
+                <Button asChild size="sm" variant="outline">
+                  <Link href="/finance/expenses#savings-ideas">Savings ideas</Link>
+                </Button>
+              ) : null}
+              {draftCount ? (
+                <Button asChild size="sm" variant="outline">
+                  <Link href="/plan/start">Initiative drafts</Link>
+                </Button>
+              ) : null}
             </div>
           </CardContent>
-          <CardNote>Changes the AI suggested. Nothing is saved until you approve it.</CardNote>
+          <CardNote>Changes, savings ideas, and initiative plans the AI suggested. Nothing is saved until you approve it.</CardNote>
         </Card>
       </div>
     </div>

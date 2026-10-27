@@ -412,4 +412,221 @@ do $$ begin
 end $$;
 reset role;
 
+-- 0014: initiative builder (insert_record_batch), sample data (load and remove only sample rows), Reset all data.
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', false);
+select set_config('request.jwt.claim.aal', 'aal2', false);
+do $$
+declare
+  v jsonb;
+  pf uuid := (select id from public.initiatives where name = 'Personal Finance');
+  tpl uuid := gen_random_uuid();
+  ini uuid := gen_random_uuid();
+  cl uuid := gen_random_uuid();
+begin
+  assert public.schema_has_0014(), '0014 check function';
+  v := public.insert_record_batch(jsonb_build_array(
+    jsonb_build_object('table', 'initiatives', 'rows', jsonb_build_array(jsonb_build_object('id', ini, 'name', 'Smoke meal plan', 'description', 'Cook on Sunday', 'parent_initiative_id', pf))),
+    jsonb_build_object('table', 'goals', 'rows', jsonb_build_array(jsonb_build_object('initiative_id', ini, 'title', 'Food under 1000', 'metric_key', 'category_spending_last_month', 'metric_params', '{"categories":["Groceries"]}'::jsonb, 'target_value', 1000, 'deadline', current_date + 90))),
+    jsonb_build_object('table', 'task_templates', 'rows', jsonb_build_array(jsonb_build_object('id', tpl, 'title', 'Shop for the week''s groceries', 'cadence', 'weekly', 'weekday', 6, 'initiative_id', ini))),
+    jsonb_build_object('table', 'checklists', 'rows', jsonb_build_array(jsonb_build_object('id', cl, 'name', 'Grocery list', 'initiative_id', ini, 'task_template_id', tpl, 'reset_weekly', true))),
+    jsonb_build_object('table', 'checklist_items', 'rows', jsonb_build_array(jsonb_build_object('checklist_id', cl, 'text', 'Eggs', 'quantity', '1 dozen'), jsonb_build_object('checklist_id', cl, 'text', 'Rice'))),
+    jsonb_build_object('table', 'plan_documents', 'rows', jsonb_build_array(jsonb_build_object('initiative_id', ini, 'title', 'Menu', 'body', '- **Sunday:** cook'))),
+    jsonb_build_object('table', 'record_links', 'rows', jsonb_build_array(jsonb_build_object('from_type', 'initiatives', 'from_id', ini, 'to_type', 'checklists', 'to_id', cl, 'relation', 'checklist')))
+  ), 'ai', null);
+  assert (v ->> 'checklist_items')::int = 2, 'batch counts';
+  assert (select parent_initiative_id from public.initiatives where id = ini) = pf, 'parent initiative saved';
+  assert (select count(*) from public.change_log where record_id = ini and actor = 'ai' and action = 'insert') = 1, 'approved AI records are logged as AI';
+  -- All or nothing: a bad row rolls back the whole batch.
+  begin
+    perform public.insert_record_batch(jsonb_build_array(
+      jsonb_build_object('table', 'initiatives', 'rows', jsonb_build_array(jsonb_build_object('name', 'Smoke rollback'))),
+      jsonb_build_object('table', 'goals', 'rows', jsonb_build_array(jsonb_build_object('title', 'No deadline is fine', 'comparison', 'between')))
+    ), 'ai', null);
+    raise exception 'bad batch saved';
+  exception when check_violation then null;
+  end;
+  assert not exists (select 1 from public.initiatives where name = 'Smoke rollback'), 'batch rolled back';
+  begin
+    perform public.insert_record_batch('[{"table":"change_log","rows":[{"table_name":"x","action":"insert"}]}]'::jsonb, 'owner', null);
+    raise exception 'change_log written through the batch';
+  exception when raise_exception then
+    if sqlerrm = 'change_log written through the batch' then raise; end if;
+  end;
+end $$;
+-- New tables: aal1 sees nothing, anon is refused
+select set_config('request.jwt.claim.aal', 'aal1', false);
+do $$ begin
+  assert (select count(*) from public.checklists) = 0, 'aal1 must not see checklists';
+  assert (select count(*) from public.sample_records) = 0, 'aal1 must not see sample records';
+  begin
+    perform public.reset_all_data('RESET');
+    raise exception 'aal1 reset allowed';
+  exception when raise_exception then
+    if sqlerrm = 'aal1 reset allowed' then raise; end if;
+  end;
+  begin
+    perform public.remove_sample_data();
+    raise exception 'aal1 sample removal allowed';
+  exception when raise_exception then
+    if sqlerrm = 'aal1 sample removal allowed' then raise; end if;
+  end;
+end $$;
+reset role;
+set role anon;
+do $$ begin
+  begin
+    perform 1 from public.savings_ideas limit 1;
+    raise exception 'anon read of savings ideas allowed';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.reset_all_data('RESET');
+    raise exception 'anon reset allowed';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+
+-- Sample data: rows recorded in sample_records; one summary change log entry; Remove deletes only sample rows
+-- and what the app made from them (stage tasks of a sample pipeline item).
+set role authenticated;
+select set_config('request.jwt.claim.aal', 'aal2', false);
+insert into public.accounts (name, kind) values ('Real checking kept', 'checking');
+do $$
+declare
+  b uuid := gen_random_uuid();
+  acc uuid := gen_random_uuid();
+  con uuid := gen_random_uuid();
+  item uuid := gen_random_uuid();
+  log_before int := (select count(*) from public.change_log);
+  v jsonb;
+begin
+  v := public.insert_record_batch(jsonb_build_array(
+    jsonb_build_object('table', 'accounts', 'rows', jsonb_build_array(jsonb_build_object('id', acc, 'name', 'Sample Checking', 'kind', 'checking'))),
+    jsonb_build_object('table', 'transactions', 'rows', jsonb_build_array(
+      jsonb_build_object('account_id', acc, 'date', current_date - 3, 'amount', -385, 'description', 'SAMPLE STORAGE CO. UNIT A', 'merchant_name', 'Sample Storage Co. Unit A'),
+      jsonb_build_object('account_id', acc, 'date', current_date - 33, 'amount', -385, 'description', 'SAMPLE STORAGE CO. UNIT A', 'merchant_name', 'Sample Storage Co. Unit A'))),
+    jsonb_build_object('table', 'contacts', 'rows', jsonb_build_array(jsonb_build_object('id', con, 'name', 'Sample Friend A', 'relationship_group', 'friend'))),
+    jsonb_build_object('table', 'pipeline_items', 'rows', jsonb_build_array(jsonb_build_object('id', item, 'name', 'Sample HVAC Services Co.',
+      'pipeline_id', (select id from public.pipelines where name = 'Acquisitions'),
+      'stage_id', (select s.id from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.name = 'Acquisitions' and s.name = 'Sourced'),
+      'deal_source_type', 'proprietary', 'source_contact_id', con)))
+  ), 'owner', b);
+  assert (select count(*) from public.sample_records where batch_id = b) = 5, 'every sample row recorded';
+  assert (select count(*) from public.change_log) = log_before + 1, 'one summary change log entry for the sample load';
+  assert (select count(*) from public.change_log where field = 'sample_data_loaded') = 1, 'sample load summary entry';
+  assert (select count(*) from public.tasks where pipeline_item_id = item) >= 1, 'stage tasks made for the sample item';
+  insert into public.notes (record_type, record_id, body) values ('pipeline_items', item, 'Sample note');
+  insert into public.record_links (from_type, from_id, to_type, to_id) values ('contacts', con, 'pipeline_items', item);
+  v := public.remove_sample_data();
+  assert (v ->> 'total')::int >= 5, 'removal counts';
+  assert not exists (select 1 from public.accounts where id = acc), 'sample account removed';
+  assert not exists (select 1 from public.transactions where account_id = acc), 'sample transactions removed';
+  assert not exists (select 1 from public.pipeline_items where id = item), 'sample item removed';
+  assert not exists (select 1 from public.tasks where pipeline_item_id = item or title like 'Sample HVAC%'), 'tasks made from the sample item removed';
+  assert not exists (select 1 from public.notes where record_id = item), 'note on a sample row removed';
+  assert not exists (select 1 from public.record_links where from_id = con or to_id = item), 'links removed';
+  assert (select count(*) from public.sample_records) = 0, 'registry emptied';
+  assert exists (select 1 from public.accounts where name = 'Real checking kept'), 'real account kept';
+  assert exists (select 1 from public.initiatives where name = 'Smoke meal plan'), 'real initiative kept';
+  assert (select count(*) from public.change_log where field = 'sample_data_removed') = 1, 'sample removal summary entry';
+  assert (v -> 'storage_paths') = '[]'::jsonb, 'no files';
+  v := public.remove_sample_data();
+  assert (v ->> 'total')::int = 0, 'second removal finds nothing';
+end $$;
+reset role;
+
+-- Reset all data: owner only, RESET typed, deletes data tables, keeps setup tables.
+insert into public.google_connections (owner_id, google_email, status) values ('00000000-0000-0000-0000-000000000001', 'owner@example.com', 'connected');
+insert into public.ai_usage (owner_id, purpose, model, cost_usd) values ('00000000-0000-0000-0000-000000000001', 'chat', 'test', 0.5);
+insert into public.partners (owner_id, name) values ('00000000-0000-0000-0000-000000000001', 'Reset partner');
+insert into public.partner_reports (owner_id, partner_id, period_start, period_end, status, finalized_at)
+select owner_id, id, current_date - 7, current_date, 'finalized', now() from public.partners where name = 'Reset partner';
+insert into public.ai_conversations (owner_id, title) values ('00000000-0000-0000-0000-000000000001', 'Reset chat');
+insert into public.documents (owner_id, record_type, record_id, storage_path, file_name)
+select owner_id, 'accounts', id, owner_id || '/accounts/statement.pdf', 'statement.pdf' from public.accounts where name = 'Real checking kept';
+update public.targets set start_date = current_date - 30;
+create temp table reset_before as
+select (select count(*) from public.pipelines) pipelines, (select count(*) from public.pipeline_stages) stages,
+       (select count(*) from public.stage_tasks) stage_tasks, (select count(*) from public.targets) targets,
+       (select count(*) from public.task_templates) templates, (select count(*) from public.categories) categories,
+       (select count(*) from public.categorization_rules) rules, (select count(*) from public.inputs) inputs,
+       (select count(*) from public.ai_usage) ai_usage, (select count(*) from public.change_log) change_log,
+       (select count(*) from public.entities) entities;
+grant select on reset_before to authenticated;
+set role authenticated;
+select set_config('request.jwt.claim.aal', 'aal2', false);
+do $$
+declare v jsonb;
+begin
+  assert (select count(*) from public.transactions) > 0 and (select count(*) from public.contacts) > 0 and (select count(*) from public.tasks) > 0, 'data exists before the reset';
+  begin
+    perform public.reset_all_data('reset');
+    raise exception 'lowercase confirmation allowed';
+  exception when raise_exception then
+    if sqlerrm = 'lowercase confirmation allowed' then raise; end if;
+  end;
+  -- Another signed-in user (not the owner) is refused.
+  perform set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000099', false);
+  begin
+    perform public.reset_all_data('RESET');
+    raise exception 'another user reset allowed';
+  exception when raise_exception then
+    if sqlerrm = 'another user reset allowed' then raise; end if;
+  end;
+  perform set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', false);
+  assert (select count(*) from public.transactions) > 0, 'refused resets deleted nothing';
+
+  v := public.reset_all_data('RESET');
+  assert (v ->> 'total')::int > 0, 'reset counts';
+  assert (v -> 'storage_paths') ? '00000000-0000-0000-0000-000000000001/accounts/statement.pdf', 'document paths returned for file removal';
+  -- Deleted
+  assert (select count(*) from public.transactions) = 0, 'transactions deleted';
+  assert (select count(*) from public.accounts) = 0, 'accounts deleted';
+  assert (select count(*) from public.account_balances) = 0, 'balances deleted';
+  assert (select count(*) from public.debts) = 0, 'debts deleted';
+  assert (select count(*) from public.funding_sources) = 0, 'funding deleted';
+  assert (select count(*) from public.income_sources) = 0, 'income deleted';
+  assert (select count(*) from public.pipeline_items) = 0, 'pipeline items deleted';
+  assert (select count(*) from public.stage_history) = 0, 'stage history deleted';
+  assert (select count(*) from public.contacts) = 0, 'contacts deleted';
+  assert (select count(*) from public.organizations) = 0, 'organizations deleted';
+  assert (select count(*) from public.communications) = 0, 'communications deleted';
+  assert (select count(*) from public.tasks) = 0, 'tasks deleted';
+  assert (select count(*) from public.commitments) = 0, 'commitments deleted';
+  assert (select count(*) from public.reviews) = 0, 'reviews deleted';
+  assert (select count(*) from public.partners) = 0 and (select count(*) from public.partner_reports) = 0, 'partners and finalized reports deleted';
+  assert (select count(*) from public.documents) = 0 and (select count(*) from public.notes) = 0, 'documents and notes deleted';
+  assert (select count(*) from public.checklists) = 0 and (select count(*) from public.checklist_items) = 0 and (select count(*) from public.plan_documents) = 0, 'checklists and plans deleted';
+  assert (select count(*) from public.record_links) = 0, 'links deleted';
+  assert (select count(*) from public.ai_conversations) = 0 and (select count(*) from public.ai_proposals) = 0, 'AI conversations and proposals deleted';
+  assert (select count(*) from public.goals) = 0 and (select count(*) from public.milestones) = 0, 'goals and milestones deleted';
+  assert (select count(*) from public.decisions) = 0 and (select count(*) from public.alerts) = 0, 'decisions and alerts deleted';
+  assert (select count(*) from public.target_entries) = 0 and (select count(*) from public.target_misses) = 0, 'target counts deleted';
+  assert not exists (select 1 from public.initiatives where name = 'Smoke meal plan'), 'owner-created initiative deleted';
+  -- Kept
+  assert (select count(*) from public.initiatives) = 6, 'default initiatives kept';
+  assert (select count(*) from public.pipelines) = (select pipelines from reset_before), 'pipelines kept';
+  assert (select count(*) from public.pipeline_stages) = (select stages from reset_before), 'stages kept';
+  assert (select count(*) from public.stage_tasks) = (select stage_tasks from reset_before), 'stage task lists kept';
+  assert (select count(*) from public.targets) = (select targets from reset_before), 'targets kept';
+  assert (select bool_and(start_date = current_date) from public.targets), 'targets count from today';
+  assert (select count(*) from public.task_templates) = (select templates from reset_before), 'recurring tasks kept';
+  assert (select count(*) from public.categories) = (select categories from reset_before), 'categories kept';
+  assert (select count(*) from public.categorization_rules) = (select rules from reset_before), 'category rules kept';
+  assert (select count(*) from public.inputs) = (select inputs from reset_before), 'inputs kept';
+  assert (select count(*) from public.ai_usage) = (select ai_usage from reset_before), 'AI usage kept';
+  assert (select count(*) from public.entities) = (select entities from reset_before), 'entities kept';
+  assert (select count(*) from public.owner_profile) = 1, 'owner profile kept';
+  assert (select count(*) from public.google_connections) = 1, 'Google connection kept';
+  -- Defaults created again; one change log entry, not one per deleted row
+  assert (select count(*) from public.budgets) = 1, 'default budget created again';
+  assert (select count(*) from public.savings_targets) = 2, 'default savings targets created again';
+  assert (select count(*) from public.decision_conditions where name = 'Runway under 6 months') = 1, 'default condition created again';
+  assert (select count(*) from public.change_log) <= (select change_log from reset_before) + 6, 'change log not filled with one entry per deleted row';
+  assert (select count(*) from public.change_log where field = 'all_data_reset' and actor = 'owner') = 1, 'All data reset entry';
+end $$;
+reset role;
+
 select 'smoke test passed' as result;

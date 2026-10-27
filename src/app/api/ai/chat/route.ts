@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import type Anthropic from "@anthropic-ai/sdk";
 import { getOwner } from "@/lib/auth";
-import { AI_SYSTEM_BASE, AIUnavailable, CHAT_LENGTH_RULE, MESSAGE_FORMAT_RULE, callClaude, cleanText, textOf } from "@/lib/ai/claude";
+import { AI_SYSTEM_BASE, AIInvalidReply, AIUnavailable, CHAT_LENGTH_RULE, MESSAGE_FORMAT_RULE, callClaude, cleanText, textOf } from "@/lib/ai/claude";
+import { createInitiativeDraft, UpdateNeeded } from "@/lib/initiative/server";
 import { AI_TOOLS, runTool } from "@/lib/ai/tools";
 import { loadCtx } from "@/lib/engine/helpers";
 import type { Row } from "@/lib/types";
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 /** Chat panel endpoint. The AI can read app data through tools and can only propose changes. */
 export async function POST(req: Request) {
@@ -26,6 +27,26 @@ export async function POST(req: Request) {
     ? await sb.from("ai_messages").select("role,content").eq("conversation_id", conversationId).order("created_at").limit(30)
     : { data: [] };
   await sb.from("ai_messages").insert({ owner_id: ownerId, conversation_id: conversationId, role: "user", content: message, page_path: body.pagePath ?? null });
+
+  // Chat command: "Start an initiative: ..." drafts an initiative (the same as Plan, Start an initiative).
+  const command = message.match(/^\s*(?:\/initiative|start an initiative|new initiative)\s*[:,-]?\s*([\s\S]*)$/i);
+  if (command) {
+    const description = command[1].trim();
+    if (description.length < 8) {
+      const reply = "- **Start an initiative:** add a sentence or more after the colon. Example: Start an initiative: weekly meal plan, shop once a week, cook on Sunday.";
+      await sb.from("ai_messages").insert({ owner_id: ownerId, conversation_id: conversationId, role: "assistant", content: reply });
+      return NextResponse.json({ reply, conversationId, proposals: [] });
+    }
+    try {
+      const draftId = await createInitiativeDraft(sb, ownerId, description, "chat");
+      const reply = "- **Draft ready:** the AI drafted the initiative.\n- **Next step:** open the review screen, edit any item, and press Approve selected.\n- **Nothing is saved** until you approve.";
+      await sb.from("ai_messages").insert({ owner_id: ownerId, conversation_id: conversationId, role: "assistant", content: reply });
+      return NextResponse.json({ reply, conversationId, proposals: [], link: { href: `/plan/initiatives/drafts/${draftId}`, label: "Open the review screen" } });
+    } catch (e) {
+      const text = e instanceof AIUnavailable || e instanceof AIInvalidReply || e instanceof UpdateNeeded ? e.message : "The AI request failed. Try again.";
+      return NextResponse.json({ error: text, conversationId }, { status: e instanceof AIUnavailable && e.reason !== "error" ? 403 : 500 });
+    }
+  }
 
   const ctx = await loadCtx(sb, ownerId);
   const path = body.pagePath ?? "/";

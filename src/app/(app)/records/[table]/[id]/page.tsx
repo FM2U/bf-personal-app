@@ -9,7 +9,7 @@ import { nextActionFor } from "@/lib/next-action";
 import { loadCtx } from "@/lib/engine/helpers";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { PageHeader, DetailGrid } from "@/components/app/page-header";
+import { PageHeader, DetailGrid, Notice } from "@/components/app/page-header";
 import { FieldValue } from "@/components/app/field-value";
 import { RecordForm } from "@/components/app/record-form";
 import { ConfirmSubmit } from "@/components/app/submit-button";
@@ -68,7 +68,13 @@ export default async function RecordPage({ params, searchParams }: { params: Pro
           ) : null
         }
       />
-      {table === "pipeline_items" ? <PipelineItemNotices sb={supabase} row={row} sp={sp} /> : null}
+      {table === "pipeline_items" ? (
+        <PipelineItemNotices sb={supabase} row={row} sp={sp} />
+      ) : sp.notice ? (
+        <div className="mb-4" data-testid="record-notice">
+          <Notice tone={/^(Not saved|Nothing was saved|Database update)/.test(sp.notice) ? "warn" : "success"}>{sp.notice}</Notice>
+        </div>
+      ) : null}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="flex min-w-0 flex-col gap-4 lg:col-span-2">
           <NextActionCard action={next} today={ctx.today} />

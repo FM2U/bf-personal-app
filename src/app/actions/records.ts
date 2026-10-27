@@ -12,7 +12,7 @@ import { loadCtx, refreshNextActionAlert } from "@/lib/engine/helpers";
 import { evaluateConditions } from "@/lib/engine/rules";
 import { checkCommitments, releaseSupersededNextActions } from "@/lib/engine/tasks";
 import { nextReportDate } from "@/lib/engine/partners";
-import { DB_UPDATE_NOTICE, DB_UPDATE_NOTICE_0011, isCheckViolation, isMissingSchemaError, NEW_COLUMNS, NEW_TABLES, OPTIONS_0012, TABLES_0011 } from "@/lib/schema-guard";
+import { DB_UPDATE_NOTICE, DB_UPDATE_NOTICE_0011, DB_UPDATE_NOTICE_0014, isCheckViolation, isMissingSchemaError, NEW_COLUMNS, NEW_TABLES, OPTIONS_0012, TABLES_0011, TABLES_0014 } from "@/lib/schema-guard";
 import { ORG_PEOPLE_FIELD, parseOrgPeople, planOrgPeople, type OrgPeoplePlan } from "@/lib/org-people";
 import { applyOrgPeople, linkedContactIds } from "@/lib/org-people-server";
 import { DETAIL_TABLE, hasPipelineUpdate, missingForStage } from "@/lib/pipeline";
@@ -224,7 +224,7 @@ async function writeRecord(table: string, fd: FormData, fields: Field[]): Promis
     result = await write(without);
   }
   if (result.error) {
-    if (isMissingSchemaError(result.error) && NEW_TABLES.includes(table)) return { ok: false, error: TABLES_0011.includes(table) ? DB_UPDATE_NOTICE_0011 : DB_UPDATE_NOTICE };
+    if (isMissingSchemaError(result.error) && NEW_TABLES.includes(table)) return { ok: false, error: TABLES_0014.includes(table) ? DB_UPDATE_NOTICE_0014 : TABLES_0011.includes(table) ? DB_UPDATE_NOTICE_0011 : DB_UPDATE_NOTICE };
     // A value allowed only after update 0012 (relationship group Friend or Other).
     if (isCheckViolation(result.error) && OPTIONS_0012[table]) return { ok: false, error: DB_UPDATE_NOTICE_0011 };
     return { ok: false, error: result.error.message };

@@ -392,3 +392,86 @@ const google = http.createServer(async (req, res) => {
   }
 });
 google.listen(GOOGLE_PORT, () => console.log(`Mock Google listening on http://localhost:${GOOGLE_PORT}`));
+
+// ---------- Anthropic stand-in (LOCAL TESTING ONLY) ----------
+// The app talks to it when ANTHROPIC_API_MOCK_URL=http://localhost:54330 (dev-tools/local.env); the app honors that
+// variable only for a localhost address. Replies:
+//   "TASK: initiative_proposal" -> the weekly meal plan proposal (dev-tools/fixtures/meal-plan.cjs)
+//   "TASK: savings_ideas"       -> up to 3 ideas built from the expense keys in the request
+//   chat (a request with tools) -> a short bulleted answer
+//   anything else               -> HTTP 400, so morning plans, review drafts, and message drafts use their templates
+// Test controls: POST /__mode {"initiative": "valid" | "invalid_once" | "invalid"}; GET /__calls; POST /__reset.
+import { createRequire } from "node:module";
+const requireCjs = createRequire(import.meta.url);
+const { mealPlanProposal } = requireCjs("./fixtures/meal-plan.cjs");
+const AI_PORT = Number(process.env.MOCK_AI_PORT || 54330);
+let aiMode = { initiative: "valid" };
+let aiCalls = [];
+let invalidSent = false;
+
+const nyToday = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+
+function aiMessage(text) {
+  return { id: `msg_mock_${Date.now().toString(36)}`, type: "message", role: "assistant", model: "mock-model", content: [{ type: "text", text }], stop_reason: "end_turn", stop_sequence: null, usage: { input_tokens: 1500, output_tokens: 900 } };
+}
+
+function savingsReply(prompt) {
+  const m = prompt.match(/Expenses \(key, type, monthly cost, last 90 days, flags\): (\[.*\])\n/);
+  const list = m ? JSON.parse(m[1]) : [];
+  const ideas = [];
+  const unused = list.find((c) => c.type === "recurring_series" && c.unused_subscription_flag);
+  if (unused) ideas.push({ title: `Cancel ${unused.name}`, target_keys: [unused.key], estimate: { method: "cancel" }, effort: "low", steps: ["Sign in to the account settings", "Cancel the plan and save the confirmation", "Check the next card statement"] });
+  const storage = list.filter((c) => c.type === "recurring_series" && /storage/i.test(c.name) && !/cloud/i.test(c.name)).sort((a, b) => a.monthly - b.monthly)[0];
+  if (storage) ideas.push({ title: `Close ${storage.name} and combine units`, target_keys: [storage.key], estimate: { method: "cancel" }, effort: "medium", steps: ["Move what is kept into the other two units", "Give 30 days notice", "Confirm the last charge"] });
+  const groceries = list.find((c) => c.type === "category" && /grocer/i.test(c.name));
+  if (groceries) ideas.push({ title: "Shop once a week from a list", target_keys: [groceries.key], estimate: { method: "reduce_percent", percent: 25 }, effort: "medium", steps: ["Plan the week's meals on Saturday", "Shop once with the list", "Cook on Sunday for the week"] });
+  return { ideas: ideas.slice(0, 3) };
+}
+
+const ai = http.createServer(async (req, res) => {
+  const url = new URL(req.url, `http://localhost:${AI_PORT}`);
+  try {
+    if (url.pathname === "/__mode" && req.method === "POST") {
+      aiMode = { ...aiMode, ...JSON.parse((await readRaw(req)) || "{}") };
+      invalidSent = false;
+      return send(res, 200, aiMode);
+    }
+    if (url.pathname === "/__reset" && req.method === "POST") {
+      aiMode = { initiative: "valid" };
+      aiCalls = [];
+      invalidSent = false;
+      return send(res, 200, { ok: true });
+    }
+    if (url.pathname === "/__calls") return send(res, 200, aiCalls);
+    if (url.pathname.startsWith("/v1/models")) return send(res, 200, { data: [{ id: "mock-model", type: "model" }], has_more: false });
+    if (url.pathname === "/v1/messages" && req.method === "POST") {
+      const body = JSON.parse((await readRaw(req)) || "{}");
+      const text = (body.messages ?? []).map((m) => (typeof m.content === "string" ? m.content : (m.content ?? []).map((b) => b.text ?? "").join("\n"))).join("\n");
+      if (text.includes("TASK: initiative_proposal")) {
+        aiCalls.push("initiative_proposal");
+        const retry = (body.messages ?? []).length > 1;
+        if (aiMode.initiative === "invalid" || (aiMode.initiative === "invalid_once" && !invalidSent && !retry)) {
+          invalidSent = true;
+          return send(res, 200, aiMessage("Here is a plan: shop on Saturday and cook on Sunday."));
+        }
+        return send(res, 200, aiMessage("```json\n" + JSON.stringify(mealPlanProposal(nyToday()), null, 2) + "\n```"));
+      }
+      if (text.includes("TASK: savings_ideas")) {
+        aiCalls.push("savings_ideas");
+        const reply = savingsReply(text);
+        if (process.env.MOCK_DEBUG) console.error("savings reply", JSON.stringify(reply));
+        return send(res, 200, aiMessage(JSON.stringify(reply)));
+      }
+      if (Array.isArray(body.tools) && body.tools.length) {
+        aiCalls.push("chat");
+        return send(res, 200, aiMessage("- **Runway:** this is the local test AI. It answers without reading your data.\n- **Next step:** ask again on the live app."));
+      }
+      aiCalls.push("other");
+      return send(res, 400, { type: "error", error: { type: "invalid_request_error", message: "The local AI stand-in answers only initiative, savings, and chat requests." } });
+    }
+    return send(res, 404, { type: "error", error: { type: "not_found_error", message: `Not in the AI mock: ${req.method} ${url.pathname}` } });
+  } catch (e) {
+    return send(res, 500, { type: "error", error: { type: "api_error", message: e.message } });
+  }
+});
+ai.listen(AI_PORT, () => console.log(`Mock Anthropic listening on http://localhost:${AI_PORT}`));

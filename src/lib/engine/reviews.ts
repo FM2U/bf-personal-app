@@ -2,7 +2,7 @@ import "server-only";
 import { addDaysISO, monthBounds, quarterBounds, todayInTz, weekBounds } from "@/lib/calc/dates";
 import { budgetVariance } from "@/lib/calc/savings";
 import { completionScore, repeatedMisses } from "@/lib/calc/scores";
-import { computeMetrics } from "@/lib/metrics";
+import { computeMetrics, metricValue } from "@/lib/metrics";
 import { netWorthByMonth } from "@/lib/finance";
 import { tryDraft } from "@/lib/ai/claude";
 import { money, months as fmtMonths } from "@/lib/format";
@@ -209,7 +209,7 @@ export async function reviewData(ctx: Ctx, kind: ReviewKind, start: string, end:
   if (kind === "quarterly") {
     const next = quarterBounds(addDaysISO(end, 1));
     const [{ data: goals }, { data: inits }, { data: inputs }, { data: nextMs }, { data: dueConds }] = await Promise.all([
-      sb.from("goals").select("id,title,initiative_id,metric_key,target_value,comparison,deadline,status").eq("owner_id", ownerId),
+      sb.from("goals").select("*").eq("owner_id", ownerId),
       sb.from("initiatives").select("id,name").eq("owner_id", ownerId),
       sb.from("inputs").select("label,value_number,value_text,updated_at").eq("owner_id", ownerId).order("sort_order"),
       sb.from("milestones").select("title,due_date,status").eq("owner_id", ownerId).gte("due_date", next.start).lte("due_date", next.end),
@@ -217,9 +217,16 @@ export async function reviewData(ctx: Ctx, kind: ReviewKind, start: string, end:
     ]);
     const initName = Object.fromEntries(((inits ?? []) as Row[]).map((i) => [i.id, i.name]));
     data.goals = ((goals ?? []) as Row[]).map((g) => ({
-      ...g,
+      id: g.id,
+      title: g.title,
+      initiative_id: g.initiative_id,
+      metric_key: g.metric_key,
+      target_value: g.target_value,
+      comparison: g.comparison,
+      deadline: g.deadline,
+      status: g.status,
       initiative: initName[g.initiative_id] ?? "No initiative",
-      current: g.metric_key ? metrics.values[g.metric_key] ?? null : null,
+      current: g.metric_key ? metricValue(metrics, g.metric_key, g.metric_params) : null,
     }));
     data.inputs = inputs ?? [];
     data.next_quarter = next;

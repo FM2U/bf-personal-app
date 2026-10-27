@@ -8,7 +8,7 @@ import type { Row } from "@/lib/types";
 
 const READ_BLOCKED = new Set(["google_connections", "plaid_items", "partner_links", "ai_messages"]);
 const READABLE = EXPORT_TABLES.filter((t) => !READ_BLOCKED.has(t));
-const PROPOSE_BLOCKED = new Set(["ai_proposals", "ai_usage", "ai_messages", "ai_conversations", "change_log", "input_history", "google_connections", "plaid_items", "partner_links", "partner_reports", "owner_profile", "stage_history"]);
+const PROPOSE_BLOCKED = new Set(["ai_proposals", "ai_usage", "ai_messages", "ai_conversations", "change_log", "input_history", "google_connections", "plaid_items", "partner_links", "partner_reports", "owner_profile", "stage_history", "initiative_drafts", "sample_records", "savings_ideas"]);
 
 export const AI_TOOLS: Anthropic.Tool[] = [
   {

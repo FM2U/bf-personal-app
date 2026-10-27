@@ -8,6 +8,10 @@
 #   (g) 0001 to 0011 plus an owner and data (UPDATE_0011 was run first), then UPDATE_0011_0012_RUN_ONCE.sql twice
 #   (h) 0001 to 0011, then UPDATE_0012_RUN_ONCE.sql twice
 #   (i) 0001 to 0012 (the live database on 2026-10-26, evening) plus an owner and data, then UPDATE_0013_RUN_ONCE.sql twice
+#   (j) 0001 to 0012 plus an owner and data, then UPDATE_0013_0014_RUN_ONCE.sql twice
+#   (k) 0001 to 0013 plus an owner and data, then UPDATE_0013_0014_RUN_ONCE.sql twice
+#   (l) 0001 to 0013, then UPDATE_0014_RUN_ONCE.sql twice
+# Paths b, c, d (UPDATE_RUN_ONCE.sql) and j, k, l also check 0014: tables, policies, functions, sample removal, and reset.
 # Every UPDATE_RUN_ONCE.sql path also checks 0012 and 0013.
 # Usage: bash supabase/tests/upgrade_test.sh
 set -euo pipefail
@@ -187,6 +191,46 @@ select '0013 checks passed' as result;
 SQL
 }
 
+check14() { # $1 = database: 0014 applied once, existing data kept, reset and sample removal work as the owner
+  su postgres -c "$PSQL -d $1" <<'SQL'
+\set ON_ERROR_STOP 1
+do $$ begin
+  assert to_regprocedure('public.schema_has_0014()') is not null, '0014 check function';
+  assert to_regprocedure('public.reset_all_data(text)') is not null, 'reset function';
+  assert to_regprocedure('public.remove_sample_data()') is not null, 'sample removal function';
+  assert to_regprocedure('public.insert_record_batch(jsonb,text,uuid)') is not null, 'batch function';
+  assert (select count(*) from pg_policies where schemaname = 'public' and policyname = 'owner_only'
+          and tablename in ('plan_documents', 'checklists', 'checklist_items', 'savings_ideas', 'initiative_drafts', 'sample_records')) = 6, 'one policy per 0014 table';
+  assert (select count(*) from pg_trigger where tgname = 'log_change' and tgrelid in (
+          'public.plan_documents'::regclass, 'public.checklists'::regclass, 'public.checklist_items'::regclass,
+          'public.savings_ideas'::regclass, 'public.initiative_drafts'::regclass)) = 5, 'one change log trigger per 0014 table (none on sample_records)';
+  assert (select count(*) from pg_trigger where tgname = 'log_change' and tgrelid = 'public.sample_records'::regclass) = 0, 'sample_records not logged';
+  assert (select bool_and(relrowsecurity) from pg_class where oid in ('public.checklists'::regclass, 'public.sample_records'::regclass, 'public.savings_ideas'::regclass)), '0014 RLS';
+  assert (select count(*) from information_schema.columns where table_schema = 'public' and ((table_name = 'initiatives' and column_name = 'parent_initiative_id') or (table_name = 'goals' and column_name = 'metric_params'))) = 2, '0014 columns';
+  assert exists (select 1 from public.contacts where name = 'Existing contact'), 'existing data kept';
+  assert (select count(*) from public.initiatives) = 6, 'initiatives unchanged';
+end $$;
+-- The existing owner can load and remove sample rows, then reset.
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', false);
+select set_config('request.jwt.claim.role', 'authenticated', false);
+select set_config('request.jwt.claim.aal', 'aal2', false);
+do $$
+declare v jsonb;
+begin
+  perform public.insert_record_batch('[{"table":"contacts","rows":[{"name":"Sample Friend A"}]}]'::jsonb, 'owner', gen_random_uuid());
+  v := public.remove_sample_data();
+  assert (v ->> 'total')::int = 1, 'one sample row removed';
+  assert exists (select 1 from public.contacts where name = 'Existing contact'), 'real contact kept by sample removal';
+  v := public.reset_all_data('RESET');
+  assert not exists (select 1 from public.contacts), 'reset deleted contacts';
+  assert (select count(*) from public.pipelines) = 6 and (select count(*) from public.task_templates) > 0, 'reset kept setup';
+end $$;
+reset role;
+select '0014 checks passed' as result;
+SQL
+}
+
 # Existing owner edited the runway setting text: 0012 keeps the edit.
 edited_text() { # $1 = database
   su postgres -c "$PSQL -d $1 -c \"update public.inputs set description = 'My own note' where key = 'runway_include_signed_consulting'\""
@@ -261,7 +305,7 @@ do $$ begin
 end $$;
 SQL
 
-for db in bf_upgrade_b bf_upgrade_c bf_upgrade_d; do check12 $db; check13 $db; done
+for db in bf_upgrade_b bf_upgrade_c bf_upgrade_d; do check12 $db; check13 $db; check14 $db; done
 
 # (i) Live state: 0001 to 0012 applied, then UPDATE_0013_RUN_ONCE.sql twice.
 setup bf_upgrade_i 0012
@@ -273,6 +317,34 @@ check11 bf_upgrade_i
 check12 bf_upgrade_i
 check13 bf_upgrade_i
 
+# (j) Live state on 2026-10-27: 0001 to 0012 applied, then UPDATE_0013_0014_RUN_ONCE.sql twice.
+setup bf_upgrade_j 0012
+for run in 1 2; do
+  echo "[bf_upgrade_j] Applying UPDATE_0013_0014_RUN_ONCE.sql (run $run)"
+  su postgres -c "$PSQL -d bf_upgrade_j -f $DIR/UPDATE_0013_0014_RUN_ONCE.sql"
+done
+check11 bf_upgrade_j
+check12 bf_upgrade_j
+check13 bf_upgrade_j
+check14 bf_upgrade_j
+
+# (k) 0001 to 0013 applied (the owner ran UPDATE_0013_RUN_ONCE.sql first), then UPDATE_0013_0014_RUN_ONCE.sql twice.
+setup bf_upgrade_k 0013
+for run in 1 2; do
+  echo "[bf_upgrade_k] Applying UPDATE_0013_0014_RUN_ONCE.sql (run $run)"
+  su postgres -c "$PSQL -d bf_upgrade_k -f $DIR/UPDATE_0013_0014_RUN_ONCE.sql"
+done
+check13 bf_upgrade_k
+check14 bf_upgrade_k
+
+# (l) 0001 to 0013, then UPDATE_0014_RUN_ONCE.sql twice.
+setup bf_upgrade_l 0013
+for run in 1 2; do
+  echo "[bf_upgrade_l] Applying UPDATE_0014_RUN_ONCE.sql (run $run)"
+  su postgres -c "$PSQL -d bf_upgrade_l -f $DIR/UPDATE_0014_RUN_ONCE.sql"
+done
+check14 bf_upgrade_l
+
 echo "Upgrade paths passed: 0001-0007 + update twice, 0001-0008 + update, 0001-0009 + update twice, 0001-0010 + 0011 update twice,"
 echo "0001-0010 + 0011_0012 update twice, 0001-0011 + 0011_0012 update twice, 0001-0011 + 0012 update twice (edited text kept),"
-echo "0001-0012 + 0013 update twice."
+echo "0001-0012 + 0013 update twice, 0001-0012 + 0013_0014 update twice, 0001-0013 + 0013_0014 update twice, 0001-0013 + 0014 update twice."

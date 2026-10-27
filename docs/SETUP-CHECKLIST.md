@@ -3,10 +3,24 @@
 Do these in order. Each line says where to copy a value from and where to paste it.
 Vercel variables go in: Vercel, project bf-personal-app, Settings, Environment Variables (Production).
 
+## 0. Database update 0013 and 0014 (the live database; about 1 minute)
+
+One file runs both updates. Use it whether or not `UPDATE_0013_RUN_ONCE.sql` was already run.
+- **0013:** send email from the app (Gmail message ids, partner report sent date).
+- **0014:** Start an initiative, plan documents, checklists, weekly AI savings ideas, Load and Remove sample data, Reset all data.
+
+- [ ] Open the file `supabase/UPDATE_0013_0014_RUN_ONCE.sql` in the GitHub repository (bf-personal-app), press "Copy raw file"
+- [ ] Supabase, project bf-personal-app, SQL Editor, New query: paste, press **Run**. Expected result: "Success. No rows returned"
+- [ ] Running it a second time is safe. It deletes or changes no existing record
+- [ ] Open the app: Plan shows "Start an initiative" with no "Database update needed" notice; Settings has a "Sample data and reset" tab; Finance, Expenses shows "Savings ideas"
+- [ ] Try it: Plan, Start an initiative, press "Use the meal plan example" (or press Speak and say it), press Draft the plan, check the review screen, press Approve selected. The initiative page shows the menu and the grocery list
+- [ ] Testing with sample data: Settings, Sample data and reset, Load sample data (check the box when it says you have real records). Remove sample data deletes only the sample rows
+- [ ] Before entering real data: Settings, Sample data and reset, Reset all data: step 1 Download full export (keep the file), step 2 type RESET, press Reset all data. Your setup (initiatives, pipelines, stage task lists, targets, recurring tasks, categories, Inputs, connections) stays
+
 ## 1. Supabase (database)
 
 - [ ] Create a Supabase project (sign in with GitHub). Region: US East. Save the database password somewhere safe.
-- [ ] SQL Editor: paste and run `supabase/ALL_MIGRATIONS_RUN_ONCE.sql` (0001 to 0013), or each file from `supabase/migrations/` in order: 0001 to 0013.
+- [ ] SQL Editor: paste and run `supabase/ALL_MIGRATIONS_RUN_ONCE.sql` (0001 to 0014), or each file from `supabase/migrations/` in order: 0001 to 0014.
 - [ ] Authentication, Sign In / Providers, Email: enabled. Multi-Factor: TOTP enabled.
 - [ ] Copy Settings, API, **Project URL** to Vercel `NEXT_PUBLIC_SUPABASE_URL`
 - [ ] Copy Settings, API, **anon public** key to Vercel `NEXT_PUBLIC_SUPABASE_ANON_KEY`
@@ -18,9 +32,7 @@ Vercel variables go in: Vercel, project bf-personal-app, Settings, Environment V
 Two one-time steps. Until both are done, Send now shows "Reconnect Google" and drafts and calendar keep working.
 
 **Step 1: database update 0013 (about 1 minute)**
-- [ ] Open the file `supabase/UPDATE_0013_RUN_ONCE.sql` in the GitHub repository (bf-personal-app), press "Copy raw file"
-- [ ] Supabase, project bf-personal-app, SQL Editor, New query: paste, press **Run**. Expected result: "Success. No rows returned"
-- [ ] Running it a second time is safe. (Sending works before this step too; this step saves the Gmail message id on each communication and the sent date on partner reports.)
+- [ ] Done by step 0 above (`supabase/UPDATE_0013_0014_RUN_ONCE.sql` includes 0013). If `supabase/UPDATE_0013_RUN_ONCE.sql` was already run, step 0 is still safe to run.
 
 **Step 2: reconnect Google once (about 1 minute)**
 - [ ] Google Cloud console (project "BF Personal App"), APIs and Services, OAuth consent screen (or Data access), Scopes: add `https://www.googleapis.com/auth/gmail.send` next to the existing ones, Save. (The app asks for it either way; adding it here keeps the consent screen list accurate.)
@@ -46,13 +58,14 @@ One file runs both updates. Use it whether or not `UPDATE_0011_RUN_ONCE.sql` was
 ## 1c. Database update (older database only: one combined file)
 
 Do this once if the database was set up before 0010 (it has 0001 to 0007, 0001 to 0008, or 0001 to 0009).
-It also includes 0011, 0012, and 0013, so the database parts of steps 1a and 1b are then not needed (step 1a, Reconnect Google, still is). The file holds six updates:
+It also includes 0011, 0012, 0013, and 0014, so step 0 and the database parts of steps 1a and 1b are then not needed (step 1a, Reconnect Google, still is). The file holds seven updates:
 - **0008:** Daily Targets, Outreach Queue.
 - **0009:** stage task lists, time limits, required details, stalled items, deal source, Deals sourced and Deals advanced targets.
 - **0010:** commitment rule. Only pipeline next actions, milestones, daily targets, and the reviews are commitments. Regular tasks that are not done move to the next day.
 - **0011:** deal source chain and the Consulting pipeline (see 1b).
 - **0012:** relationship groups Friend and Other; runway setting text (see 1b).
 - **0013:** send email from the app: Gmail message ids and the partner report sent date (see 1a).
+- **0014:** Start an initiative, checklists, savings ideas, sample data, Reset all data (see step 0).
 
 - [ ] Open the file `supabase/UPDATE_RUN_ONCE.sql` in the GitHub repository (bf-personal-app), press "Copy raw file"
 - [ ] Supabase, project bf-personal-app, SQL Editor, New query: paste, press **Run**. Expected result: "Success. No rows returned"
@@ -119,3 +132,4 @@ It also includes 0011, 0012, and 0013, so the database parts of steps 1a and 1b 
 - [ ] Optional: Plan, Inputs and Assumptions: set "Count signed consulting income in runway" to 1 to add expected income from signed work to runway
 - [ ] Accountability, Accountability partners: to share daily targets, add "Daily targets" to the partner's sections, and on the target turn on "Show to accountability partners"
 - [ ] Monthly: Settings, Export, Download full export
+- [ ] Weekly (automatic): on the weekly review day, Finance, Expenses shows up to 3 savings ideas. Approve, Edit, Decline (with a reason), or Later each one

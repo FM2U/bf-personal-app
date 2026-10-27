@@ -25,6 +25,8 @@ export const NEW_COLUMNS: Record<string, string[]> = {
   pipeline_stages: ["max_days_in_stage", "required_fields", "default_probability_pct", "counts_as_signed"],
   targets: ["stage_id"],
   transactions: ["pipeline_item_id"],
+  initiatives: ["parent_initiative_id"],
+  goals: ["metric_params"],
 };
 
 /** Kept for existing imports. */
@@ -47,7 +49,7 @@ export const COLUMNS_0011: Record<string, string[]> = {
   transactions: ["pipeline_item_id"],
 };
 
-export const NEW_TABLES = ["targets", "target_entries", "target_misses", "stage_tasks", "pipeline_item_stage_extensions", "consulting_details"];
+export const NEW_TABLES = ["targets", "target_entries", "target_misses", "stage_tasks", "pipeline_item_stage_extensions", "consulting_details", "plan_documents", "checklists", "checklist_items", "savings_ideas", "initiative_drafts"];
 
 /** Option values that need database update 0012 (a check constraint allows them only after it). */
 export const OPTIONS_0012: Record<string, Record<string, string[]>> = {
@@ -88,4 +90,19 @@ export const DB_UPDATE_NOTICE_0013 = `Database update needed: paste ${DB_UPDATE_
 export const COLUMNS_0013: Record<string, string[]> = {
   communications: ["gmail_message_id", "gmail_thread_id"],
   partner_reports: ["sent_at", "gmail_message_id"],
+};
+
+/**
+ * Database update 0014 (Start an initiative, savings ideas, checklists, sample data, Reset data).
+ * The live database has 0001 to 0012 (or 0013): it runs supabase/UPDATE_0013_0014_RUN_ONCE.sql (0013, then 0014).
+ * Before it, these features show DB_UPDATE_NOTICE_0014 and every other screen and both scheduled jobs keep working.
+ */
+export const DB_UPDATE_FILE_0014 = "supabase/UPDATE_0013_0014_RUN_ONCE.sql";
+export const DB_UPDATE_NOTICE_0014 = `Database update needed: paste ${DB_UPDATE_FILE_0014} into the Supabase SQL Editor and run it.`;
+export const PROBE_0014 = "schema_has_0014";
+export const TABLES_0014 = ["plan_documents", "checklists", "checklist_items", "savings_ideas", "initiative_drafts", "sample_records"];
+/** Columns added by 0014 to tables that already existed. Forms leave them out until the update is applied. */
+export const COLUMNS_0014: Record<string, string[]> = {
+  initiatives: ["parent_initiative_id"],
+  goals: ["metric_params"],
 };
