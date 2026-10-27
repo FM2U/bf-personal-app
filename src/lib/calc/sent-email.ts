@@ -43,6 +43,8 @@ export type SentEmailInput = {
   sentAt: string;
   contact: { id?: string | null; organization_id?: string | null; is_consulting_lead?: unknown; is_deal_source?: unknown } | null;
   pipelineItemId?: string | null;
+  /** The organization the email is about (organization page). Otherwise the contact's organization. */
+  organizationId?: string | null;
   purpose?: string | null;
 };
 
@@ -55,7 +57,7 @@ export function sentEmailCommunication(i: SentEmailInput): Record<string, unknow
     method: "email",
     direction: "outgoing",
     contact_id: i.contact?.id ?? null,
-    organization_id: i.contact?.organization_id ?? null,
+    organization_id: i.organizationId ?? i.contact?.organization_id ?? null,
     subject: String(i.subject ?? "").slice(0, 300) || "(No subject)",
     summary: sentSummary(i.to, i.body),
     is_outreach: outreach,

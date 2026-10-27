@@ -191,12 +191,12 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
             </CardHeader>
             <CardContent>
               {needReason.length ? (
-                <div className="flex flex-col divide-y divide-slate-100">
+                <div className="@container flex flex-col divide-y divide-slate-100">
                   {needReason.map(({ target, h }) => (
                     <GuardedForm
                       key={`${target.id}:${h.start}`}
                       action={saveTargetMissReason}
-                      className="grid grid-cols-1 items-center gap-2 py-2 sm:grid-cols-[minmax(0,11rem)_11rem_minmax(0,1fr)_auto]"
+                      className="grid grid-cols-1 items-center gap-2 py-2 @md:grid-cols-[minmax(0,1fr)_auto] @3xl:grid-cols-[minmax(0,11rem)_11rem_minmax(12rem,1fr)_auto]"
                     >
                       <input type="hidden" name="target_id" value={target.id} />
                       <input type="hidden" name="period_start" value={h.start} />

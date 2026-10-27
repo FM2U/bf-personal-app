@@ -912,7 +912,8 @@ async function PartnerLinksPanel({ sb, row }: P) {
         ) : (
           <Notice>No link yet. Create one to share reports without a login.</Notice>
         )}
-        <GuardedForm action={createPartnerLink} className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_10rem_auto] sm:items-end">
+        <div className="@container">
+        <GuardedForm action={createPartnerLink} className="grid grid-cols-1 gap-x-3 gap-y-3 @md:grid-cols-[minmax(10rem,1fr)_10rem_auto] @md:items-end">
           <input type="hidden" name="partner_id" value={row.id} />
           <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
             <span className="clamp-1">Label (optional)</span>
@@ -929,6 +930,7 @@ async function PartnerLinksPanel({ sb, row }: P) {
           </label>
           <SubmitButton size="sm">Create link</SubmitButton>
         </GuardedForm>
+        </div>
         <GuardedForm action={createReportNow}>
           <input type="hidden" name="partner_id" value={row.id} />
           <SubmitButton size="sm" variant="outline" pendingText="Creating report...">

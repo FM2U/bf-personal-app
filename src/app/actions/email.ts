@@ -9,7 +9,9 @@ import { activeLinkFor, reportText } from "@/lib/engine/partners";
 import { createGmailDraft, getGoogleConnection, sendGmailMessage } from "@/lib/google";
 import { sendPermission } from "@/lib/google-scopes";
 import { explainGoogleError } from "@/lib/google-errors";
-import { isValidEmail } from "@/lib/gmail-mime";
+import { emailAddressProblem, isValidEmail } from "@/lib/email-address";
+import { composePurpose } from "@/lib/calc/compose-email";
+import { AI_SYSTEM_MESSAGE, AIUnavailable, callClaude, cleanText, parseJsonFromText, textOf } from "@/lib/ai/claude";
 import { prepareOutreachEmail, sentEmailCommunication, type SentEmailInput } from "@/lib/calc/sent-email";
 import { isCheckViolation, isMissingSchemaError } from "@/lib/schema-guard";
 import { isGoogleConfigured } from "@/lib/env";
@@ -82,6 +84,68 @@ async function sendOne(sb: SupabaseClient, ownerId: string, msg: { to: string; s
   }
 }
 
+type OutreachDelivery = {
+  requestId: string;
+  to: string;
+  subject: string;
+  body: string;
+  contact: Row | null;
+  pipelineItemId?: string | null;
+  organizationId?: string | null;
+  purpose?: string | null;
+  threadId?: string | null;
+};
+
+/**
+ * Sends one approved outreach email and logs it: one communication (counts as outreach), a record link to the
+ * pipeline item when there is one, and a change log entry. Shared by Draft message and the Email button.
+ */
+async function deliverOutreach(sb: SupabaseClient, ownerId: string, d: OutreachDelivery): Promise<SendResult> {
+  const msg = prepareOutreachEmail(d.subject, d.body);
+  if (!msg.body.trim()) return { ok: false, reason: "invalid", message: "The message is empty." };
+  const problem = await permissionProblem(sb, ownerId);
+  if (problem) return problem;
+
+  const sent = await sendOne(sb, ownerId, { to: d.to, ...msg, threadId: d.threadId ?? null });
+  if ("ok" in sent) return sent;
+
+  const sentAt = new Date().toISOString();
+  const commId = await saveCommunication(
+    sb,
+    { kind: "outreach", ownerId, to: d.to, subject: msg.subject, body: msg.body, sentAt, contact: d.contact, pipelineItemId: d.pipelineItemId ?? null, organizationId: d.organizationId ?? null, purpose: d.purpose ?? null },
+    sent,
+  );
+  if (commId && d.pipelineItemId) {
+    await sb.from("record_links").insert({ owner_id: ownerId, from_type: "communications", from_id: commId, to_type: "pipeline_items", to_id: d.pipelineItemId, relation: "concerns" });
+  }
+  await writeChangeLog(sb, ownerId, {
+    table: commId ? "communications" : d.contact ? "contacts" : "communications",
+    recordId: commId ?? (d.contact ? String(d.contact.id) : null),
+    value: {
+      request_id: d.requestId,
+      kind: "outreach",
+      to: d.to,
+      subject: msg.subject,
+      contact_id: d.contact?.id ?? null,
+      pipeline_item_id: d.pipelineItemId ?? null,
+      organization_id: d.organizationId ?? null,
+      gmail_message_id: sent.id,
+      gmail_thread_id: sent.threadId,
+      sent_at: sentAt,
+    },
+  });
+  const ctx = await loadCtx(sb, ownerId);
+  await evaluateConditions(ctx);
+  revalidatePath("/", "layout");
+  const who = d.contact ? String(d.contact.name) : d.to;
+  return {
+    ok: true,
+    sentAt,
+    messageId: sent.id,
+    note: commId ? `Logged as outreach to ${who}.` : `The email was sent, but the communication could not be saved. Press Log outreach to record it.`,
+  };
+}
+
 /** Outreach Queue, Draft message: sends the approved text to the contact and logs it as outreach. */
 export async function sendOutreachEmail(input: { contactId: string; subject: string; body: string; requestId: string; pipelineItemId?: string | null; purpose?: string | null; threadId?: string | null }): Promise<SendResult> {
   const { supabase, ownerId } = await requireOwner();
@@ -92,37 +156,135 @@ export async function sendOutreachEmail(input: { contactId: string; subject: str
   const contact = c as Row | null;
   if (!contact) return { ok: false, reason: "invalid", message: "Contact not found." };
   if (!contact.email || !isValidEmail(String(contact.email))) return { ok: false, reason: "invalid", message: "This contact has no valid email address. Add one on the contact page, or copy the message instead." };
-  const msg = prepareOutreachEmail(input.subject, input.body);
-  if (!msg.body.trim()) return { ok: false, reason: "invalid", message: "The message is empty." };
-  const problem = await permissionProblem(supabase, ownerId);
-  if (problem) return problem;
-
-  const sent = await sendOne(supabase, ownerId, { to: String(contact.email), ...msg, threadId: input.threadId ?? null });
-  if ("ok" in sent) return sent;
-
-  const sentAt = new Date().toISOString();
-  const commId = await saveCommunication(
-    supabase,
-    { kind: "outreach", ownerId, to: String(contact.email), subject: msg.subject, body: msg.body, sentAt, contact, pipelineItemId: input.pipelineItemId ?? null, purpose: input.purpose ?? null },
-    sent,
-  );
-  if (commId && input.pipelineItemId) {
-    await supabase.from("record_links").insert({ owner_id: ownerId, from_type: "communications", from_id: commId, to_type: "pipeline_items", to_id: input.pipelineItemId, relation: "concerns" });
-  }
-  await writeChangeLog(supabase, ownerId, {
-    table: commId ? "communications" : "contacts",
-    recordId: commId ?? String(contact.id),
-    value: { request_id: input.requestId, kind: "outreach", to: contact.email, subject: msg.subject, contact_id: contact.id, gmail_message_id: sent.id, gmail_thread_id: sent.threadId, sent_at: sentAt },
+  return deliverOutreach(supabase, ownerId, {
+    requestId: input.requestId,
+    to: String(contact.email).trim(),
+    subject: input.subject,
+    body: input.body,
+    contact,
+    pipelineItemId: input.pipelineItemId ?? null,
+    purpose: input.purpose ?? null,
+    threadId: input.threadId ?? null,
   });
-  const ctx = await loadCtx(supabase, ownerId);
-  await evaluateConditions(ctx);
-  revalidatePath("/", "layout");
-  return {
-    ok: true,
-    sentAt,
-    messageId: sent.id,
-    note: commId ? `Logged as outreach to ${contact.name}.` : `The email was sent, but the communication could not be saved. Press Log outreach to record it.`,
+}
+
+/** What the Email button sends with: the typed To address and the record the email belongs to. */
+export type ComposeInput = {
+  to: string;
+  subject: string;
+  body: string;
+  /** The listed person whose address is in To, or the contact page's contact. */
+  contactId?: string | null;
+  pipelineItemId?: string | null;
+  organizationId?: string | null;
+};
+
+/** Loads the contact and the pipeline item's kind for a compose request. Ids that do not exist are dropped. */
+async function composeRecords(sb: SupabaseClient, input: ComposeInput) {
+  const [{ data: c }, { data: item }] = await Promise.all([
+    input.contactId ? sb.from("contacts").select("*").eq("id", input.contactId).maybeSingle() : Promise.resolve({ data: null }),
+    input.pipelineItemId ? sb.from("pipeline_items").select("id,name,pipeline_id,organization_id,notes,stage_id").eq("id", input.pipelineItemId).maybeSingle() : Promise.resolve({ data: null }),
+  ]);
+  const pipelineItem = item as Row | null;
+  const { data: pipe } = pipelineItem?.pipeline_id ? await sb.from("pipelines").select("kind,name").eq("id", pipelineItem.pipeline_id).maybeSingle() : { data: null };
+  let organizationId = input.organizationId ?? null;
+  if (organizationId) {
+    const { data: org } = await sb.from("organizations").select("id").eq("id", organizationId).maybeSingle();
+    if (!org) organizationId = null;
+  }
+  return { contact: (c as Row | null) ?? null, pipelineItem, pipeline: (pipe as Row | null) ?? null, organizationId };
+}
+
+/**
+ * The Email button (contact, organization, and pipeline item pages) and "Email them" (Outreach Queue): sends the
+ * approved email to the typed address and logs it as outreach, linked to the contact and the record.
+ */
+export async function sendComposedEmail(input: ComposeInput & { requestId: string }): Promise<SendResult> {
+  const { supabase, ownerId } = await requireOwner();
+  if (!REQUEST_ID.test(String(input.requestId ?? ""))) return { ok: false, reason: "invalid", message: "The send request was not valid. Reload the page and try again." };
+  const done = await previousSend(supabase, input.requestId);
+  if (done) return { ok: true, ...done, alreadySent: true };
+  const to = String(input.to ?? "").trim();
+  const bad = emailAddressProblem(to);
+  if (bad) return { ok: false, reason: "invalid", message: bad };
+  const { contact, pipelineItem, pipeline, organizationId } = await composeRecords(supabase, input);
+  if (input.contactId && !contact) return { ok: false, reason: "invalid", message: "Contact not found." };
+  return deliverOutreach(supabase, ownerId, {
+    requestId: input.requestId,
+    to,
+    subject: input.subject,
+    body: input.body,
+    contact,
+    pipelineItemId: pipelineItem?.id ?? null,
+    organizationId,
+    purpose: composePurpose({ contact, pipelineKind: (pipeline?.kind as string | null) ?? null }),
+  });
+}
+
+/** The Email button: Save to Gmail drafts. Sends nothing and logs nothing (the owner sends it from Gmail). */
+export async function saveComposedGmailDraft(input: { to: string; subject: string; body: string }): Promise<{ ok: boolean; message: string }> {
+  const { supabase, ownerId } = await requireOwner();
+  const to = String(input.to ?? "").trim();
+  const bad = emailAddressProblem(to);
+  if (bad) return { ok: false, message: bad };
+  const msg = prepareOutreachEmail(input.subject, input.body);
+  if (!msg.body.trim()) return { ok: false, message: "The message is empty." };
+  try {
+    const id = await createGmailDraft(supabase, ownerId, { to, ...msg });
+    if (!id) return { ok: false, message: "Google is not connected. Connect Google in Settings, Connections." };
+    return { ok: true, message: `Gmail draft created for ${to}. Open Gmail, Drafts to review and send it. After sending it from Gmail, press Log outreach.` };
+  } catch (e) {
+    return { ok: false, message: `The Gmail draft could not be created. ${explainGoogleError(e).message}` };
+  }
+}
+
+export type WriteResult = { ok: true; subject: string; body: string } | { ok: false; error: string };
+
+/**
+ * "Write with AI": the owner types one line ("ask about off-market deals"); the AI drafts the subject and message
+ * in Bram's voice (the shared message format rule), using the contact and the record for context. Nothing is sent.
+ */
+export async function writeEmailWithAI(input: ComposeInput & { instruction: string }): Promise<WriteResult> {
+  const { supabase, ownerId } = await requireOwner();
+  const instruction = String(input.instruction ?? "").replace(/\s+/g, " ").trim().slice(0, 500);
+  if (!instruction) return { ok: false, error: "Type one line about what the email should say, then press Write with AI." };
+  const { contact, pipelineItem, pipeline, organizationId } = await composeRecords(supabase, input);
+  const orgId = organizationId ?? (contact?.organization_id as string | null) ?? (pipelineItem?.organization_id as string | null) ?? null;
+  const [{ data: org }, { data: comms }, { data: stage }] = await Promise.all([
+    orgId ? supabase.from("organizations").select("name,kind").eq("id", orgId).maybeSingle() : Promise.resolve({ data: null }),
+    contact ? supabase.from("communications").select("occurred_at,method,direction,subject,summary").eq("contact_id", contact.id).order("occurred_at", { ascending: false }).limit(5) : Promise.resolve({ data: [] }),
+    pipelineItem?.stage_id ? supabase.from("pipeline_stages").select("name").eq("id", pipelineItem.stage_id).maybeSingle() : Promise.resolve({ data: null }),
+  ]);
+  const to = String(input.to ?? "").trim();
+  const context = {
+    to,
+    recipient: contact ? { name: contact.name, title: contact.title, roles: contact.roles, notes: contact.notes, deal_source: !!contact.is_deal_source, consulting_lead: !!contact.is_consulting_lead } : null,
+    organization: (org as Row | null)?.name ?? null,
+    pipeline_item: pipelineItem ? { name: pipelineItem.name, pipeline: pipeline?.name ?? null, kind: pipeline?.kind ?? null, stage: (stage as Row | null)?.name ?? null, notes: pipelineItem.notes ?? null } : null,
+    recent_communications: ((comms ?? []) as Row[]).map((m) => ({ date: String(m.occurred_at).slice(0, 10), method: m.method, direction: m.direction, subject: m.subject, summary: m.summary })),
   };
+  const greetName = contact ? String(contact.name ?? "").split(/\s+/)[0] : "";
+  try {
+    const msg = await callClaude({
+      sb: supabase,
+      ownerId,
+      purpose: "compose_email",
+      system: AI_SYSTEM_MESSAGE,
+      messages: [
+        {
+          role: "user",
+          content: `TASK: compose_email\nDraft an email from Bram. What Bram wants the email to do: "${instruction}".\nKeep it short (under 150 words). Start with a greeting${greetName ? ` using the first name ${greetName}` : ""}. Use 2 to 4 short "- " bullets when the email lists questions, items, or next steps; otherwise short paragraphs. End with one clear ask and "Thanks," or "Best," then "Bram". Use only facts from the context below; do not invent numbers, dates, or past conversations. Return only JSON: {"subject": "short subject line", "body": "message text"}.\nContext (JSON): ${JSON.stringify(context).slice(0, 6000)}`,
+        },
+      ],
+      maxTokens: 700,
+    });
+    const parsed = parseJsonFromText<{ subject?: string; body?: string }>(textOf(msg));
+    if (!parsed?.body) return { ok: false, error: "The AI reply could not be read. Try again, or write the message yourself." };
+    return { ok: true, subject: cleanText(String(parsed.subject ?? "")).slice(0, 200), body: cleanText(String(parsed.body)) };
+  } catch (e) {
+    const why = e instanceof AIUnavailable ? e.message : "The AI request failed.";
+    return { ok: false, error: `${why} Write the message yourself, or try again later.` };
+  }
 }
 
 /** Partner report page: sends the finalized report email to the accountability partner and marks the report sent. */

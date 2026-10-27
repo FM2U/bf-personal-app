@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import Link from "next/link";
@@ -17,6 +17,8 @@ import { SendOrSaveButtons } from "@/components/app/send-email";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { GuardedForm } from "@/components/app/unsaved-changes";
+import { ComposeEmailDialog } from "@/components/app/compose-email";
+import type { ComposeSetup, GmailSetup } from "@/lib/compose-email";
 
 export type QueueItem = {
   id: string;
@@ -52,7 +54,14 @@ const OUTCOMES = [
   { value: "no_response", label: "No response" },
 ];
 
-/** The small "Log outreach" form: method, optional summary, optional outcome. Creates one outreach communication. */
+const FIELD_LABEL = "clamp-1 text-xs font-medium leading-4 text-slate-700";
+
+/**
+ * The small "Log outreach" form: method, optional summary, optional outcome. Creates one outreach communication.
+ * Shown in a light panel with its title and a Close button (16px inside the panel edge). The fields sit in one row
+ * when the panel is wide (Outreach Queue rows) and wrap to two columns when it is narrow (side cards, contact page),
+ * so every label stays directly above its field and no field is squeezed (container queries, not screen width).
+ */
 export function LogOutreachForm({
   contactId,
   back,
@@ -69,58 +78,78 @@ export function LogOutreachForm({
   consultingAvailable?: boolean;
   defaultPurpose?: Purpose;
 }) {
+  const id = useId();
   return (
-    <GuardedForm
-      action={logOutreach}
-      className={cn("grid grid-cols-1 gap-2 sm:items-end", purposeAvailable ? "sm:grid-cols-[8rem_10rem_minmax(0,1fr)_10rem_auto]" : "sm:grid-cols-[8rem_minmax(0,1fr)_10rem_auto]")}
-    >
-      {contactId ? <input type="hidden" name="contact_id" value={contactId} /> : null}
-      <input type="hidden" name="back" value={back} />
-      <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
-        Method
-        <NativeSelect name="method" defaultValue="email" aria-label="Method">
-          {METHODS.map((m) => (
-            <option key={m.value} value={m.value}>
-              {m.label}
-            </option>
-          ))}
-        </NativeSelect>
-      </label>
-      {purposeAvailable ? (
-        <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
-          Purpose
-          <NativeSelect name="purpose" defaultValue={defaultPurpose} aria-label="Purpose">
-            <option value="general">General</option>
-            <option value="deal_sourcing">Deal sourcing</option>
-            {consultingAvailable ? <option value="consulting">Consulting</option> : null}
-          </NativeSelect>
-        </label>
-      ) : null}
-      <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
-        Summary (optional)
-        <Input name="summary" maxLength={500} placeholder="What you sent or discussed" />
-      </label>
-      <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
-        Outcome (optional)
-        <NativeSelect name="outcome" defaultValue="" aria-label="Outcome">
-          {OUTCOMES.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </NativeSelect>
-      </label>
-      <div className="flex gap-2">
-        <SubmitButton size="sm" pendingText="Saving...">
-          Save
-        </SubmitButton>
-        {onCancel ? (
-          <Button type="button" size="sm" variant="ghost" onClick={onCancel} aria-label="Close">
-            <X />
-          </Button>
-        ) : null}
+    <div className="@container rounded-lg border border-slate-200 bg-slate-50/70 p-4" data-testid="log-outreach-form">
+      <div className="mb-3 flex min-h-8 items-center justify-between gap-3">
+        <p className="text-sm font-medium text-slate-900">Log outreach</p>
+        {onCancel ? <PanelClose onClick={onCancel} label="Close Log outreach" /> : null}
       </div>
-    </GuardedForm>
+      <GuardedForm
+        action={logOutreach}
+        className={cn(
+          "grid grid-cols-1 items-end gap-x-3 gap-y-3 @sm:grid-flow-row-dense @sm:grid-cols-2",
+          purposeAvailable ? "@4xl:grid-flow-row @4xl:grid-cols-[8rem_10rem_minmax(12rem,1fr)_11rem_auto]" : "@3xl:grid-flow-row @3xl:grid-cols-[8rem_minmax(12rem,1fr)_11rem_auto]",
+        )}
+      >
+        {contactId ? <input type="hidden" name="contact_id" value={contactId} /> : null}
+        <input type="hidden" name="back" value={back} />
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <label htmlFor={`${id}-method`} className={FIELD_LABEL}>
+            Method
+          </label>
+          <NativeSelect id={`${id}-method`} name="method" defaultValue="email">
+            {METHODS.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          </NativeSelect>
+        </div>
+        {purposeAvailable ? (
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <label htmlFor={`${id}-purpose`} className={FIELD_LABEL}>
+              Purpose
+            </label>
+            <NativeSelect id={`${id}-purpose`} name="purpose" defaultValue={defaultPurpose}>
+              <option value="general">General</option>
+              <option value="deal_sourcing">Deal sourcing</option>
+              {consultingAvailable ? <option value="consulting">Consulting</option> : null}
+            </NativeSelect>
+          </div>
+        ) : null}
+        <div className={cn("flex min-w-0 flex-col gap-1.5 @sm:col-span-2", purposeAvailable ? "@4xl:col-span-1" : "@3xl:col-span-1")}>
+          <label htmlFor={`${id}-summary`} className={FIELD_LABEL}>
+            Summary (optional)
+          </label>
+          <Input id={`${id}-summary`} name="summary" maxLength={500} placeholder="What you sent or discussed" />
+        </div>
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <label htmlFor={`${id}-outcome`} className={FIELD_LABEL}>
+            Outcome (optional)
+          </label>
+          <NativeSelect id={`${id}-outcome`} name="outcome" defaultValue="">
+            {OUTCOMES.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </NativeSelect>
+        </div>
+        <div className="flex">
+          <SubmitButton pendingText="Saving...">Save</SubmitButton>
+        </div>
+      </GuardedForm>
+    </div>
+  );
+}
+
+/** The Close button in the top right of an inline panel: a 32px square, so the icon sits well inside the edge. */
+export function PanelClose({ onClick, label }: { onClick: () => void; label: string }) {
+  return (
+    <Button type="button" size="icon" variant="ghost" onClick={onClick} aria-label={label} className="h-8 w-8 shrink-0 text-slate-500 hover:text-slate-900">
+      <X />
+    </Button>
   );
 }
 
@@ -162,12 +191,10 @@ export function DraftMessagePanel({ contactId, onClose, back = "/people/outreach
   const showSend = !!draft?.ok && !!draft.email && draft.sendPermission !== "not_connected";
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-sm font-medium">Draft message (review before sending)</p>
-        <Button type="button" size="sm" variant="ghost" onClick={onClose} aria-label="Close draft">
-          <X />
-        </Button>
+    <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+      <div className="flex min-h-8 items-center justify-between gap-3">
+        <p className="text-sm font-medium text-slate-900">Draft message (review before sending)</p>
+        <PanelClose onClick={onClose} label="Close draft" />
       </div>
       {pending && !draft ? <p className="text-sm text-muted-foreground">Writing the draft...</p> : null}
       {draft && !draft.ok ? <Notice tone="error">{draft.error}</Notice> : null}
@@ -341,5 +368,57 @@ export function LogOutreachButton({
     <Button type="button" size="sm" variant="outline" onClick={() => setOpen(true)} className="self-start">
       <Check /> {label}
     </Button>
+  );
+}
+
+/**
+ * Outreach Queue, "Outreach to someone not in the queue": an optional email address, then "Email them" (the same
+ * compose box as the Email button, logged as outreach without a contact) or "Log outreach" (the small form).
+ */
+export function NotInQueueOutreach({
+  back,
+  gmail,
+  purposeAvailable = false,
+  consultingAvailable = false,
+}: {
+  back: string;
+  gmail: GmailSetup;
+  purposeAvailable?: boolean;
+  consultingAvailable?: boolean;
+}) {
+  const id = useId();
+  const [email, setEmail] = useState("");
+  const [mode, setMode] = useState<"none" | "log" | "email">("none");
+  const setup: ComposeSetup = {
+    ...gmail,
+    title: "Email someone not in the queue",
+    recipients: [],
+    defaultTo: email.trim(),
+    contactId: null,
+    pipelineItemId: null,
+    organizationId: null,
+    toNote: "Type the address the email goes to.",
+  };
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex max-w-md flex-col gap-1.5">
+        <label htmlFor={`${id}-email`} className={FIELD_LABEL}>
+          Email address (optional)
+        </label>
+        <Input id={`${id}-email`} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" autoComplete="off" data-testid="not-in-queue-email" />
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" size="sm" variant="outline" onClick={() => setMode("email")} data-testid="email-them">
+          <Mail /> Email them
+        </Button>
+        <Button type="button" size="sm" variant={mode === "log" ? "default" : "outline"} onClick={() => setMode(mode === "log" ? "none" : "log")}>
+          <Check /> Log outreach
+        </Button>
+      </div>
+      {mode === "log" ? (
+        <LogOutreachForm contactId={null} back={back} onCancel={() => setMode("none")} purposeAvailable={purposeAvailable} consultingAvailable={consultingAvailable} />
+      ) : null}
+      {mode === "email" ? <ComposeEmailDialog setup={setup} open onOpenChange={(v) => setMode(v ? "email" : "none")} /> : null}
+    </div>
   );
 }

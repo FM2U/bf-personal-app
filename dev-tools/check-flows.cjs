@@ -822,6 +822,175 @@ const expectText = async (page, text) => {
     await expectText(page, "Email sent from the app");
   });
 
+  // ---------- Email button (contacts, organizations, pipeline items) and "Email them" (Outreach Queue) ----------
+  const e1280ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  await e1280ctx.addCookies([cookie]);
+  const e1280 = await e1280ctx.newPage();
+  const EVIEWS = [["desktop", page], ["desktop1280", e1280], ["phone", ph]];
+  const composeTo = (pg_) => pg_.getByTestId("compose-to").inputValue();
+  const commByGmail = (id) => one("select * from communications where gmail_message_id = $1", [id]);
+
+  await step("Email button: contact page, Write with AI, Send now, confirm, sent, logged as outreach, target +1", async () => {
+    await page.goto(`${BASE}/people/outreach`);
+    const before = await outreachCount();
+    const sentBefore = (await gsent()).length;
+    const c = await one("select id, email from contacts where name = 'Morgan Example'");
+    for (const [vp, pg_] of EVIEWS) {
+      await pg_.goto(`${BASE}/records/contacts/${c.id}`);
+      await pg_.getByTestId("email-button").waitFor();
+      await pg_.screenshot({ path: path.join(OUT, `${vp}-contact-email-button.png`), fullPage: vp !== "phone" });
+    }
+    await page.getByTestId("email-button").click();
+    const dlg = page.getByTestId("compose-dialog");
+    await dlg.waitFor();
+    if ((await composeTo(page)) !== c.email) throw new Error(`To is ${await composeTo(page)}`);
+    if (await page.getByTestId("compose-recipient").count()) throw new Error("a one-person chooser is shown on a contact page");
+    if (!(await page.getByTestId("send-now").isDisabled())) throw new Error("Send now is enabled with an empty message");
+    await page.getByTestId("compose-ai-line").fill("ask about off-market deals");
+    await page.getByTestId("compose-ai-write").click();
+    await page.waitForFunction(() => (document.querySelector("[data-testid=compose-body]")?.value ?? "").includes("Hi Morgan"), null, { timeout: 15000 });
+    if (!(await page.getByTestId("compose-subject").inputValue()).includes("off-market deals")) throw new Error("AI subject not filled");
+    await page.screenshot({ path: path.join(OUT, "desktop-compose-email.png") });
+    await page.getByTestId("send-now").click();
+    const confirm = page.getByRole("dialog", { name: "Send this email?" });
+    await confirm.waitFor();
+    const shown = await confirm.innerText();
+    for (const t of ["To", c.email, "Subject", "Hi Morgan", "Send email", "Edit"]) if (!shown.includes(t)) throw new Error(`confirmation is missing ${t}`);
+    await page.screenshot({ path: path.join(OUT, "desktop-compose-confirm.png") });
+    if ((await gsent()).length !== sentBefore) throw new Error("sent before confirming");
+    await page.getByTestId("send-confirm").dblclick();
+    await dlg.getByTestId("send-success").waitFor();
+    const sent = await gsent();
+    if (sent.length !== sentBefore + 1) throw new Error(`expected 1 email, Gmail got ${sent.length - sentBefore}`);
+    const last = sent[sent.length - 1];
+    if (last.to !== c.email || !last.body.includes("Hi Morgan")) throw new Error(`sent: ${last.to}`);
+    const comm = await commByGmail(last.id);
+    if (!comm || comm.contact_id !== c.id || !comm.is_outreach || comm.purpose !== "deal_sourcing" || comm.method !== "email" || comm.direction !== "outgoing") throw new Error(`communication: ${JSON.stringify(comm)}`);
+    if (!(await one("select 1 x from change_log where field = 'email_sent' and record_id = $1 and actor = 'owner'", [comm.id]))) throw new Error("change log entry");
+    await page.getByTestId("compose-close").click();
+    await dlg.waitFor({ state: "hidden" });
+    await expectText(page, comm.subject);
+    await page.goto(`${BASE}/people/outreach`);
+    const after = await outreachCount();
+    if (after !== before + 1) throw new Error(`target count ${before} to ${after}`);
+  });
+
+  await step("Email button: pipeline item defaults to the main contact, then Deal came from; send links the item", async () => {
+    const morgan = await one("select id, email from contacts where name = 'Morgan Example'");
+    const pat = await one("select id, email from contacts where name = 'Pat Example, CPA'");
+    const itemId = (await one("select id from pipeline_items where name = 'Demo Landscaping LLC'")).id;
+    await pg.query("update pipeline_items set primary_contact_id = $1, source_contact_id = $2 where id = $3", [morgan.id, pat.id, itemId]);
+    const item = { id: itemId, source_contact_id: pat.id, source_email: pat.email };
+    await page.goto(`${BASE}/records/pipeline_items/${item.id}`);
+    await page.getByTestId("email-button").click();
+    await page.getByTestId("compose-dialog").waitFor();
+    if ((await composeTo(page)) !== morgan.email) throw new Error(`main contact not chosen: ${await composeTo(page)}`);
+    const opts = await page.getByTestId("compose-recipient").locator("option").allInnerTexts();
+    if (!opts.some((o) => o.includes("(Main contact)")) || !opts.some((o) => o.includes("(Deal came from)"))) throw new Error(`choices: ${opts.join(" | ")}`);
+    // Changeable: choose Deal came from, then type another address.
+    await page.getByTestId("compose-recipient").selectOption(item.source_contact_id);
+    if ((await composeTo(page)) !== item.source_email) throw new Error("choosing Deal came from did not fill To");
+    await page.getByTestId("compose-to").fill("bad@");
+    await page.getByTestId("compose-body").fill("Test");
+    await page.getByTestId("compose-to-error").waitFor();
+    if (!(await page.getByTestId("send-now").isDisabled())) throw new Error("Send now enabled with an invalid address");
+    await page.keyboard.press("Escape");
+    await page.getByTestId("compose-discard").waitFor();
+    await page.getByRole("button", { name: "Discard email" }).click();
+    await page.getByTestId("compose-dialog").waitFor({ state: "hidden" });
+    // No main contact: Deal came from.
+    await pg.query("update pipeline_items set primary_contact_id = null where id = $1", [item.id]);
+    await page.reload();
+    await page.getByTestId("email-button").click();
+    if ((await composeTo(page)) !== item.source_email) throw new Error(`Deal came from not chosen: ${await composeTo(page)}`);
+    await page.getByTestId("compose-subject").fill("Following up on the CIM");
+    await page.getByTestId("compose-body").fill("Hi Pat,\n\nCould you send the CIM?\n\nThanks,\nBram");
+    await page.getByTestId("send-now").click();
+    await page.getByTestId("send-confirm").click();
+    await page.getByTestId("compose-dialog").getByTestId("send-success").waitFor();
+    const sent = await gsent();
+    const comm = await commByGmail(sent[sent.length - 1].id);
+    if (comm.pipeline_item_id !== item.id || comm.contact_id !== item.source_contact_id || comm.purpose !== "deal_sourcing" || !comm.is_outreach) throw new Error(`communication: ${JSON.stringify(comm)}`);
+    if (!(await one("select 1 x from record_links where from_type = 'communications' and from_id = $1 and to_type = 'pipeline_items' and to_id = $2", [comm.id, item.id]))) throw new Error("not linked to the item");
+    await page.getByTestId("compose-close").click();
+    await expectText(page, "Following up on the CIM");
+  });
+
+  await step("Email button: organization page, choose a person, Save to Gmail drafts sends nothing; unsaved text asks before closing", async () => {
+    const robin = await one("select id, email, organization_id from contacts where name = 'Robin Client (demo)'");
+    const sentBefore = (await gsent()).length;
+    await page.goto(`${BASE}/records/organizations/${robin.organization_id}`);
+    await page.getByTestId("email-button").click();
+    await page.getByTestId("compose-dialog").waitFor();
+    if (await page.getByTestId("compose-recipient").count()) {
+      const opts = await page.getByTestId("compose-recipient").locator("option").allInnerTexts();
+      if (!opts.some((o) => o.includes("Robin Client"))) throw new Error(`choices: ${opts.join(" | ")}`);
+      await page.getByTestId("compose-recipient").selectOption(robin.id);
+    }
+    if ((await composeTo(page)) !== robin.email) throw new Error(`To: ${await composeTo(page)}`);
+    await page.getByTestId("compose-subject").fill("Consulting next quarter");
+    await page.getByTestId("compose-body").fill("Hi Robin,\n\nA quick note about next quarter.\n\nBest,\nBram");
+    await page.keyboard.press("Escape");
+    await page.getByTestId("compose-discard").waitFor();
+    await page.getByRole("button", { name: "Keep writing" }).click();
+    if ((await page.getByTestId("compose-body").inputValue()).indexOf("next quarter") < 0) throw new Error("text not kept");
+    await page.getByTestId("save-draft").click();
+    await expectText(page, `Gmail draft created for ${robin.email}`);
+    if ((await gsent()).length !== sentBefore) throw new Error("Save to Gmail drafts sent an email");
+    // Saved to drafts: closing no longer asks.
+    await page.keyboard.press("Escape");
+    await page.getByTestId("compose-dialog").waitFor({ state: "hidden" });
+  });
+
+  await step("Outreach Queue: Email them from the not-in-queue card with a typed address (logged without a contact)", async () => {
+    const addr = "new.person@example.org";
+    for (const [vp, pg_] of EVIEWS) {
+      await pg_.goto(`${BASE}/people/outreach`);
+      const card = pg_.locator("div.rounded-xl", { hasText: "Outreach to someone not in the queue" }).last();
+      await card.getByRole("button", { name: "Log outreach" }).click();
+      await card.getByTestId("log-outreach-form").waitFor();
+      // Every label sits above its field and no field is squeezed.
+      const boxes = await card.locator("[data-testid=log-outreach-form] form > div").evaluateAll((els) => els.map((el) => { const r = el.getBoundingClientRect(); return { w: r.width, x: r.x, y: r.y, h: r.height }; }));
+      if (boxes.some((bx) => bx.w < 100)) throw new Error(`${vp}: a field is narrower than 100px: ${JSON.stringify(boxes)}`);
+      const close = await card.getByRole("button", { name: "Close Log outreach" }).boundingBox();
+      const panel = await card.getByTestId("log-outreach-form").boundingBox();
+      if (panel.x + panel.width - (close.x + close.width) < 12) throw new Error(`${vp}: close button too close to the edge`);
+      await card.screenshot({ path: path.join(OUT, `${vp}-outreach-not-in-queue.png`) });
+    }
+    const sentBefore = (await gsent()).length;
+    await page.goto(`${BASE}/people/outreach`);
+    await page.getByTestId("not-in-queue-email").fill(addr);
+    await page.getByTestId("email-them").click();
+    await page.getByTestId("compose-dialog").waitFor();
+    if ((await composeTo(page)) !== addr) throw new Error(`To: ${await composeTo(page)}`);
+    await page.getByTestId("compose-subject").fill("Nice to meet you");
+    await page.getByTestId("compose-body").fill("Hi,\n\nGood to meet you at the event.\n\nBram");
+    for (const [vp, pg_] of EVIEWS.slice(1)) {
+      await pg_.goto(`${BASE}/people/outreach`);
+      await pg_.getByTestId("not-in-queue-email").fill(addr);
+      await pg_.getByTestId("email-them").click();
+      await pg_.getByTestId("compose-dialog").waitFor();
+      await pg_.screenshot({ path: path.join(OUT, `${vp}-compose-email.png`) });
+    }
+    await page.getByTestId("send-now").click();
+    await page.getByTestId("send-confirm").click();
+    await page.getByTestId("compose-dialog").getByTestId("send-success").waitFor();
+    const sent = await gsent();
+    if (sent.length !== sentBefore + 1 || sent[sent.length - 1].to !== addr) throw new Error("not sent to the typed address");
+    const comm = await commByGmail(sent[sent.length - 1].id);
+    if (comm.contact_id !== null || !comm.is_outreach || comm.purpose !== "general" || !String(comm.summary).includes(addr)) throw new Error(`communication: ${JSON.stringify(comm)}`);
+    // Log outreach still works from the card.
+    await page.getByTestId("compose-close").click();
+    const card = page.locator("div.rounded-xl", { hasText: "Outreach to someone not in the queue" }).last();
+    await card.getByRole("button", { name: "Log outreach" }).click();
+    await card.locator("input[name=summary]").fill("Called about a referral");
+    await card.getByRole("button", { name: "Save" }).click();
+    await page.waitForURL(/notice=Outreach/);
+    await expectText(page, "Outreach logged.");
+  });
+
+  await e1280ctx.close();
+
   // ---------- Start an initiative, savings ideas, voice input, sample data, Reset (database update 0014) ----------
   // The AI stand-in on :54330 (dev-tools/mock-supabase.mjs) answers with the meal plan proposal and savings ideas.
   const AIMOCK = process.env.ANTHROPIC_API_MOCK_URL || "http://localhost:54330";

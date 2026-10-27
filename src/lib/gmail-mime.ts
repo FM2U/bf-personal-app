@@ -7,6 +7,8 @@
  * - Header values never carry a line break (no header injection).
  */
 
+import { isValidEmail } from "@/lib/email-address";
+
 export type MimeInput = {
   to: string;
   subject: string;
@@ -15,12 +17,8 @@ export type MimeInput = {
   inReplyTo?: string | null;
 };
 
-const EMAIL_RE = /^[^\s@<>(),;:"[\]\\]+@[^\s@<>(),;:"[\]\\]+\.[^\s@<>(),;:"[\]\\]+$/;
-
-/** True for one plain email address such as name@example.com. */
-export function isValidEmail(s: string): boolean {
-  return EMAIL_RE.test(String(s ?? "").trim());
-}
+/** True for one plain email address such as name@example.com (shared with the browser: src/lib/email-address.ts). */
+export { isValidEmail };
 
 /** Removes line breaks and control characters from a header value. */
 export function cleanHeaderValue(s: string): string {

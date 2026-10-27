@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState, Notice, PageHeader, Stat } from "@/components/app/page-header";
 import { DbUpdateNotice } from "@/components/app/target-grid";
-import { LogOutreachButton, OutreachQueueRow, type QueueItem } from "@/components/app/outreach-actions";
+import { NotInQueueOutreach, OutreachQueueRow, type QueueItem } from "@/components/app/outreach-actions";
+import { loadGmailSetup } from "@/lib/compose-email";
 import { date as fmtDate } from "@/lib/format";
 import { hasPipelineUpdate } from "@/lib/pipeline";
 import { hasConsultingUpdate } from "@/lib/consulting";
@@ -39,12 +40,13 @@ export default async function OutreachQueuePage({ searchParams }: { searchParams
   const { supabase, ownerId } = await requireOwner();
   const ctx = await loadCtx(supabase, ownerId);
   const today = ctx.today;
-  const [queue, stats, targets, purposeAvailable, consultingAvailable] = await Promise.all([
+  const [queue, stats, targets, purposeAvailable, consultingAvailable, gmail] = await Promise.all([
     loadOutreachQueue(supabase, { ownerId, today, tz: ctx.tz }),
     loadOutreachStats(supabase, { ownerId, tz: ctx.tz, from: addDaysISO(today, -29), to: today }),
     loadTargets(supabase, { ownerId, tz: ctx.tz, from: addDaysISO(today, -7), to: today }),
     hasPipelineUpdate(supabase),
     hasConsultingUpdate(supabase),
+    loadGmailSetup(supabase, ownerId),
   ]);
   const dealSourcesDue = queue.due.filter((r) => r.isDealSource).length;
   const outreachTarget = summarizeTargets(targets, today).find((s) => s.target.count_source === "communications_outreach");
@@ -182,10 +184,10 @@ export default async function OutreachQueuePage({ searchParams }: { searchParams
               <Card>
                 <CardHeader>
                   <CardTitle>Outreach to someone not in the queue</CardTitle>
-                  <CardDescription>Logs outreach without a contact. To link a person, log it from their contact page instead.</CardDescription>
+                  <CardDescription>Email someone from the app, or log a call, text, or email sent elsewhere. Both count as outreach without a contact. To link a person, use their contact page.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <LogOutreachButton contactId={null} back={back} purposeAvailable={purposeAvailable} consultingAvailable={consultingAvailable} />
+                  <NotInQueueOutreach back={back} gmail={gmail} purposeAvailable={purposeAvailable} consultingAvailable={consultingAvailable} />
                 </CardContent>
               </Card>
             </div>

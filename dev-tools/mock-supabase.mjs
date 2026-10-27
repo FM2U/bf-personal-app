@@ -398,6 +398,7 @@ google.listen(GOOGLE_PORT, () => console.log(`Mock Google listening on http://lo
 // variable only for a localhost address. Replies:
 //   "TASK: initiative_proposal" -> the weekly meal plan proposal (dev-tools/fixtures/meal-plan.cjs)
 //   "TASK: savings_ideas"       -> up to 3 ideas built from the expense keys in the request
+//   "TASK: compose_email"       -> a short email built from the one-line instruction (Email button, Write with AI)
 //   chat (a request with tools) -> a short bulleted answer
 //   anything else               -> HTTP 400, so morning plans, review drafts, and message drafts use their templates
 // Test controls: POST /__mode {"initiative": "valid" | "invalid_once" | "invalid"}; GET /__calls; POST /__reset.
@@ -460,6 +461,13 @@ const ai = http.createServer(async (req, res) => {
         aiCalls.push("savings_ideas");
         const reply = savingsReply(text);
         if (process.env.MOCK_DEBUG) console.error("savings reply", JSON.stringify(reply));
+        return send(res, 200, aiMessage(JSON.stringify(reply)));
+      }
+      if (text.includes("TASK: compose_email")) {
+        aiCalls.push("compose_email");
+        const line = (text.match(/What Bram wants the email to do: "([^"]*)"/) || [])[1] || "check in";
+        const first = (text.match(/using the first name ([^.\s]+)/) || [])[1] || "there";
+        const reply = { subject: `Quick question: ${line}`.slice(0, 80), body: `Hi ${first},\n\nI hope things are going well. I wanted to reach out to ${line}.\n\n- What you are seeing right now\n- Anyone I should talk to\n\nWould you have 15 minutes this week?\n\nThanks,\nBram` };
         return send(res, 200, aiMessage(JSON.stringify(reply)));
       }
       if (Array.isArray(body.tools) && body.tools.length) {

@@ -17,7 +17,8 @@ export function DialogContent({ className, children, ...props }: React.Component
         {...props}
       >
         {children}
-        <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 hover:opacity-100" aria-label="Close">
+        {/* 32px square, 16px in from the top right corner: the icon lines up with the 24px content edge. */}
+        <DialogPrimitive.Close className="absolute right-4 top-5 inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-accent hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="Close">
           <X className="h-4 w-4" />
         </DialogPrimitive.Close>
       </DialogPrimitive.Content>
@@ -25,7 +26,7 @@ export function DialogContent({ className, children, ...props }: React.Component
   );
 }
 export function DialogTitle({ className, ...props }: React.ComponentProps<typeof DialogPrimitive.Title>) {
-  return <DialogPrimitive.Title className={cn("text-lg font-semibold", className)} {...props} />;
+  return <DialogPrimitive.Title className={cn("pr-10 text-lg font-semibold leading-7", className)} {...props} />;
 }
 export function DialogDescription({ className, ...props }: React.ComponentProps<typeof DialogPrimitive.Description>) {
   return <DialogPrimitive.Description className={cn("text-sm text-muted-foreground", className)} {...props} />;

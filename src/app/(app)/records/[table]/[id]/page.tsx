@@ -21,6 +21,8 @@ import { describeSource } from "@/lib/calc/source-chain";
 import { DbUpdateNotice } from "@/components/app/target-grid";
 import { DB_UPDATE_FILE_0011 } from "@/lib/schema-guard";
 import { GuardedForm } from "@/components/app/unsaved-changes";
+import { EmailButton } from "@/components/app/compose-email";
+import { loadComposeSetup } from "@/lib/compose-email";
 
 const COMMS_TABLES = new Set(["contacts", "organizations", "pipeline_items", "funding_sources", "debts", "partners", "decisions", "goals", "milestones"]);
 
@@ -45,7 +47,12 @@ export default async function RecordPage({ params, searchParams }: { params: Pro
   const next = await nextActionFor(supabase, table, row, ctx.today);
   const editing = sp.edit === "1" && !r.noEdit;
   const title = titleOf(table, row, labels);
-  const [rules, excludeOptions] = await Promise.all([formRules(supabase, table, row), editing ? optionExclusions(supabase) : Promise.resolve({})]);
+  const [rules, excludeOptions, compose] = await Promise.all([
+    formRules(supabase, table, row),
+    editing ? optionExclusions(supabase) : Promise.resolve({}),
+    // The "Email" button: contacts, organizations, and pipeline items (not while editing).
+    editing ? Promise.resolve(null) : loadComposeSetup(supabase, ownerId, table, row),
+  ]);
   // "Deal came from" / "Lead came from" shows the contact or the typed source ("Not a person"); "Where it came from" is not shown separately.
   const combineSource = table === "pipeline_items" && !rules.hide.includes("source_contact_id");
   const detailFields = r.fields.filter((f) => !rules.hide.includes(f.name) && !(combineSource && f.name === "source"));
@@ -59,12 +66,17 @@ export default async function RecordPage({ params, searchParams }: { params: Pro
         title={title}
         description={r.singular}
         actions={
-          !editing && !r.noEdit ? (
-            <Button asChild variant="outline" size="sm">
-              <Link href={`?edit=1`}>
-                <Pencil /> Edit
-              </Link>
-            </Button>
+          !editing && (compose || !r.noEdit) ? (
+            <>
+              {compose ? <EmailButton setup={compose} /> : null}
+              {!r.noEdit ? (
+                <Button asChild variant="outline" size="sm">
+                  <Link href={`?edit=1`}>
+                    <Pencil /> Edit
+                  </Link>
+                </Button>
+              ) : null}
+            </>
           ) : null
         }
       />

@@ -13,7 +13,7 @@ Built from `docs/` in the project: Architecture v2 and the Decisions Log (both a
 | Plan | Initiatives (with Start an initiative, plan documents, checklists), goals, milestones, decision conditions, Inputs and Assumptions, scenarios (incl. job vs. acquisition), decisions log |
 | Finance | Accounts (Personal or Cyan Arc LLC) and transfers, expenses with categories and recurring charges, CSV import, budget, debt payoff (avalanche and snowball), funding and repayments, income received, savings and financial security |
 | Opportunities | One pipeline system with 6 seeded pipelines (Acquisitions, Jobs, Rosara Co-founder Search, Rosara Investor Outreach, Other Income Opportunities, Consulting); board and list views; stage task lists, stage time limits, required details, stalled items; deal source (proprietary or brokered) and the source chain (Deal came from: a contact or a typed source; Introduced by); consulting engagement terms, expected income, and pipeline value; stage history |
-| People | Contacts, organizations with their people (link, unlink, add), communication history; follow-up dates create tasks and calendar events; Outreach Queue (contacts due for a message, Log outreach, Draft message) |
+| People | Contacts, organizations with their people (link, unlink, add), communication history; follow-up dates create tasks and calendar events; Outreach Queue (contacts due for a message, Log outreach, Draft message, Email them); Email button on contact, organization, and pipeline item pages |
 | Productivity | Today's plan with daily target counters, task lists, recurring task templates, calendar time blocks, pipeline next actions |
 | Accountability | Commitments, Daily Targets, missed-commitment flow, daily/weekly/monthly/quarterly reviews, completion scores, accountability partners and reports |
 | Settings | Connections (Google, Plaid, AI), AI usage, imports, partner links, initiatives and pipelines, categories, export, sample data and reset, profile, change log |
@@ -92,6 +92,20 @@ Built from `docs/` in the project: Architecture v2 and the Decisions Log (both a
 - **Database update 0013** (`supabase/UPDATE_0013_RUN_ONCE.sql`): adds `communications.gmail_message_id`, `communications.gmail_thread_id`, `partner_reports.sent_at`, `partner_reports.gmail_message_id` (no existing column fit). **Before it runs,** sending still works: the communication is saved without the Gmail ids, the report is marked sent in Delivered, and the Gmail id and date are kept in the change log (the report page reads the date from there).
 - **Local checks:** `dev-tools/mock-supabase.mjs` also runs a Google stand-in on port 54329 (`GOOGLE_API_MOCK_URL` in `dev-tools/local.env`; the app honors it only for a localhost address). Real Gmail sending cannot be checked locally.
 
+### Email button (no database update)
+
+- **Where:** an **Email** button next to Edit at the top of contact, organization, and pipeline item pages; and **Email them** on People, Outreach Queue, "Outreach to someone not in the queue" (with an optional Email address field; Log outreach is still there).
+- **Compose box:** To (filled in, editable, checked as one valid address; Send now and Save to Gmail drafts stay unavailable until it is), Subject, Message. **Send to** lists the people who can be chosen:
+  - Contact page: the contact's own address (a contact without one shows an empty To and a note).
+  - Organization page: the organization's people with an email address (filled in only when there is exactly one), or a typed address.
+  - Pipeline item: the main contact first, then "Deal came from"; "Introduced by" and the people at the item's organization can also be chosen.
+  - Not in the queue: the typed address.
+- **Write with AI:** type one line (for example "ask about off-market deals" or "follow up on the CIM") and press Write with AI. The AI fills Subject and Message in Bram's voice with bullets where they help (the shared message format rule), using the contact, organization, pipeline item, and the last 5 communications. Nothing is sent. Locally the AI stand-in answers `TASK: compose_email`.
+- **Send now / Save to Gmail drafts:** the same confirmation dialog and Reconnect Google message as the Outreach Queue (`SendOrSaveButtons`). Save to Gmail drafts sends and logs nothing.
+- **After a send:** one communication (outreach, email, outgoing) linked to the contact (the listed person whose address is in To; on a contact page always that contact), the pipeline item (column and record link), and the organization (organization page; otherwise the contact's organization); a change log entry; it counts toward the Network outreach target. **Purpose:** acquisition item = deal sourcing; consulting item = consulting; otherwise the Outreach Queue rule for the contact (consulting lead = consulting, deal source = deal sourcing); anyone else or no contact = general (`composePurpose` in `src/lib/calc/compose-email.ts`).
+- **Unsaved text:** while Subject or Message holds text that is not sent or saved to Gmail drafts, closing the box asks "Close and discard this email?" (Keep writing, Discard email), and leaving the page asks first (`useUnsavedWork`).
+- **Code:** `src/components/app/compose-email.tsx`, `src/lib/compose-email.ts` (server setup), `src/lib/calc/compose-email.ts` (recipients and purpose, tested), `src/lib/email-address.ts` (address check for browser and server), actions `sendComposedEmail`, `saveComposedGmailDraft`, `writeEmailWithAI` in `src/app/actions/email.ts`.
+
 ### Start an initiative, savings ideas, voice input, sample data, Reset (database update 0014)
 
 - **Start an initiative (typed or spoken):** a box on Plan, Initiatives and on Plan, Start an initiative (`/plan/start`); the "Start an initiative" button on Home opens it; in the AI chat, type "Start an initiative: ..." (also "/initiative ..."). Example: "Weekly meal plan: shop once a week, cook Sunday for lunches and dinners, separate breakfast plan, cut food spending".
@@ -115,6 +129,8 @@ Built from `docs/` in the project: Architecture v2 and the Decisions Log (both a
 
 - **Unsaved changes:** every form uses `GuardedForm` (`src/components/app/unsaved-changes.tsx`). When a field holds a change that is not saved, an in-app link or the browser Back button shows a dialog: Save and leave, Leave without saving, Stay on this page. Closing or reloading the tab shows the browser's prompt. A value changed back to the original is not a change. Filter forms (`method="get"`) and forms marked `data-unsaved="off"` are not checked. Screens that are not one form report work in progress with `useUnsavedWork` (the CSV import once a file is chosen): the dialog then offers Leave and discard, and Stay on this page.
 - **CSV import:** 3 numbered steps with a step count (Step 1 of 3). Required columns are marked; a missing one is named in the error. Column choices are filled from, in order: this account's unfinished choices (kept in this browser), the layout used by the last import into the account, the saved layout for the account's bank or card, a saved layout whose columns match the file, a guess from the column names (`src/lib/calc/import-layout.ts`). The note under the step title says which.
+- **Inline forms in cards** (Log outreach, Draft message): a light panel with its title and a 32px Close button in the top right, 16px inside the panel edge. Fields sit in one row only when the panel itself is wide enough and otherwise wrap to two columns or one (Tailwind container queries, `@container`), so labels stay directly above their fields and no field is squeezed. The same rule is used for the target "reason" rows and the partner link form.
+- **Dialogs:** the Close button is a 32px square 16px in from the top right corner; titles leave room for it.
 - **Form fields:** `FieldGrid` and `FormField` (`src/components/ui/form-field.tsx`): label 6px above its input, 16px to the next field, labels held to 2 lines, inputs aligned across a row.
 - **Reference fields:** type to search; "+ New" opens a short form for that record type (`src/lib/quick-create.ts`), saves it with the same checks as any form, and chooses it. What was typed in the main form stays.
 - **Dropdowns:** one arrow 12px from the right edge, text never runs under it (`globals.css`).
@@ -207,7 +223,7 @@ Run the morning job once after `setup-local-db.sh` and before `check-flows.cjs`:
 `curl -H "Authorization: Bearer test-cron-secret" http://localhost:3000/api/cron/morning`.
 The AI is a local stand-in (`dev-tools/mock-supabase.mjs`, port 54330, `ANTHROPIC_API_MOCK_URL` in `dev-tools/local.env`; the app honors it only
 for a localhost address). It answers "Start an initiative" with the meal plan in `dev-tools/fixtures/meal-plan.cjs`, savings ideas from the
-expense keys it is sent, and chat with a short fixed reply; other AI requests get an error, so drafts use their templates. Real AI output
+expense keys it is sent, Write with AI (Email button) with a short email built from the typed line, and chat with a short fixed reply; other AI requests get an error, so drafts use their templates. Real AI output
 cannot be checked locally.
 
 The local scripts need a Postgres server and are for testing only. Production uses Supabase.
