@@ -196,45 +196,6 @@ export async function generateFollowUps(ctx: Ctx): Promise<{ created: number }> 
   return { created };
 }
 
-/** Time blocks on Google Calendar for today's priority tasks. */
-export async function createTimeBlocks(ctx: Ctx, inputs: Record<string, number | null>): Promise<{ created: number }> {
-  const { sb, ownerId, today, tz, profile } = ctx;
-  const count = Math.max(0, Math.round(inputs.time_blocks_per_day ?? 2));
-  const minutes = Math.max(15, Math.round(inputs.time_block_minutes ?? 60));
-  if (!count) return { created: 0 };
-  const { data } = await sb
-    .from("tasks")
-    .select("id,title,priority")
-    .eq("owner_id", ownerId)
-    .eq("status", "todo")
-    .lte("due_date", today)
-    .order("priority")
-    .order("due_date")
-    .limit(count);
-  let created = 0;
-  let startMin = (Number(profile.morning_hour ?? 7) + 2) * 60;
-  for (const t of (data ?? []) as Row[]) {
-    const dedupe = `block:${t.id}:${today}`;
-    const { data: exists } = await sb.from("calendar_events").select("id").eq("owner_id", ownerId).eq("dedupe_key", dedupe).maybeSingle();
-    if (exists) continue;
-    const start = localDateTime(today, Math.floor(startMin / 60), startMin % 60, tz);
-    const endMin = startMin + minutes;
-    const end = localDateTime(today, Math.floor(endMin / 60), endMin % 60, tz);
-    let googleId: string | null = null;
-    try {
-      googleId = await createCalendarEvent(sb, ownerId, { summary: `Focus: ${t.title}`, start, end, description: "Priority task time block from BF Personal App." });
-    } catch {
-      googleId = null;
-    }
-    if (!googleId) break; // Google not connected: no blocks
-    await insertIgnoreDuplicate(sb, "calendar_events", { owner_id: ownerId, title: `Focus: ${t.title}`, starts_at: start, ends_at: end, kind: "time_block", task_id: t.id, google_event_id: googleId, dedupe_key: dedupe });
-    await sb.from("tasks").update({ google_event_id: googleId }).eq("id", t.id);
-    created++;
-    startMin = endMin + 15;
-  }
-  return { created };
-}
-
 /** Review events on Google Calendar: the daily close every evening, and the weekly, monthly, and quarterly reviews on their days. */
 export async function scheduleReviewEvents(ctx: Ctx): Promise<{ created: number }> {
   const { sb, ownerId, today, tz, profile } = ctx;

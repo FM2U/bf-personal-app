@@ -16,6 +16,7 @@
  *   setup/<id>/<step>      one step of the setup for a draft
  *   work, work/<task id>   Work through tasks (today's tasks one at a time)
  *   plan/<initiative id>   an initiative's plan document as text
+ *   ss/<id>[,<id>...]      the scenario summary (one scenario, or the scenarios being compared)
  */
 import { getResource } from "@/lib/resources";
 
@@ -55,7 +56,8 @@ export type WindowView =
   | { kind: "setup"; draftId: null; manual: boolean }
   | { kind: "setup"; draftId: string; step: SetupStep }
   | { kind: "work"; taskId: string | null }
-  | { kind: "plan"; initiativeId: string };
+  | { kind: "plan"; initiativeId: string }
+  | { kind: "scenario-summary"; ids: string[] };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isId = (s: string | undefined): s is string => !!s && UUID.test(s);
@@ -103,6 +105,10 @@ export function parseWindowParam(w: string | null | undefined): WindowView | nul
       return rest.length === 1 && isId(rest[0]) ? { kind: "work", taskId: rest[0] } : null;
     case "plan":
       return rest.length === 1 && isId(rest[0]) ? { kind: "plan", initiativeId: rest[0] } : null;
+    case "ss": {
+      const ids = rest.length === 1 ? rest[0].split(",").filter(Boolean) : [];
+      return ids.length && ids.length <= 5 && ids.every(isId) ? { kind: "scenario-summary", ids } : null;
+    }
     default:
       return null;
   }
@@ -127,6 +133,8 @@ export function windowParam(v: WindowView): string {
       return v.taskId ? `work/${v.taskId}` : "work";
     case "plan":
       return `plan/${v.initiativeId}`;
+    case "scenario-summary":
+      return `ss/${v.ids.join(",")}`;
   }
 }
 
@@ -223,6 +231,8 @@ export function fullPageHref(v: WindowView): string {
       return "/productivity";
     case "plan":
       return `/records/initiatives/${v.initiativeId}`;
+    case "scenario-summary":
+      return v.ids.length === 1 ? `/plan/scenarios/${v.ids[0]}` : `/plan/scenarios/compare?ids=${v.ids.join(",")}`;
   }
 }
 

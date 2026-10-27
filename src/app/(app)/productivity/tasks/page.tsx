@@ -1,36 +1,37 @@
 import Link from "next/link";
 import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
-import { addDaysISO } from "@/lib/calc/dates";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { NativeSelect } from "@/components/ui/input";
 import { EmptyState, PageHeader } from "@/components/app/page-header";
-import { TaskList } from "@/components/app/task-list";
+import { TaskTable } from "@/components/app/task-list";
+import { TaskFilter } from "@/components/app/task-filter";
+import { matchesTaskFilters, parseTaskFilters } from "@/lib/task-filters";
 import type { Row } from "@/lib/types";
 
 export const metadata = { title: "Task lists" };
 
-export default async function TasksPage({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
+export default async function TasksPage({ searchParams }: { searchParams: Promise<Record<string, string | string[]>> }) {
   const sp = await searchParams;
   const { supabase, ownerId } = await requireOwner();
   const ctx = await loadCtx(supabase, ownerId);
-  const status = sp.status ?? "todo";
-  const due = sp.due ?? "all";
-  let q = supabase.from("tasks").select("*").order("due_date", { ascending: true, nullsFirst: false }).order("priority").limit(500);
-  if (status !== "all") q = q.eq("status", status);
-  if (sp.initiative) q = q.eq("initiative_id", sp.initiative);
-  if (due === "overdue") q = q.lt("due_date", ctx.today);
-  if (due === "today") q = q.eq("due_date", ctx.today);
-  if (due === "week") q = q.gte("due_date", ctx.today).lte("due_date", addDaysISO(ctx.today, 7));
-  if (due === "none") q = q.is("due_date", null);
-  const [{ data: tasks }, { data: inits }] = await Promise.all([q, supabase.from("initiatives").select("id,name").order("sort_order")]);
-  const list = (tasks ?? []) as Row[];
+  // Filters live in the address (src/lib/task-filters.ts), so links and Back keep them.
+  const filters = parseTaskFilters(sp);
+  let q = supabase.from("tasks").select("*").order("due_date", { ascending: true, nullsFirst: false }).order("priority").limit(1000);
+  if (filters.status.length) q = q.in("status", filters.status);
+  if (filters.initiative.length) q = q.in("initiative_id", filters.initiative);
+  const [{ data: tasks }, { data: inits }, { data: items }] = await Promise.all([
+    q,
+    supabase.from("initiatives").select("id,name").order("sort_order"),
+    supabase.from("pipeline_items").select("id,name"),
+  ]);
+  const list = ((tasks ?? []) as Row[]).filter((t) => matchesTaskFilters(t, filters, ctx.today)).slice(0, 500);
+  const initiatives = ((inits ?? []) as Row[]).map((i) => ({ id: String(i.id), name: String(i.name) }));
   return (
     <div>
       <PageHeader
         title="Task lists"
-        description="All tasks, filterable by initiative, due date, and status."
+        description="All tasks. Press Filter to choose status, initiative, due date, and priority."
         actions={
           <Button asChild size="sm">
             <Link href="/records/tasks/new">Add task</Link>
@@ -38,35 +39,19 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
         }
       />
       <Card>
-        <CardHeader>
-          <form method="get" className="grid grid-cols-2 gap-2 md:grid-cols-4">
-            <NativeSelect name="initiative" defaultValue={sp.initiative ?? ""} aria-label="Initiative">
-              <option value="">All initiatives</option>
-              {((inits ?? []) as Row[]).map((i) => (
-                <option key={i.id} value={i.id}>
-                  {i.name}
-                </option>
-              ))}
-            </NativeSelect>
-            <NativeSelect name="due" defaultValue={due} aria-label="Due date">
-              <option value="all">Any due date</option>
-              <option value="overdue">Overdue</option>
-              <option value="today">Due today</option>
-              <option value="week">Due in the next 7 days</option>
-              <option value="none">No due date</option>
-            </NativeSelect>
-            <NativeSelect name="status" defaultValue={status} aria-label="Status">
-              <option value="todo">To do</option>
-              <option value="done">Done</option>
-              <option value="skipped">Skipped</option>
-              <option value="all">All statuses</option>
-            </NativeSelect>
-            <Button type="submit" variant="outline">
-              Show
-            </Button>
-          </form>
+        <CardHeader className="flex-row flex-wrap items-center justify-between gap-2">
+          <TaskFilter filters={filters} initiatives={initiatives} />
+          <span className="text-xs text-muted-foreground tabular" data-testid="task-count">
+            {list.length} {list.length === 1 ? "task" : "tasks"}
+          </span>
         </CardHeader>
-        <CardContent>{list.length ? <TaskList tasks={list} today={ctx.today} /> : <EmptyState title="No tasks match these filters." body="Change the filters or add a task." action={<Button asChild size="sm"><Link href="/records/tasks/new">Add task</Link></Button>} />}</CardContent>
+        <CardContent>
+          {list.length ? (
+            <TaskTable tasks={list} today={ctx.today} initiatives={Object.fromEntries(initiatives.map((i) => [i.id, i.name]))} items={Object.fromEntries(((items ?? []) as Row[]).map((i) => [i.id, i.name]))} />
+          ) : (
+            <EmptyState title="No tasks match these filters." body="Change the filters or add a task." action={<Button asChild size="sm"><Link href="/records/tasks/new">Add task</Link></Button>} />
+          )}
+        </CardContent>
       </Card>
     </div>
   );

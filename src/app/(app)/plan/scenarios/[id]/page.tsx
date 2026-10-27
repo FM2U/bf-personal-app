@@ -18,6 +18,8 @@ import { saveScenarioOverrides } from "@/app/actions/domain";
 import { money } from "@/lib/format";
 import type { Row } from "@/lib/types";
 import { GuardedForm } from "@/components/app/unsaved-changes";
+import { ScenarioSummaryButton } from "@/components/app/view-summary-button";
+import { CollapsibleCard } from "@/components/app/collapsible";
 import { CHART_BASELINE, seriesColor } from "@/lib/status";
 
 export default async function ScenarioPage({ params }: { params: Promise<{ id: string }> }) {
@@ -54,17 +56,21 @@ export default async function ScenarioPage({ params }: { params: Promise<{ id: s
       <PageHeader
         title={scenario.name}
         description={`${showJva ? "Job vs acquisition scenario" : "Scenario"}. ${Object.keys(overrides).length} numbers changed from the current numbers. Projected ${horizon} months.`}
+        ask={{ table: "scenarios", id, label: String(scenario.name) }}
         actions={
-          <Button asChild size="sm" variant="outline">
-            <Link href={`/records/scenarios/${id}?edit=1`}>
-              <Pencil /> Rename or change months
-            </Link>
-          </Button>
+          <>
+            <ScenarioSummaryButton ids={[id]} />
+            <Button asChild size="sm" variant="outline">
+              <Link href={`/records/scenarios/${id}?edit=1`}>
+                <Pencil /> Rename or change months
+              </Link>
+            </Button>
+          </>
         }
       />
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <div className="flex min-w-0 flex-col gap-4 xl:col-span-2">
-          <Card>
+          <Card id="results" className="scroll-mt-4">
             <CardHeader>
               <CardTitle>Results side by side</CardTitle>
             </CardHeader>
@@ -73,7 +79,7 @@ export default async function ScenarioPage({ params }: { params: Promise<{ id: s
             </CardContent>
           </Card>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <Card>
+            <Card id="cash" className="scroll-mt-4">
               <CardHeader>
                 <CardTitle>Cash balance by month</CardTitle>
               </CardHeader>
@@ -81,7 +87,7 @@ export default async function ScenarioPage({ params }: { params: Promise<{ id: s
                 <LineSeriesChart data={cashData} xKey="month" zeroLine series={[{ key: "current", label: "Current", color: CHART_BASELINE }, { key: "scenario", label: scenario.name, color: seriesColor(0) }]} />
               </CardContent>
             </Card>
-            <Card>
+            <Card id="net-worth" className="scroll-mt-4">
               <CardHeader>
                 <CardTitle>Net worth by month</CardTitle>
               </CardHeader>
@@ -90,12 +96,10 @@ export default async function ScenarioPage({ params }: { params: Promise<{ id: s
               </CardContent>
             </Card>
           </div>
-          <Card>
-            <CardHeader>
-              <CardTitle>Job vs acquisition</CardTitle>
-              <CardDescription>Salary-only take-home pay compared with acquisition take-home salary plus the estimated value of your equity, by year. Equity value = your share x (business value after growth minus remaining purchase debt).</CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
+          <div id="job-vs-acquisition" className="scroll-mt-4">
+          <CollapsibleCard id="jva" storageKey="scenario" openOnHash="job-vs-acquisition" title="Job vs acquisition" defaultOpen={showJva} summary={jva.crossoverYear ? `The acquisition path is ahead from year ${jva.crossoverYear}.` : "The acquisition path does not pass the job path within the years compared."}>
+            <div className="flex flex-col gap-4">
+              <p className="max-w-[75ch] text-sm text-muted-foreground">Salary-only take-home pay compared with acquisition take-home salary plus the estimated value of your equity, by year. Equity value = your share x (business value after growth minus remaining purchase debt).</p>
               {jva.missing.length ? <Notice tone="warn">Set these numbers (below or in Inputs) to complete the comparison: {jva.missing.map((k) => inputs.find((i: Row) => i.key === k)?.label ?? k).join(", ")}.</Notice> : null}
               <LineSeriesChart
                 data={jva.rows.map((r) => ({ year: `Year ${r.year}`, job: r.jobCumulative, acquisition: r.acquisitionTotal, salary: r.acquisitionSalaryCumulative }))}
@@ -131,16 +135,15 @@ export default async function ScenarioPage({ params }: { params: Promise<{ id: s
                   ))}
                 </TBody>
               </Table>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle>Bridge: job vs acquisition search with consulting income</CardTitle>
-              <CardDescription>
+            </div>
+          </CollapsibleCard>
+          </div>
+          <div id="bridge" className="scroll-mt-4">
+          <CollapsibleCard id="bridge" storageKey="scenario" openOnHash="bridge" title="Bridge: job vs acquisition search with consulting income" defaultOpen={showJva} summary={bridge.crossoverYear ? `The bridge path is ahead from year ${bridge.crossoverYear}.` : "The bridge path does not pass the job path within the years compared."}>
+            <div className="flex flex-col gap-4">
+              <p className="max-w-[75ch] text-sm text-muted-foreground">
                 The job, compared with an acquisition search that pays no salary for {bridge.searchMonths} months (Months allowed for the acquisition search), plus consulting income of {money(bridge.consultingMonthly)} per month for {bridge.consultingMonths} months, then the acquisition salary and equity value. Take-home amounts after the effective tax rate.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
+              </p>
               {bridge.missing.length ? <Notice tone="warn">Set these numbers (below or in Inputs) to complete the comparison: {bridge.missing.map((k) => inputs.find((i: Row) => i.key === k)?.label ?? k).join(", ")}.</Notice> : null}
               {!bridge.consultingMonthly ? <Notice>Consulting income is 0. Set &quot;Consulting: monthly income&quot; below or in Inputs to see the bridge.</Notice> : null}
               <LineSeriesChart
@@ -180,10 +183,11 @@ export default async function ScenarioPage({ params }: { params: Promise<{ id: s
                   ))}
                 </TBody>
               </Table>
-            </CardContent>
-          </Card>
+            </div>
+          </CollapsibleCard>
+          </div>
         </div>
-        <Card className="self-start">
+        <Card className="scroll-mt-4 self-start" id="overrides">
           <CardHeader>
             <CardTitle>Numbers changed in this scenario</CardTitle>
             <CardDescription>Leave a field empty to use the current number (shown in grey).</CardDescription>

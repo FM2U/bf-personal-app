@@ -17,6 +17,10 @@ import { date as fmtDate, money, titleCase } from "@/lib/format";
 import type { Row } from "@/lib/types";
 import { GuardedForm } from "@/components/app/unsaved-changes";
 import { SavingsIdeasSection } from "@/components/app/savings-ideas";
+import { SuggestionLine } from "@/components/app/suggestion-line";
+import { savingsIdeasSuggestion } from "@/lib/suggestions";
+import { firstSuggestion } from "@/lib/suggestions-server";
+import { loadSavingsIdeas } from "@/lib/engine/savings-ideas";
 
 export const metadata = { title: "Expenses" };
 
@@ -54,6 +58,8 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
     d.setMonth(d.getMonth() - i);
     months.push(d.toISOString().slice(0, 7));
   }
+  const ideas = await loadSavingsIdeas(supabase);
+  const suggestion = await firstSuggestion([savingsIdeasSuggestion(ideas.pending as { id: string; estimated_monthly_savings: number }[], (n) => money(n))]);
   return (
     <div>
       <PageHeader
@@ -70,6 +76,7 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
           </>
         }
       />
+      {suggestion ? <SuggestionLine s={suggestion} context={{ label: "Expenses and savings ideas" }} className="mb-4" /> : null}
       {pendingCats ? (
         <div className="mb-4">
           <Notice>

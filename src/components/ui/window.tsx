@@ -3,6 +3,7 @@ import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { ChevronLeft, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { chatState } from "@/components/app/chat-bus";
 
 /**
  * Centered windows (the app's "windows", built on the Radix dialog):
@@ -62,7 +63,15 @@ export function WindowShell({
           onInteractOutside={onInteractOutside}
           data-testid={testId}
           aria-describedby={undefined}
-          onEscapeKeyDown={onEscapeKeyDown}
+          onEscapeKeyDown={(e) => {
+            // The AI chat open inside the window closes first; the window stays.
+            if (chatState.openInWindow) {
+              e.preventDefault();
+              chatState.close?.();
+              return;
+            }
+            onEscapeKeyDown?.(e);
+          }}
           className={cn(
             "fixed inset-0 z-50 flex flex-col overflow-hidden bg-background shadow-2xl outline-none",
             "sm:inset-auto sm:left-1/2 sm:top-1/2 sm:max-h-[90vh] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border sm:border-border",
@@ -88,7 +97,10 @@ export function WindowLayout({
   footer,
   children,
   onClose,
+  ask,
 }: {
+  /** "Ask AI about this" (always shown, also on the phone, next to Close). */
+  ask?: React.ReactNode;
   title: React.ReactNode;
   subtitle?: React.ReactNode;
   onBack?: () => void;
@@ -121,6 +133,7 @@ export function WindowLayout({
           {subtitle ? <div className="clamp-1 text-sm text-muted-foreground">{subtitle}</div> : null}
         </div>
         {headerActions ? <div className="hidden shrink-0 items-center gap-2 sm:flex">{headerActions}</div> : null}
+        {ask ? <div className="shrink-0">{ask}</div> : null}
         {onClose ? (
           <button type="button" onClick={onClose} className={closeClass} aria-label="Close" data-testid="window-close">
             <X className="h-4 w-4" />
@@ -156,7 +169,9 @@ export function WindowFrame({
   onEscapeKeyDown,
   onCloseAutoFocus,
   host = false,
+  ask,
 }: {
+  ask?: React.ReactNode;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   size?: WindowSize;
@@ -174,7 +189,7 @@ export function WindowFrame({
 }) {
   return (
     <WindowShell open={open} onOpenChange={onOpenChange} size={size} testId={testId} onEscapeKeyDown={onEscapeKeyDown} onCloseAutoFocus={onCloseAutoFocus} host={host}>
-      <WindowLayout title={title} subtitle={subtitle} onBack={onBack} backLabel={backLabel} headerActions={headerActions} footer={footer}>
+      <WindowLayout title={title} subtitle={subtitle} onBack={onBack} backLabel={backLabel} headerActions={headerActions} footer={footer} ask={ask}>
         {children}
       </WindowLayout>
     </WindowShell>

@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { requireOwner } from "@/lib/auth";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/app/page-header";
@@ -9,6 +8,8 @@ import { updateInput } from "@/app/actions/domain";
 import { dateTime } from "@/lib/format";
 import type { Row } from "@/lib/types";
 import { GuardedForm } from "@/components/app/unsaved-changes";
+import { CollapsibleCard, DisclosureGroup, ExpandAllControls } from "@/components/app/collapsible";
+import { inputsSummary } from "@/lib/disclosure";
 
 export const metadata = { title: "Inputs and Assumptions" };
 
@@ -20,8 +21,10 @@ export default async function InputsPage() {
   const rows = (data ?? []) as Row[];
   const groups: Record<string, Row[]> = {};
   for (const r of rows) (groups[r.category] ??= []).push(r);
+  // The first category starts open; the others show a one-line summary until opened. Each viewer's choice is remembered.
+  const defaults = Object.fromEntries(Object.keys(groups).map((g, i) => [g, i === 0]));
   return (
-    <div>
+    <DisclosureGroup storageKey="inputs" defaults={defaults}>
       <PageHeader
         title="Inputs and Assumptions"
         description="Every changeable number in one list. Every calculation reads these values. Each change is saved with its old value."
@@ -31,14 +34,12 @@ export default async function InputsPage() {
           </Button>
         }
       />
+      <ExpandAllControls className="-mt-2 mb-2 justify-end" />
       {/* Two balanced columns on wide screens: each card sits directly under the one above it, so no blank space is left between cards of different heights. */}
       <div className="gap-4 xl:columns-2">
         {Object.entries(groups).map(([group, list]) => (
-          <Card key={group} className="mb-4 break-inside-avoid">
-            <CardHeader>
-              <CardTitle>{group}</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col divide-y divide-slate-100">
+          <CollapsibleCard key={group} id={group} title={group} meta={`${list.length} ${list.length === 1 ? "number" : "numbers"}`} summary={inputsSummary(list as { label: string; unit: string }[])} className="mb-4" testId="inputs-card">
+            <div className="-mt-2 flex flex-col divide-y divide-slate-100">
               {list.map((i) => {
                 const isText = i.unit === "text" || i.unit === "date";
                 return (
@@ -68,10 +69,10 @@ export default async function InputsPage() {
                   </GuardedForm>
                 );
               })}
-            </CardContent>
-          </Card>
+            </div>
+          </CollapsibleCard>
         ))}
       </div>
-    </div>
+    </DisclosureGroup>
   );
 }

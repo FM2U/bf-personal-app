@@ -19,7 +19,7 @@ export default async function ImportsSettingsPage() {
           </Button>
         }
       />
-      <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
         <ListCard sb={supabase} table="import_layouts" />
         <ListCard sb={supabase} table="import_batches" limit={100} />
       </div>

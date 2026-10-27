@@ -24,6 +24,11 @@ import { GuardedForm } from "@/components/app/unsaved-changes";
 import { EmailButton } from "@/components/app/compose-email";
 import { loadComposeSetup } from "@/lib/compose-email";
 import { ViewSummaryButton } from "@/components/app/view-summary-button";
+import { SuggestionLine } from "@/components/app/suggestion-line";
+import { pipelineSuggestion, taskSuggestion, type Suggestion } from "@/lib/suggestions";
+import { firstSuggestion } from "@/lib/suggestions-server";
+import { loadPipelineStatus } from "@/lib/pipeline";
+import type { Row } from "@/lib/types";
 
 const COMMS_TABLES = new Set(["contacts", "organizations", "pipeline_items", "funding_sources", "debts", "partners", "decisions", "goals", "milestones"]);
 
@@ -59,6 +64,27 @@ export default async function RecordPage({ params, searchParams }: { params: Pro
   // "Deal came from" / "Lead came from" shows the contact or the typed source ("Not a person"); "Where it came from" is not shown separately.
   const combineSource = table === "pipeline_items" && !rules.hide.includes("source_contact_id");
   const detailFields = r.fields.filter((f) => !rules.hide.includes(f.name) && !(combineSource && f.name === "source"));
+  // One suggestion line, from the record's own data (no AI call): a quiet pipeline item, a task that keeps moving.
+  let suggestion: Suggestion | null = null;
+  if (!editing && table === "pipeline_items") {
+    const [status, { data: nextTask }] = await Promise.all([
+      loadPipelineStatus(supabase, [row], { ownerId, tz: ctx.tz, today: ctx.today }).catch(() => null),
+      supabase.from("tasks").select("title").eq("pipeline_item_id", id).eq("status", "todo").order("due_date").limit(1),
+    ]);
+    suggestion = await firstSuggestion([
+      pipelineSuggestion({
+        id,
+        open: row.status === "open",
+        today: ctx.today,
+        lastActivity: status?.byItem[id]?.lastActivity ?? null,
+        nextAction: row.next_action ?? null,
+        nextTask: ((nextTask ?? []) as Row[])[0]?.title ?? null,
+        sourceName: row.source_contact_id ? labels.contacts?.[row.source_contact_id] ?? null : null,
+        stallDays: status?.stallDays ?? 7,
+        itemName: row.name ?? null,
+      }),
+    ]);
+  } else if (!editing && table === "tasks") suggestion = await firstSuggestion([taskSuggestion(row as { id: string; status: string; times_moved?: number | null })]);
 
   return (
     <div>
@@ -68,6 +94,7 @@ export default async function RecordPage({ params, searchParams }: { params: Pro
       <PageHeader
         title={title}
         description={r.singular}
+        ask={{ table, id, label: title }}
         actions={
           !editing && (compose || summary || !r.noEdit) ? (
             <>
@@ -84,6 +111,7 @@ export default async function RecordPage({ params, searchParams }: { params: Pro
           ) : null
         }
       />
+      {suggestion ? <SuggestionLine s={suggestion} context={{ table, id, label: title }} className="mb-4" /> : null}
       {table === "pipeline_items" ? (
         <PipelineItemNotices sb={supabase} row={row} sp={sp} />
       ) : sp.notice ? (

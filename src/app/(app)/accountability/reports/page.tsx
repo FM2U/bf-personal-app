@@ -9,7 +9,7 @@ export default async function ReportsPage() {
   return (
     <div>
       <PageHeader title="Partner reports" description="A saved copy of the numbers at send time, so a report never changes after it is finalized. Drafts are created on each partner's schedule." />
-      <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
         <ListCard sb={supabase} table="partner_reports" title="Drafts to review and finalize" filters={[["status", "eq", "draft"]]} emptyTitle="No drafts." emptyBody="Drafts are created on each partner's report date, or from a partner's page with Create a report now." />
         <ListCard sb={supabase} table="partner_reports" title="Finalized" filters={[["status", "eq", "finalized"]]} emptyTitle="No finalized reports yet." />
       </div>

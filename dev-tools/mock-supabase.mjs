@@ -308,7 +308,8 @@ server.listen(PORT, () => console.log(`Mock Supabase listening on http://localho
 // The app talks to it when GOOGLE_API_MOCK_URL=http://localhost:54329 (dev-tools/local.env); the app honors that
 // variable only for a localhost address. Sign-in returns at once, tokens are fake, nothing leaves this machine.
 // Test controls: POST /__mode {"grantSend": false} (the next sign-in grants no gmail.send, like the old connection),
-// {"sendError": "scope" | "server" | null}; GET /__sent lists the emails "sent" (decoded); POST /__reset clears both.
+// {"sendError": "scope" | "server" | null}; GET /__sent lists the emails "sent" (decoded); GET /__events lists
+// the calendar events created (approved time blocks, reviews, follow-ups); POST /__reset clears them.
 const GOOGLE_PORT = Number(process.env.MOCK_GOOGLE_PORT || 54329);
 const BASE_SCOPES = ["openid", "email", "https://www.googleapis.com/auth/gmail.compose", "https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/calendar.readonly"];
 const SEND = "https://www.googleapis.com/auth/gmail.send";
@@ -316,6 +317,7 @@ let gmode = { grantSend: true, sendError: null };
 let gsent = [];
 let gdrafts = 0;
 let gEvents = 0;
+let gEventList = [];
 
 async function readRaw(req) {
   const chunks = [];
@@ -353,9 +355,11 @@ const google = http.createServer(async (req, res) => {
     if (p === "/__reset" && req.method === "POST") {
       gmode = { grantSend: true, sendError: null };
       gsent = [];
+      gEventList = [];
       return send(res, 200, { ok: true });
     }
     if (p === "/__sent") return send(res, 200, gsent);
+    if (p === "/__events") return send(res, 200, gEventList);
     if (p === "/o/oauth2/v2/auth") {
       const back = new URL(url.searchParams.get("redirect_uri"));
       back.searchParams.set("code", gmode.grantSend ? "mock-code-send" : "mock-code-nosend");
@@ -382,7 +386,12 @@ const google = http.createServer(async (req, res) => {
     }
     if (p === "/gmail/v1/users/me/drafts" && req.method === "POST") return send(res, 200, { id: `mock-draft-${++gdrafts}`, message: { id: `mock-draft-msg-${gdrafts}` } });
     if (p.startsWith("/calendar/v3/calendars/primary/events")) {
-      if (req.method === "POST") return send(res, 200, { id: `mock-event-${++gEvents}` });
+      if (req.method === "POST") {
+        const body = JSON.parse((await readRaw(req)) || "{}");
+        const id = `mock-event-${++gEvents}`;
+        gEventList.push({ id, summary: body.summary, start: body.start?.dateTime ?? null, end: body.end?.dateTime ?? null });
+        return send(res, 200, { id });
+      }
       return send(res, 200, { items: [] });
     }
     if (p.startsWith("/calendar/v3/users/me/calendarList")) return send(res, 200, { items: [] });
@@ -401,7 +410,8 @@ google.listen(GOOGLE_PORT, () => console.log(`Mock Google listening on http://lo
 //   "TASK: compose_email"       -> a short email built from the one-line instruction (Email button, Write with AI)
 //   chat (a request with tools) -> a short bulleted answer
 //   anything else               -> HTTP 400, so morning plans, review drafts, and message drafts use their templates
-// Test controls: POST /__mode {"initiative": "valid" | "invalid_once" | "invalid"}; GET /__calls; POST /__reset.
+// Test controls: POST /__mode {"initiative": "valid" | "invalid_once" | "invalid"}; GET /__calls; GET /__last_chat (the
+// last chat request's system prompt and messages, to check "Ask AI about this" context); POST /__reset.
 import { createRequire } from "node:module";
 const requireCjs = createRequire(import.meta.url);
 const { mealPlanProposal } = requireCjs("./fixtures/meal-plan.cjs");
@@ -409,6 +419,7 @@ const AI_PORT = Number(process.env.MOCK_AI_PORT || 54330);
 let aiMode = { initiative: "valid" };
 let aiCalls = [];
 let invalidSent = false;
+let lastChat = null;
 
 const nyToday = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 
@@ -444,6 +455,7 @@ const ai = http.createServer(async (req, res) => {
       return send(res, 200, { ok: true });
     }
     if (url.pathname === "/__calls") return send(res, 200, aiCalls);
+    if (url.pathname === "/__last_chat") return send(res, 200, lastChat ?? {});
     if (url.pathname.startsWith("/v1/models")) return send(res, 200, { data: [{ id: "mock-model", type: "model" }], has_more: false });
     if (url.pathname === "/v1/messages" && req.method === "POST") {
       const body = JSON.parse((await readRaw(req)) || "{}");
@@ -472,6 +484,7 @@ const ai = http.createServer(async (req, res) => {
       }
       if (Array.isArray(body.tools) && body.tools.length) {
         aiCalls.push("chat");
+        lastChat = { system: typeof body.system === "string" ? body.system : JSON.stringify(body.system ?? ""), messages: body.messages ?? [] };
         return send(res, 200, aiMessage("- **Runway:** this is the local test AI. It answers without reading your data.\n- **Next step:** ask again on the live app."));
       }
       aiCalls.push("other");

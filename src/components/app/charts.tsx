@@ -1,6 +1,6 @@
 "use client";
 
-import { CHART_SERIES, CHART_STATUS } from "@/lib/status";
+import { CHART_BASELINE, CHART_SERIES, CHART_STATUS } from "@/lib/status";
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 export type Series = { key: string; label: string; color: string };
@@ -83,6 +83,28 @@ export function RunwayTrendChart({ data, target, height = 132 }: { data: { label
           {target ? <ReferenceLine y={target} stroke={CHART_SERIES[1]} strokeDasharray="5 4" strokeWidth={1.5} label={{ value: `Target ${target}`, position: "insideTopRight", fontSize: 10, fill: "#7a5714" }} /> : null}
           <Line type="monotone" dataKey="months" name="Runway (months)" stroke={CHART_SERIES[0]} strokeWidth={2} dot={{ r: 2, fill: CHART_SERIES[0] }} activeDot={{ r: 4 }} connectNulls={false} isAnimationActive={false} />
         </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+/**
+ * Home, "This month": spending in each week of the month (cobalt bars; weeks still ahead are empty) next to the budget
+ * for that week (light gray bars: the monthly budget spread over the days of the month), as on Finance, Budget.
+ */
+export function WeekSpendChart({ data, height = 112 }: { data: { label: string; spent: number | null; budget: number | null }[]; height?: number }) {
+  const hasBudget = data.some((d) => d.budget !== null);
+  return (
+    <div style={{ height }} className="w-full" data-testid="week-spend-chart" role="img" aria-label="Spending by week this month compared with the weekly budget">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} margin={{ top: 6, right: 8, left: -12, bottom: 0 }} barGap={2}>
+          <CartesianGrid stroke="#eef2f7" vertical={false} />
+          <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#64748b" }} tickLine={false} axisLine={false} />
+          <YAxis tickFormatter={fmtMoney} tickCount={4} tick={{ fontSize: 10, fill: "#64748b" }} tickLine={false} axisLine={false} width={46} />
+          <Tooltip formatter={(v) => fmtFull(v)} labelFormatter={(l) => `Days ${l}`} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+          {hasBudget ? <Bar dataKey="budget" name="Weekly budget" fill={CHART_BASELINE} fillOpacity={0.35} radius={[3, 3, 0, 0]} maxBarSize={18} isAnimationActive={false} /> : null}
+          <Bar dataKey="spent" name="Spent" fill={CHART_SERIES[0]} radius={[3, 3, 0, 0]} maxBarSize={18} isAnimationActive={false} />
+        </BarChart>
       </ResponsiveContainer>
     </div>
   );

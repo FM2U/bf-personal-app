@@ -9,7 +9,7 @@
  */
 import { useCallback, useEffect, useState, useTransition } from "react";
 import Link from "next/link";
-import { ArrowRight, ArrowUpRight, CalendarClock, CalendarDays, CheckCircle2, Circle, ListChecks, Mail, MessageSquare, Pencil, Phone, Plus, Users } from "lucide-react";
+import { ArrowRight, ArrowUpRight, LayoutGrid, CalendarClock, CalendarDays, CheckCircle2, Circle, ListChecks, Mail, MessageSquare, Pencil, Phone, Plus, Users } from "lucide-react";
 import { WindowLayout } from "@/components/ui/window";
 import { Button } from "@/components/ui/button";
 import { Input, NativeSelect } from "@/components/ui/input";
@@ -22,8 +22,12 @@ import { RecordForm } from "@/components/app/record-form";
 import { EmailButton } from "@/components/app/compose-email";
 import { DealSourceBadge, ItemStatusBadges } from "@/components/app/pipeline-badges";
 import { useWindowNav } from "@/components/app/window-host";
+import { AskAiButton } from "@/components/app/ask-ai-button";
+import { SuggestionLine } from "@/components/app/suggestion-line";
+import type { ChatContext } from "@/components/app/chat-bus";
 import { SetupWindow } from "@/components/app/windows/setup-window";
 import { WorkWindow } from "@/components/app/windows/work-window";
+import { ScenarioSummaryWindow } from "@/components/app/windows/scenario-summary";
 import { loadEditForm, loadPlanText, loadRecordOverview, loadSetup, logActivityInWindow, moveStageInWindow, moveTaskToTomorrow, type EditFormData, type LineItem, type OverviewData, type SetupData } from "@/app/actions/window";
 import { setTaskStatus, updateRecordFields } from "@/app/actions/records";
 import type { QuickField } from "@/app/actions/quick-view";
@@ -89,13 +93,22 @@ function Skeleton() {
 }
 
 /** The layout every view uses, with Back and Close wired to the window. */
-export function ViewLayout(props: { title: React.ReactNode; subtitle?: React.ReactNode; footer?: React.ReactNode; toolbar?: React.ReactNode; headerActions?: React.ReactNode; children: React.ReactNode }) {
+export function ViewLayout({ askLabel, ...props }: { title: React.ReactNode; subtitle?: React.ReactNode; footer?: React.ReactNode; toolbar?: React.ReactNode; headerActions?: React.ReactNode; children: React.ReactNode; askLabel?: string }) {
   const nav = useWindowNav();
   return (
-    <WindowLayout {...props} onBack={nav.canBack ? nav.back : undefined} onClose={nav.requestClose}>
+    <WindowLayout {...props} onBack={nav.canBack ? nav.back : undefined} onClose={nav.requestClose} ask={<AskAiButton compact context={askContextFor(nav.view, askLabel ?? (typeof props.title === "string" ? props.title : "this window"))} />}>
       {props.children}
     </WindowLayout>
   );
+}
+
+/** "Ask AI about this" in a window: the record it shows (record, editor), or the window's name. */
+function askContextFor(v: View, label: string): ChatContext {
+  const clean = label.replace(/^(Edit|Summary|Draft): /, "");
+  if (v.kind === "record" || v.kind === "edit") return { table: v.table, id: v.id, label: clean };
+  if (v.kind === "scenario-summary" && v.ids.length === 1) return { table: "scenarios", id: v.ids[0], label: clean };
+  if (v.kind === "plan") return { table: "initiatives", id: v.initiativeId, label: clean };
+  return { label: clean };
 }
 
 function LoadingView({ title = "Loading..." }: { title?: string }) {
@@ -218,6 +231,8 @@ export function WindowView() {
       return <SetupWindow />;
     case "work":
       return <WorkWindow />;
+    case "scenario-summary":
+      return <ScenarioSummaryWindow ids={view.ids} />;
   }
 }
 
@@ -320,6 +335,7 @@ function QuickWindow({ d, reload }: { d: Extract<OverviewData, { kind: "quick" }
       }
     >
       <div className="flex flex-col gap-4" data-testid="quick-view-body">
+        {d.suggestion ? <SuggestionLine s={d.suggestion} context={{ table: b.table, id: b.id, label: b.title }} /> : null}
         <ActionError error={error} />
         <div className={cn("grid grid-cols-1 gap-4", d.context && "lg:grid-cols-2")}>
           <NextActionCard action={b.next} today={b.today} compact />
@@ -428,6 +444,7 @@ function GoalWindow({ d, reload }: { d: Extract<OverviewData, { kind: "goal" }>;
       }
     >
       <div className="flex flex-col gap-4" data-testid="goal-overview">
+        {d.suggestion ? <SuggestionLine s={d.suggestion} context={{ table: "goals", id: b.id, label: b.title }} /> : null}
         <ActionError error={error} />
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(14rem,18rem)]">
           <NextActionCard action={b.next} today={b.today} compact />
@@ -504,6 +521,7 @@ function PipelineWindow({ d, reload }: { d: Extract<OverviewData, { kind: "pipel
       }
     >
       <div className="flex flex-col gap-4" data-testid="pipeline-overview">
+        {d.suggestion ? <SuggestionLine s={d.suggestion} context={{ table: "pipeline_items", id: b.id, label: b.title }} /> : null}
         <ActionError error={error} />
         {message ? <Notice tone="success">{message}</Notice> : null}
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -621,11 +639,14 @@ function ScenarioWindow({ d }: { d: Extract<OverviewData, { kind: "scenario" }> 
       subtitle="Scenario"
       footer={
         <>
+          <Button size="sm" onClick={() => nav.push({ kind: "scenario-summary", ids: [d.id] })} data-testid="scenario-view-summary">
+            <LayoutGrid /> View summary
+          </Button>
           <span className="flex-1" />
           <Button size="sm" variant="outline" onClick={() => nav.push({ kind: "edit", table: "scenarios", id: d.id })} data-testid="window-edit">
             <Pencil /> Rename or change months
           </Button>
-          <FullPageButton href={`/plan/scenarios/${d.id}`} variant="default" />
+          <FullPageButton href={`/plan/scenarios/${d.id}`} />
         </>
       }
     >
@@ -785,4 +806,4 @@ function DraftWindow({ id }: { id: string }) {
 }
 
 // Shared with the setup and work views.
-export { ActionError, FieldsTile, LinesTile, Skeleton };
+export { ActionError, ErrorView, FieldsTile, LinesTile, LoadingView, Skeleton };

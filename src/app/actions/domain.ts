@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { requireOwner } from "@/lib/auth";
 import { loadCtx, refreshNextActionAlert, refreshStageLimitAlert } from "@/lib/engine/helpers";
 import { evaluateConditions, markMilestoneMet } from "@/lib/engine/rules";
-import { checkCommitments, generateFollowUps, generatePipelineTasks, generateRecurringTasks, createTimeBlocks, releaseSupersededNextActions, rolloverRegularTasks, scheduleReviewEvents } from "@/lib/engine/tasks";
+import { checkCommitments, generateFollowUps, generatePipelineTasks, generateRecurringTasks, releaseSupersededNextActions, rolloverRegularTasks } from "@/lib/engine/tasks";
 import { applyCategoryRules, detectAndSaveRecurring } from "@/lib/engine/finance-jobs";
 import { buildMorningPlan } from "@/lib/engine/run";
 import { dailyCloseCommitments, dailyCloseTargets, ensureReview, type ReviewKind } from "@/lib/engine/reviews";
@@ -14,7 +14,6 @@ import { createPartnerReport, reportText, activeLinkFor } from "@/lib/engine/par
 import { repaymentSchedule } from "@/lib/calc/savings";
 import { encrypt, randomToken, sha256 } from "@/lib/crypto";
 import { createGmailDraft } from "@/lib/google";
-import { loadInputs } from "@/lib/finance";
 import { env } from "@/lib/env";
 import type { Row } from "@/lib/types";
 import { applyStageLimitChoice, moveItemToStage } from "@/lib/pipeline-moves";
@@ -129,15 +128,6 @@ export async function runTodaysJobs() {
 export async function regeneratePlan() {
   const { supabase, ownerId } = await requireOwner();
   await buildMorningPlan(await loadCtx(supabase, ownerId), true);
-  done();
-}
-
-export async function addTimeBlocks() {
-  const { supabase, ownerId } = await requireOwner();
-  const ctx = await loadCtx(supabase, ownerId);
-  const inputs = await loadInputs(supabase);
-  await createTimeBlocks(ctx, inputs.num);
-  await scheduleReviewEvents(ctx);
   done();
 }
 

@@ -12,3 +12,12 @@ export function ViewSummaryButton({ initiativeId, ...props }: ButtonProps & { in
     </Button>
   );
 }
+
+/** "View summary" on a scenario page and on the scenarios comparison: opens the scenario summary window. */
+export function ScenarioSummaryButton({ ids, ...props }: ButtonProps & { ids: string[] }) {
+  return (
+    <Button type="button" size="sm" onClick={() => openWindowView({ kind: "scenario-summary", ids })} data-testid="scenario-view-summary" {...props}>
+      <LayoutGrid /> View summary
+    </Button>
+  );
+}

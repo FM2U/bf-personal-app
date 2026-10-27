@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { FileText, Link2, Trash2 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { CollapsibleCard } from "@/components/app/collapsible";
 import { Button } from "@/components/ui/button";
 import { Input, NativeSelect, Textarea } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -50,13 +50,8 @@ export async function LinkedRecordsPanel({ sb, table, id }: { sb: SupabaseClient
     }),
   );
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Link2 className="h-4 w-4" /> Linked records
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
+    <CollapsibleCard id="linked" storageKey={`record:${table}`} title="Linked records" icon={<Link2 className="h-4 w-4" />} meta={links.length || undefined} defaultOpen={links.length > 0} summary="None yet. Open to link a person, deal, goal, or document.">
+      <div className="flex flex-col gap-3">
         {links.length ? (
           <ul className="flex flex-col divide-y divide-slate-100">
             {links.map((l) => (
@@ -106,8 +101,8 @@ export async function LinkedRecordsPanel({ sb, table, id }: { sb: SupabaseClient
             </SubmitButton>
           </div>
         </GuardedForm>
-      </CardContent>
-    </Card>
+      </div>
+    </CollapsibleCard>
   );
 }
 
@@ -115,13 +110,8 @@ export async function DocumentsPanel({ sb, table, id }: { sb: SupabaseClient; ta
   const { data } = await sb.from("documents").select("*").eq("record_type", table).eq("record_id", id).order("created_at", { ascending: false });
   const docs = (data ?? []) as Row[];
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <FileText className="h-4 w-4" /> Documents
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
+    <CollapsibleCard id="documents" storageKey={`record:${table}`} title="Documents" icon={<FileText className="h-4 w-4" />} meta={docs.length || undefined} defaultOpen={docs.length > 0} summary="None yet. Open to upload an agreement, statement, or proof.">
+      <div className="flex flex-col gap-3">
         {docs.length ? (
           <ul className="flex flex-col divide-y divide-slate-100">
             {docs.map((d) => (
@@ -161,8 +151,8 @@ export async function DocumentsPanel({ sb, table, id }: { sb: SupabaseClient; ta
             </SubmitButton>
           </div>
         </GuardedForm>
-      </CardContent>
-    </Card>
+      </div>
+    </CollapsibleCard>
   );
 }
 
@@ -170,11 +160,8 @@ export async function NotesPanel({ sb, table, id }: { sb: SupabaseClient; table:
   const { data } = await sb.from("notes").select("*").eq("record_type", table).eq("record_id", id).order("created_at", { ascending: false });
   const notes = (data ?? []) as Row[];
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Notes</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
+    <CollapsibleCard id="notes" storageKey={`record:${table}`} title="Notes" meta={notes.length || undefined} defaultOpen summary={notes.length ? `Latest: ${String(notes[0].body).slice(0, 80)}` : "No notes yet."}>
+      <div className="flex flex-col gap-3">
         <GuardedForm action={addNote} className="flex flex-col gap-2">
           <input type="hidden" name="record_type" value={table} />
           <input type="hidden" name="record_id" value={id} />
@@ -197,8 +184,8 @@ export async function NotesPanel({ sb, table, id }: { sb: SupabaseClient; table:
             <p className="whitespace-pre-wrap">{n.body}</p>
           </div>
         ))}
-      </CardContent>
-    </Card>
+      </div>
+    </CollapsibleCard>
   );
 }
 
@@ -216,11 +203,8 @@ export async function CommunicationsPanel({ sb, table, id }: { sb: SupabaseClien
   const { data } = await q;
   const comms = (data ?? []) as Row[];
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Communication history</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-2">
+    <CollapsibleCard id="communications" storageKey={`record:${table}`} title="Communication history" meta={comms.length || undefined} defaultOpen={comms.length > 0} summary={comms.length ? `Last: ${dateTime(comms[0].occurred_at)}` : "None logged yet."}>
+      <div className="flex flex-col gap-2">
         {comms.length ? (
           <ul className="flex flex-col divide-y divide-slate-100">
             {comms.map((c) => (
@@ -242,8 +226,8 @@ export async function CommunicationsPanel({ sb, table, id }: { sb: SupabaseClien
             Log a communication
           </Link>
         </Button>
-      </CardContent>
-    </Card>
+      </div>
+    </CollapsibleCard>
   );
 }
 
@@ -259,11 +243,8 @@ export async function HistoryPanel({ sb, table, id, labels = {} }: { sb: Supabas
   };
   const showRaw = (v: unknown) => (v === null || v === undefined ? "empty" : typeof v === "object" ? JSON.stringify(v).slice(0, 80) : String(v).slice(0, 80));
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Change history</CardTitle>
-      </CardHeader>
-      <CardContent>
+    <CollapsibleCard id="history" storageKey={`record:${table}`} title="Change history" meta={rows.length || undefined} defaultOpen={false} summary={rows.length ? `Last change ${dateTime(rows[0].created_at)}` : "No changes recorded."}>
+      <div>
         {rows.length ? (
           <ul className="flex flex-col gap-2 text-sm">
             {rows.map((c) => (
@@ -287,10 +268,13 @@ export async function HistoryPanel({ sb, table, id, labels = {} }: { sb: Supabas
         ) : (
           <p className="text-sm text-muted-foreground">No changes recorded.</p>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </CollapsibleCard>
   );
 }
+
+/** Shorter column sets for child lists that sit in the narrower main column of a record page. */
+const CHILD_COLUMNS: Record<string, string[]> = { communications: ["occurred_at", "method", "direction", "subject", "outcome"] };
 
 /** Child records (example: payments under a debt) with an add button that fills in the parent. */
 export async function ChildrenSections({ sb, table, id, labels }: { sb: SupabaseClient; table: string; id: string; labels: Record<string, Record<string, string>> }) {
@@ -306,19 +290,24 @@ export async function ChildrenSections({ sb, table, id, labels }: { sb: Supabase
   return (
     <>
       {sections.map(({ c, cr, rows }) => (
-        <Card key={c.table + c.fk}>
-          <CardHeader className="flex-row items-center justify-between gap-2">
-            <CardTitle>{c.label}</CardTitle>
-            {!cr.noCreate && rows.length ? (
+        <CollapsibleCard
+          key={c.table + c.fk}
+          id={`child:${c.table}:${c.fk}`}
+          storageKey={`record:${table}`}
+          title={c.label}
+          meta={rows.length || undefined}
+          defaultOpen={rows.length > 0}
+          summary={`None yet. ${cr.empty ?? ""}`.trim()}
+          actions={
+            !cr.noCreate ? (
               <Button asChild size="sm" variant="outline">
                 <Link href={newRecordHref(c.table, { [c.fk]: id })}>Add</Link>
               </Button>
-            ) : null}
-          </CardHeader>
-          <CardContent>
-            <ResourceTable table={c.table} rows={rows} labels={labels} columns={cr.columns.filter((col) => col !== c.fk)} prefill={{ [c.fk]: id }} />
-          </CardContent>
-        </Card>
+            ) : null
+          }
+        >
+          <ResourceTable table={c.table} rows={rows} labels={labels} columns={(CHILD_COLUMNS[c.table] ?? cr.columns).filter((col) => col !== c.fk)} prefill={{ [c.fk]: id }} />
+        </CollapsibleCard>
       ))}
     </>
   );

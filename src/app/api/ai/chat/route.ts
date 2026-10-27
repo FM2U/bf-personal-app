@@ -5,6 +5,7 @@ import { AI_SYSTEM_BASE, AIInvalidReply, AIUnavailable, CHAT_LENGTH_RULE, MESSAG
 import { createInitiativeDraft, UpdateNeeded } from "@/lib/initiative/server";
 import { AI_TOOLS, runTool } from "@/lib/ai/tools";
 import { loadCtx } from "@/lib/engine/helpers";
+import { cleanChatContext, loadAiContext } from "@/lib/ai/context";
 import type { Row } from "@/lib/types";
 
 export const maxDuration = 120;
@@ -14,7 +15,7 @@ export async function POST(req: Request) {
   const owner = await getOwner();
   if (!owner) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
   const { supabase: sb, ownerId } = owner;
-  const body = (await req.json().catch(() => ({}))) as { message?: string; conversationId?: string | null; pagePath?: string };
+  const body = (await req.json().catch(() => ({}))) as { message?: string; conversationId?: string | null; pagePath?: string; context?: unknown };
   const message = String(body.message ?? "").trim();
   if (!message) return NextResponse.json({ error: "Type a message first." }, { status: 400 });
 
@@ -51,11 +52,14 @@ export async function POST(req: Request) {
   const ctx = await loadCtx(sb, ownerId);
   const path = body.pagePath ?? "/";
   const recordMatch = path.match(/^\/records\/([a-z_]+)\/([0-9a-f-]{36})/);
+  // "Ask AI about this": the page or record (with its fields, linked records, open tasks, recent activity).
+  const asked = cleanChatContext(body.context);
+  const about = asked ? await loadAiContext(sb, { ...asked, path: asked.path ?? path }, ctx.today).catch(() => null) : null;
   const system = `${AI_SYSTEM_BASE}
 ${CHAT_LENGTH_RULE}
 Exception: when Bram asks for an email or message draft, write the draft itself using this format instead:
 ${MESSAGE_FORMAT_RULE}
-Today is ${ctx.today}. Bram is on the screen ${path}.${recordMatch ? ` The record on screen is table "${recordMatch[1]}" id "${recordMatch[2]}". Read it with get_record when relevant.` : ""}
+Today is ${ctx.today}. Bram is on the screen ${path}.${recordMatch && !about ? ` The record on screen is table "${recordMatch[1]}" id "${recordMatch[2]}". Read it with get_record when relevant.` : ""}${about ? `\n\n${about}` : ""}
 Use the tools to read data before answering questions about numbers. Never claim a change was saved: use propose_change, then tell Bram to approve it on the AI proposals page.`;
 
   const messages: Anthropic.MessageParam[] = [

@@ -909,7 +909,7 @@ const R: Resource[] = [
       { name: "phone", label: "Phone", type: "text", section: "Organization" },
       { name: "notes", label: "Notes", type: "textarea", section: "Organization" },
     ],
-    columns: ["name", "kind", "website"],
+    columns: ["name", "kind", "phone", "website"],
     order: ["name", true],
     empty: "Add brokers, lenders, employers, investors, and other organizations.",
     // People are shown and linked in the "People at this organization" panel (src/components/app/org-people.tsx).
@@ -973,7 +973,7 @@ const R: Resource[] = [
       { name: "purpose", label: "Purpose", type: "select", options: PURPOSE_OPTIONS, help: "Empty = deal sourcing for deal-source contacts, otherwise general." },
       { name: "pipeline_item_id", label: "Pipeline item it concerns", type: "ref", ref: "pipeline_items" },
     ],
-    columns: ["occurred_at", "method", "contact_id", "subject"],
+    columns: ["occurred_at", "method", "direction", "contact_id", "organization_id", "subject", "pipeline_item_id", "outcome"],
     order: ["occurred_at", false],
     empty: "Log every email, call, letter, or meeting. Link it to the records it concerns on its page.",
   },
@@ -1046,7 +1046,7 @@ const R: Resource[] = [
     ],
     columns: ["starts_at", "title", "kind", "google_event_id"],
     order: ["starts_at", false],
-    empty: "Time blocks for priority tasks and reviews are added each morning when Google is connected.",
+    empty: "Each morning the app suggests time blocks for priority tasks; approved blocks go to Google Calendar.",
   },
   // Stage task lists (Settings, Initiatives and pipelines)
   {

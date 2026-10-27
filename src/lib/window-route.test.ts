@@ -33,6 +33,8 @@ describe("window addresses", () => {
       { kind: "work", taskId: null },
       { kind: "work", taskId: ID },
       { kind: "plan", initiativeId: ID },
+      { kind: "scenario-summary", ids: [ID] },
+      { kind: "scenario-summary", ids: [ID, ID2] },
     ];
     for (const v of views) expect(parseWindowParam(windowParam(v))).toEqual(v);
   });
@@ -119,5 +121,17 @@ describe("work through tasks", () => {
     expect(workPosition([ID, ID2], null)).toEqual({ index: 1, total: 2, next: ID2 });
     expect(workPosition([ID, ID2], ID2)).toEqual({ index: 2, total: 2, next: null });
     expect(workPosition([], null)).toEqual({ index: 0, total: 0, next: null });
+  });
+});
+
+describe("scenario summary window", () => {
+  it("one scenario or the scenarios compared, large, with the full page", () => {
+    expect(parseWindowParam(`ss/${ID},${ID2}`)).toEqual({ kind: "scenario-summary", ids: [ID, ID2] });
+    expect(parseWindowParam("ss/not-an-id")).toBeNull();
+    expect(parseWindowParam("ss")).toBeNull();
+    expect(windowSize({ kind: "scenario-summary", ids: [ID] })).toBe("large");
+    expect(fullPageHref({ kind: "scenario-summary", ids: [ID] })).toBe(`/plan/scenarios/${ID}`);
+    expect(fullPageHref({ kind: "scenario-summary", ids: [ID, ID2] })).toBe(`/plan/scenarios/compare?ids=${ID},${ID2}`);
+    expect(parseWindowParam(new URL(`http://x${withWindow("/plan/scenarios", { kind: "scenario-summary", ids: [ID, ID2] })}`).searchParams.get("w"))).toEqual({ kind: "scenario-summary", ids: [ID, ID2] });
   });
 });

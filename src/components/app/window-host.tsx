@@ -22,6 +22,7 @@ import { WindowFrame, WindowShell } from "@/components/ui/window";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { SummaryContent } from "@/components/app/initiative-summary";
+import { AskAiButton } from "@/components/app/ask-ai-button";
 import { WindowView as WindowViewContent } from "@/components/app/windows/views";
 import { guardHistory, hasUnsavedIn } from "@/components/app/unsaved-changes";
 import { fullPageHref, hrefToView, parentView, parseWindowParam, WINDOW_PARAM, windowParam, windowSize, withWindow, type WindowView } from "@/lib/window-route";
@@ -212,6 +213,7 @@ export function WindowProvider({ children }: { children: React.ReactNode }) {
           title={`Summary: ${local.summary.name}`}
           subtitle="Select a line to edit it on the review screen."
           testId="summary-window"
+          ask={<AskAiButton compact context={{ label: `Initiative draft: ${local.summary.name}` }} />}
           onCloseAutoFocus={(e) => {
             const anchor = focusAfterClose.current;
             focusAfterClose.current = null;
@@ -239,6 +241,7 @@ function testIdFor(v: WindowView): string {
   if (v.kind === "setup") return "setup-window";
   if (v.kind === "work") return "tasks-window";
   if (v.kind === "plan") return "plan-window";
+  if (v.kind === "scenario-summary") return "scenario-summary-window";
   return "draft-window";
 }
 

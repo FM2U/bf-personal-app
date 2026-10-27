@@ -14,7 +14,8 @@ import { trimMorningPlan } from "@/lib/morning-plan";
 import type { Row } from "@/lib/types";
 import { createAlert, createTask, loadCtx, type Ctx } from "./helpers";
 import { checkMilestones, evaluateConditions } from "./rules";
-import { checkCommitments, createTimeBlocks, generateFollowUps, generatePipelineTasks, generateRecurringTasks, releaseSupersededNextActions, rolloverRegularTasks, scheduleReviewEvents } from "./tasks";
+import { suggestTimeBlocks } from "./time-blocks";
+import { checkCommitments, generateFollowUps, generatePipelineTasks, generateRecurringTasks, releaseSupersededNextActions, rolloverRegularTasks, scheduleReviewEvents } from "./tasks";
 import { applyCategoryRules, detectAndSaveRecurring } from "./finance-jobs";
 import { ensureReview } from "./reviews";
 import { schedulePartnerReports } from "./partners";
@@ -290,7 +291,8 @@ export async function runMorning(sb: SupabaseClient, ownerId: string) {
   await step("partner_reports", () => schedulePartnerReports(ctx), log);
   const { data: inputs } = await sb.from("inputs").select("key,value_number").eq("owner_id", ownerId);
   const num = Object.fromEntries(((inputs ?? []) as Row[]).map((i) => [i.key, i.value_number === null ? null : Number(i.value_number)]));
-  await step("time_blocks", () => createTimeBlocks(ctx, num), log);
+  // Time blocks are only suggested here; the owner approves each one before it goes to Google Calendar.
+  await step("time_blocks", () => suggestTimeBlocks(ctx, num), log);
   await step("review_events", () => scheduleReviewEvents(ctx), log);
   await step("morning_plan", () => buildMorningPlan(ctx, true), log);
   return { date: ctx.today, log };

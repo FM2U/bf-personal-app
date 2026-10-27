@@ -1526,9 +1526,15 @@ const expectText = async (page, text) => {
         await tomorrow.click();
         await page.waitForFunction((t) => (document.querySelector("[data-testid=work-task-title]")?.innerText ?? "").trim() !== t || !!document.querySelector("[data-testid=work-summary]"), title);
         const row = await one("select due_date::text d, (now() at time zone 'America/New_York')::date + 1 = due_date tomorrow from tasks where title = $1 order by updated_at desc limit 1", [title]);
-        if (!row.tomorrow) throw new Error(`not moved to tomorrow: ${row.d}`);
+        if (!row.tomorrow) throw new Error(`not moved to tomorrow: "${title}" ${row.d}`);
         moved = true;
-      } else await page.getByTestId("work-skip").click();
+      } else {
+        // Skip, then wait for the next task to show (its buttons belong to the next task only after that).
+        const skipped = (await page.getByTestId("work-task-title").innerText()).trim();
+        await page.getByTestId("work-skip").click();
+        await page.waitForFunction((t) => (document.querySelector("[data-testid=work-task-title]")?.innerText ?? "").trim() !== t || !!document.querySelector("[data-testid=work-summary]"), skipped);
+        await page.waitForTimeout(200);
+      }
     }
     if (!moved) throw new Error("no regular task to move");
     // The linked record opens in the same window, and Back returns to the task.
@@ -1604,6 +1610,221 @@ const expectText = async (page, text) => {
     await chart.waitFor();
     if (!(await chart.locator("svg path.recharts-curve").count())) throw new Error("no runway line");
     await shoot3(`${BASE}/`, "home");
+  });
+
+  // ---------- Build B: AI visibility, suggestion lines, progressive disclosure, task filter, time blocks, scenario summary ----------
+  const lastChat = async () => (await fetch(`${AIMOCK}/__last_chat`)).json();
+  const itemId = async (name) => (await one("select id from pipeline_items where name = $1 limit 1", [name])).id;
+
+  await step("Ask AI about this: a pipeline item window opens the chat inside the window about that record; the AI gets its fields; Escape closes the chat first", async () => {
+    const id = await itemId("Demo HVAC Services Co");
+    await page.goto(`${BASE}/opportunities?w=r/pipeline_items/${id}`);
+    await page.getByTestId("pipeline-overview").waitFor();
+    await page.locator("[data-url-window]").getByTestId("ask-ai").click();
+    const chat = page.locator("[data-url-window] [data-testid=ai-chat]");
+    await chat.waitFor();
+    if (!(await page.getByTestId("ai-chat-context").innerText()).includes("Demo HVAC Services Co")) throw new Error("context chip");
+    await chat.getByRole("button", { name: "What should I do next on this?" }).click();
+    await chat.getByTestId("ai-chat-assistant").waitFor();
+    const sent = await lastChat();
+    if (!/Ask AI about this/.test(sent.system) || !sent.system.includes("Demo HVAC Services Co") || !/Fields:/.test(sent.system) || !sent.system.includes(`id "${id}"`)) throw new Error(`system prompt: ${String(sent.system).slice(-400)}`);
+    if (!/proposal Bram approves/.test(sent.system)) throw new Error("proposal rule missing");
+    await page.screenshot({ path: path.join(OUT, "desktop-window-ask-ai.png") });
+    await page.keyboard.press("Escape");
+    await chat.waitFor({ state: "detached" });
+    if (!(await page.getByTestId("pipeline-overview").isVisible())) throw new Error("Escape closed the window too");
+    await page.keyboard.press("Escape");
+    await page.getByTestId("overview-window").waitFor({ state: "detached" });
+    // Page header: the chat is about the page.
+    await page.goto(`${BASE}/plan/inputs`);
+    await page.getByTestId("ask-ai").first().click();
+    if (!(await page.getByTestId("ai-chat-context").innerText()).includes("Inputs and Assumptions")) throw new Error("page context");
+    await page.getByTestId("ai-chat-close").click();
+  });
+
+  await step("Suggestion line: a quiet pipeline item shows one line with Suggest a next step (AI only on click); a dismissed line stays hidden", async () => {
+    const stalled = await one("select id, name from pipeline_items where status = 'open' and name = 'Demo Pest Control' limit 1");
+    await page.goto(`${BASE}/opportunities?w=r/pipeline_items/${stalled.id}`);
+    await page.getByTestId("pipeline-overview").waitFor();
+    const line = page.locator("[data-url-window] [data-testid=suggestion-line]");
+    await line.waitFor();
+    if (!/No activity in \d+ days\. Suggested next step:/.test(await line.innerText())) throw new Error(`line: ${await line.innerText()}`);
+    if ((await page.locator("[data-url-window] [data-testid=suggestion-line]").count()) !== 1) throw new Error("more than one line");
+    await page.screenshot({ path: path.join(OUT, "desktop-window-suggestion.png") });
+    const before = (await aicalls()).filter((c) => c === "chat").length;
+    await line.getByTestId("suggestion-ai").click();
+    await page.locator("[data-url-window] [data-testid=ai-chat-assistant]").waitFor();
+    if ((await aicalls()).filter((c) => c === "chat").length !== before + 1) throw new Error("expected one AI call on click");
+    if (!(await lastChat()).messages.some((m) => JSON.stringify(m).includes("Suggest one next step"))) throw new Error("prompt not sent");
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+    // Dismiss: hidden at once and after a reload; other pages keep their own line.
+    await page.goto(`${BASE}/`);
+    const home = page.getByTestId("suggestion-line");
+    await home.waitFor();
+    const key = await home.getAttribute("data-key");
+    await home.getByTestId("suggestion-dismiss").click();
+    await home.waitFor({ state: "detached" });
+    await page.reload();
+    await page.getByTestId("home-start-initiative").waitFor();
+    if (await page.locator(`[data-testid=suggestion-line][data-key="${key}"]`).count()) throw new Error("dismissed line came back");
+    await page.goto(`${BASE}/opportunities?w=r/pipeline_items/${stalled.id}`);
+    await page.locator("[data-url-window] [data-testid=suggestion-line]").waitFor();
+  });
+
+  await step("Inputs and Assumptions: cards collapse with a one-line summary; Collapse all and Expand all; the choice is remembered", async () => {
+    await page.goto(`${BASE}/plan/inputs`);
+    const cards = page.getByTestId("inputs-card");
+    const n = await cards.count();
+    if (n < 5) throw new Error(`cards: ${n}`);
+    if ((await page.locator("[data-testid=inputs-card][data-open]").count()) !== 1) throw new Error("only the first card should start open");
+    await page.getByTestId("collapse-all").click();
+    if (await page.locator("[data-testid=inputs-card][data-open]").count()) throw new Error("Collapse all left one open");
+    if (!/Runway target: \d+ months/.test(await cards.first().getByTestId("collapsible-summary").innerText())) throw new Error("summary line");
+    await page.reload();
+    await cards.first().waitFor();
+    await page.waitForTimeout(300);
+    if (await page.locator("[data-testid=inputs-card][data-open]").count()) throw new Error("collapsed state not remembered");
+    for (const [vp, pg_] of VIEWS) {
+      await pg_.goto(`${BASE}/plan/inputs`);
+      await pg_.getByTestId("collapse-all").click();
+      await pg_.screenshot({ path: path.join(OUT, `${vp}-inputs-collapsed.png`), fullPage: true });
+    }
+    await page.getByTestId("expand-all").click();
+    if ((await page.locator("[data-testid=inputs-card][data-open]").count()) !== n) throw new Error("Expand all");
+    // One card opens alone.
+    await page.getByTestId("collapse-all").click();
+    await cards.nth(1).getByTestId("collapsible-toggle").click();
+    if ((await page.locator("[data-testid=inputs-card][data-open]").count()) !== 1) throw new Error("toggle one card");
+  });
+
+  await step("Task filter: one Filter button opens 3 columns of checkboxes; Apply sets the address; labels remove one filter; Back keeps filters; Clear all", async () => {
+    await page.goto(`${BASE}/productivity/tasks`);
+    await page.getByTestId("filter-button").click();
+    const pop = page.getByTestId("filter-popover");
+    await pop.waitFor();
+    if ((await pop.locator("fieldset").count()) < 4) throw new Error("columns");
+    for (const [vp, pg_] of VIEWS) {
+      if (pg_ !== page) {
+        await pg_.goto(`${BASE}/productivity/tasks`);
+        await pg_.getByTestId("filter-button").click();
+        await pg_.getByTestId("filter-popover").waitFor();
+      }
+      await pg_.screenshot({ path: path.join(OUT, `${vp}-task-filter-popover.png`), fullPage: vp !== "phone" });
+    }
+    await page.getByTestId("filter-due-today").check();
+    await page.getByTestId("filter-priority-1").check();
+    await page.getByTestId("filter-apply").click();
+    await page.waitForURL(/due=today&priority=1|priority=1.*due=today|due=today.*priority=1/);
+    const labels = async () => (await page.getByTestId("filter-label").allInnerTexts()).map((t) => t.trim());
+    await page.waitForFunction(() => document.querySelectorAll("[data-testid=filter-label]").length === 3);
+    if ((await labels()).join("|") !== "To do|Due today|High priority") throw new Error(`labels: ${(await labels()).join("|")}`);
+    const rows = await page.locator("[data-testid=task-table] tbody tr").allInnerTexts();
+    if (!rows.length || rows.some((r) => !/Due today/.test(r) || !/High/.test(r))) throw new Error(`rows: ${rows.slice(0, 3).join(" / ")}`);
+    await page.getByTestId("filter-label").filter({ hasText: "High priority" }).click();
+    await page.waitForURL((u) => !u.search.includes("priority"));
+    await page.waitForFunction(() => document.querySelectorAll("[data-testid=filter-label]").length === 2);
+    await page.goBack();
+    await page.waitForURL(/priority=1/);
+    await page.waitForFunction(() => document.querySelectorAll("[data-testid=filter-label]").length === 3);
+    await page.getByTestId("filter-button").click();
+    if (!(await page.getByTestId("filter-due-today").isChecked())) throw new Error("popover does not show the active filters");
+    await page.getByTestId("filter-clear").click();
+    await page.getByTestId("filter-apply").click();
+    await page.waitForURL(/status=all/);
+    if (await page.getByTestId("filter-label").count()) throw new Error("labels after Clear all");
+    // Older links still work.
+    await page.goto(`${BASE}/productivity/tasks?status=done&due=all`);
+    await page.waitForFunction(() => [...document.querySelectorAll("[data-testid=filter-label]")].map((e) => e.textContent.trim()).join("|") === "Done");
+  });
+
+  await step("Time blocks: the morning job only suggests; Approve adds one Google Calendar event (stand-in); Delete removes a suggestion for the day; Home notice", async () => {
+    const eventsBefore = (await (await fetch(`${GMOCK}/__events`)).json()).length;
+    await fetch(`${BASE}/api/cron/morning`, { headers: { Authorization: "Bearer test-cron-secret" } });
+    const rows = await pg.query("select id, title, google_event_id, dedupe_key from calendar_events where kind = 'time_block' and dedupe_key like 'suggest:%'");
+    if (rows.rows.length < 2) throw new Error(`suggestions: ${rows.rows.length}`);
+    if (rows.rows.some((r) => r.google_event_id)) throw new Error("a suggestion has a Google event");
+    const evNow = await (await fetch(`${GMOCK}/__events`)).json();
+    if (evNow.slice(eventsBefore).some((e) => /^Focus:/.test(e.summary))) throw new Error("the morning job sent a time block to Google");
+    await page.goto(`${BASE}/`);
+    await page.getByTestId("home-time-blocks").waitFor();
+    if (!/\d+ time blocks? suggested/.test(await page.getByTestId("home-time-blocks").innerText())) throw new Error("Home notice");
+    await page.getByTestId("home-time-blocks").click();
+    await page.waitForURL(/\/productivity\/calendar/);
+    await expectText(page, "Approve the ones you want; only approved blocks go to Google Calendar.");
+    if (await page.getByRole("button", { name: /Add today's time blocks now/ }).count()) throw new Error("old button still shown");
+    await page.getByTestId("add-block-manually").waitFor();
+    const list = page.getByTestId("time-block-row");
+    const n = await list.count();
+    for (const [vp, pg_] of VIEWS) {
+      if (pg_ !== page) await pg_.goto(`${BASE}/productivity/calendar`);
+      await pg_.getByTestId("time-block-suggestions").waitFor();
+      await pg_.screenshot({ path: path.join(OUT, `${vp}-time-block-suggestions.png`), fullPage: true });
+    }
+    // Edit the first: 2:30 PM for 30 minutes.
+    await list.first().getByTestId("time-block-edit").click();
+    await page.getByTestId("time-block-edit-row").locator('input[type="time"]').fill("14:30");
+    await page.getByTestId("time-block-edit-row").locator("select").selectOption("30");
+    await page.getByTestId("time-block-save").click();
+    await page.waitForFunction(() => /2:30 PM \(30 min\)/.test(document.querySelector("[data-testid=time-block-suggestions]")?.innerText ?? ""));
+    // Approve it: one event in Google, the row is approved.
+    const first = page.getByTestId("time-block-row").filter({ hasText: "2:30 PM" });
+    const title = (await first.getByTestId("time-block-title").innerText()).trim();
+    await first.getByTestId("time-block-approve").click();
+    await page.waitForFunction((n0) => document.querySelectorAll("[data-testid=time-block-row]").length === n0 - 1, n);
+    const ev = await (await fetch(`${GMOCK}/__events`)).json();
+    const added = ev.slice(evNow.length).filter((e) => /^Focus:/.test(e.summary));
+    const at = (iso) => new Date(iso).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
+    if (added.length !== 1 || !added[0].summary.includes(title) || at(added[0].start) !== "2:30 PM" || at(added[0].end) !== "3:00 PM") throw new Error(`events: ${JSON.stringify(added)}`);
+    await page.getByTestId("time-blocks-added").waitFor();
+    // Delete the next suggestion: gone, and Suggest blocks now does not bring it back today.
+    const second = page.getByTestId("time-block-row").first();
+    const delTitle = (await second.getByTestId("time-block-title").innerText()).trim();
+    await second.getByTestId("time-block-delete").click();
+    await page.waitForFunction((t) => ![...document.querySelectorAll("[data-testid=time-block-row]")].some((r) => r.innerText.includes(t)), delTitle);
+    await page.getByTestId("suggest-blocks").click();
+    await page.waitForTimeout(1500);
+    if ((await page.locator("[data-testid=time-block-row]").allInnerTexts()).some((t) => t.includes(delTitle))) throw new Error("deleted suggestion came back");
+    const evEnd = await (await fetch(`${GMOCK}/__events`)).json();
+    if (evEnd.length !== ev.length) throw new Error("Suggest blocks now sent events to Google");
+  });
+
+  await step("Scenario summary: View summary opens a large window with 3 columns and charts; lines drill down (input quick view with Back, page sections); comparison too", async () => {
+    const sc = await pg.query("select id from scenarios order by created_at limit 2");
+    const [a, b2] = sc.rows.map((r) => r.id);
+    await page.goto(`${BASE}/plan/scenarios/${a}`);
+    await page.getByTestId("scenario-view-summary").first().click();
+    const win = page.getByTestId("scenario-summary-window");
+    await win.getByTestId("scenario-summary").waitFor();
+    if (!page.url().includes("w=ss%2F") && !page.url().includes("w=ss/")) throw new Error(`address: ${page.url()}`);
+    for (const t of ["summary-changed", "summary-results", "summary-savings", "summary-paths"]) await win.getByTestId(t).waitFor();
+    if ((await win.locator(".recharts-surface").count()) < 2) throw new Error("charts");
+    await expectText(page, "Cash at 12 months");
+    for (const [vp, pg_] of VIEWS) {
+      if (pg_ !== page) {
+        await pg_.goto(`${BASE}/plan/scenarios/${a}?w=ss/${a}`);
+        await pg_.getByTestId("scenario-summary").waitFor();
+      }
+      await pg_.waitForTimeout(400);
+      await pg_.screenshot({ path: path.join(OUT, `${vp}-window-scenario-summary.png`) });
+    }
+    const inputLine = win.getByTestId("summary-changed").locator("button[data-testid=summary-line]").first();
+    if (await inputLine.count()) {
+      await inputLine.click();
+      await page.getByTestId("quick-view").waitFor();
+      await page.getByTestId("window-back").click();
+      await page.getByTestId("scenario-summary").waitFor();
+    }
+    await win.getByTestId("summary-paths").getByTestId("summary-line").first().click();
+    await page.waitForURL(/#job-vs-acquisition/);
+    await page.getByTestId("scenario-summary-window").waitFor({ state: "detached" });
+    // The comparison.
+    await page.goto(`${BASE}/plan/scenarios/compare?ids=${a},${b2}`);
+    await page.getByTestId("scenario-view-summary").click();
+    await page.getByTestId("scenario-summary").waitFor();
+    const head = await page.getByTestId("summary-results").innerText();
+    if (!/now/i.test(head) || (await page.getByTestId("summary-results").locator("[data-testid=summary-line]").first().locator("span").count()) !== 4) throw new Error("columns");
+    await page.screenshot({ path: path.join(OUT, "desktop-window-scenario-compare-summary.png") });
   });
 
   await step("Load sample data: warns about real records first, then loads marked sample rows", async () => {

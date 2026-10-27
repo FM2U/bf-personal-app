@@ -20,6 +20,9 @@ import { loadDealRanks, loadDealTypes } from "@/lib/pipeline";
 import { DealSourceBadge } from "@/components/app/pipeline-badges";
 import { GuardedForm } from "@/components/app/unsaved-changes";
 import { WorkThroughTasksButton } from "@/components/app/work-through-button";
+import { SuggestionLine } from "@/components/app/suggestion-line";
+import { overdueSuggestion } from "@/lib/suggestions";
+import { firstSuggestion } from "@/lib/suggestions-server";
 
 export const metadata = { title: "Today's plan" };
 
@@ -37,6 +40,8 @@ export default async function TodayPage() {
   // Tasks for proprietary (off-market) deals come before brokered ones at equal priority and due date.
   const [rankOf, dealTypes] = await Promise.all([loadDealRanks(supabase, ownerId), loadDealTypes(supabase, ownerId)]);
   const list = sortTasksProprietaryFirst((tasks ?? []) as Row[], rankOf);
+  const overdueCount = list.filter((t) => t.status === "todo" && t.due_date && t.due_date < ctx.today).length;
+  const suggestion = await firstSuggestion([overdueSuggestion({ today: ctx.today, overdue: overdueCount })]);
   const actionList = ((actions ?? []) as Row[]).sort((a, b) => (a.next_action_due === b.next_action_due ? rankOf(a.id) - rankOf(b.id) : a.next_action_due < b.next_action_due ? -1 : 1));
   return (
     <div>
@@ -58,6 +63,7 @@ export default async function TodayPage() {
           </>
         }
       />
+      {suggestion ? <SuggestionLine s={suggestion} context={{ label: "Today's plan" }} className="mb-4" /> : null}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-3">
           <CardHeader className="flex-row items-start justify-between gap-2">

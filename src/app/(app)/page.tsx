@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, ChevronRight, Sparkles, X } from "lucide-react";
+import { ArrowRight, CalendarClock, ChevronRight, Sparkles, X } from "lucide-react";
 import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
 import { computeMetrics } from "@/lib/metrics";
@@ -13,7 +13,7 @@ import { severityStatus } from "@/lib/status";
 import { ModuleTitle } from "@/components/app/module-icon";
 import { EmptyState, PageHeader, Stat, StatGrid } from "@/components/app/page-header";
 import { TaskList } from "@/components/app/task-list";
-import { Progress, RunwayTrendChart } from "@/components/app/charts";
+import { Progress, RunwayTrendChart, WeekSpendChart } from "@/components/app/charts";
 import { SubmitButton } from "@/components/app/submit-button";
 import { dismissAlert } from "@/app/actions/records";
 import { regeneratePlan } from "@/app/actions/domain";
@@ -34,6 +34,11 @@ import { GuardedForm } from "@/components/app/unsaved-changes";
 import { loadSavingsIdeas } from "@/lib/engine/savings-ideas";
 import { splitMorningPlan } from "@/lib/morning-plan";
 import { WorkThroughTasksButton } from "@/components/app/work-through-button";
+import { SuggestionLine } from "@/components/app/suggestion-line";
+import { homeSuggestion } from "@/lib/suggestions";
+import { firstSuggestion } from "@/lib/suggestions-server";
+import { monthSpendingBreakdown } from "@/lib/calc/month-spending";
+import { loadTodaysBlocks } from "@/lib/engine/time-blocks";
 
 export const metadata = { title: "Home" };
 
@@ -49,7 +54,7 @@ export default async function HomePage() {
     supabase.from("milestones").select("id,title,due_date,status").in("status", ["planned", "active"]).lt("due_date", today).order("due_date"),
     supabase.from("alerts").select("*").eq("status", "open").order("created_at", { ascending: false }).limit(12),
     supabase.from("budgets").select("id").eq("is_active", true),
-    supabase.from("budget_lines").select("budget_id,current_monthly,target_monthly"),
+    supabase.from("budget_lines").select("budget_id,category_id,current_monthly,target_monthly"),
     supabase.from("ai_proposals").select("id", { count: "exact", head: true }).eq("status", "pending"),
     getGoogleConnection(supabase, ownerId),
     todaysMeetings(ctx),
@@ -82,6 +87,23 @@ export default async function HomePage() {
   const ideaSavings = ideas.pending.reduce((sum, i) => sum + Number(i.estimated_monthly_savings ?? 0), 0);
   const { count: draftCount } = ideas.available ? await supabase.from("initiative_drafts").select("id", { count: "exact", head: true }).eq("status", "draft") : { count: 0 };
   const waiting = (proposalsRes.count ?? 0) + ideas.pending.length + (draftCount ?? 0);
+
+  // This month: spending by week against the budget, and the top 3 categories.
+  const activeLines = ((linesRes.data ?? []) as Row[]).filter((l) => activeBudgets.has(l.budget_id));
+  const [{ data: catRows }, todaysBlocks] = await Promise.all([supabase.from("categories").select("id,name"), loadTodaysBlocks(supabase, ownerId, today).catch(() => [])]);
+  const month = monthSpendingBreakdown({
+    transactions: snap.transactions as { date: string; amount: number; is_transfer: boolean; category_id: string | null; account_id: string }[],
+    accountIds: snap.runwayAccountIds,
+    today,
+    budgetTotal,
+    categoryNames: Object.fromEntries(((catRows ?? []) as Row[]).map((c) => [c.id, c.name])),
+    categoryBudgets: Object.fromEntries(activeLines.filter((l) => l.category_id).map((l) => [l.category_id, Number(l.current_monthly)])),
+  });
+  const blocksWaiting = todaysBlocks.filter((b) => b.state === "suggested").length;
+  // One suggestion line: today's top priority (from the morning plan, or the first open task).
+  const suggestion = await firstSuggestion([
+    homeSuggestion({ today, plan: plan?.main ?? null, firstTask: [...overdue, ...tasks].find((t) => t.status !== "done")?.title ?? null, openCount: openToday }),
+  ]);
 
   // KPI tiles
   const [pipeRes, streakRes, missRes, draftRes] = kpiExtra;
@@ -137,6 +159,7 @@ export default async function HomePage() {
           </Button>
         }
       />
+      {suggestion ? <SuggestionLine s={suggestion} context={{ label: "Home: today's plan" }} className="mb-4" /> : null}
       <div className={`mb-4 grid grid-cols-1 gap-4 ${productivityTiles.length > 3 ? "xl:grid-cols-2" : "lg:grid-cols-[minmax(0,3fr)_minmax(0,4fr)]"}`}>
         <KpiGroup title="Productivity" module="productivity" tiles={productivityTiles} cols={productivityTiles.length > 3 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3"} />
         <KpiGroup title="Accountability" module="accountability" tiles={accountabilityTiles} cols="grid-cols-2 sm:grid-cols-4" />
@@ -218,7 +241,47 @@ export default async function HomePage() {
                 Set a budget per category
               </Link>
             ) : null}
+            <div className="border-t border-slate-100 pt-2" data-testid="home-month-weeks">
+              <p className="mb-1 flex items-center justify-between gap-2 text-xs font-medium text-slate-700">
+                <span>Spending by week (days of the month)</span>
+                <span className="flex items-center gap-3 font-normal text-slate-500">
+                  <span className="flex items-center gap-1">
+                    <span aria-hidden className="h-2 w-2 rounded-sm bg-primary" /> Spent
+                  </span>
+                  {budgetTotal ? (
+                    <span className="flex items-center gap-1">
+                      <span aria-hidden className="h-2 w-2 rounded-sm bg-slate-400/40" /> Budget
+                    </span>
+                  ) : null}
+                </span>
+              </p>
+              <WeekSpendChart data={month.weeks} />
+            </div>
+            {month.categories.length ? (
+              <div className="border-t border-slate-100 pt-2" data-testid="home-month-categories">
+                <p className="mb-1.5 text-xs font-medium text-slate-700">Top categories this month</p>
+                <ul className="flex flex-col gap-2">
+                  {month.categories.map((c) => (
+                    <li key={c.id ?? "none"} className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 gap-y-1 text-sm">
+                      <Link href={c.id ? `/finance/expenses?category=${c.id}` : "/finance/expenses?category=none"} className="clamp-1 text-slate-800 hover:underline">
+                        {c.name}
+                      </Link>
+                      <span className="tabular text-slate-900">
+                        {money(c.spent)}
+                        {c.budget ? <span className="text-xs text-muted-foreground"> of {money(c.budget)}</span> : null}
+                      </span>
+                      {c.budget ? (
+                        <span className="col-span-2">
+                          <Progress value={(c.spent / c.budget) * 100} tone={c.spent > c.budget ? "red" : "primary"} />
+                        </span>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </CardContent>
+          <CardNote>Money out this month (not transfers), in the accounts counted in runway.</CardNote>
         </Card>
 
         <Card id="alerts" className="md:col-span-2 xl:col-span-1">
@@ -274,6 +337,14 @@ export default async function HomePage() {
               </GuardedForm>
             </div>
           </CardHeader>
+          {blocksWaiting ? (
+            <div className="mx-5 mb-3">
+              <Link href="/productivity/calendar#suggested" className="inline-flex items-center gap-2 rounded-md border border-primary-border bg-primary-soft/60 px-3 py-1.5 text-sm text-slate-800 hover:bg-primary-soft" data-testid="home-time-blocks">
+                <CalendarClock aria-hidden className="h-4 w-4 text-primary-strong" />
+                {blocksWaiting} time block{blocksWaiting === 1 ? "" : "s"} suggested. <span className="font-medium text-primary-strong">Review and approve</span>
+              </Link>
+            </div>
+          ) : null}
           <CardContent className="grid grid-cols-1 gap-5 lg:grid-cols-2">
             <div className="min-w-0">
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Morning plan {planRes.data?.generated_by === "ai" ? "(AI)" : ""}</p>

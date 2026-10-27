@@ -40,6 +40,8 @@ export type FinanceSnapshot = {
   investmentBalance: number;
   otherAssets: number;
   monthSpending: number;
+  /** Accounts counted in runway and in "This month" spending. */
+  runwayAccountIds: string[];
   lastMonthSpending: number;
   transactions: Row[];
   includeBusiness: boolean;
@@ -172,6 +174,7 @@ export async function loadFinanceSnapshot(sb: SupabaseClient, today: string, own
     investmentBalance,
     otherAssets,
     monthSpending: spentBetween(mb.start, mb.end),
+    runwayAccountIds: [...runwayAccountIds],
     lastMonthSpending: spentBetween(lastMonth.start, lastMonth.end),
     transactions,
     includeBusiness,

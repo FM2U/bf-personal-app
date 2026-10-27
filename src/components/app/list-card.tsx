@@ -6,6 +6,7 @@ import { ResourceTable } from "@/components/app/resource-table";
 import { getResource, newRecordHref, RESOURCES } from "@/lib/resources";
 import { labelMap, loadRefOptions } from "@/lib/data";
 import type { Row } from "@/lib/types";
+import { MODULE_ICONS, ModuleTitle, type ModuleKey } from "@/components/app/module-icon";
 
 export type Filter = [column: string, op: "eq" | "neq" | "lt" | "lte" | "gt" | "gte" | "is" | "in", value: unknown];
 
@@ -23,7 +24,10 @@ export async function ListCard({
   emptyTitle,
   emptyBody,
   rows: givenRows,
+  hideAdd = false,
 }: {
+  /** No "Add" button (a second list of the same records on the page already has one). */
+  hideAdd?: boolean;
   sb: SupabaseClient;
   table: string;
   title?: string;
@@ -51,6 +55,8 @@ export async function ListCard({
     rows = (data ?? []) as Row[];
   }
   const cols = columns ?? r.columns;
+  const seg = r.listHref.split("/")[1] ?? "";
+  const moduleKey = seg in MODULE_ICONS ? (seg as ModuleKey) : null;
   const refTables = cols.map((c) => r.fields.find((f) => f.name === c)?.ref).filter((x): x is string => !!x && !!RESOURCES[x]);
   if (table === "budget_lines") refTables.push("categories");
   const labels = labelMap(await loadRefOptions(sb, refTables));
@@ -58,17 +64,20 @@ export async function ListCard({
     <Card>
       <CardHeader className="flex-row items-start justify-between gap-3">
         <div className="min-w-0">
-          <CardTitle>{title ?? r.plural}</CardTitle>
+          <CardTitle>
+            {/* The module's icon in its color, as in the sidebar (one accent per card header). */}
+            {moduleKey ? <ModuleTitle module={moduleKey}>{title ?? r.plural}</ModuleTitle> : title ?? r.plural}
+          </CardTitle>
           {description ? <CardDescription>{description}</CardDescription> : null}
         </div>
-        {!r.noCreate && rows.length ? (
+        {!r.noCreate && !hideAdd && rows.length ? (
           <Button asChild size="sm">
             <Link href={newRecordHref(table, prefill)}>Add {r.singular.toLowerCase()}</Link>
           </Button>
         ) : null}
       </CardHeader>
       <CardContent>
-        <ResourceTable table={table} rows={rows} labels={labels} columns={cols} prefill={prefill} emptyTitle={emptyTitle} emptyBody={emptyBody} />
+        <ResourceTable table={table} rows={rows} labels={labels} columns={cols} prefill={prefill} emptyTitle={emptyTitle} emptyBody={emptyBody} hideAdd={hideAdd} />
       </CardContent>
     </Card>
   );

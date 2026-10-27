@@ -37,9 +37,10 @@ export function ResourceTable({
   if (!rows.length) {
     return (
       <EmptyState
+        compact
         title={emptyTitle ?? `No ${r.plural.toLowerCase()} yet.`}
         body={emptyBody ?? r.empty}
-        action={canAdd ? <Button asChild size="sm"><Link href={newRecordHref(table, prefill)}>{addLabel ?? `Add ${r.singular.toLowerCase()}`}</Link></Button> : undefined}
+        action={canAdd ? <Button asChild size="sm" variant="outline"><Link href={newRecordHref(table, prefill)}>{addLabel ?? `Add ${r.singular.toLowerCase()}`}</Link></Button> : undefined}
       />
     );
   }
@@ -73,6 +74,11 @@ export function ResourceTable({
                     </Link>
                   ) : c === "created_at" ? (
                     dateTime(row[c])
+                  ) : field?.type === "textarea" ? (
+                    /* Long text is held to 2 lines in a table; the record page shows all of it. */
+                    <span className="clamp-2 max-w-[28rem] text-slate-700">
+                      <FieldValue field={field} value={row[c]} labels={labels} />
+                    </span>
                   ) : (
                     <FieldValue field={field} value={row[c]} labels={labels} />
                   )}

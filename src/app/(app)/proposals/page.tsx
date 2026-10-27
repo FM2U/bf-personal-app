@@ -29,7 +29,9 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
         </div>
       ) : null}
       {!list.length ? (
+        <div className="max-w-3xl">
         <EmptyState title="No proposals waiting." body="Ask the AI in the chat panel, request reduction suggestions on an expense, or ask for category suggestions in Expenses." />
+        </div>
       ) : (
         <div className="flex flex-col gap-6">
           {Object.entries(groups).map(([g, ps]) => (

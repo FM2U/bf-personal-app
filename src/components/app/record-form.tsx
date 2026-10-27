@@ -18,6 +18,8 @@ import { Notice } from "@/components/app/page-header";
 import { GuardedForm } from "@/components/app/unsaved-changes";
 import type { Row } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { useSavedOpen } from "@/components/app/collapsible";
+import { parseSaved } from "@/lib/disclosure";
 import { fieldWidth, formLayout, moreStartsOpen, sectionName, sectionsOpen, spanClasses, type FieldWidth } from "@/lib/form-layout";
 
 type RefOptions = Record<string, RefOption[]>;
@@ -63,17 +65,9 @@ function SectionToggle({ name, open, onToggle, fieldNames }: { name: string; ope
 }
 
 const SECTIONS_KEY = (table: string) => `form-sections:${table}`;
-function readSavedSections(table: string): Record<string, boolean> | null {
-  try {
-    const raw = window.localStorage.getItem(SECTIONS_KEY(table));
-    return raw ? (JSON.parse(raw) as Record<string, boolean>) : null;
-  } catch {
-    return null;
-  }
-}
 function saveSections(table: string, open: Record<string, boolean>) {
   try {
-    window.localStorage.setItem(SECTIONS_KEY(table), JSON.stringify(open));
+    window.localStorage.setItem(SECTIONS_KEY(table), JSON.stringify({ ...parseSaved(window.localStorage.getItem(SECTIONS_KEY(table))), ...open }));
   } catch {
     // Private windows and blocked storage: sections still open and close, they are just not remembered.
   }
@@ -555,11 +549,18 @@ export function RecordForm({
   const long = !only && layout.main.reduce((n, g) => n + g.fields.length, 0) > 8;
   const widthOf = (f: Field): FieldWidth => (f.name === "source_contact_id" || f.name === "deal_source_type" ? "medium" : fieldWidth(f));
   const contactOptions = (options.contacts ?? []) as PersonOption[];
-  // Inside a window, sections open and close (most-used open first; each viewer's choice is remembered).
-  const collapsible = !!inWindow && layout.main.length >= 2;
-  const [openMap, setOpenMap] = useState<Record<string, boolean>>(() => (collapsible ? sectionsOpen(layout.main, typeof window === "undefined" ? null : readSavedSections(table), initial) : {}));
+  // Inside a window, and on long forms on their own page, sections open and close (most-used open first; each
+  // viewer's choice is remembered per record type in this browser, applied after the first render).
+  const collapsible = (!!inWindow || long) && layout.main.length >= 2;
+  const savedSections = useSavedOpen(collapsible ? SECTIONS_KEY(table) : null);
+  const [changedSections, setChangedSections] = useState<Record<string, boolean>>({});
+  const openMap = useMemo(
+    () => (collapsible ? { ...sectionsOpen(layout.main, savedSections, initial), ...changedSections } : {}),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [collapsible, savedSections, changedSections],
+  );
   const setSections = (next: Record<string, boolean>) => {
-    setOpenMap(next);
+    setChangedSections(next);
     saveSections(table, next);
   };
   const isOpen = (name: string) => !collapsible || openMap[name] !== false;
@@ -573,7 +574,7 @@ export function RecordForm({
       const box = field.closest<HTMLElement>("[data-section]");
       const name = box?.dataset.section;
       if (box?.hidden && name) {
-        setOpenMap((m) => ({ ...m, [name]: true }));
+        setChangedSections((c) => ({ ...c, [name]: true }));
         requestAnimationFrame(() => (field as HTMLInputElement).reportValidity?.());
       }
     };

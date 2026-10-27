@@ -39,6 +39,9 @@ import { validateStep, type DraftState } from "@/lib/initiative/draft";
 import { isSetupStep } from "@/lib/window-route";
 import { METRICS } from "@/lib/metrics-list";
 import type { Row } from "@/lib/types";
+import { goalSuggestion, pipelineSuggestion, taskSuggestion, type Suggestion } from "@/lib/suggestions";
+import { firstSuggestion } from "@/lib/suggestions-server";
+import { buildScenarioSummary, type ScenarioSummaryData, type SummaryColumn } from "@/lib/scenario-summary";
 
 type QuickOk = Extract<QuickViewData, { ok: true }>;
 export type LineItem = { table: string; id: string; title: string; due: string | null; status: string | null; note?: string | null };
@@ -46,9 +49,9 @@ type Fail = { ok: false; error: string };
 
 export type OverviewData =
   | Fail
-  | { ok: true; kind: "quick"; base: QuickOk; compose: ComposeSetup | null; commitment: boolean; context: { table: string; id: string; title: string; singular: string; next: NextAction } | null }
+  | { ok: true; kind: "quick"; base: QuickOk; compose: ComposeSetup | null; commitment: boolean; context: { table: string; id: string; title: string; singular: string; next: NextAction } | null; suggestion: Suggestion | null }
   | { ok: true; kind: "initiative"; id: string; title: string; summary: InitiativeSummary; next: NextAction; today: string }
-  | { ok: true; kind: "goal"; base: QuickOk; milestones: LineItem[]; tasks: LineItem[]; initiative: { id: string; title: string } | null; progress: { current: string; target: string; rule: string; met: boolean | null } | null }
+  | { ok: true; kind: "goal"; base: QuickOk; milestones: LineItem[]; tasks: LineItem[]; initiative: { id: string; title: string } | null; progress: { current: string; target: string; rule: string; met: boolean | null } | null; suggestion: Suggestion | null }
   | {
       ok: true;
       kind: "pipeline";
@@ -65,6 +68,7 @@ export type OverviewData =
       people: { label: string; table: string; id: string; title: string }[];
       compose: ComposeSetup | null;
       tomorrow: string;
+      suggestion: Suggestion | null;
     }
   | { ok: true; kind: "scenario"; id: string; title: string; description: string; results: { label: string; current: string; scenario: string }[]; changes: { label: string; value: string; table: string | null; id: string | null }[] };
 
@@ -95,7 +99,8 @@ export async function loadRecordOverview(table: string, id: string): Promise<Ove
     commitment = !!count;
     context = await taskContext(sb, row as Row, base.today);
   }
-  return { ok: true, kind: "quick", base, compose, commitment, context };
+  const suggestion = table === "tasks" && row ? await firstSuggestion([taskSuggestion(row as { id: string; status: string; times_moved?: number | null })]) : null;
+  return { ok: true, kind: "quick", base, compose, commitment, context, suggestion };
 }
 
 /** The record a task belongs to (pipeline item, milestone, goal, initiative, or its related record) and that record's next action. */
@@ -127,6 +132,7 @@ async function goalOverview(sb: Awaited<ReturnType<typeof requireOwner>>["supaba
   const metrics = g.metric_key ? await computeMetrics(sb, base.today).catch(() => null) : null;
   const current = metrics && g.metric_key ? ((metrics.values as Record<string, number | null>)[g.metric_key] ?? null) : null;
   const ini = iniRes.data as Row | null;
+  const progress = goalProgress(g, current === null || current === undefined ? null : Number(current));
   return {
     ok: true,
     kind: "goal",
@@ -134,7 +140,8 @@ async function goalOverview(sb: Awaited<ReturnType<typeof requireOwner>>["supaba
     initiative: ini ? { id: ini.id, title: ini.name } : null,
     milestones: ((ms ?? []) as Row[]).map((m) => ({ table: "milestones", id: m.id, title: m.title, due: m.due_date, status: m.status })),
     tasks: ((tasks ?? []) as Row[]).map((t) => ({ table: "tasks", id: t.id, title: t.title, due: t.due_date, status: t.status })),
-    progress: goalProgress(g, current === null || current === undefined ? null : Number(current)),
+    progress,
+    suggestion: await firstSuggestion([goalSuggestion({ id: base.id, status: String(g.status ?? ""), deadline: g.deadline ?? null, met: progress?.met ?? null, today: base.today })]),
   };
 }
 
@@ -196,6 +203,19 @@ async function pipelineOverview(sb: Awaited<ReturnType<typeof requireOwner>>["su
     people,
     compose: await loadComposeSetup(sb, ownerId, "pipeline_items", row),
     tomorrow: addDaysISO(ctx.today, 1),
+    suggestion: await firstSuggestion([
+      pipelineSuggestion({
+        id: row.id,
+        open: row.status === "open",
+        today: ctx.today,
+        lastActivity: status?.byItem[row.id]?.lastActivity ?? null,
+        nextAction: row.next_action ?? null,
+        nextTask: ((stageTasks ?? []) as Row[]).find((t) => t.status === "todo")?.title ?? null,
+        sourceName: name(row.source_contact_id) ?? null,
+        stallDays: status?.stallDays ?? 7,
+        itemName: row.name ?? null,
+      }),
+    ]),
   };
 }
 
@@ -535,4 +555,35 @@ export async function loadSetupStart(): Promise<{ ok: true; aiReady: boolean; av
     available,
     drafts: ((data ?? []) as Row[]).map((d) => ({ id: d.id, name: String(d.proposal?.proposal?.initiative?.name || "Untitled draft"), source: d.source, manual: !String(d.prompt ?? "").trim() && d.source === "typed", created: d.created_at })),
   };
+}
+
+// ---------- Scenario summary ----------
+
+/** The scenario summary window for one scenario or the scenarios being compared (src/lib/scenario-summary.ts). */
+export async function loadScenarioSummary(ids: string[]): Promise<({ ok: true } & ScenarioSummaryData) | Fail> {
+  const { supabase: sb, ownerId } = await requireOwner();
+  const loaded = (await Promise.all(ids.slice(0, 5).map((id) => loadScenario(sb, id)))).filter((x) => x !== null);
+  if (!loaded.length) return fail("The scenario was not found. It may have been deleted.");
+  const ctx = await loadCtx(sb, ownerId);
+  const metrics = await computeMetrics(sb, ctx.today);
+  const base = baselineFromSnapshot(metrics.snapshot);
+  const horizon = Math.max(12, ...loaded.map((l) => Number(l.scenario.horizon_months) || 60));
+  const column = (id: string | null, name: string, overrides: Record<string, number>, h: number): SummaryColumn => {
+    const r = runScenario(base, overrides, h);
+    return { id, name, overrides, horizon: h, result: r.result, jva: r.jobVsAcquisition, bridge: r.bridge };
+  };
+  const single = loaded.length === 1;
+  const columns = loaded.map((l) => column(String(l.scenario.id), String(l.scenario.name), l.overrides, single ? Number(l.scenario.horizon_months) || 60 : horizon));
+  const current = column(null, "Current numbers", {}, single ? columns[0].horizon : horizon);
+  const inputs = Object.fromEntries(
+    (metrics.snapshot.inputs.rows as Row[]).map((i) => [i.key, { id: String(i.id), label: String(i.label), unit: i.unit ?? null, value: i.value_number === null || i.value_number === undefined ? null : Number(i.value_number) }]),
+  );
+  const data = buildScenarioSummary({
+    columns,
+    current,
+    inputs,
+    baseline: { starting_cash: base.cash, monthly_spending: base.monthlySpending, monthly_income: base.monthlyIncome, monthly_investment_contribution: 0, one_time_amount: 0, one_time_month: 0 },
+    debts: base.debts.map((d) => ({ id: d.id, name: d.name, apr: d.apr, minPayment: d.minPayment })),
+  });
+  return { ok: true, ...data };
 }

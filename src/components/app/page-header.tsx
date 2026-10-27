@@ -1,15 +1,27 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import { STATUS_BOX, STATUS_TEXT, toneStatus } from "@/lib/status";
+import { AskAiButton } from "@/components/app/ask-ai-button";
+import type { ChatContext } from "@/lib/ai/context";
 
-export function PageHeader({ title, description, actions, className }: { title: string; description?: React.ReactNode; actions?: React.ReactNode; className?: string }) {
+/**
+ * Page title, one-line description, and the page's buttons. Every page header has "Ask AI about this" (the AI chat
+ * about this page, or about the record when `ask` names one); `ask={false}` leaves it out.
+ */
+export function PageHeader({ title, description, actions, className, ask }: { title: string; description?: React.ReactNode; actions?: React.ReactNode; className?: string; ask?: ChatContext | false }) {
+  const context = ask === false ? null : ask ?? { label: title };
   return (
     <div className={cn("mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between", className)}>
       <div className="min-w-0 sm:flex-1">
         <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">{title}</h1>
         {description ? <p className="mt-1 max-w-[75ch] text-sm text-muted-foreground">{description}</p> : null}
       </div>
-      {actions ? <div className="no-print flex flex-wrap gap-2 sm:max-w-[55%] sm:shrink-0 sm:justify-end">{actions}</div> : null}
+      {actions || context ? (
+        <div className="no-print flex flex-wrap items-start gap-2 sm:max-w-[60%] sm:shrink-0 sm:justify-end">
+          {context ? <AskAiButton context={context} /> : null}
+          {actions}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -48,8 +60,19 @@ export function StatGrid({ children, className }: { children: React.ReactNode; c
   );
 }
 
-/** Empty state: what to add, and the button to add it. */
-export function EmptyState({ title, body, action }: { title: string; body?: string; action?: React.ReactNode }) {
+/** Empty state: what to add, and the button to add it. `compact`: one short row (empty sections in lists and tables). */
+export function EmptyState({ title, body, action, compact = false }: { title: string; body?: string; action?: React.ReactNode; compact?: boolean }) {
+  if (compact) {
+    return (
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-dashed border-slate-300 bg-slate-50/60 px-4 py-2.5" data-testid="empty-compact">
+        <p className="min-w-0 flex-1 text-sm">
+          <span className="font-medium text-slate-800">{title}</span>
+          {body ? <span className="text-muted-foreground"> {body}</span> : null}
+        </p>
+        {action ? <div className="shrink-0">{action}</div> : null}
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col items-start gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50/60 p-5">
       <p className="text-sm font-medium text-slate-800">{title}</p>

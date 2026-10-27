@@ -9,6 +9,7 @@ import { EmptyState, PageHeader } from "@/components/app/page-header";
 import { LineSeriesChart } from "@/components/app/charts";
 import { ScenarioComparisonTable, mergeSeries } from "@/components/app/scenario-results";
 import { CHART_BASELINE, CHART_SERIES } from "@/lib/status";
+import { ScenarioSummaryButton } from "@/components/app/view-summary-button";
 
 const COLORS = CHART_SERIES;
 
@@ -27,7 +28,11 @@ export default async function ComparePage({ searchParams }: { searchParams: Prom
       <Link href="/plan/scenarios" className="mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-slate-900">
         <ChevronLeft className="h-4 w-4" /> Scenarios
       </Link>
-      <PageHeader title="Compare scenarios" description={`Current numbers and ${cols.length} scenario(s), projected ${horizon} months.`} />
+      <PageHeader
+        title="Compare scenarios"
+        description={`Current numbers and ${cols.length} scenario(s), projected ${horizon} months.`}
+        actions={cols.length ? <ScenarioSummaryButton ids={loaded.map((l) => String(l.scenario.id))} /> : null}
+      />
       {cols.length ? (
         <div className="flex flex-col gap-4">
           <Card>

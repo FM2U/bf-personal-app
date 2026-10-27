@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
+import { CollapsibleCard } from "@/components/app/collapsible";
 import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
 import { dailyCloseCommitments, dailyCloseTargets, movedTasksForReview } from "@/lib/engine/reviews";
 import { DbUpdateNotice } from "@/components/app/target-grid";
-import { Card, CardContent, CardDescription, CardHeader, CardNote, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Textarea } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Notice, PageHeader, Stat, StatGrid } from "@/components/app/page-header";
@@ -125,11 +126,8 @@ export async function ReviewView({ id, sp, inWindow = false }: { id: string; sp:
 </CardContent>
           </Card>
           {d.consulting ? (
-            <Card>
-              <CardHeader>
-                <CardTitle>Consulting this period</CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-3">
+            <CollapsibleCard id="consulting" storageKey="review" title="Consulting this period" defaultOpen={false} summary={`Income received ${money(d.consulting.income_received)}, pipeline value ${money(d.consulting.pipeline_value)} per month`}>
+              <div className="flex flex-col gap-3">
                 <StatGrid>
                   <Stat label="Signed or active engagements" value={(d.consulting.active_engagements ?? []).length} />
                   <Stat label="Consulting income received" value={money(d.consulting.income_received)} tone={d.consulting.income_received ? "good" : undefined} />
@@ -140,16 +138,13 @@ export async function ReviewView({ id, sp, inWindow = false }: { id: string; sp:
                   <span className="text-muted-foreground">Open items by stage: </span>
                   {((d.consulting.by_stage ?? []) as Row[]).map((s) => `${s.stage} ${s.count}`).join(", ") || "none"}
                 </p>
-              </CardContent>
-              <CardNote>Numbers at the time of the draft. Pipeline value = expected monthly income x probability, open items.</CardNote>
-            </Card>
+                <p className="border-t border-slate-200 pt-3 text-xs text-muted-foreground">Numbers at the time of the draft. Pipeline value = expected monthly income x probability, open items.</p>
+              </div>
+            </CollapsibleCard>
           ) : null}
           {(d.top_introducers ?? []).length ? (
-            <Card>
-              <CardHeader>
-                <CardTitle>Top contacts by deals introduced</CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-col divide-y divide-slate-100">
+            <CollapsibleCard id="introducers" storageKey="review" title="Top contacts by deals introduced" defaultOpen={false} summary={(d.top_introducers as Row[]).slice(0, 3).map((t) => `${t.name} ${t.deals}`).join(", ")}>
+              <div className="flex flex-col divide-y divide-slate-100">
                 {(d.top_introducers as Row[]).map((t) => (
                   <div key={t.contact_id} className="grid grid-cols-[minmax(0,1fr)_5rem_5.5rem] items-center gap-3 py-2 first:pt-0">
                     <Link href={`/records/contacts/${t.contact_id}`} className="clamp-2 text-sm font-medium hover:underline">
@@ -159,16 +154,13 @@ export async function ReviewView({ id, sp, inWindow = false }: { id: string; sp:
                     <Stat label="This period" value={t.deals_this_period} />
                   </div>
                 ))}
-              </CardContent>
-              <CardNote>Deals where the contact is &quot;Deal came from&quot; or &quot;Introduced by&quot;, all time.</CardNote>
-            </Card>
+                <p className="pt-3 text-xs text-muted-foreground">Deals where the contact is &quot;Deal came from&quot; or &quot;Introduced by&quot;, all time.</p>
+              </div>
+            </CollapsibleCard>
           ) : null}
           {review.kind !== "daily" && (d.targets ?? []).length ? (
-            <Card>
-              <CardHeader>
-                <CardTitle>Daily targets this period</CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-col divide-y divide-slate-100">
+            <CollapsibleCard id="targets" storageKey="review" title="Daily targets this period" defaultOpen={false} summary={(d.targets as Row[]).map((t) => `${t.name} ${t.total} of ${t.required}`).join(", ")}>
+              <div className="flex flex-col divide-y divide-slate-100">
                 {(d.targets as Row[]).map((t) => (
                   <div key={t.id} className="grid grid-cols-3 gap-3 py-2 first:pt-0">
                     <span className="clamp-2 text-sm font-medium">{t.name}</span>
@@ -176,9 +168,9 @@ export async function ReviewView({ id, sp, inWindow = false }: { id: string; sp:
                     <Stat label={t.period === "week" ? "Weeks met" : "Days met"} value={`${t.met} of ${t.met + t.missed}`} tone={t.missed ? "bad" : "good"} />
                   </div>
                 ))}
-              </CardContent>
-              <CardNote>Total done against the total required on active days.</CardNote>
-            </Card>
+                <p className="pt-3 text-xs text-muted-foreground">Total done against the total required on active days.</p>
+              </div>
+            </CollapsibleCard>
           ) : null}
         </div>
         <div className="flex flex-col gap-4 lg:col-span-3">

@@ -159,7 +159,7 @@ export default async function ConnectionsPage({ searchParams }: { searchParams: 
           <CardHeader>
             <CardTitle>Scheduled jobs</CardTitle>
             <CardDescription>
-              Vercel runs the morning job and the evening job once a day (see README, Cron). The morning job syncs Plaid, applies category rules, finds recurring charges, checks connections, creates recurring and pipeline tasks and follow-ups, checks commitments, milestones, and decision conditions, drafts due reviews and partner reports, adds calendar time blocks, and writes the morning plan. The evening job drafts the daily close, checks the day&apos;s commitments, and checks decision conditions.
+              Vercel runs the morning job and the evening job once a day (see README, Cron). The morning job syncs Plaid, applies category rules, finds recurring charges, checks connections, creates recurring and pipeline tasks and follow-ups, checks commitments, milestones, and decision conditions, drafts due reviews and partner reports, suggests calendar time blocks (they go to Google Calendar only after you approve them), and writes the morning plan. The evening job drafts the daily close, checks the day&apos;s commitments, and checks decision conditions.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2">

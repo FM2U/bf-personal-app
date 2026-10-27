@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { ArrowUpRight } from "lucide-react";
 import { WindowFrame } from "@/components/ui/window";
 import { Button } from "@/components/ui/button";
+import { AskAiButton } from "@/components/app/ask-ai-button";
 
 /**
  * The large centered window for a page opened from inside the app (the daily close and the other reviews).
@@ -11,6 +12,7 @@ import { Button } from "@/components/ui/button";
  */
 export function RouteWindow({ title, fullPageHref, children }: { title: string; fullPageHref: string; children: React.ReactNode }) {
   const router = useRouter();
+  const review = fullPageHref.match(/^\/accountability\/reviews\/([0-9a-f-]{36})/);
   return (
     <WindowFrame
       open
@@ -20,6 +22,7 @@ export function RouteWindow({ title, fullPageHref, children }: { title: string; 
       size="large"
       title={title}
       testId="work-window"
+      ask={<AskAiButton compact context={review ? { table: "reviews", id: review[1], label: title } : { label: title }} />}
       headerActions={
         <Button asChild variant="ghost" size="sm">
           <a href={fullPageHref} data-full-page="">

@@ -17,6 +17,9 @@ import { addTargetEntry, saveTargetMissReason, undoTargetEntry } from "@/app/act
 import { COUNT_SOURCE_OPTIONS } from "@/lib/resources";
 import { date as fmtDate } from "@/lib/format";
 import { GuardedForm } from "@/components/app/unsaved-changes";
+import { SuggestionLine } from "@/components/app/suggestion-line";
+import { targetSuggestion } from "@/lib/suggestions";
+import { firstSuggestion } from "@/lib/suggestions-server";
 
 export const metadata = { title: "Targets" };
 
@@ -39,6 +42,7 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
     loadOutreachStats(supabase, { ownerId, tz: ctx.tz, from: addDaysISO(today, -29), to: today }),
   ]);
   const summaries = summarizeTargets(data, today);
+  const suggestion = await firstSuggestion([targetSuggestion(summaries, today)]);
   const deals30 = Object.fromEntries(data.targets.map((t) => [t.id, todayBreakdown(data, t.id, addDaysISO(today, -29), today)]));
   const week = weekBounds(today);
   const reasonFrom = addDaysISO(today, -14);
@@ -64,6 +68,7 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
         }
       />
       <div className="flex flex-col gap-4">
+        {suggestion ? <SuggestionLine s={suggestion} context={{ label: "Targets" }} /> : null}
         {sp.notice ? <Notice tone={sp.notice.startsWith("Database update") ? "warn" : "success"}>{sp.notice}</Notice> : null}
         {!data.available ? <DbUpdateNotice /> : null}
         {data.error ? <Notice tone="error">Targets could not be read: {data.error}</Notice> : null}

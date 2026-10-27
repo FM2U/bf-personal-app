@@ -50,3 +50,58 @@ export function TaskList({ tasks, today, showDue = true, dealTypes }: { tasks: R
     </ul>
   );
 }
+
+/**
+ * Task lists page: tasks as a table with enough columns to use the width (task, what it is for, priority, due date,
+ * status), so no title sits far from its date. Each title opens the task's quick view.
+ */
+export function TaskTable({ tasks, today, initiatives, items }: { tasks: Row[]; today: string; initiatives: Record<string, string>; items: Record<string, string> }) {
+  const PRIORITY: Record<string, string> = { "1": "High", "2": "Normal", "3": "Low" };
+  return (
+    <div className="-mx-1 overflow-x-auto" data-testid="task-table">
+      <table className="w-full min-w-[40rem] text-sm">
+        <thead>
+          <tr className="border-b border-slate-200 text-left text-[11px] font-medium uppercase tracking-wide text-slate-500">
+            <th className="w-8 px-1 py-2" aria-label="Done" />
+            <th className="px-2 py-2">Task</th>
+            <th className="px-2 py-2">For</th>
+            <th className="w-24 px-2 py-2">Priority</th>
+            <th className="w-28 px-2 py-2 text-right">Due</th>
+            <th className="w-24 px-2 py-2">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {tasks.map((t) => {
+            const done = t.status === "done";
+            const forText = (t.pipeline_item_id && items[t.pipeline_item_id]) || (t.initiative_id && initiatives[t.initiative_id]) || "";
+            return (
+              <tr key={t.id} className="border-b border-slate-100 align-top last:border-0 hover:bg-slate-50/70">
+                <td className="px-1 py-2">
+                  <TaskCheckbox id={t.id} done={done} label={t.title} />
+                </td>
+                <td className="px-2 py-2">
+                  {REVIEW_TASKS[t.title] && !done ? (
+                    <OpenReviewButton kind={REVIEW_TASKS[t.title]} asLink className="clamp-2">
+                      {t.title}
+                    </OpenReviewButton>
+                  ) : (
+                    <Link href={`/records/tasks/${t.id}`} className={`clamp-2 hover:underline ${done ? "text-muted-foreground line-through" : "text-slate-900"}`}>
+                      {t.title}
+                    </Link>
+                  )}
+                  {!done && movedNote(t.times_moved) ? <span className="block text-xs text-status-soon">{movedNote(t.times_moved)}</span> : null}
+                </td>
+                <td className="px-2 py-2 text-slate-600">
+                  <span className="clamp-1">{forText}</span>
+                </td>
+                <td className="px-2 py-2">{String(t.priority) === "1" ? <Badge variant="warning">High</Badge> : <span className="text-slate-600">{PRIORITY[String(t.priority ?? "2")] ?? ""}</span>}</td>
+                <td className={`tabular whitespace-nowrap px-2 py-2 text-right ${dueClass(t.due_date, today, done) || "text-muted-foreground"}`}>{t.due_date ? (t.due_date === today ? "Due today" : fmtDate(t.due_date, "MMM d")) : "No date"}</td>
+                <td className="px-2 py-2 text-slate-600">{done ? "Done" : t.status === "skipped" ? "Skipped" : "To do"}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
