@@ -219,8 +219,9 @@ export function ComposeEmailDialog({ setup, open, onOpenChange }: { setup: Compo
           fromEmail={setup.fromEmail}
           disabled={!body.trim() || !!toProblem}
           preview={() => ({ to: to.trim(), ...prepareOutreachEmail(subject, body) })}
-          send={async (requestId) => {
-            const r = await sendComposedEmail({ to: to.trim(), subject, body, requestId, ...context });
+          signature={setup.signature}
+          send={async (requestId, includeSignature) => {
+            const r = await sendComposedEmail({ to: to.trim(), subject, body, requestId, includeSignature, ...context });
             if (r.ok) {
               setSent(true);
               router.refresh();
@@ -229,8 +230,8 @@ export function ComposeEmailDialog({ setup, open, onOpenChange }: { setup: Compo
           }}
           saveDraft={
             setup.canGmail
-              ? async () => {
-                  const r = await saveComposedGmailDraft({ to: to.trim(), subject, body });
+              ? async (includeSignature) => {
+                  const r = await saveComposedGmailDraft({ to: to.trim(), subject, body, includeSignature });
                   if (r.ok) setSavedAs(snapshot);
                   return r;
                 }

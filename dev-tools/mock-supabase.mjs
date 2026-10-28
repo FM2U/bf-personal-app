@@ -308,13 +308,25 @@ server.listen(PORT, () => console.log(`Mock Supabase listening on http://localho
 // The app talks to it when GOOGLE_API_MOCK_URL=http://localhost:54329 (dev-tools/local.env); the app honors that
 // variable only for a localhost address. Sign-in returns at once, tokens are fake, nothing leaves this machine.
 // Test controls: POST /__mode {"grantSend": false} (the next sign-in grants no gmail.send, like the old connection),
-// {"sendError": "scope" | "server" | null}; GET /__sent lists the emails "sent" (decoded); GET /__events lists
-// the calendar events created (approved time blocks, reviews, follow-ups); POST /__reset clears them.
+// {"grantSignature": false} (the next sign-in grants no gmail.settings.basic), {"sendError": "scope" | "server" | null};
+// GET /__sent lists the emails "sent" and GET /__drafts the drafts created (decoded: to, subject, body = the text part,
+// html = the HTML part, contentType, parts); GET /__events lists the calendar events created (approved time blocks,
+// reviews, follow-ups); POST /__reset clears them. GET /gmail/v1/users/me/settings/sendAs returns two send-as
+// addresses; the default one has SAMPLE_SIGNATURE (a link, a phone number, an https image, and unsafe parts that the
+// app must remove).
 const GOOGLE_PORT = Number(process.env.MOCK_GOOGLE_PORT || 54329);
 const BASE_SCOPES = ["openid", "email", "https://www.googleapis.com/auth/gmail.compose", "https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/calendar.readonly"];
 const SEND = "https://www.googleapis.com/auth/gmail.send";
-let gmode = { grantSend: true, sendError: null };
+const SETTINGS = "https://www.googleapis.com/auth/gmail.settings.basic";
+const SAMPLE_SIGNATURE =
+  '<div dir="ltr"><div dir="ltr"><table cellpadding="0" cellspacing="0" style="font-family:Arial,sans-serif;font-size:13px;color:#333333"><tbody><tr>' +
+  '<td style="padding-right:12px;vertical-align:top"><img src="https://lh3.googleusercontent.com/mock-signature/cyan-arc-logo.png" width="64" height="64" alt="Cyan Arc" onerror="alert(1)"></td>' +
+  '<td style="vertical-align:top"><b style="color:#1d4ed8">Bram Frankel</b><br>Founder, Cyan Arc LLC<br>' +
+  '<a href="tel:+14045550123" style="color:#333333">(404) 555-0123</a> | <a href="https://cyanarc.com" target="_blank">cyanarc.com</a><br>' +
+  '<a href="javascript:alert(2)">Unsafe link</a><script>alert(3)</script></td></tr></tbody></table></div></div>';
+let gmode = { grantSend: true, grantSignature: true, sendError: null };
 let gsent = [];
+let gdraftList = [];
 let gdrafts = 0;
 let gEvents = 0;
 let gEventList = [];
@@ -338,10 +350,30 @@ function decodeRaw(raw) {
       headers[last] = line.slice(i + 1).trim();
     }
   }
-  const subject = (headers.subject || "").replace(/=\?UTF-8\?B\?([^?]*)\?=/g, (_, b) => Buffer.from(b, "base64").toString("utf8"));
+  const subject = (headers.subject || "").replace(/=\?UTF-8\?B\?([^?]*)\?=/g, (_, b) => Buffer.from(b, "base64").toString("utf8")).replace(/\?=\s*=\?UTF-8\?B\?/g, "");
   const bodyRaw = rest.join("\r\n\r\n");
+  const contentType = headers["content-type"] || "";
+  const boundary = (contentType.match(/boundary="?([^";]+)"?/) || [])[1];
+  if (boundary) {
+    // multipart/alternative: decode every part; body is the text part, html the HTML part.
+    const chunks = bodyRaw.split(`--${boundary}`);
+    const parts = chunks.slice(1, -1).map((c) => {
+      const part = c.replace(/^\r\n/, "");
+      const i = part.indexOf("\r\n\r\n");
+      const ph = part.slice(0, i);
+      const encoded = part.slice(i + 4).replace(/\r\n$/, "");
+      const type = (ph.match(/Content-Type:\s*([^;\r\n]+)/i) || [])[1] || "";
+      const charset = (ph.match(/charset=([^;\r\n]+)/i) || [])[1] || "";
+      const content = /base64/i.test(ph) ? Buffer.from(encoded.replace(/\r\n/g, ""), "base64").toString("utf8") : encoded;
+      return { type: type.trim().toLowerCase(), charset: charset.trim(), content };
+    });
+    const text = parts.find((x) => x.type === "text/plain");
+    const html = parts.find((x) => x.type === "text/html");
+    const closed = chunks[chunks.length - 1].startsWith("--");
+    return { to: headers.to, subject, body: text?.content ?? "", html: html?.content ?? null, contentType, parts: parts.map((x) => `${x.type}; ${x.charset}`), closed, headers };
+  }
   const body = headers["content-transfer-encoding"] === "base64" ? Buffer.from(bodyRaw.replace(/\r\n/g, ""), "base64").toString("utf8") : bodyRaw;
-  return { to: headers.to, subject, body, headers };
+  return { to: headers.to, subject, body, html: null, contentType, parts: [], headers };
 }
 
 const google = http.createServer(async (req, res) => {
@@ -353,25 +385,28 @@ const google = http.createServer(async (req, res) => {
       return send(res, 200, gmode);
     }
     if (p === "/__reset" && req.method === "POST") {
-      gmode = { grantSend: true, sendError: null };
+      gmode = { grantSend: true, grantSignature: true, sendError: null };
       gsent = [];
+      gdraftList = [];
       gEventList = [];
       return send(res, 200, { ok: true });
     }
     if (p === "/__sent") return send(res, 200, gsent);
+    if (p === "/__drafts") return send(res, 200, gdraftList);
     if (p === "/__events") return send(res, 200, gEventList);
     if (p === "/o/oauth2/v2/auth") {
       const back = new URL(url.searchParams.get("redirect_uri"));
-      back.searchParams.set("code", gmode.grantSend ? "mock-code-send" : "mock-code-nosend");
+      back.searchParams.set("code", `mock-code-${gmode.grantSend ? "send" : "nosend"}-${gmode.grantSignature ? "sig" : "nosig"}`);
       back.searchParams.set("state", url.searchParams.get("state") || "");
       res.writeHead(302, { Location: back.toString() });
       return res.end();
     }
     if (p === "/token" && req.method === "POST") {
       const form = new URLSearchParams(await readRaw(req));
-      const scopes = gmode.grantSend ? [...BASE_SCOPES, SEND] : BASE_SCOPES;
+      const scopes = [...BASE_SCOPES, ...(gmode.grantSend ? [SEND] : []), ...(gmode.grantSignature ? [SETTINGS] : [])];
       if (form.get("grant_type") === "authorization_code") {
-        const granted = form.get("code") === "mock-code-send" ? [...BASE_SCOPES, SEND] : BASE_SCOPES;
+        const code = form.get("code") || "";
+        const granted = [...BASE_SCOPES, ...(code.includes("-send") ? [SEND] : []), ...(code.endsWith("-sig") ? [SETTINGS] : [])];
         return send(res, 200, { access_token: "mock-access", refresh_token: "mock-refresh-token", scope: granted.join(" "), expires_in: 3600, token_type: "Bearer" });
       }
       return send(res, 200, { access_token: "mock-access", scope: scopes.join(" "), expires_in: 3600, token_type: "Bearer" });
@@ -384,7 +419,20 @@ const google = http.createServer(async (req, res) => {
       gsent.push({ id, threadId: body.threadId || `thread-${id}`, ...decodeRaw(body.raw) });
       return send(res, 200, { id, threadId: body.threadId || `thread-${id}`, labelIds: ["SENT"] });
     }
-    if (p === "/gmail/v1/users/me/drafts" && req.method === "POST") return send(res, 200, { id: `mock-draft-${++gdrafts}`, message: { id: `mock-draft-msg-${gdrafts}` } });
+    if (p === "/gmail/v1/users/me/drafts" && req.method === "POST") {
+      const body = JSON.parse((await readRaw(req)) || "{}");
+      const id = `mock-draft-${++gdrafts}`;
+      gdraftList.push({ id, ...decodeRaw(body.message?.raw) });
+      return send(res, 200, { id, message: { id: `mock-draft-msg-${gdrafts}` } });
+    }
+    if (p === "/gmail/v1/users/me/settings/sendAs" && req.method === "GET") {
+      return send(res, 200, {
+        sendAs: [
+          { sendAsEmail: "alias@example.com", displayName: "Alias", isPrimary: false, isDefault: false, signature: "<div>Alias signature (not the default)</div>" },
+          { sendAsEmail: "owner@example.com", displayName: "Bram Frankel", isPrimary: true, isDefault: true, signature: SAMPLE_SIGNATURE },
+        ],
+      });
+    }
     if (p.startsWith("/calendar/v3/calendars/primary/events")) {
       if (req.method === "POST") {
         const body = JSON.parse((await readRaw(req)) || "{}");

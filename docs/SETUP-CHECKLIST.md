@@ -3,7 +3,29 @@
 Do these in order. Each line says where to copy a value from and where to paste it.
 Vercel variables go in: Vercel, project bf-personal-app, Settings, Environment Variables (Production).
 
-## 0. Database update 0013 and 0014 (the live database; about 1 minute)
+## 00. Gmail signature on app emails (the live database has 0001 to 0014; about 3 minutes)
+
+Three one-time steps. Until they are done, emails from the app are sent without a signature and everything else keeps working.
+
+**Step 1: database update 0015 (about 1 minute)**
+- [ ] Open the file `supabase/UPDATE_0015_RUN_ONCE.sql` in the GitHub repository (bf-personal-app), press "Copy raw file"
+- [ ] Supabase, project bf-personal-app, SQL Editor, New query: paste, press **Run**. Expected result: "Success. No rows returned"
+- [ ] Running it a second time is safe. It adds four empty columns to the owner profile and changes no existing record
+
+**Step 2: reconnect Google once (about 1 minute)**
+- [ ] Google Cloud console (project "BF Personal App"), APIs and Services, OAuth consent screen (or Data access), Scopes: add `https://www.googleapis.com/auth/gmail.settings.basic` next to the existing ones, Save. (The app asks for it either way; adding it here keeps the consent screen list accurate.)
+- [ ] The app: Settings, Connections. The Google card says "Reconnect Google to use your Gmail signature (1 minute)". Press **Reconnect Google**
+- [ ] Google: choose bram@cyanarc.com, keep every box checked, including "See, edit, create, or change your email settings and filters in Gmail" (the app only reads your signature with it), press Continue
+- [ ] Back in the app: "Google is connected. Sending from the app is allowed." The Google card shows "Gmail signature: Can be copied" and no Reconnect message
+
+**Step 3: copy the signature and test (about 1 minute)**
+- [ ] Settings, Email signature, press **Copy from Gmail**. The Preview shows your Gmail signature (logo, phone number, links) and the Plain text version under it
+- [ ] Edit the HTML only if something looks wrong, then press **Save signature**. Leave "Add signature to emails sent or drafted from the app" checked
+- [ ] Test send: open a contact whose email is yours (or a test contact), press **Email**, type a subject and message, keep **Include signature** checked, press Send now. The dialog shows the signature below "--". Press Send email
+- [ ] Gmail, Sent: the email shows the signature with its logo and links. In Gmail, More (three dots), Show original: the message has both a text/plain and a text/html part
+- [ ] Optional: press Save to Gmail drafts on another email; Gmail, Drafts shows it with the signature
+
+## 0. Database update 0013 and 0014 (a database with 0001 to 0012 or 0013; already done on the live database)
 
 One file runs both updates. Use it whether or not `UPDATE_0013_RUN_ONCE.sql` was already run.
 - **0013:** send email from the app (Gmail message ids, partner report sent date).
@@ -20,7 +42,7 @@ One file runs both updates. Use it whether or not `UPDATE_0013_RUN_ONCE.sql` was
 ## 1. Supabase (database)
 
 - [ ] Create a Supabase project (sign in with GitHub). Region: US East. Save the database password somewhere safe.
-- [ ] SQL Editor: paste and run `supabase/ALL_MIGRATIONS_RUN_ONCE.sql` (0001 to 0014), or each file from `supabase/migrations/` in order: 0001 to 0014.
+- [ ] SQL Editor: paste and run `supabase/ALL_MIGRATIONS_RUN_ONCE.sql` (0001 to 0015), or each file from `supabase/migrations/` in order: 0001 to 0015.
 - [ ] Authentication, Sign In / Providers, Email: enabled. Multi-Factor: TOTP enabled.
 - [ ] Copy Settings, API, **Project URL** to Vercel `NEXT_PUBLIC_SUPABASE_URL`
 - [ ] Copy Settings, API, **anon public** key to Vercel `NEXT_PUBLIC_SUPABASE_ANON_KEY`
@@ -58,7 +80,7 @@ One file runs both updates. Use it whether or not `UPDATE_0011_RUN_ONCE.sql` was
 ## 1c. Database update (older database only: one combined file)
 
 Do this once if the database was set up before 0010 (it has 0001 to 0007, 0001 to 0008, or 0001 to 0009).
-It also includes 0011, 0012, 0013, and 0014, so step 0 and the database parts of steps 1a and 1b are then not needed (step 1a, Reconnect Google, still is). The file holds seven updates:
+It also includes 0011 to 0015, so steps 00 and 0 and the database parts of steps 1a and 1b are then not needed (Reconnect Google in steps 00 and 1a still is). The file holds eight updates:
 - **0008:** Daily Targets, Outreach Queue.
 - **0009:** stage task lists, time limits, required details, stalled items, deal source, Deals sourced and Deals advanced targets.
 - **0010:** commitment rule. Only pipeline next actions, milestones, daily targets, and the reviews are commitments. Regular tasks that are not done move to the next day.
@@ -66,6 +88,7 @@ It also includes 0011, 0012, 0013, and 0014, so step 0 and the database parts of
 - **0012:** relationship groups Friend and Other; runway setting text (see 1b).
 - **0013:** send email from the app: Gmail message ids and the partner report sent date (see 1a).
 - **0014:** Start an initiative, checklists, savings ideas, sample data, Reset all data (see step 0).
+- **0015:** Gmail signature on app emails (see step 00).
 
 - [ ] Open the file `supabase/UPDATE_RUN_ONCE.sql` in the GitHub repository (bf-personal-app), press "Copy raw file"
 - [ ] Supabase, project bf-personal-app, SQL Editor, New query: paste, press **Run**. Expected result: "Success. No rows returned"
@@ -98,17 +121,17 @@ It also includes 0011, 0012, 0013, and 0014, so step 0 and the database parts of
 - [ ] Vercel `AI_MONTHLY_CAP_USD` = your cap, for example `25`
 - [ ] Optional: `ANTHROPIC_MODEL` (default `claude-sonnet-5-5`), `AI_INPUT_PRICE_PER_MTOK` and `AI_OUTPUT_PRICE_PER_MTOK` (default 3 and 15). Match the prices to the model's current price list so the cost shown in Settings is right.
 
-## 5. Google (Gmail drafts, sending after you confirm, and Calendar), signed in as bram@cyanarc.com
+## 5. Google (Gmail drafts, sending after you confirm, the Gmail signature, and Calendar), signed in as bram@cyanarc.com
 
 - [ ] console.cloud.google.com: create a project "BF Personal App"
 - [ ] APIs and Services, Library: enable **Gmail API** and **Google Calendar API**
 - [ ] OAuth consent screen: User type **Internal**. App name "BF Personal App". Support email bram@cyanarc.com
-- [ ] Scopes: `gmail.compose`, `gmail.send`, `calendar.events`, `calendar.readonly` (plus `openid` and `email`)
+- [ ] Scopes: `gmail.compose`, `gmail.send`, `gmail.settings.basic`, `calendar.events`, `calendar.readonly` (plus `openid` and `email`)
 - [ ] Credentials, Create credentials, OAuth client ID, type **Web application**
 - [ ] Authorized redirect URI: `<APP_URL>/api/google/callback`
 - [ ] Vercel `GOOGLE_CLIENT_ID` = the client ID
 - [ ] Vercel `GOOGLE_CLIENT_SECRET` = the client secret
-- [ ] Redeploy, then in the app: Settings, Connections, **Connect Google**. Keep every box checked on Google's screen. The Google card then shows "Sending from the app: Allowed"
+- [ ] Redeploy, then in the app: Settings, Connections, **Connect Google**. Keep every box checked on Google's screen. The Google card then shows "Sending from the app: Allowed" and "Gmail signature: Can be copied". Then Settings, Email signature, Copy from Gmail, Save signature
 
 ## 6. Plaid (after week 1)
 

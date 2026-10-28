@@ -11,6 +11,7 @@
 #   (j) 0001 to 0012 plus an owner and data, then UPDATE_0013_0014_RUN_ONCE.sql twice
 #   (k) 0001 to 0013 plus an owner and data, then UPDATE_0013_0014_RUN_ONCE.sql twice
 #   (l) 0001 to 0013, then UPDATE_0014_RUN_ONCE.sql twice
+#   (m) 0001 to 0014 (the live database on 2026-10-28) plus an owner and data, then UPDATE_0015_RUN_ONCE.sql twice
 # Paths b, c, d (UPDATE_RUN_ONCE.sql) and j, k, l also check 0014: tables, policies, functions, sample removal, and reset.
 # Every UPDATE_RUN_ONCE.sql path also checks 0012 and 0013.
 # Usage: bash supabase/tests/upgrade_test.sh
@@ -345,6 +346,27 @@ for run in 1 2; do
 done
 check14 bf_upgrade_l
 
+# (m) Live state on 2026-10-28: 0001 to 0014 applied, then UPDATE_0015_RUN_ONCE.sql twice. The owner profile is kept.
+setup bf_upgrade_m 0014
+su postgres -c "$PSQL -d bf_upgrade_m -c \"update public.owner_profile set display_name = 'Kept name'\""
+for run in 1 2; do
+  echo "[bf_upgrade_m] Applying UPDATE_0015_RUN_ONCE.sql (run $run)"
+  su postgres -c "$PSQL -d bf_upgrade_m -f $DIR/UPDATE_0015_RUN_ONCE.sql"
+done
+su postgres -c "$PSQL -d bf_upgrade_m" <<'SQL'
+\set ON_ERROR_STOP 1
+do $$ begin
+  assert (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'owner_profile'
+          and column_name in ('email_signature_html', 'email_signature_text', 'email_signature_enabled', 'email_signature_updated_at')) = 4, '0015 columns';
+  assert to_regprocedure('public.schema_has_0015()') is not null, '0015 check function';
+  assert (select display_name from public.owner_profile limit 1) = 'Kept name', 'owner profile kept';
+  assert (select email_signature_html is null and email_signature_enabled is null from public.owner_profile limit 1), '0015 columns start empty';
+end $$;
+select '0015 checks passed' as result;
+SQL
+for f in UPDATE_RUN_ONCE ALL_MIGRATIONS_RUN_ONCE; do grep -q "email_signature_html" "$DIR/$f.sql" || { echo "$f.sql is missing 0015"; exit 1; }; done
+
 echo "Upgrade paths passed: 0001-0007 + update twice, 0001-0008 + update, 0001-0009 + update twice, 0001-0010 + 0011 update twice,"
 echo "0001-0010 + 0011_0012 update twice, 0001-0011 + 0011_0012 update twice, 0001-0011 + 0012 update twice (edited text kept),"
-echo "0001-0012 + 0013 update twice, 0001-0012 + 0013_0014 update twice, 0001-0013 + 0013_0014 update twice, 0001-0013 + 0014 update twice."
+echo "0001-0012 + 0013 update twice, 0001-0012 + 0013_0014 update twice, 0001-0013 + 0013_0014 update twice, 0001-0013 + 0014 update twice,"
+echo "0001-0014 + 0015 update twice."

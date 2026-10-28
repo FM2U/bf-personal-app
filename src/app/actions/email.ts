@@ -73,7 +73,7 @@ async function permissionProblem(sb: SupabaseClient, ownerId: string): Promise<S
   return { ok: false, reason: "not_connected", message: "Google is not connected. Connect Google in Settings, Connections, or save the message another way." };
 }
 
-async function sendOne(sb: SupabaseClient, ownerId: string, msg: { to: string; subject: string; body: string; threadId?: string | null }): Promise<{ id: string; threadId: string | null } | SendResult> {
+async function sendOne(sb: SupabaseClient, ownerId: string, msg: { to: string; subject: string; body: string; threadId?: string | null; includeSignature?: boolean }): Promise<{ id: string; threadId: string | null } | SendResult> {
   try {
     const res = await sendGmailMessage(sb, ownerId, msg);
     if (!res) return { ok: false, reason: "not_connected", message: "Google is not connected. Connect Google in Settings, Connections." };
@@ -94,6 +94,8 @@ type OutreachDelivery = {
   organizationId?: string | null;
   purpose?: string | null;
   threadId?: string | null;
+  /** The Include signature checkbox (omitted: the setting in Settings, Email signature). */
+  includeSignature?: boolean;
 };
 
 /**
@@ -106,7 +108,7 @@ async function deliverOutreach(sb: SupabaseClient, ownerId: string, d: OutreachD
   const problem = await permissionProblem(sb, ownerId);
   if (problem) return problem;
 
-  const sent = await sendOne(sb, ownerId, { to: d.to, ...msg, threadId: d.threadId ?? null });
+  const sent = await sendOne(sb, ownerId, { to: d.to, ...msg, threadId: d.threadId ?? null, includeSignature: d.includeSignature });
   if ("ok" in sent) return sent;
 
   const sentAt = new Date().toISOString();
@@ -147,7 +149,7 @@ async function deliverOutreach(sb: SupabaseClient, ownerId: string, d: OutreachD
 }
 
 /** Outreach Queue, Draft message: sends the approved text to the contact and logs it as outreach. */
-export async function sendOutreachEmail(input: { contactId: string; subject: string; body: string; requestId: string; pipelineItemId?: string | null; purpose?: string | null; threadId?: string | null }): Promise<SendResult> {
+export async function sendOutreachEmail(input: { contactId: string; subject: string; body: string; requestId: string; pipelineItemId?: string | null; purpose?: string | null; threadId?: string | null; includeSignature?: boolean }): Promise<SendResult> {
   const { supabase, ownerId } = await requireOwner();
   if (!REQUEST_ID.test(String(input.requestId ?? ""))) return { ok: false, reason: "invalid", message: "The send request was not valid. Reload the page and try again." };
   const done = await previousSend(supabase, input.requestId);
@@ -165,6 +167,7 @@ export async function sendOutreachEmail(input: { contactId: string; subject: str
     pipelineItemId: input.pipelineItemId ?? null,
     purpose: input.purpose ?? null,
     threadId: input.threadId ?? null,
+    includeSignature: typeof input.includeSignature === "boolean" ? input.includeSignature : undefined,
   });
 }
 
@@ -177,6 +180,8 @@ export type ComposeInput = {
   contactId?: string | null;
   pipelineItemId?: string | null;
   organizationId?: string | null;
+  /** The Include signature checkbox (omitted: the setting in Settings, Email signature). */
+  includeSignature?: boolean;
 };
 
 /** Loads the contact and the pipeline item's kind for a compose request. Ids that do not exist are dropped. */
@@ -218,11 +223,12 @@ export async function sendComposedEmail(input: ComposeInput & { requestId: strin
     pipelineItemId: pipelineItem?.id ?? null,
     organizationId,
     purpose: composePurpose({ contact, pipelineKind: (pipeline?.kind as string | null) ?? null }),
+    includeSignature: typeof input.includeSignature === "boolean" ? input.includeSignature : undefined,
   });
 }
 
 /** The Email button: Save to Gmail drafts. Sends nothing and logs nothing (the owner sends it from Gmail). */
-export async function saveComposedGmailDraft(input: { to: string; subject: string; body: string }): Promise<{ ok: boolean; message: string }> {
+export async function saveComposedGmailDraft(input: { to: string; subject: string; body: string; includeSignature?: boolean }): Promise<{ ok: boolean; message: string }> {
   const { supabase, ownerId } = await requireOwner();
   const to = String(input.to ?? "").trim();
   const bad = emailAddressProblem(to);
@@ -230,7 +236,7 @@ export async function saveComposedGmailDraft(input: { to: string; subject: strin
   const msg = prepareOutreachEmail(input.subject, input.body);
   if (!msg.body.trim()) return { ok: false, message: "The message is empty." };
   try {
-    const id = await createGmailDraft(supabase, ownerId, { to, ...msg });
+    const id = await createGmailDraft(supabase, ownerId, { to, ...msg, includeSignature: typeof input.includeSignature === "boolean" ? input.includeSignature : undefined });
     if (!id) return { ok: false, message: "Google is not connected. Connect Google in Settings, Connections." };
     return { ok: true, message: `Gmail draft created for ${to}. Open Gmail, Drafts to review and send it. After sending it from Gmail, press Log outreach.` };
   } catch (e) {
@@ -288,7 +294,7 @@ export async function writeEmailWithAI(input: ComposeInput & { instruction: stri
 }
 
 /** Partner report page: sends the finalized report email to the accountability partner and marks the report sent. */
-export async function sendPartnerReportEmail(input: { reportId: string; requestId: string }): Promise<SendResult> {
+export async function sendPartnerReportEmail(input: { reportId: string; requestId: string; includeSignature?: boolean }): Promise<SendResult> {
   const { supabase, ownerId } = await requireOwner();
   if (!REQUEST_ID.test(String(input.requestId ?? ""))) return { ok: false, reason: "invalid", message: "The send request was not valid. Reload the page and try again." };
   const done = await previousSend(supabase, input.requestId);
@@ -303,7 +309,7 @@ export async function sendPartnerReportEmail(input: { reportId: string; requestI
 
   const link = await activeLinkFor({ sb: supabase }, partner.id);
   const text = reportText(partner, report, link, "email");
-  const sent = await sendOne(supabase, ownerId, { to: String(partner.email), subject: text.subject, body: text.body });
+  const sent = await sendOne(supabase, ownerId, { to: String(partner.email), subject: text.subject, body: text.body, includeSignature: typeof input.includeSignature === "boolean" ? input.includeSignature : undefined });
   if ("ok" in sent) return sent;
 
   const sentAt = new Date().toISOString();
@@ -327,7 +333,7 @@ export async function sendPartnerReportEmail(input: { reportId: string; requestI
 }
 
 /** Partner report page: Save to Gmail drafts (the existing behavior), returning a message instead of an error page. */
-export async function saveReportToGmailDrafts(reportId: string): Promise<{ ok: boolean; message: string }> {
+export async function saveReportToGmailDrafts(reportId: string, includeSignature?: boolean): Promise<{ ok: boolean; message: string }> {
   const { supabase, ownerId } = await requireOwner();
   const { data: report } = await supabase.from("partner_reports").select("*").eq("id", reportId).maybeSingle();
   if (!report) return { ok: false, message: "Report not found." };
@@ -336,7 +342,7 @@ export async function saveReportToGmailDrafts(reportId: string): Promise<{ ok: b
   try {
     const link = await activeLinkFor({ sb: supabase }, partner.id);
     const text = reportText(partner, report, link, "email");
-    const gmailId = await createGmailDraft(supabase, ownerId, { to: partner.email, subject: text.subject, body: text.body });
+    const gmailId = await createGmailDraft(supabase, ownerId, { to: partner.email, subject: text.subject, body: text.body, includeSignature: typeof includeSignature === "boolean" ? includeSignature : undefined });
     if (!gmailId) return { ok: false, message: "Google is not connected. Connect Google in Settings, Connections." };
     await supabase.from("partner_reports").update({ gmail_draft_id: gmailId, delivered_via: [...new Set([...((report.delivered_via as string[] | null) ?? []), "gmail_draft"])] }).eq("id", report.id);
     revalidatePath("/", "layout");

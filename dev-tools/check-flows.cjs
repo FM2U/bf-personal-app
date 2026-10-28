@@ -2,6 +2,7 @@
 // Usage: NODE_PATH=$(npm root -g) node dev-tools/check-flows.cjs
 const { chromium } = require("playwright");
 const path = require("node:path");
+const fs = require("node:fs");
 
 const BASE = "http://localhost:3000";
 const OUT = path.join(__dirname, "..", "docs", "screenshots");
@@ -37,6 +38,12 @@ const openFull = async (page, link) => {
   await page.getByTestId("quick-view-full-page").click();
   await page.waitForURL(/\/records\/[a-z_]+\/[0-9a-f-]{36}$/);
 };
+// The Google stand-in's sample signature has an https image (as Gmail-hosted images are); the browser gets a local
+// test logo for that address instead of reaching the internet.
+const SIGNATURE_LOGO = fs.readFileSync(path.join(__dirname, "fixtures", "signature-logo.png"));
+const routeSignatureImage = (context) => context.route("https://lh3.googleusercontent.com/**", (r) => r.fulfill({ status: 200, contentType: "image/png", body: SIGNATURE_LOGO }));
+// The confirmation dialog shows the email in a frame (exactly as an email app shows it).
+const previewText = (pg_, testId = "send-preview-frame") => pg_.frameLocator(`[data-testid=${testId}]`).locator("body").innerText();
 const expectText = async (page, text) => {
   try {
     await page.waitForFunction((t) => document.body.innerText.includes(t), text, { timeout: 15000 });
@@ -49,6 +56,7 @@ const expectText = async (page, text) => {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
   await ctx.addCookies([cookie]);
+  await routeSignatureImage(ctx);
   const page = await ctx.newPage();
   global.__page = page;
   page.on("dialog", (d) => d.accept());
@@ -687,6 +695,7 @@ const expectText = async (page, text) => {
   };
   const phone = await browser.newContext({ viewport: { width: 390, height: 844 } });
   await phone.addCookies([cookie]);
+  await routeSignatureImage(phone);
   const ph = await phone.newPage();
 
   await step("Google connected before sending was asked for: Settings shows Reconnect", async () => {
@@ -745,9 +754,10 @@ const expectText = async (page, text) => {
     const dlg = page.getByRole("dialog", { name: "Send this email?" });
     await dlg.waitFor();
     const shown = await dlg.innerText();
-    for (const t of ["To", "quinn@example.com", "Subject", "Café check-in ✓", "Does anyone come to mind?", "Send email", "Edit"]) if (!shown.includes(t)) throw new Error(`dialog is missing ${t}`);
-    const pre = await page.getByTestId("send-preview-body").innerText();
-    if (!pre.includes("Hi Quinn,\n\nDoes anyone come to mind?\n- Owner-operated")) throw new Error(`line breaks not kept: ${JSON.stringify(pre)}`);
+    for (const t of ["To", "quinn@example.com", "Subject", "Café check-in ✓", "Send email", "Edit"]) if (!shown.includes(t)) throw new Error(`dialog is missing ${t}`);
+    const pre = await previewText(page);
+    if (!pre.includes("Hi Quinn,\n\nDoes anyone come to mind?\nOwner-operated\nNo broker yet")) throw new Error(`line breaks not kept: ${JSON.stringify(pre)}`);
+    if ((await page.frameLocator("[data-testid=send-preview-frame]").locator("li").count()) !== 2) throw new Error("the two bullets are not a list");
     await page.screenshot({ path: path.join(OUT, "flow-send-confirm.png") });
     await page.getByTestId("send-edit").click();
     await dlg.waitFor({ state: "hidden" });
@@ -837,6 +847,7 @@ const expectText = async (page, text) => {
   // ---------- Email button (contacts, organizations, pipeline items) and "Email them" (Outreach Queue) ----------
   const e1280ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   await e1280ctx.addCookies([cookie]);
+  await routeSignatureImage(e1280ctx);
   const e1280 = await e1280ctx.newPage();
   const EVIEWS = [["desktop", page], ["desktop1280", e1280], ["phone", ph]];
   const composeTo = (pg_) => pg_.getByTestId("compose-to").inputValue();
@@ -867,7 +878,8 @@ const expectText = async (page, text) => {
     const confirm = page.getByRole("dialog", { name: "Send this email?" });
     await confirm.waitFor();
     const shown = await confirm.innerText();
-    for (const t of ["To", c.email, "Subject", "Hi Morgan", "Send email", "Edit"]) if (!shown.includes(t)) throw new Error(`confirmation is missing ${t}`);
+    for (const t of ["To", c.email, "Subject", "Send email", "Edit"]) if (!shown.includes(t)) throw new Error(`confirmation is missing ${t}`);
+    if (!(await previewText(page)).includes("Hi Morgan")) throw new Error("confirmation preview is missing the message");
     await page.screenshot({ path: path.join(OUT, "desktop-compose-confirm.png") });
     if ((await gsent()).length !== sentBefore) throw new Error("sent before confirming");
     await page.getByTestId("send-confirm").dblclick();
@@ -999,6 +1011,203 @@ const expectText = async (page, text) => {
     await card.getByRole("button", { name: "Save" }).click();
     await page.waitForURL(/notice=Outreach/);
     await expectText(page, "Outreach logged.");
+  });
+
+
+  // ---------- Gmail signature on app emails (Google stand-in: settings scope and a sample sendAs signature) ----------
+  const gdrafts = async () => (await fetch(`${GMOCK}/__drafts`)).json();
+  const SETTINGS_SCOPE = "https://www.googleapis.com/auth/gmail.settings.basic";
+  const googleCard = () => page.locator("div.rounded-xl", { has: page.getByRole("heading", { name: /^Google/ }) }).first();
+  const morgan = async () => one("select id, email from contacts where name = 'Morgan Example'");
+  const openCompose = async (pg_, contactId, subject, body) => {
+    await pg_.goto(`${BASE}/records/contacts/${contactId}`);
+    await pg_.getByTestId("email-button").click();
+    await pg_.getByTestId("compose-dialog").waitFor();
+    await pg_.getByTestId("compose-subject").fill(subject);
+    await pg_.getByTestId("compose-body").fill(body);
+  };
+  const unsafeGone = (html, where) => {
+    for (const bad of ["<script", "onerror", "javascript:", "alert("]) if (html.includes(bad)) throw new Error(`${where} still has ${bad}`);
+  };
+
+  await step("Gmail signature: connected without the settings permission, Settings shows Reconnect for the signature (one row, sending still allowed)", async () => {
+    await gpost("/__mode", { grantSignature: false });
+    await page.goto(`${BASE}/api/google/connect`);
+    await page.waitForURL(/\/settings\?google=connected_no_signature/);
+    await page.goto(`${BASE}/settings`);
+    await expectText(page, "Reconnect Google to use your Gmail signature (1 minute)");
+    await expectText(page, "Sending from the app");
+    const rows = await pg.query("select scopes from google_connections");
+    if (rows.rows.length !== 1) throw new Error("expected one connection row");
+    if (!rows.rows[0].scopes.includes("gmail.send") || rows.rows[0].scopes.includes(SETTINGS_SCOPE)) throw new Error(`scopes: ${rows.rows[0].scopes}`);
+    const card = googleCard();
+    if ((await card.getByRole("link", { name: "Reconnect Google" }).count()) !== 1) throw new Error("expected exactly one Reconnect Google button on the Google card");
+    if ((await page.getByTestId("send-reconnect").count()) !== 1) throw new Error("expected one Reconnect message");
+    await page.screenshot({ path: path.join(OUT, "flow-settings-reconnect-signature.png"), fullPage: true });
+    await ph.goto(`${BASE}/settings`);
+    await ph.screenshot({ path: path.join(OUT, "phone-settings-reconnect-signature.png"), fullPage: true });
+    // The signature page: Reconnect shown, Copy from Gmail not available.
+    await page.goto(`${BASE}/settings/email`);
+    await expectText(page, "Reconnect Google to use your Gmail signature (1 minute)");
+    if (!(await page.getByTestId("signature-copy").isDisabled())) throw new Error("Copy from Gmail enabled without the permission");
+    // Sending still works without the permission (no signature saved yet).
+    const c = await morgan();
+    const before = (await gsent()).length;
+    await openCompose(page, c.id, "Before the signature", "Hi Morgan,\n\nA quick note.\n\nBram");
+    if (await page.getByTestId("include-signature").count()) throw new Error("Include signature shown with no signature saved");
+    await page.getByTestId("send-now").click();
+    await page.getByTestId("send-confirm").click();
+    await page.getByTestId("compose-dialog").getByTestId("send-success").waitFor();
+    const sent = await gsent();
+    if (sent.length !== before + 1) throw new Error("not sent");
+    const last = sent[sent.length - 1];
+    if (!last.contentType.startsWith("multipart/alternative") || last.parts.length !== 2 || !last.closed) throw new Error(`not multipart: ${last.contentType} ${JSON.stringify(last.parts)}`);
+    if (last.body.includes("-- ") || (last.html || "").includes("gmail_signature")) throw new Error("a signature was added with none saved");
+  });
+
+  await step("Gmail signature: Reconnect, Copy from Gmail fills the preview (unsafe parts removed), edit and save", async () => {
+    await gpost("/__mode", { grantSignature: true });
+    await page.goto(`${BASE}/settings`);
+    await googleCard().getByTestId("send-reconnect").getByRole("link", { name: "Reconnect Google" }).click();
+    await page.waitForURL(/\/settings\?google=connected$/);
+    await expectText(page, "Gmail signature");
+    await expectText(page, "Can be copied");
+    if (await page.getByTestId("send-reconnect").count()) throw new Error("Reconnect still shown");
+    if (!(await one("select scopes from google_connections")).scopes.includes(SETTINGS_SCOPE)) throw new Error("settings scope not saved");
+    await page.getByRole("link", { name: "Email signature" }).first().click();
+    await page.waitForURL(/\/settings\/email$/);
+    await page.getByTestId("signature-preview-empty").waitFor();
+    if ((await page.getByTestId("signature-copy").innerText()).trim() !== "Copy from Gmail") throw new Error("button label");
+    if (!(await page.getByTestId("signature-enabled").isChecked())) throw new Error("the setting should start on");
+    await page.getByTestId("signature-copy").click();
+    await page.getByTestId("signature-status").filter({ hasText: "Copied from Gmail (owner@example.com)" }).waitFor();
+    const html = await page.getByTestId("signature-html").inputValue();
+    if (!html.includes("Bram Frankel") || html.includes("Alias signature")) throw new Error("not the default send-as signature");
+    unsafeGone(html, "copied signature");
+    const preview = await previewText(page, "signature-preview");
+    for (const t of ["Your message appears here.", "Bram Frankel", "(404) 555-0123", "cyanarc.com", "Unsafe link"]) if (!preview.includes(t)) throw new Error(`preview is missing ${t}`);
+    const img = page.frameLocator("[data-testid=signature-preview]").locator("img");
+    if ((await img.getAttribute("src")) !== "https://lh3.googleusercontent.com/mock-signature/cyan-arc-logo.png") throw new Error("image address changed");
+    await page.waitForFunction(() => {
+      const f = document.querySelector("[data-testid=signature-preview]");
+      const im = f?.contentDocument?.querySelector("img");
+      return !!im && im.complete && im.naturalWidth > 0;
+    }, null, { timeout: 10000 });
+    const plain = await page.getByTestId("signature-text").innerText();
+    if (!plain.includes("Bram Frankel\nFounder, Cyan Arc LLC\n(404) 555-0123 | cyanarc.com")) throw new Error(`plain text: ${JSON.stringify(plain)}`);
+    await page.screenshot({ path: path.join(OUT, "desktop-email-signature-copied.png"), fullPage: true });
+    // Edit: the preview follows the box; Save stores it.
+    await page.getByTestId("signature-html").fill(html.replace("Founder, Cyan Arc LLC", "Founder and CEO, Cyan Arc LLC"));
+    await page.waitForFunction(() => document.querySelector("[data-testid=signature-preview]")?.contentDocument?.body?.innerText.includes("Founder and CEO"), null, { timeout: 5000 });
+    await expectText(page, "Not saved yet.");
+    await page.getByTestId("signature-save").click();
+    await page.getByTestId("signature-status").filter({ hasText: "Signature saved." }).waitFor();
+    const row = await one("select email_signature_html h, email_signature_text t, email_signature_enabled e, email_signature_updated_at u from owner_profile");
+    if (!row.h.includes("Founder and CEO") || !row.t.includes("Founder and CEO, Cyan Arc LLC") || row.e !== true || !row.u) throw new Error(`saved: ${JSON.stringify(row)}`);
+    unsafeGone(row.h, "saved signature");
+    await page.reload();
+    if ((await page.getByTestId("signature-copy").innerText()).trim() !== "Refresh from Gmail") throw new Error("Refresh from Gmail not shown after saving");
+    await expectText(page, "Saved ");
+    await page.screenshot({ path: path.join(OUT, "desktop-email-signature.png"), fullPage: true });
+    await ph.goto(`${BASE}/settings/email`);
+    await ph.getByTestId("signature-preview").waitFor();
+    await ph.waitForTimeout(500);
+    await ph.screenshot({ path: path.join(OUT, "phone-email-signature.png"), fullPage: true });
+  });
+
+  await step("Send with signature: Include signature is checked, the confirmation shows it, Gmail gets both parts with the signature", async () => {
+    const c = await morgan();
+    const before = (await gsent()).length;
+    await openCompose(page, c.id, "Signature check ✓", "Hi Morgan,\n\nTwo things:\n- The CIM\n- A call next week\n\nThanks,\nBram");
+    if (!(await page.getByTestId("include-signature").isChecked())) throw new Error("Include signature not checked by default");
+    await page.screenshot({ path: path.join(OUT, "desktop-compose-signature.png") });
+    await page.getByTestId("send-now").click();
+    const dlg = page.getByRole("dialog", { name: "Send this email?" });
+    await dlg.waitFor();
+    if (!(await page.getByTestId("confirm-include-signature").isChecked())) throw new Error("dialog checkbox not checked");
+    await page.waitForFunction(() => {
+      const im = document.querySelector("[data-testid=send-preview-frame]")?.contentDocument?.querySelector("img");
+      return !!im && im.complete && im.naturalWidth > 0;
+    }, null, { timeout: 10000 });
+    const shown = await previewText(page);
+    for (const t of ["Hi Morgan,", "The CIM", "--", "Bram Frankel", "Founder and CEO, Cyan Arc LLC", "(404) 555-0123"]) if (!shown.includes(t)) throw new Error(`preview is missing ${t}`);
+    await page.screenshot({ path: path.join(OUT, "desktop-confirm-signature.png") });
+    await page.getByTestId("send-confirm").click();
+    await page.getByTestId("compose-dialog").getByTestId("send-success").waitFor();
+    const sent = await gsent();
+    if (sent.length !== before + 1) throw new Error("not sent once");
+    const last = sent[sent.length - 1];
+    if (!last.contentType.startsWith("multipart/alternative") || !last.closed) throw new Error(`content type ${last.contentType}`);
+    if (JSON.stringify(last.parts) !== JSON.stringify(["text/plain; UTF-8", "text/html; UTF-8"])) throw new Error(`parts: ${JSON.stringify(last.parts)}`);
+    if (last.subject !== "Signature check ✓") throw new Error(`subject: ${last.subject}`);
+    if (!last.body.includes("- The CIM\r\n") || !last.body.includes("Bram\r\n\r\n-- \r\nBram Frankel\r\nFounder and CEO, Cyan Arc LLC\r\n(404) 555-0123 | cyanarc.com")) throw new Error(`text part: ${JSON.stringify(last.body)}`);
+    for (const t of ["<li>The CIM</li>", 'class="gmail_signature"', "Founder and CEO", 'href="tel:+14045550123"', 'href="https://cyanarc.com"', 'src="https://lh3.googleusercontent.com/mock-signature/cyan-arc-logo.png"'])
+      if (!last.html.includes(t)) throw new Error(`HTML part is missing ${t}`);
+    unsafeGone(last.html, "sent HTML part");
+    // The phone: compose box with the checkbox, and the confirmation with the signature (not sent).
+    await ph.goto(`${BASE}/records/contacts/${c.id}`);
+    await ph.getByTestId("email-button").click();
+    await ph.getByTestId("compose-subject").fill("Signature check");
+    await ph.getByTestId("compose-body").fill("Hi Morgan,\n\nA short note to check the signature.\n\nThanks,\nBram");
+    await ph.getByTestId("include-signature").scrollIntoViewIfNeeded();
+    await ph.screenshot({ path: path.join(OUT, "phone-compose-signature.png") });
+    await ph.getByTestId("send-now").click();
+    await ph.getByRole("dialog", { name: "Send this email?" }).waitFor();
+    await ph.waitForTimeout(600);
+    await ph.screenshot({ path: path.join(OUT, "phone-confirm-signature.png") });
+    await ph.getByTestId("send-edit").click();
+  });
+
+  await step("Unchecking Include signature sends without it (both parts)", async () => {
+    const c = await morgan();
+    await openCompose(page, c.id, "No signature this time", "Hi Morgan,\n\nJust the note.\n\nBram");
+    await page.getByTestId("include-signature").uncheck();
+    await page.getByTestId("send-now").click();
+    await page.getByRole("dialog", { name: "Send this email?" }).waitFor();
+    if (await page.getByTestId("confirm-include-signature").isChecked()) throw new Error("dialog checkbox should follow the compose box");
+    if ((await previewText(page)).includes("Founder and CEO")) throw new Error("preview shows the signature");
+    await page.getByTestId("send-confirm").click();
+    await page.getByTestId("compose-dialog").getByTestId("send-success").waitFor();
+    const last = (await gsent()).pop();
+    if (last.subject !== "No signature this time") throw new Error("wrong email");
+    if (last.parts.length !== 2 || last.body.includes("-- ") || last.body.includes("Founder") || last.html.includes("gmail_signature") || last.html.includes("Founder")) throw new Error("signature was added");
+  });
+
+  await step("Save to Gmail drafts includes the signature", async () => {
+    const c = await morgan();
+    const before = (await gdrafts()).length;
+    await openCompose(page, c.id, "Draft with signature", "Hi Morgan,\n\nDraft text.\n\nBram");
+    await page.getByTestId("save-draft").click();
+    await expectText(page, "Gmail draft created for");
+    const drafts = await gdrafts();
+    if (drafts.length !== before + 1) throw new Error("no draft");
+    const d = drafts[drafts.length - 1];
+    if (!d.contentType.startsWith("multipart/alternative") || d.parts.length !== 2) throw new Error(`draft not multipart: ${d.contentType}`);
+    if (!d.body.includes("\r\n-- \r\nBram Frankel") || !d.html.includes('class="gmail_signature"') || !d.html.includes("Founder and CEO")) throw new Error("draft has no signature");
+    await page.keyboard.press("Escape");
+  });
+
+  await step("Partner report: the send dialog has Include signature and the sent report has the signature", async () => {
+    const id = (await one("select id from partner_reports where status = 'finalized' order by finalized_at desc limit 1")).id;
+    await page.goto(`${BASE}/accountability/reports/${id}`);
+    if (!(await page.getByTestId("include-signature").isChecked())) throw new Error("Include signature not checked on the report");
+    await page.getByTestId("send-now").click();
+    await page.getByRole("dialog", { name: "Send this email?" }).waitFor();
+    if (!(await page.getByTestId("confirm-include-signature").isChecked())) throw new Error("report dialog checkbox");
+    if (!(await previewText(page)).includes("Founder and CEO")) throw new Error("report preview has no signature");
+    await page.screenshot({ path: path.join(OUT, "desktop-report-confirm-signature.png") });
+    await page.getByTestId("send-confirm").click();
+    await page.getByTestId("send-success").waitFor();
+    const last = (await gsent()).pop();
+    if (last.to !== "partner-one@example.com" || !last.html.includes("gmail_signature") || !last.body.includes("\r\n-- \r\nBram Frankel")) throw new Error("report sent without the signature");
+  });
+
+  await step("Outreach Queue Draft message: Include signature shown and checked", async () => {
+    await page.goto(`${BASE}/people/outreach`);
+    await page.getByRole("button", { name: "Draft message" }).first().click();
+    await page.locator("textarea").first().waitFor();
+    await page.getByTestId("include-signature").waitFor();
+    if (!(await page.getByTestId("include-signature").isChecked())) throw new Error("not checked");
   });
 
   await e1280ctx.close();

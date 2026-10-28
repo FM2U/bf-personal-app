@@ -215,8 +215,9 @@ export function DraftMessagePanel({ contactId, onClose, back = "/people/outreach
               fromEmail={draft.fromEmail}
               disabled={!body.trim()}
               preview={() => ({ to: draft.email ?? "", ...prepareOutreachEmail(subject, body) })}
-              send={async (requestId) => {
-                const r = await sendOutreachEmail({ contactId, subject, body, requestId });
+              signature={draft.signature}
+              send={async (requestId, includeSignature) => {
+                const r = await sendOutreachEmail({ contactId, subject, body, requestId, includeSignature });
                 if (r.ok) {
                   const when = format(new Date(r.sentAt), "MMM d, yyyy 'at' h:mm a");
                   const msg = r.alreadySent
@@ -229,8 +230,8 @@ export function DraftMessagePanel({ contactId, onClose, back = "/people/outreach
               }}
               saveDraft={
                 draft.canGmail
-                  ? async () => {
-                      const r = await createOutreachGmailDraft(contactId, subject, body);
+                  ? async (includeSignature) => {
+                      const r = await createOutreachGmailDraft(contactId, subject, body, includeSignature);
                       if (r.ok) setSavedDraft(true);
                       return r;
                     }

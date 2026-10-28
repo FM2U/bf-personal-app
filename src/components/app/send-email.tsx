@@ -11,8 +11,20 @@ import { saveReportToGmailDrafts, sendPartnerReportEmail, type SendResult } from
 import type { SendPermission } from "@/lib/google-scopes";
 import { STATUS_BOX, STATUS_TEXT } from "@/lib/status";
 import { cn } from "@/lib/utils";
+import { emailHtml, type SignatureSetup } from "@/lib/email-signature";
+import { EmailHtmlPreview } from "@/components/app/email-preview";
 
 export type EmailPreview = { to: string; subject: string; body: string };
+
+/** "Include signature": shown only when a signature is saved. Checked by default when the setting is on. */
+export function IncludeSignature({ checked, onChange, disabled, testId = "include-signature" }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; testId?: string }) {
+  return (
+    <label className="inline-flex min-h-8 cursor-pointer items-center gap-2 text-sm text-slate-800">
+      <input type="checkbox" className="h-4 w-4 shrink-0 accent-primary" checked={checked} onChange={(e) => onChange(e.target.checked)} disabled={disabled} data-testid={testId} />
+      Include signature
+    </label>
+  );
+}
 
 function newRequestId(): string {
   try {
@@ -64,14 +76,17 @@ export function SendOrSaveButtons({
   afterSendNote,
   readOnlyNote,
   extra,
+  signature = null,
 }: {
   permission: SendPermission;
   fromEmail: string | null;
   /** The exact email that will be sent (the dialog shows it as is). */
   preview: () => EmailPreview;
-  send: (requestId: string) => Promise<SendResult>;
+  send: (requestId: string, includeSignature: boolean) => Promise<SendResult>;
   /** Existing behavior: creates a Gmail draft. Omit when Gmail drafts are not available. */
-  saveDraft?: () => Promise<{ ok: boolean; message: string }>;
+  saveDraft?: (includeSignature: boolean) => Promise<{ ok: boolean; message: string }>;
+  /** The saved Gmail signature (Settings, Email signature). Null: none saved, no checkbox. */
+  signature?: SignatureSetup | null;
   editable?: boolean;
   onEdit?: () => void;
   disabled?: boolean;
@@ -91,6 +106,7 @@ export function SendOrSaveButtons({
   const [result, setResult] = useState<SendResult | null>(null);
   const [draftStatus, setDraftStatus] = useState<{ ok: boolean; message: string } | null>(null);
   const [needReconnect, setNeedReconnect] = useState<string | null>(null);
+  const [withSignature, setWithSignature] = useState(!!signature?.on);
   const lock = useRef(false);
   const editAfterClose = useRef(false);
   const requestId = useRef<string>("");
@@ -117,7 +133,7 @@ export function SendOrSaveButtons({
     lock.current = true;
     setSending(true);
     try {
-      const r = await send(requestId.current);
+      const r = await send(requestId.current, !!signature && withSignature);
       setResult(r);
       if (!r.ok && r.reason === "reconnect") setNeedReconnect(r.message);
       setOpen(false);
@@ -134,7 +150,7 @@ export function SendOrSaveButtons({
     if (!saveDraft || saving) return;
     setSaving(true);
     try {
-      setDraftStatus(await saveDraft());
+      setDraftStatus(await saveDraft(!!signature && withSignature));
     } finally {
       setSaving(false);
     }
@@ -157,7 +173,12 @@ export function SendOrSaveButtons({
           </span>
         </Notice>
       ) : (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {signature ? (
+            <span className="w-full">
+              <IncludeSignature checked={withSignature} onChange={setWithSignature} disabled={sending || saving} />
+            </span>
+          ) : null}
           <Button type="button" size="sm" onClick={openConfirm} disabled={disabled || sending} data-testid="send-now">
             <Send /> {sendLabel}
           </Button>
@@ -211,9 +232,12 @@ export function SendOrSaveButtons({
                 <dd className="font-medium text-slate-900">{shown.subject || "(No subject)"}</dd>
               </dl>
               <div className="flex flex-col gap-1.5">
-                <span className="text-sm text-muted-foreground">Message</span>
-                <div className="max-h-[45vh] overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-slate-200 bg-slate-50 p-3 text-sm leading-6 text-slate-900" data-testid="send-preview-body">
-                  {shown.body}
+                <div className="flex min-h-8 items-center justify-between gap-3">
+                  <span className="text-sm text-muted-foreground">Message{signature && withSignature ? " with signature" : ""}</span>
+                  {signature ? <IncludeSignature checked={withSignature} onChange={setWithSignature} disabled={sending} testId="confirm-include-signature" /> : null}
+                </div>
+                <div className="max-h-[45vh] overflow-y-auto rounded-md" data-testid="send-preview-body">
+                  <EmailHtmlPreview html={emailHtml(shown.body, signature && withSignature ? signature.html : null)} testId="send-preview-frame" title="The email as it will be sent" />
                 </div>
               </div>
               {!editable && readOnlyNote ? <p className="text-xs text-muted-foreground">{readOnlyNote}</p> : null}
@@ -250,6 +274,7 @@ export function ReportSendButtons({
   preview,
   alreadySent,
   hasDraft,
+  signature = null,
 }: {
   reportId: string;
   permission: SendPermission;
@@ -257,6 +282,7 @@ export function ReportSendButtons({
   preview: EmailPreview;
   alreadySent: boolean;
   hasDraft: boolean;
+  signature?: SignatureSetup | null;
 }) {
   const router = useRouter();
   return (
@@ -267,13 +293,14 @@ export function ReportSendButtons({
       editable={false}
       readOnlyNote="A finalized report does not change. To change the wording, press Save to Gmail drafts and edit it in Gmail."
       sendLabel={alreadySent ? "Send again" : "Send now"}
-      send={async (requestId) => {
-        const r = await sendPartnerReportEmail({ reportId, requestId });
+      signature={signature}
+      send={async (requestId, includeSignature) => {
+        const r = await sendPartnerReportEmail({ reportId, requestId, includeSignature });
         if (r.ok) router.refresh();
         return r;
       }}
-      saveDraft={async () => {
-        const r = await saveReportToGmailDrafts(reportId);
+      saveDraft={async (includeSignature) => {
+        const r = await saveReportToGmailDrafts(reportId, includeSignature);
         if (r.ok) router.refresh();
         return r;
       }}

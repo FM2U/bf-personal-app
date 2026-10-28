@@ -16,7 +16,7 @@ Built from `docs/` in the project: Architecture v2 and the Decisions Log (both a
 | People | Contacts, organizations with their people (link, unlink, add), communication history; follow-up dates create tasks and calendar events; Outreach Queue (contacts due for a message, Log outreach, Draft message, Email them); Email button on contact, organization, and pipeline item pages |
 | Productivity | Today's plan with daily target counters, Work through tasks, task lists (one Filter button), recurring task templates, calendar time blocks (suggested each morning, approved by you), pipeline next actions |
 | Accountability | Commitments, Daily Targets, missed-commitment flow, daily/weekly/monthly/quarterly reviews, completion scores, accountability partners and reports |
-| Settings | Connections (Google, Plaid, AI), AI usage, imports, partner links, initiatives and pipelines, categories, export, sample data and reset, profile, change log |
+| Settings | Connections (Google, Plaid, AI), Email signature, AI usage, imports, partner links, initiatives and pipelines, categories, export, sample data and reset, profile, change log |
 
 ### Daily Targets and Outreach Queue (database update 0008)
 
@@ -84,13 +84,24 @@ Built from `docs/` in the project: Architecture v2 and the Decisions Log (both a
 - **Where:** People, Outreach Queue, Draft message (after the draft is written), and Accountability, a finalized partner report (Delivery card). Each shows **Send now** and **Save to Gmail drafts** (the existing draft behavior). The Outreach Queue also keeps Copy to clipboard.
 - **Send now** opens a dialog titled "Send this email?" with From, To, Subject, and the full message (read only, line breaks kept). **Edit** closes it and puts the cursor in the message. Only **Send email** sends. A partner report cannot be edited (a finalized report never changes), so its dialog has Cancel instead of Edit.
 - **One email per click:** never sent by a scheduled job, never in bulk. The button is locked while sending, and each dialog opening has a request id; a repeated request with the same id is answered with "already sent" from the change log instead of sending again.
-- **How it is sent:** Gmail API `users.messages.send` from the connected account, so it appears in Gmail, Sent. Plain text (the drafts were always plain text), UTF-8, base64 body with CRLF line breaks, RFC 2047 encoded subject, `To` and `Subject` headers, `threadId` when one is given (`src/lib/gmail-mime.ts`, `sendGmailMessage` in `src/lib/google.ts`). Drafts use the same message builder.
+- **How it is sent:** Gmail API `users.messages.send` from the connected account, so it appears in Gmail, Sent. multipart/alternative with a text part and an HTML part (see Gmail signature below), each UTF-8 and base64 with CRLF line breaks, RFC 2047 encoded subject, `To` and `Subject` headers, `threadId` when one is given (`src/lib/gmail-mime.ts`, `sendGmailMessage` in `src/lib/google.ts`). Drafts use the same message builder.
 - **Permission:** the Google connection now asks for `gmail.send` too. The app saves the granted scopes from Google's token reply (`google_connections.scopes`) and allows Send now only when they list `gmail.send` (`src/lib/google-scopes.ts`). A connection saved before this counts as not allowed until Google is reconnected. Settings, Connections shows "Reconnect Google to allow sending from the app (1 minute)" with a Reconnect Google button, or "Sending from the app: Allowed". Reconnecting updates the same connection row. Without the permission, Send now shows the same message and button instead of the dialog.
 - **After a send:** "Sent" with the date and time. One communication is saved: method email, outgoing, now, the subject, a short summary ("Sent from the app to ..." plus the start of the message), linked to the contact (and to a pipeline item when one is given; partner report emails are linked to the partner with a record link). Outreach emails get "Counts as outreach" and the same purpose rule as Log outreach (consulting lead: consulting; deal source: deal sourcing; otherwise general), so they count toward the Network outreach target and its shares (`src/lib/calc/sent-email.ts`). Partner report emails are not outreach. A partner report is marked sent with the date (Delivered: "Sent from the app on ...").
 - **Change log:** every send adds a row with field `email_sent`, actor owner (To, Subject, Gmail message id, request id), shown in Settings, Change log as "Email sent from the app".
 - **On failure:** the Google error in plain English plus Google's own words (`src/lib/google-errors.ts`); the text is kept and Save to Gmail drafts is offered.
 - **Database update 0013** (`supabase/UPDATE_0013_RUN_ONCE.sql`): adds `communications.gmail_message_id`, `communications.gmail_thread_id`, `partner_reports.sent_at`, `partner_reports.gmail_message_id` (no existing column fit). **Before it runs,** sending still works: the communication is saved without the Gmail ids, the report is marked sent in Delivered, and the Gmail id and date are kept in the change log (the report page reads the date from there).
 - **Local checks:** `dev-tools/mock-supabase.mjs` also runs a Google stand-in on port 54329 (`GOOGLE_API_MOCK_URL` in `dev-tools/local.env`; the app honors it only for a localhost address). Real Gmail sending cannot be checked locally.
+
+### Gmail signature on app emails (database update 0015)
+
+- **Permission:** the Google connection also asks for `gmail.settings.basic` (Google's screen calls it "See, edit, create, or change your email settings and filters in Gmail"); the app only reads the signature with it (`users.settings.sendAs.list`). A connection saved before this shows "Reconnect Google to use your Gmail signature (1 minute)" on the same Google card with the same Reconnect Google button (one message: when sending is also missing, the sending message is shown and one reconnect covers both). Sending, drafts, and Calendar keep working while it is missing; emails then go out without a signature. Checks: `signaturePermission`, `reconnectMessage`, `connectResult` in `src/lib/google-scopes.ts` (tested).
+- **Settings, Email signature** (`/settings/email`, also linked from the Google card): **Copy from Gmail** reads the signature of the send-as address that matches the connected account (otherwise the default one) into the box; nothing is stored until **Save signature**. Once saved the button reads **Refresh from Gmail**. **Signature HTML** is a plain box with a live **Preview** (shown below a sample line with Gmail's spacing) and the **Plain text version** made from it. **Add signature to emails sent or drafted from the app** is on by default once a signature exists. An empty box removes the signature.
+- **Safe HTML only:** the HTML is cleaned when copied, when saved, and again when an email is built (`sanitizeSignatureHtml` in `src/lib/email-signature.ts`, tested). Kept: a, br, p, div, span, b, strong, i, em, u, img (https addresses only), table, tbody, thead, tr, td, th, font (color, size, face), and inline styles limited to text, color, spacing, border, and size properties. Removed: scripts, styles, frames, forms, comments, every `on...` event handler, `javascript:` and `data:` addresses, and `url()` in styles. Links keep http, https, mailto, and tel addresses. Images keep their original https address (Gmail-hosted images show normally).
+- **Every email sent or drafted from the app** (Email button, Outreach Queue, partner reports) has two parts: **text** (the message, then a blank line, `-- `, and the plain signature) and **HTML** (the message with text escaped, line breaks kept, and `- ` lines as a bulleted list, then the signature the way Gmail adds it: a blank line, `-- `, then the signature in `<div class="gmail_signature">`) (`emailText`, `emailHtml`).
+- **Per email:** an **Include signature** box next to Send now and Save to Gmail drafts (compose box, Outreach Queue Draft message, partner report Delivery card), checked when the setting is on, and the same box in the "Send this email?" dialog. The dialog shows the email in a frame exactly as it will be sent (HTML, with the signature when checked). Drafts created when a report is finalized follow the setting.
+- **Database update 0015** (`supabase/UPDATE_0015_RUN_ONCE.sql`): four empty columns on `owner_profile` (`email_signature_html`, `email_signature_text`, `email_signature_enabled`, `email_signature_updated_at`) and `schema_has_0015()`. **Before it runs,** Settings, Email signature shows "Database update needed" naming the file, no Include signature box appears, and every email is sent (multipart) without a signature.
+- **Code:** `src/lib/email-signature.ts` (pure: sanitizer, plain text, email HTML and text), `src/lib/signature-store.ts` (read the saved signature), `fetchGmailSignature` in `src/lib/google.ts`, actions in `src/app/actions/signature.ts`, `src/components/app/signature-editor.tsx`, `src/components/app/email-preview.tsx` (sandboxed preview frame, no scripts).
+- **Local checks:** the Google stand-in returns two send-as addresses; the default one has a sample signature with a link, a phone number, an https image, and unsafe parts that must be removed (`GET /__drafts` lists the drafts, decoded). Reading the real Gmail signature and a real send cannot be checked locally.
 
 ### Email button (no database update)
 
@@ -216,13 +227,14 @@ docs/                 SETUP-CHECKLIST.md and screenshots
 
 Exact values to paste are in `docs/SETUP-CHECKLIST.md`. Summary:
 
-1. **Supabase:** create a project. In SQL Editor, paste and run `supabase/ALL_MIGRATIONS_RUN_ONCE.sql` (0001 to 0014),
+1. **Supabase:** create a project. In SQL Editor, paste and run `supabase/ALL_MIGRATIONS_RUN_ONCE.sql` (0001 to 0015),
    or run each file in `supabase/migrations/` in number order. Or with the Supabase CLI: `supabase link` then `supabase db push`.
-   **Live database (has 0001 to 0012, or 0001 to 0013 if `UPDATE_0013_RUN_ONCE.sql` was already run):** paste and run `supabase/UPDATE_0013_0014_RUN_ONCE.sql` once (safe to run twice).
+   **Live database (has 0001 to 0014):** paste and run `supabase/UPDATE_0015_RUN_ONCE.sql` once (safe to run twice).
+   A database with 0001 to 0012 (or 0001 to 0013) runs `supabase/UPDATE_0013_0014_RUN_ONCE.sql` first, then `UPDATE_0015_RUN_ONCE.sql`.
    A database with 0001 to 0013 can also run `supabase/UPDATE_0014_RUN_ONCE.sql`.
    A database with 0001 to 0010 (or 0011) runs `supabase/UPDATE_0011_0012_RUN_ONCE.sql` first, then `UPDATE_0013_0014_RUN_ONCE.sql`.
    **Older database (0001 to 0007, 0008, or 0009):** paste and run `supabase/UPDATE_RUN_ONCE.sql` once.
-   It holds 0008 to 0014 and is safe to run twice. (`UPDATE_0008_RUN_ONCE.sql`, `UPDATE_0011_RUN_ONCE.sql`, `UPDATE_0012_RUN_ONCE.sql`, and `UPDATE_0013_RUN_ONCE.sql` are kept for reference.)
+   It holds 0008 to 0015 and is safe to run twice. (`UPDATE_0008_RUN_ONCE.sql`, `UPDATE_0011_RUN_ONCE.sql`, `UPDATE_0012_RUN_ONCE.sql`, and `UPDATE_0013_RUN_ONCE.sql` are kept for reference.)
    After changing a migration, regenerate the combined files with `python3 supabase/build_combined.py`.
    In Authentication, turn on "Allow new users to sign up" only until you create your account, then turn it off.
    In Authentication, Multi-Factor, make sure TOTP is enabled.
@@ -230,6 +242,7 @@ Exact values to paste are in `docs/SETUP-CHECKLIST.md`. Summary:
 3. Open the app, press "Create the owner account", sign in, scan the authenticator code.
 4. Connect Google in Settings, Connections (it asks for Gmail drafts, sending email after you confirm, and Calendar). Plaid after week 1.
    **Existing connection (made before sending was added):** Settings, Connections, press Reconnect Google once and allow "Send email on your behalf".
+   **Existing connection (made before the signature was added):** run `supabase/UPDATE_0015_RUN_ONCE.sql`, then Settings, Connections, press Reconnect Google once and keep every box checked. Then Settings, Email signature, Copy from Gmail, Save signature.
 
 ## How scheduled jobs (cron) work
 
@@ -256,8 +269,8 @@ npm run lint
 npm run typecheck     # tsc with a 4 GB memory limit (the type check needs a little over 2 GB)
 npm run build         # locally: NODE_OPTIONS=--max-old-space-size=6144 npm run build (Vercel has enough memory)
 bash supabase/tests/run_local.sh      # applies all migrations to a local Postgres and runs a smoke test (includes reset and sample removal)
-bash supabase/tests/upgrade_test.sh   # UPDATE_RUN_ONCE on 0001-0007 (twice), 0001-0008, 0001-0009 (twice); UPDATE_0011_0012_RUN_ONCE on 0001-0010 and 0001-0011 (twice each); UPDATE_0013_RUN_ONCE on 0001-0012 (twice); UPDATE_0013_0014_RUN_ONCE on 0001-0012 and 0001-0013 (twice each); UPDATE_0014_RUN_ONCE on 0001-0013 (twice); existing owner
-bash dev-tools/setup-local-db.sh      # local database with demo data (UP_TO=0012 for the live database before update 0013 and 0014)
+bash supabase/tests/upgrade_test.sh   # UPDATE_RUN_ONCE on 0001-0007 (twice), 0001-0008, 0001-0009 (twice); UPDATE_0011_0012_RUN_ONCE on 0001-0010 and 0001-0011 (twice each); UPDATE_0013_RUN_ONCE on 0001-0012 (twice); UPDATE_0013_0014_RUN_ONCE on 0001-0012 and 0001-0013 (twice each); UPDATE_0014_RUN_ONCE on 0001-0013 (twice); UPDATE_0015_RUN_ONCE on 0001-0014 (twice); existing owner
+bash dev-tools/setup-local-db.sh      # local database with demo data (UP_TO=0014 for the live database before update 0015)
 bash dev-tools/start-local.sh         # mock Supabase API + the built app on http://localhost:3000
 NODE_PATH=$(npm root -g) node dev-tools/check-pages.cjs   # renders every screen, saves screenshots
 NODE_PATH=$(npm root -g) node dev-tools/check-flows.cjs   # clicks through the main workflows (FLOWS="Send" runs only matching steps)

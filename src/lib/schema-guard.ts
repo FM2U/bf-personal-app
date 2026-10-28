@@ -106,3 +106,13 @@ export const COLUMNS_0014: Record<string, string[]> = {
   initiatives: ["parent_initiative_id"],
   goals: ["metric_params"],
 };
+
+/**
+ * Database update 0015 (Gmail signature on app emails): four columns on owner_profile.
+ * Before it, Settings, Email signature shows DB_UPDATE_NOTICE_0015 and every email is sent without a signature.
+ */
+export const DB_UPDATE_FILE_0015 = "supabase/UPDATE_0015_RUN_ONCE.sql";
+export const DB_UPDATE_NOTICE_0015 = `Database update needed: paste ${DB_UPDATE_FILE_0015} into the Supabase SQL Editor and run it.`;
+export const COLUMNS_0015: Record<string, string[]> = {
+  owner_profile: ["email_signature_html", "email_signature_text", "email_signature_enabled", "email_signature_updated_at"],
+};

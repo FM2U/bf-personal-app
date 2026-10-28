@@ -4,7 +4,7 @@ import { getOwner } from "@/lib/auth";
 import { encrypt } from "@/lib/crypto";
 import { env } from "@/lib/env";
 import { getGoogleConnection, oauthClient } from "@/lib/google";
-import { canSendFromScopes, scopesAfterConnect } from "@/lib/google-scopes";
+import { connectResult, scopesAfterConnect } from "@/lib/google-scopes";
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -45,7 +45,7 @@ export async function GET(req: Request) {
     if (error) throw new Error(error.message);
     await owner.supabase.from("alerts").update({ status: "dismissed", dismissed_at: new Date().toISOString() }).eq("dedupe_key", "connection:google").eq("status", "open");
     await owner.supabase.from("tasks").update({ status: "done" }).eq("source", "connection").eq("status", "todo").ilike("title", "Reconnect Google%");
-    return NextResponse.redirect(new URL(`/settings?google=${canSendFromScopes(scopes) ? "connected" : "connected_no_send"}`, env.appUrl));
+    return NextResponse.redirect(new URL(`/settings?google=${connectResult(scopes)}`, env.appUrl));
   } catch {
     return NextResponse.redirect(new URL("/settings?google=failed", env.appUrl));
   }

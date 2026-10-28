@@ -1,4 +1,4 @@
--- BF Personal App: database update (0008, 0009, 0010, 0011, 0012, 0013, and 0014).
+-- BF Personal App: database update (0008, 0009, 0010, 0011, 0012, 0013, 0014, and 0015).
 --   0008: Daily Targets and Outreach Queue.
 --   0009: Stage task lists, stage time limits, required details, stalled items, deal source (proprietary or brokered),
 --         deal-source contacts, and the Deals sourced and Deals advanced targets.
@@ -8,7 +8,8 @@
 --   0012: Relationship groups Friend and Other; runway setting text (signed work counts until its first payment).
 --   0013: Send email from the app: Gmail message ids on communications; partner reports marked sent with the date.
 --   0014: Start an initiative (drafts, plan documents, checklists), weekly AI savings ideas, sample data, Reset data.
--- For a database that already has 0001 to 0007 (or 0001 to 0008, 0009, 0010, 0011, 0012, or 0013). Paste this whole file into the
+--   0015: Gmail signature on emails sent or drafted from the app (four columns on owner_profile).
+-- For a database that already has 0001 to 0007 (or 0001 to 0008, 0009, 0010, 0011, 0012, 0013, or 0014). Paste this whole file into the
 -- Supabase SQL Editor and press Run. Safe to run more than once: nothing is duplicated.
 -- Generated from supabase/migrations by supabase/build_combined.py.
 
@@ -1646,3 +1647,29 @@ as $$ select true $$;
 
 revoke execute on function public.schema_has_0014() from public, anon;
 grant execute on function public.schema_has_0014() to authenticated, service_role;
+
+-- ===== supabase/migrations/0015_email_signature.sql =====
+-- 0015: Gmail signature on emails sent or drafted from the app (approved 2026-10-28).
+-- Depends on 0001 to 0014 (only 0002 is needed: owner_profile). Safe to run more than once: every statement checks first.
+--
+-- What it adds (all empty; nothing existing changes):
+--   1. owner_profile.email_signature_html: the signature as HTML (sanitized by the app before it is saved).
+--   2. owner_profile.email_signature_text: the plain text version (made by the app from the HTML).
+--   3. owner_profile.email_signature_enabled: "Add signature to emails sent or drafted from the app"
+--      (empty means on once a signature is saved).
+--   4. owner_profile.email_signature_updated_at: when the signature was last saved.
+--   5. public.schema_has_0015(): the app may call it to check that this update is applied.
+
+alter table public.owner_profile add column if not exists email_signature_html text;
+alter table public.owner_profile add column if not exists email_signature_text text;
+alter table public.owner_profile add column if not exists email_signature_enabled boolean;
+alter table public.owner_profile add column if not exists email_signature_updated_at timestamptz;
+
+create or replace function public.schema_has_0015()
+returns boolean
+language sql
+stable
+as $$ select true $$;
+
+revoke execute on function public.schema_has_0015() from public, anon;
+grant execute on function public.schema_has_0015() to authenticated, service_role;

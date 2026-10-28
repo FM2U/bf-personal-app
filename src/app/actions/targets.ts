@@ -13,6 +13,8 @@ import { isGoogleConfigured } from "@/lib/env";
 import { sendPermission, type SendPermission } from "@/lib/google-scopes";
 import { outreachPurpose, prepareOutreachEmail } from "@/lib/calc/sent-email";
 import type { Row } from "@/lib/types";
+import { loadSignature } from "@/lib/signature-store";
+import type { SignatureSetup } from "@/lib/email-signature";
 
 const OUTREACH_METHODS = ["email", "call", "text", "meeting", "other"];
 const OUTCOMES = Object.keys(OUTCOME_LABELS);
@@ -141,6 +143,8 @@ export type DraftResult =
       sendPermission: SendPermission;
       /** The connected Gmail account the email is sent from. */
       fromEmail: string | null;
+      /** The saved Gmail signature (Include signature checkbox); null when none is saved. */
+      signature: SignatureSetup | null;
     }
   | { ok: false; error: string };
 
@@ -154,8 +158,9 @@ export async function draftOutreachMessage(contactId: string): Promise<DraftResu
     supabase.from("communications").select("occurred_at,method,direction,subject,summary").eq("contact_id", contactId).order("occurred_at", { ascending: false }).limit(5),
     getGoogleConnection(supabase, ownerId),
   ]);
+  const signature = await loadSignature(supabase, ownerId);
   const canGmail = !!c.email && isGoogleConfigured() && google?.status === "connected";
-  const sendInfo = { sendPermission: isGoogleConfigured() ? sendPermission(google) : ("not_connected" as SendPermission), fromEmail: (google?.google_email as string | null) ?? null };
+  const sendInfo = { sendPermission: isGoogleConfigured() ? sendPermission(google) : ("not_connected" as SendPermission), fromEmail: (google?.google_email as string | null) ?? null, signature };
   const first = String(c.name ?? "").split(/\s+/)[0] || "there";
   // A consulting lead gets a consulting availability message; otherwise a deal source gets the deal sourcing ask.
   const consultingLead = !!c.is_consulting_lead;
@@ -230,12 +235,12 @@ export async function draftOutreachMessage(contactId: string): Promise<DraftResu
 }
 
 /** After approval: creates a Gmail draft (Bram presses send in Gmail). Never sends. */
-export async function createOutreachGmailDraft(contactId: string, subject: string, body: string): Promise<{ ok: boolean; message: string }> {
+export async function createOutreachGmailDraft(contactId: string, subject: string, body: string, includeSignature?: boolean): Promise<{ ok: boolean; message: string }> {
   const { supabase, ownerId } = await requireOwner();
   const { data: c } = await supabase.from("contacts").select("name,email").eq("id", contactId).maybeSingle();
   if (!c?.email) return { ok: false, message: "This contact has no email address. Copy the message instead." };
   try {
-    const id = await createGmailDraft(supabase, ownerId, { to: c.email, ...prepareOutreachEmail(subject, body) });
+    const id = await createGmailDraft(supabase, ownerId, { to: c.email, ...prepareOutreachEmail(subject, body), includeSignature: typeof includeSignature === "boolean" ? includeSignature : undefined });
     if (!id) return { ok: false, message: "Google is not connected. Copy the message instead, or connect Google in Settings." };
     return { ok: true, message: `Gmail draft created for ${c.name}. Open Gmail to review and send it. After sending, press Log outreach.` };
   } catch (e) {

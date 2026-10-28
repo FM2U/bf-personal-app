@@ -16,6 +16,7 @@ import { date as fmtDate, dateTime } from "@/lib/format";
 import { AiText } from "@/components/app/ai-text";
 import { ReportSendButtons } from "@/components/app/send-email";
 import { getGoogleConnection, getSendPermission } from "@/lib/google";
+import { loadSignature } from "@/lib/signature-store";
 
 export default async function ReportPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -28,7 +29,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
   const methods: string[] = partner?.delivery_methods ?? [];
   const script = partner ? reportText(partner, report, link, "phone").body : "";
   const emailText = partner ? reportText(partner, report, link, "email") : null;
-  const [permission, google] = await Promise.all([getSendPermission(supabase, ownerId), getGoogleConnection(supabase, ownerId)]);
+  const [permission, google, signature] = await Promise.all([getSendPermission(supabase, ownerId), getGoogleConnection(supabase, ownerId), loadSignature(supabase, ownerId)]);
   const delivered = (report.delivered_via ?? []) as string[];
   // Sent from the app: the date is on the report after update 0013; before it, the change log has it.
   let sentAt: string | null = (report.sent_at as string | null | undefined) ?? null;
@@ -121,6 +122,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
                       preview={{ to: partner.email, subject: emailText.subject, body: emailText.body }}
                       alreadySent={delivered.includes("gmail_sent")}
                       hasDraft={!!report.gmail_draft_id}
+                      signature={signature}
                     />
                   )
                 ) : (

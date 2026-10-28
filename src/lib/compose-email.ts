@@ -6,12 +6,14 @@ import { isGoogleConfigured } from "@/lib/env";
 import { defaultPipelineRecipient, organizationRecipients, pipelineRecipients, type Recipient } from "@/lib/calc/compose-email";
 import { isValidEmail } from "@/lib/email-address";
 import type { Row } from "@/lib/types";
+import { loadSignature } from "@/lib/signature-store";
+import type { SignatureSetup } from "@/lib/email-signature";
 
 /** Tables whose record page shows the "Email" button. */
 export const EMAIL_BUTTON_TABLES = new Set(["contacts", "organizations", "pipeline_items"]);
 
 /** Google side of the compose box: Send now permission, the From address, and whether Gmail drafts can be saved. */
-export type GmailSetup = { permission: SendPermission; fromEmail: string | null; canGmail: boolean };
+export type GmailSetup = { permission: SendPermission; fromEmail: string | null; canGmail: boolean; signature: SignatureSetup | null };
 
 /** Everything the compose box needs, loaded on the server (plain data, passed to the client component). */
 export type ComposeSetup = GmailSetup & {
@@ -28,12 +30,13 @@ export type ComposeSetup = GmailSetup & {
 };
 
 export async function loadGmailSetup(sb: SupabaseClient, ownerId: string): Promise<GmailSetup> {
-  if (!isGoogleConfigured()) return { permission: "not_connected", fromEmail: null, canGmail: false };
-  const google = await getGoogleConnection(sb, ownerId);
+  if (!isGoogleConfigured()) return { permission: "not_connected", fromEmail: null, canGmail: false, signature: null };
+  const [google, signature] = await Promise.all([getGoogleConnection(sb, ownerId), loadSignature(sb, ownerId)]);
   return {
     permission: sendPermission(google),
     fromEmail: (google?.google_email as string | null) ?? null,
     canGmail: google?.status === "connected",
+    signature,
   };
 }
 

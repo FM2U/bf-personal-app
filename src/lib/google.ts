@@ -6,8 +6,22 @@ import { env, isGoogleConfigured } from "@/lib/env";
 import type { Row } from "@/lib/types";
 import { gmailRaw } from "@/lib/gmail-mime";
 import { sendPermission, type SendPermission } from "@/lib/google-scopes";
+import { loadSignature } from "@/lib/signature-store";
+import { sanitizeSignatureHtml, signatureHtmlToText } from "@/lib/email-signature";
 
-export { GOOGLE_SCOPES, GMAIL_SEND_SCOPE } from "@/lib/google-scopes";
+export { GOOGLE_SCOPES, GMAIL_SEND_SCOPE, GMAIL_SETTINGS_SCOPE } from "@/lib/google-scopes";
+
+/** An email the app sends or drafts. includeSignature: true or false from the checkbox; omitted uses the setting. */
+export type AppEmail = { to: string; subject: string; body: string; includeSignature?: boolean };
+
+/** The signature to add to this email, or null (none saved, the setting is off, or unchecked for this email). */
+async function signatureFor(sb: SupabaseClient, ownerId: string, include: boolean | undefined): Promise<{ html: string; text: string } | null> {
+  if (include === false) return null;
+  const sig = await loadSignature(sb, ownerId);
+  if (!sig) return null;
+  if (include === undefined && !sig.on) return null;
+  return { html: sig.html, text: sig.text };
+}
 
 /**
  * LOCAL TESTING ONLY: GOOGLE_API_MOCK_URL points every Google call (sign-in, token, Gmail, Calendar) at the
@@ -63,13 +77,14 @@ export function localDateTime(dateIso: string, hour: number, minute: number, tz:
 }
 
 /** Creates a draft in Gmail. Bram reviews and presses send. Returns the draft id, or null when Google is not connected. */
-export async function createGmailDraft(sb: SupabaseClient, ownerId: string, msg: { to: string; subject: string; body: string }): Promise<string | null> {
+export async function createGmailDraft(sb: SupabaseClient, ownerId: string, msg: AppEmail): Promise<string | null> {
   const auth = await authed(sb, ownerId);
   if (!auth) return null;
   const gmail = google.gmail({ version: "v1", auth, ...apiOptions() });
+  const signature = await signatureFor(sb, ownerId, msg.includeSignature);
   const res = await gmail.users.drafts.create({
     userId: "me",
-    requestBody: { message: { raw: gmailRaw(msg, { requireValidTo: false }) } },
+    requestBody: { message: { raw: gmailRaw({ to: msg.to, subject: msg.subject, body: msg.body, signature }, { requireValidTo: false }) } },
   });
   return res.data.id ?? null;
 }
@@ -88,17 +103,40 @@ export async function getSendPermission(sb: SupabaseClient, ownerId: string): Pr
 export async function sendGmailMessage(
   sb: SupabaseClient,
   ownerId: string,
-  msg: { to: string; subject: string; body: string; threadId?: string | null; inReplyTo?: string | null },
+  msg: AppEmail & { threadId?: string | null; inReplyTo?: string | null },
 ): Promise<{ id: string; threadId: string | null } | null> {
   const auth = await authed(sb, ownerId);
   if (!auth) return null;
   const gmail = google.gmail({ version: "v1", auth, ...apiOptions() });
+  const signature = await signatureFor(sb, ownerId, msg.includeSignature);
   const res = await gmail.users.messages.send({
     userId: "me",
-    requestBody: { raw: gmailRaw(msg), ...(msg.threadId ? { threadId: msg.threadId } : {}) },
+    requestBody: { raw: gmailRaw({ to: msg.to, subject: msg.subject, body: msg.body, inReplyTo: msg.inReplyTo, signature }), ...(msg.threadId ? { threadId: msg.threadId } : {}) },
   });
   if (!res.data.id) throw new Error("Gmail did not return a message id.");
   return { id: res.data.id, threadId: res.data.threadId ?? null };
+}
+
+/**
+ * Reads the Gmail signature (users.settings.sendAs.list): the send-as address that matches the connected account,
+ * otherwise the default one. Returns it sanitized with its plain text. Null when Google is not connected.
+ * Throws Google's error (explain it with explainGoogleError).
+ */
+export async function fetchGmailSignature(sb: SupabaseClient, ownerId: string): Promise<{ html: string; text: string; address: string | null } | null> {
+  const auth = await authed(sb, ownerId);
+  if (!auth) return null;
+  const conn = await getGoogleConnection(sb, ownerId);
+  const connected = String(conn?.google_email ?? "").trim().toLowerCase();
+  const gmail = google.gmail({ version: "v1", auth, ...apiOptions() });
+  const res = await gmail.users.settings.sendAs.list({ userId: "me" });
+  const list = res.data.sendAs ?? [];
+  const pick =
+    (connected ? list.find((s) => String(s.sendAsEmail ?? "").toLowerCase() === connected) : undefined) ??
+    list.find((s) => s.isDefault) ??
+    list.find((s) => s.isPrimary) ??
+    list[0];
+  const html = sanitizeSignatureHtml(String(pick?.signature ?? ""));
+  return { html, text: signatureHtmlToText(html), address: pick?.sendAsEmail ?? null };
 }
 
 export async function createCalendarEvent(

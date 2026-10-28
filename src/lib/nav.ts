@@ -82,6 +82,7 @@ export const NAV: NavModule[] = [
     icon: "settings",
     tabs: [
       { href: "/settings", label: "Connections" },
+      { href: "/settings/email", label: "Email signature" },
       { href: "/settings/ai", label: "AI usage and proposals" },
       { href: "/settings/imports", label: "Data imports" },
       { href: "/settings/partner-access", label: "Partner access" },

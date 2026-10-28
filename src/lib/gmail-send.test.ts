@@ -15,9 +15,14 @@ function decodeWords(v: string): string {
     .join("");
 }
 
+/** The top headers and the decoded text/plain part of a multipart/alternative message. */
 function parts(mime: string) {
-  const [head, ...rest] = mime.split("\r\n\r\n");
-  return { head, body: Buffer.from(rest.join("\r\n\r\n").replace(/\r\n/g, ""), "base64").toString("utf8") };
+  const [head] = mime.split("\r\n\r\n");
+  const boundary = /boundary="([^"]+)"/.exec(head)?.[1] ?? "";
+  const textPart = mime.split(`--${boundary}`).find((p) => p.includes("Content-Type: text/plain")) ?? "";
+  const [partHead, ...rest] = textPart.replace(/^\r\n/, "").split("\r\n\r\n");
+  const encoded = rest.join("\r\n\r\n").replace(/\r\n$/, "");
+  return { head, partHead, encoded, body: Buffer.from(encoded.replace(/\r\n/g, ""), "base64").toString("utf8") };
 }
 
 describe("MIME building", () => {
@@ -47,13 +52,14 @@ describe("MIME building", () => {
   it("keeps line breaks in the body as CRLF, base64 in 76-character lines", () => {
     const body = "Hi Quinn,\n\nLine one\n- bullet\r\nLast line é";
     const mime = buildMimeMessage({ to: "quinn@example.com", subject: "Test", body });
-    const { head, body: decoded } = parts(mime);
-    expect(head).toContain("Content-Type: text/plain; charset=UTF-8");
-    expect(head).toContain("Content-Transfer-Encoding: base64");
+    const { head, partHead, encoded, body: decoded } = parts(mime);
+    expect(head).toContain("Content-Type: multipart/alternative");
+    expect(partHead).toContain("Content-Type: text/plain; charset=UTF-8");
+    expect(partHead).toContain("Content-Transfer-Encoding: base64");
     expect(head).toContain("To: quinn@example.com");
     expect(head).toContain("MIME-Version: 1.0");
     expect(decoded).toBe("Hi Quinn,\r\n\r\nLine one\r\n- bullet\r\nLast line é");
-    for (const line of mime.split("\r\n\r\n")[1].split("\r\n")) expect(line.length).toBeLessThanOrEqual(76);
+    for (const line of encoded.split("\r\n")) expect(line.length).toBeLessThanOrEqual(76);
   });
 
   it("normalizes every kind of line break", () => {
