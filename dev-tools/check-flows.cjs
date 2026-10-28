@@ -1096,6 +1096,26 @@ const expectText = async (page, text) => {
     const plain = await page.getByTestId("signature-text").innerText();
     if (!plain.includes("Bram Frankel\nFounder, Cyan Arc LLC\n(404) 555-0123 | cyanarc.com")) throw new Error(`plain text: ${JSON.stringify(plain)}`);
     await page.screenshot({ path: path.join(OUT, "desktop-email-signature-copied.png"), fullPage: true });
+    // A copied signature that is not saved yet counts as unsaved work: leaving asks first (in-app link and tab close/reload).
+    await page.getByRole("link", { name: "Connections" }).first().click();
+    await page.getByRole("dialog").filter({ hasText: /not saved/i }).waitFor({ timeout: 5000 });
+    await page.getByRole("button", { name: /Stay/ }).click();
+    if (!/\/settings\/email$/.test(page.url())) throw new Error("left the page with an unsaved copied signature");
+    {
+      const probe = await ctx.newPage();
+      await probe.goto(`${BASE}/settings/email`);
+      await probe.getByTestId("signature-copy").click();
+      await probe.getByTestId("signature-status").filter({ hasText: "Copied from Gmail" }).waitFor();
+      let kind = null;
+      probe.on("dialog", async (d) => {
+        kind = d.type();
+        await d.dismiss();
+      });
+      await probe.close({ runBeforeUnload: true });
+      await new Promise((r) => setTimeout(r, 1000));
+      if (kind !== "beforeunload") throw new Error("no reload/close prompt after Copy from Gmail");
+      if (!probe.isClosed()) await probe.close();
+    }
     // Edit: the preview follows the box; Save stores it.
     await page.getByTestId("signature-html").fill(html.replace("Founder, Cyan Arc LLC", "Founder and CEO, Cyan Arc LLC"));
     await page.waitForFunction(() => document.querySelector("[data-testid=signature-preview]")?.contentDocument?.body?.innerText.includes("Founder and CEO"), null, { timeout: 5000 });
