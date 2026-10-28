@@ -323,17 +323,36 @@ export function bodyToHtml(body: string): string {
 export const GMAIL_SIGNATURE_PREFIX_HTML = '<br clear="all"><div><br></div><span class="gmail_signature_prefix">-- </span><br>';
 export const SIGNATURE_PREFIX_TEXT = "\n\n-- \n";
 
+/** Blank line only, used when the signature already starts with its own "--" line. */
+export const SIGNATURE_GAP_HTML = '<br clear="all"><div><br></div>';
+export const SIGNATURE_GAP_TEXT = "\n\n";
+
+/**
+ * Whether a signature already begins with a "--" separator line (many Gmail signatures do).
+ * Then the app adds only a blank line, so the email never shows two "--" lines.
+ */
+export function signatureHasOwnSeparator(signature: string | null | undefined): boolean {
+  const text = String(signature ?? "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;|&#160;/gi, " ")
+    .replace(/&#45;|&minus;|&#8211;|&ndash;|&#8212;|&mdash;/gi, "-")
+    .trimStart();
+  return /^[-\u2010-\u2015\u2212]{2}(\s|$)/.test(text);
+}
+
 /** The HTML part of an email: the message, then the signature (already sanitized when stored; sanitized again here). */
 export function emailHtml(body: string, signatureHtml?: string | null): string {
   const sig = signatureHtml ? sanitizeSignatureHtml(signatureHtml) : "";
-  return `<div dir="ltr">${bodyToHtml(body)}${sig ? `${GMAIL_SIGNATURE_PREFIX_HTML}<div dir="ltr" class="gmail_signature">${sig}</div>` : ""}</div>`;
+  const prefix = signatureHasOwnSeparator(sig) ? SIGNATURE_GAP_HTML : GMAIL_SIGNATURE_PREFIX_HTML;
+  return `<div dir="ltr">${bodyToHtml(body)}${sig ? `${prefix}<div dir="ltr" class="gmail_signature">${sig}</div>` : ""}</div>`;
 }
 
-/** The plain text part of an email: the message, then "-- " and the plain signature. */
+/** The plain text part of an email: the message, then "-- " (unless the signature has its own) and the plain signature. */
 export function emailText(body: string, signatureText?: string | null): string {
   const b = String(body ?? "").replace(/\s+$/, "");
   const sig = String(signatureText ?? "").trim();
-  return sig ? `${b}${SIGNATURE_PREFIX_TEXT}${sig}` : b;
+  const prefix = signatureHasOwnSeparator(sig) ? SIGNATURE_GAP_TEXT : SIGNATURE_PREFIX_TEXT;
+  return sig ? `${b}${prefix}${sig}` : b;
 }
 
 /** The saved signature as the app uses it: shown and added only when there is one. */

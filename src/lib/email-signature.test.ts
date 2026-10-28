@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bodyToHtml, emailHtml, emailText, sanitizeSignatureHtml, sanitizeStyle, signatureHtmlToText, signatureOn } from "@/lib/email-signature";
+import { bodyToHtml, emailHtml, emailText, sanitizeSignatureHtml, sanitizeStyle, signatureHasOwnSeparator, signatureHtmlToText, signatureOn } from "@/lib/email-signature";
 import { buildMimeMessage, gmailRaw } from "@/lib/gmail-mime";
 import {
   canReadSignatureFromScopes,
@@ -205,5 +205,27 @@ describe("multipart MIME (text and HTML parts)", () => {
     expect(a).toMatch(/^=_bf_alt_[0-9a-f]{24}$/);
     expect(a).not.toBe(b);
     expect(gmailRaw(msg)).not.toMatch(/[+/=]/);
+  });
+});
+
+describe("signature with its own separator line", () => {
+  const gmailSig = '<div dir="ltr"><div>--</div><div>Cyan Arc LLC</div><div>m/+1.404.403.5909</div></div>';
+  it("detects a leading -- line in HTML and text", () => {
+    expect(signatureHasOwnSeparator(gmailSig)).toBe(true);
+    expect(signatureHasOwnSeparator("-- \nCyan Arc LLC")).toBe(true);
+    expect(signatureHasOwnSeparator("<div>&ndash;&ndash;</div><div>Name</div>")).toBe(true);
+    expect(signatureHasOwnSeparator("<div>Cyan Arc LLC</div>")).toBe(false);
+    expect(signatureHasOwnSeparator("--Name")).toBe(false);
+  });
+  it("adds only one -- line in both parts", () => {
+    const html = emailHtml("Hello", gmailSig);
+    expect(html).not.toContain("gmail_signature_prefix");
+    expect((html.match(/--/g) ?? []).length).toBe(1);
+    const text = emailText("Hello", "--\nCyan Arc LLC");
+    expect((text.match(/--/g) ?? []).length).toBe(1);
+  });
+  it("still adds the separator when the signature has none", () => {
+    expect(emailHtml("Hello", "<div>Cyan Arc LLC</div>")).toContain("gmail_signature_prefix");
+    expect(emailText("Hello", "Cyan Arc LLC")).toContain("\n-- \n");
   });
 });
