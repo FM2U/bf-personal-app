@@ -3,7 +3,24 @@
 Do these in order. Each line says where to copy a value from and where to paste it.
 Vercel variables go in: Vercel, project bf-personal-app, Settings, Environment Variables (Production).
 
-## 00. Gmail signature on app emails (the live database has 0001 to 0014; about 3 minutes)
+## 000. Deal funnel (the live database has 0001 to 0015; about 2 minutes)
+
+One database update. Until it is run, the Acquisitions page shows the funnel with "Database update needed" (naming the file) and everything else keeps working.
+
+**Step 1: database update 0016 (about 1 minute)**
+- [ ] Open the file `supabase/UPDATE_0016_RUN_ONCE.sql` in the GitHub repository (bf-personal-app), press "Copy raw file"
+- [ ] Supabase, project bf-personal-app, SQL Editor, New query: paste, press **Run**. Expected result: "Success. No rows returned"
+- [ ] Running it a second time is safe. It adds three targets and five inputs once and changes no existing record
+
+**Step 2: check it (about 1 minute)**
+- [ ] Accountability, Targets: three new cards, each with "Commitment": **Listings screened** (20 per weekday, with +1, +5, Undo last, and a Note box), **CIMs reviewed** (1 per weekday), **Broker or owner calls** (2 per week). Each says "Counting since" today
+- [ ] Above the first deal target: "Suggested targets: With 2 hours a day: screen 17 listings, reply to 4, review 1 CIM, 2 calls a week."
+- [ ] Opportunities, Acquisitions: the header shows "Listings screened today: 0 of 20" with +1, +5, Undo last; the "Deal funnel, last 30 days" card shows six steps with no "Database update needed" notice. Press 90 days to see the longer view
+- [ ] Plan, Inputs and Assumptions, Acquisition: "Search hours per day (hours)" is 2; minutes to screen a listing 3, review a CIM 45, reply or send an NDA 5, per call 30. Change them to match how you work; the suggested targets follow
+- [ ] Optional: edit any of the three targets on the Targets tab (Edit) if the numbers do not fit. Suggestions never change a target on their own
+- [ ] Logging a call: open a deal, Log activity, How: Call (or Meeting). It counts toward Broker or owner calls this week (one per deal per day)
+
+## 00. Gmail signature on app emails (a database with 0001 to 0014; already done on the live database; about 3 minutes)
 
 Three one-time steps. Until they are done, emails from the app are sent without a signature and everything else keeps working.
 
@@ -42,7 +59,7 @@ One file runs both updates. Use it whether or not `UPDATE_0013_RUN_ONCE.sql` was
 ## 1. Supabase (database)
 
 - [ ] Create a Supabase project (sign in with GitHub). Region: US East. Save the database password somewhere safe.
-- [ ] SQL Editor: paste and run `supabase/ALL_MIGRATIONS_RUN_ONCE.sql` (0001 to 0015), or each file from `supabase/migrations/` in order: 0001 to 0015.
+- [ ] SQL Editor: paste and run `supabase/ALL_MIGRATIONS_RUN_ONCE.sql` (0001 to 0016), or each file from `supabase/migrations/` in order: 0001 to 0016.
 - [ ] Authentication, Sign In / Providers, Email: enabled. Multi-Factor: TOTP enabled.
 - [ ] Copy Settings, API, **Project URL** to Vercel `NEXT_PUBLIC_SUPABASE_URL`
 - [ ] Copy Settings, API, **anon public** key to Vercel `NEXT_PUBLIC_SUPABASE_ANON_KEY`
@@ -80,7 +97,7 @@ One file runs both updates. Use it whether or not `UPDATE_0011_RUN_ONCE.sql` was
 ## 1c. Database update (older database only: one combined file)
 
 Do this once if the database was set up before 0010 (it has 0001 to 0007, 0001 to 0008, or 0001 to 0009).
-It also includes 0011 to 0015, so steps 00 and 0 and the database parts of steps 1a and 1b are then not needed (Reconnect Google in steps 00 and 1a still is). The file holds eight updates:
+It also includes 0011 to 0016, so steps 000, 00, and 0 and the database parts of steps 1a and 1b are then not needed (Reconnect Google in steps 00 and 1a still is). The file holds nine updates:
 - **0008:** Daily Targets, Outreach Queue.
 - **0009:** stage task lists, time limits, required details, stalled items, deal source, Deals sourced and Deals advanced targets.
 - **0010:** commitment rule. Only pipeline next actions, milestones, daily targets, and the reviews are commitments. Regular tasks that are not done move to the next day.
@@ -89,6 +106,7 @@ It also includes 0011 to 0015, so steps 00 and 0 and the database parts of steps
 - **0013:** send email from the app: Gmail message ids and the partner report sent date (see 1a).
 - **0014:** Start an initiative, checklists, savings ideas, sample data, Reset all data (see step 0).
 - **0015:** Gmail signature on app emails (see step 00).
+- **0016:** deal funnel: Listings screened, CIMs reviewed, and Broker or owner calls targets; search hours and minutes per step (see step 000).
 
 - [ ] Open the file `supabase/UPDATE_RUN_ONCE.sql` in the GitHub repository (bf-personal-app), press "Copy raw file"
 - [ ] Supabase, project bf-personal-app, SQL Editor, New query: paste, press **Run**. Expected result: "Success. No rows returned"

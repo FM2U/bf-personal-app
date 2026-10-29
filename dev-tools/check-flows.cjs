@@ -19,6 +19,20 @@ const session = {
 };
 const cookie = { name: "sb-localhost-auth-token", value: `base64-${Buffer.from(JSON.stringify(session)).toString("base64url")}`, domain: "localhost", path: "/" };
 
+// Dates as the app sees them: the app's "today" is the New York date (owner time zone), never the UTC date, which is
+// already tomorrow late in the evening. nyDate(0) is today, nyDate(5) is 5 days from today (YYYY-MM-DD).
+const nyDate = (offsetDays = 0) => {
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const d = new Date(`${today}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + offsetDays);
+  return d.toISOString().slice(0, 10);
+};
+// Last month (YYYY-MM) in New York.
+const nyPrevMonth = () => {
+  const [y, m] = nyDate(0).split("-").map(Number);
+  return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`;
+};
+
 const results = [];
 async function step(name, fn) {
   // FLOWS=<regular expression> runs only the matching steps (for example FLOWS="Send|Google").
@@ -104,7 +118,8 @@ const expectText = async (page, text) => {
     await page.locator('input[name="reason"]').first().fill("Spent the afternoon on the broker call.");
     await page.locator('form:has(input[name="reason"]) button[type="submit"]').first().click();
     await page.waitForLoadState("networkidle");
-    await page.waitForTimeout(800);
+    // Wait for the list to refresh (a fixed wait was too short on a slow run).
+    await page.waitForFunction((n) => document.querySelectorAll('input[name="reason"]').length === n, before - 1, { timeout: 15000 }).catch(() => {});
     const after = await page.locator('input[name="reason"]').count();
     if (after !== before - 1) throw new Error(`expected ${before - 1} left, found ${after}`);
   });
@@ -171,7 +186,7 @@ const expectText = async (page, text) => {
     await expectText(page, "Update the LinkedIn headline");
     await page.screenshot({ path: path.join(OUT, "flow-weekly-review.png"), fullPage: true });
     const row = page.locator('li:has(input[name="task_id"])', { hasText: "Update the LinkedIn headline" });
-    await row.locator('input[name="due_date"]').fill(new Date(Date.now() + 5 * 864e5).toISOString().slice(0, 10));
+    await row.locator('input[name="due_date"]').fill(nyDate(5));
     await row.getByRole("button", { name: "Reschedule" }).click();
     await page.waitForLoadState("networkidle");
     await page.waitForTimeout(800);
@@ -285,7 +300,7 @@ const expectText = async (page, text) => {
   });
 
   await step("Add a task marked as a commitment", async () => {
-    await page.goto(`${BASE}/records/tasks/new?due_date=${new Date().toISOString().slice(0, 10)}`);
+    await page.goto(`${BASE}/records/tasks/new?due_date=${nyDate(0)}`);
     await page.fill('input[name="title"]', "Flow test commitment");
     await page.locator('input[name="__is_commitment"]').check();
     await page.getByRole("button", { name: "Add task" }).click();
@@ -312,7 +327,7 @@ const expectText = async (page, text) => {
   });
 
   await step("Transaction page shows reduction actions and category edit", async () => {
-    await page.goto(`${BASE}/finance/expenses?month=${new Date(Date.now() - 31 * 864e5).toISOString().slice(0, 7)}`);
+    await page.goto(`${BASE}/finance/expenses?month=${nyPrevMonth()}`);
     await page.locator("a[href^='/records/transactions/']:not([href*='/new'])").first().click();
     await expectText(page, "Reduction actions");
     await page.screenshot({ path: path.join(OUT, "flow-transaction.png"), fullPage: true });
@@ -326,7 +341,7 @@ const expectText = async (page, text) => {
   });
 
   await step("Budget page with data", async () => {
-    await page.goto(`${BASE}/finance/budget?month=${new Date(Date.now() - 31 * 864e5).toISOString().slice(0, 7)}`);
+    await page.goto(`${BASE}/finance/budget?month=${nyPrevMonth()}`);
     await expectText(page, "Actual vs. budget");
     await page.screenshot({ path: path.join(OUT, "flow-budget.png"), fullPage: true });
   });
@@ -1157,7 +1172,7 @@ const expectText = async (page, text) => {
         await d.dismiss();
       });
       await probe.close({ runBeforeUnload: true });
-      await new Promise((r) => setTimeout(r, 1000));
+      for (let i = 0; i < 40 && kind === null; i++) await new Promise((r) => setTimeout(r, 250));
       if (kind !== "beforeunload") throw new Error("no reload/close prompt after Copy from Gmail");
       if (!probe.isClosed()) await probe.close();
     }
@@ -1402,7 +1417,7 @@ const expectText = async (page, text) => {
         await dlg.dismiss();
       });
       await probe.close({ runBeforeUnload: true });
-      await new Promise((r) => setTimeout(r, 1000));
+      for (let i = 0; i < 40 && kind === null; i++) await new Promise((r) => setTimeout(r, 250));
       if (kind !== "beforeunload") throw new Error("no reload/close prompt after typing in the editor");
       if (!probe.isClosed()) await probe.close();
     }
@@ -2362,6 +2377,220 @@ const expectText = async (page, text) => {
     const head = await page.getByTestId("summary-results").innerText();
     if (!/now/i.test(head) || (await page.getByTestId("summary-results").locator("[data-testid=summary-line]").first().locator("span").count()) !== 4) throw new Error("columns");
     await page.screenshot({ path: path.join(OUT, "desktop-window-scenario-compare-summary.png") });
+  });
+
+  // ---------- Deal funnel (database update 0016) ----------
+  const acqPipe = (await one("select id from pipelines where kind = 'acquisition' order by sort_order limit 1")).id;
+  const NY_TODAY = "(now() at time zone 'America/New_York')::date";
+  const listingsTotal = async () => (await one(`select coalesce(sum(e.count), 0)::int n from target_entries e join targets t on t.id = e.target_id where t.name = 'Listings screened' and e.entry_date = ${NY_TODAY}`)).n;
+  // The big number on a target card ("7 of 20"), read from the page.
+  const cardCount = async (name) => {
+    const card = page.locator("[data-testid=target-card]", { has: page.locator("h3", { hasText: new RegExp(`^${name}`) }) });
+    const text = await card.getByTestId("target-today").innerText();
+    const m = text.match(/(\d+)\s*of\s*(\d+)/);
+    if (!m) throw new Error(`${name}: no count in "${text}"`);
+    return Number(m[1]);
+  };
+  const waitFor = async (fn, want, label) => {
+    for (let i = 0; i < 40; i++) {
+      if ((await fn()) === want) return;
+      await page.waitForTimeout(250);
+    }
+    throw new Error(`${label}: expected ${want}, found ${await fn()}`);
+  };
+  const clickCount = async (scope, name) => {
+    await scope.getByRole("button", { name: new RegExp(`^${name.replace("+", "\\+")} `) }).first().click();
+  };
+  // Opens a deal's window on the Acquisitions page.
+  const openDeal = async (name) => {
+    const item = await one("select id from pipeline_items where name = $1", [name]);
+    await page.goto(`${BASE}/opportunities/${acqPipe}?w=r%2Fpipeline_items%2F${item.id}`);
+    await page.getByTestId("pipeline-overview").waitFor();
+    return item.id;
+  };
+  const closeWindow = async () => {
+    await page.keyboard.press("Escape");
+    await page.getByTestId("overview-window").waitFor({ state: "detached" });
+    await page.waitForLoadState("networkidle");
+  };
+  const moveTo = async (name, stage) => {
+    const id = await openDeal(name);
+    const sel = page.getByTestId("pipeline-move-stage").getByLabel("Stage");
+    await sel.selectOption({ label: stage });
+    await page.getByTestId("pipeline-move").click();
+    for (let i = 0; i < 40; i++) {
+      const r = await one("select s.name from pipeline_items i join pipeline_stages s on s.id = i.stage_id where i.id = $1", [id]);
+      if (r.name === stage) break;
+      await page.waitForTimeout(250);
+    }
+    await closeWindow();
+  };
+
+  await step("Listings screened: +1, +5, and Undo last on the target card (note saved), the Acquisitions header, Home, and Productivity", async () => {
+    await page.goto(`${BASE}/accountability/targets`);
+    const start = await listingsTotal();
+    if ((await cardCount("Listings screened")) !== start) throw new Error("card count differs from the entries");
+    const card = page.locator("[data-testid=target-card]", { has: page.locator("h3", { hasText: /^Listings screened/ }) });
+    await card.getByLabel("Note (optional)").fill("BizBuySell HVAC listings in Georgia");
+    await clickCount(card, "Add 5");
+    await waitFor(listingsTotal, start + 5, "after +5");
+    await waitFor(() => cardCount("Listings screened"), start + 5, "card after +5");
+    const note = await one("select note, count from target_entries order by created_at desc limit 1");
+    if (note.note !== "BizBuySell HVAC listings in Georgia" || note.count !== 5) throw new Error(`entry: ${JSON.stringify(note)}`);
+    await clickCount(card, "Add 1");
+    await waitFor(() => cardCount("Listings screened"), start + 6, "card after +1");
+    await card.getByRole("button", { name: /^Undo last entry/ }).click();
+    await waitFor(() => cardCount("Listings screened"), start + 5, "card after Undo last (removes the +1 only)");
+    await page.screenshot({ path: path.join(OUT, "flow-listings-target.png"), fullPage: false });
+
+    // Acquisitions page header
+    await page.goto(`${BASE}/opportunities/${acqPipe}`);
+    const header = page.getByTestId("header-listings");
+    const headerCount = async () => Number((await page.getByTestId("header-listings-count").innerText()).match(/^(\d+)/)[1]);
+    if ((await headerCount()) !== start + 5) throw new Error(`header shows ${await headerCount()}`);
+    await clickCount(header, "Add 1");
+    await waitFor(headerCount, start + 6, "header after +1");
+    await clickCount(header, "Add 5");
+    await waitFor(headerCount, start + 11, "header after +5");
+    await header.getByRole("button", { name: /^Undo last entry/ }).click();
+    await waitFor(headerCount, start + 6, "header after Undo last");
+
+    // Home tile
+    await page.goto(`${BASE}/`);
+    const tile = page.getByTestId("home-listings");
+    const tileCount = async () => Number((await tile.innerText()).match(/(\d+) of 20/)[1]);
+    if ((await tileCount()) !== start + 6) throw new Error(`Home shows ${await tileCount()}`);
+    await clickCount(tile, "Add 5");
+    await waitFor(tileCount, start + 11, "Home after +5");
+    await tile.getByRole("button", { name: /^Undo last entry/ }).click();
+    await waitFor(tileCount, start + 6, "Home after Undo last");
+
+    // Productivity counters
+    await page.goto(`${BASE}/productivity`);
+    const counter = page.locator("div.rounded-lg", { has: page.getByRole("link", { name: "Listings screened" }) }).last();
+    await clickCount(counter, "Add 1");
+    await waitFor(listingsTotal, start + 7, "Productivity after +1");
+    await counter.getByRole("button", { name: /^Undo last entry/ }).click();
+    await waitFor(listingsTotal, start + 6, "Productivity after Undo last");
+  });
+
+  await step("CIMs reviewed: a deal moved past CIM reviewed counts today, once (moving back and forward again does not count twice)", async () => {
+    await page.goto(`${BASE}/accountability/targets`);
+    const before = await cardCount("CIMs reviewed");
+    // Demo Machine Shop is in Screened: moving it straight to CIM reviewed skips NDA signed and still counts.
+    await moveTo("Demo Machine Shop", "CIM reviewed");
+    await page.goto(`${BASE}/accountability/targets`);
+    if ((await cardCount("CIMs reviewed")) !== before + 1) throw new Error(`after the move: ${await cardCount("CIMs reviewed")}, expected ${before + 1}`);
+    await moveTo("Demo Machine Shop", "NDA signed");
+    await moveTo("Demo Machine Shop", "CIM reviewed");
+    await page.goto(`${BASE}/accountability/targets`);
+    if ((await cardCount("CIMs reviewed")) !== before + 1) throw new Error(`counted twice: ${await cardCount("CIMs reviewed")}`);
+    // A new deal added at CIM reviewed is not a move: it does not count.
+    await page.goto(`${BASE}/records/pipeline_items/new?pipeline_id=${acqPipe}&stage_id=${(await one("select id from pipeline_stages where pipeline_id = $1 and name = 'CIM reviewed'", [acqPipe])).id}`);
+    await page.locator('input[name="name"]').fill("Demo Added At CIM Co");
+    await page.locator('input[name="next_action"]').fill("Enter revenue, EBITDA, asking price");
+    if (await page.locator('input[name="next_action_due"]').count()) await page.locator('input[name="next_action_due"]').fill(nyDate(2));
+    await page.locator('select[name="deal_source_type"]').selectOption("brokered");
+    await page.locator("form button[type=submit]").filter({ hasText: /^(Save|Create|Add)/ }).first().click();
+    await page.waitForURL(/\/records\/pipeline_items\/[0-9a-f-]{36}/);
+    await page.goto(`${BASE}/accountability/targets`);
+    if ((await cardCount("CIMs reviewed")) !== before + 1) throw new Error(`a deal added at CIM reviewed was counted: ${await cardCount("CIMs reviewed")}`);
+  });
+
+  await step("Broker or owner calls: a call logged on an acquisition deal counts this week; a second call on the same deal the same day and an email do not", async () => {
+    await page.goto(`${BASE}/accountability/targets`);
+    const before = await cardCount("Broker or owner calls");
+    const log = async (method, text) => {
+      await page.getByTestId("pipeline-log-activity").getByLabel("How").selectOption(method);
+      await page.locator("[data-testid=pipeline-log-activity] input").fill(text);
+      await page.getByTestId("pipeline-log").click();
+      await expectText(page, "Activity logged.");
+      await page.waitForTimeout(300);
+    };
+    await openDeal("Demo Plumbing Supply");
+    await log("call", "Called the owner about timing and price");
+    await log("call", "Second call the same day");
+    await log("email", "Sent the NDA");
+    await closeWindow();
+    await page.goto(`${BASE}/accountability/targets`);
+    if ((await cardCount("Broker or owner calls")) !== before + 1) throw new Error(`calls this week: ${await cardCount("Broker or owner calls")}, expected ${before + 1}`);
+    await openDeal("Demo Bookkeeping Firm");
+    await log("meeting", "Met the broker");
+    await closeWindow();
+    await page.goto(`${BASE}/accountability/targets`);
+    if ((await cardCount("Broker or owner calls")) !== before + 2) throw new Error(`a meeting on another deal did not count`);
+  });
+
+  await step("Funnel card: counts match the records for 30 and 90 days, with percent of the previous step and the proprietary and brokered split", async () => {
+    const expected = async (days) => {
+      const from = `${NY_TODAY} - ${days - 1}`;
+      const reached = async (stage) =>
+        (await one(
+          `with h as (select sh.item_id, sh.entered_at, s.position, s.outcome, sh.entered_at = pi.created_at creation
+                       from stage_history sh join pipeline_items pi on pi.id = sh.item_id join pipeline_stages s on s.id = sh.stage_id where pi.pipeline_id = $1),
+                th as (select position from pipeline_stages where pipeline_id = $1 and name = $2),
+                skip as (select item_id from h, th where h.creation and h.position >= th.position and h.outcome <> 'lost'),
+                first as (select item_id, min(entered_at) at from h, th where not h.creation and h.position >= th.position and h.outcome <> 'lost'
+                          and item_id not in (select item_id from skip) group by item_id)
+           select count(*)::int n from first where (at at time zone 'America/New_York')::date >= ${from}`,
+          [acqPipe, stage],
+        )).n;
+      return {
+        listings: (await one(`select coalesce(sum(e.count), 0)::int n from target_entries e join targets t on t.id = e.target_id where t.name = 'Listings screened' and e.entry_date >= ${from}`)).n,
+        sourced: (await one(`select count(*)::int n from pipeline_items where pipeline_id = $1 and (created_at at time zone 'America/New_York')::date >= ${from}`, [acqPipe])).n,
+        ndas: await reached("NDA signed"),
+        cims: await reached("CIM reviewed"),
+        calls: (await one(
+          `select count(distinct (c.pipeline_item_id, (c.occurred_at at time zone 'America/New_York')::date))::int n from communications c join pipeline_items i on i.id = c.pipeline_item_id
+           where i.pipeline_id = $1 and c.method in ('call', 'meeting', 'video') and (c.occurred_at at time zone 'America/New_York')::date >= ${from}`,
+          [acqPipe],
+        )).n,
+        lois: await reached("LOI signed"),
+      };
+    };
+    for (const days of [30, 90]) {
+      await page.goto(`${BASE}/opportunities/${acqPipe}${days === 90 ? "?funnel=90" : ""}`);
+      await expectText(page, `Deal funnel, last ${days} days`);
+      const want = await expected(days);
+      const shown = {};
+      for (const k of Object.keys(want)) shown[k] = Number((await page.getByTestId(`funnel-${k}`).getByTestId("funnel-count").innerText()).trim());
+      if (JSON.stringify(shown) !== JSON.stringify(want)) throw new Error(`${days} days: shown ${JSON.stringify(shown)}, records ${JSON.stringify(want)}`);
+      if (!want.cims || !want.calls || !want.listings) throw new Error(`expected some CIMs, calls, and listings: ${JSON.stringify(want)}`);
+      const pct = want.listings ? `${Math.round((want.sourced / want.listings) * 100)}% of previous` : "No previous step count";
+      if (!(await page.getByTestId("funnel-sourced").innerText()).includes(pct)) throw new Error(`sourced percent: ${await page.getByTestId("funnel-sourced").innerText()}`);
+      const split = await one(
+        `select count(*) filter (where deal_source_type = 'proprietary')::int p, count(*) filter (where deal_source_type = 'brokered')::int b from pipeline_items
+         where pipeline_id = $1 and (created_at at time zone 'America/New_York')::date >= ${`${NY_TODAY} - ${days - 1}`}`,
+        [acqPipe],
+      );
+      if (!(await page.getByTestId("funnel-sourced").innerText()).includes(`${split.p} proprietary, ${split.b} brokered`)) throw new Error("sourced split");
+    }
+    // The 90 day choice is kept when switching to the board.
+    await page.getByRole("link", { name: "Board" }).click();
+    await page.waitForURL(/funnel=90/);
+    await expectText(page, "Deal funnel, last 90 days");
+  });
+
+  await step("Suggested targets: one line on the funnel card and on Targets, computed from the Inputs (search hours changed in Plan, Inputs)", async () => {
+    const line2 = "With 2 hours a day: screen 17 listings, reply to 4, review 1 CIM, 2 calls a week.";
+    await page.goto(`${BASE}/opportunities/${acqPipe}`);
+    if (!(await page.getByTestId("suggested-targets").innerText()).includes(line2)) throw new Error(`funnel line: ${await page.getByTestId("suggested-targets").innerText()}`);
+    await expectText(page, "Your current targets take about 2 hours 22 minutes a day, 22 minutes more than the time set.");
+    await page.goto(`${BASE}/accountability/targets`);
+    if (!(await page.getByTestId("suggested-targets").innerText()).includes(line2)) throw new Error("Targets page line");
+    // Change the hours in Plan, Inputs (the input's own record form) and check the line follows.
+    const input = await one("select id from inputs where key = 'search_hours_per_day'");
+    await page.goto(`${BASE}/records/inputs/${input.id}?edit=1`);
+    await page.locator('input[name="value_number"]').fill("4");
+    await page.locator("form button[type=submit]").filter({ hasText: /^Save/ }).first().click();
+    await page.waitForLoadState("networkidle");
+    await waitFor(async () => Number((await one("select value_number from inputs where key = 'search_hours_per_day'")).value_number), 4, "hours saved");
+    await page.goto(`${BASE}/opportunities/${acqPipe}`);
+    if (!(await page.getByTestId("suggested-targets").innerText()).includes("With 4 hours a day: screen 34 listings, reply to 8, review 2 CIMs, 3 calls a week.")) {
+      throw new Error(`after 4 hours: ${await page.getByTestId("suggested-targets").innerText()}`);
+    }
+    await page.screenshot({ path: path.join(OUT, "flow-funnel-suggested.png"), fullPage: false });
+    await pg.query("update inputs set value_number = 2 where key = 'search_hours_per_day'");
   });
 
   await step("Load sample data: warns about real records first, then loads marked sample rows", async () => {

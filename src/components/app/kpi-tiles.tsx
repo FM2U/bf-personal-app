@@ -4,7 +4,18 @@ import { STATUS_TEXT, toneStatus } from "@/lib/status";
 import { METRIC_LABEL } from "@/components/app/page-header";
 import { ModuleTitle, type ModuleKey } from "@/components/app/module-icon";
 
-export type Kpi = { label: string; value: React.ReactNode; hint?: string; href: string; tone?: "good" | "bad" | "warn" };
+export type Kpi = {
+  label: string;
+  value: React.ReactNode;
+  hint?: string;
+  href: string;
+  tone?: "good" | "bad" | "warn";
+  /** Buttons under the number (for example +1, +5, Undo last). The label and number still open `href`. */
+  actions?: React.ReactNode;
+  /** Two columns wide on the phone (a tile with actions). */
+  wide?: boolean;
+  testId?: string;
+};
 
 /**
  * A labeled group of compact number tiles. Each tile opens its module.
@@ -15,11 +26,21 @@ export function KpiGroup({ title, module, tiles, className, cols }: { title: str
     <section className={cn("flex min-w-0 flex-col gap-2 rounded-xl border border-border bg-white p-3", className)} aria-label={title}>
       <h2 className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{module ? <ModuleTitle module={module}>{title}</ModuleTitle> : title}</h2>
       <div className={cn("grid gap-2", cols)}>
-        {tiles.map((t) => (
+        {tiles.map((t) =>
+          t.actions ? (
+            <div key={t.label} className={cn("flex min-w-0 flex-col rounded-lg border border-slate-100 bg-slate-50/60 p-2.5", t.wide && "col-span-2 sm:col-span-1")} data-testid={t.testId}>
+              <Link href={t.href} className="group flex min-w-0 flex-col rounded focus-visible:outline-2 focus-visible:outline-primary">
+                <span className={cn(METRIC_LABEL, "group-hover:text-slate-900 group-hover:underline")}>{t.label}</span>
+                <span className={cn("tabular clamp-1 mt-1 text-lg font-semibold leading-tight text-slate-900 sm:text-xl", t.tone && STATUS_TEXT[toneStatus(t.tone)])}>{t.value}</span>
+              </Link>
+              <div className="mt-1.5">{t.actions}</div>
+            </div>
+          ) : (
           <Link
             key={t.label}
             href={t.href}
-            className="group flex min-w-0 flex-col rounded-lg border border-slate-100 bg-slate-50/60 p-2.5 transition-colors hover:border-primary-border hover:bg-primary-soft/50 focus-visible:outline-2 focus-visible:outline-primary"
+            data-testid={t.testId}
+            className={cn("group flex min-w-0 flex-col rounded-lg border border-slate-100 bg-slate-50/60 p-2.5 transition-colors hover:border-primary-border hover:bg-primary-soft/50 focus-visible:outline-2 focus-visible:outline-primary", t.wide && "col-span-2 sm:col-span-1")}
           >
             <span className={cn(METRIC_LABEL, "group-hover:text-slate-900")}>{t.label}</span>
             <span
@@ -32,7 +53,8 @@ export function KpiGroup({ title, module, tiles, className, cols }: { title: str
             </span>
             <span className="clamp-2 mt-0.5 min-h-8 text-[11px] leading-4 text-muted-foreground">{t.hint ?? ""}</span>
           </Link>
-        ))}
+          ),
+        )}
       </div>
     </section>
   );

@@ -69,8 +69,8 @@ async function keyPages() {
     const org = await one("select id from organizations where name = 'Demo Retail Group' limit 1").catch(() => null);
     if (org) out.push(`/records/organizations/${org}`);
     const acqPipe = await one("select id from pipelines where kind = 'acquisition' limit 1").catch(() => null);
-    if (acqPipe) out.push(`/opportunities/${acqPipe}?view=board&closed=1`);
-    return [...out, "/people/outreach", "/finance/income", "/records/contacts/new", "/records/organizations/new", "/finance/import"];
+    if (acqPipe) out.push(`/opportunities/${acqPipe}?view=board&closed=1`, `/opportunities/${acqPipe}#funnel`);
+    return [...out, "/accountability/targets", "/people/outreach", "/finance/income", "/records/contacts/new", "/records/organizations/new", "/finance/import"];
   } catch {
     return [];
   } finally {
@@ -86,6 +86,7 @@ async function keyPages() {
   const named = (p) => {
     if (p.startsWith("/opportunities/") && p.includes("view=list")) return "consulting-list";
     if (p.startsWith("/opportunities/") && p.includes("view=board")) return "board-closed-stages";
+    if (p.startsWith("/opportunities/") && p.endsWith("#funnel")) return "acquisitions-funnel";
     if (p.startsWith("/records/organizations/") && !p.endsWith("/new")) return "organization-page";
     if (p.startsWith("/records/pipeline_items/") && p.endsWith("?edit=1")) return "acquisition-item-form";
     if (p.startsWith("/records/pipeline_items/") && p.endsWith("#due-today")) return "pipeline-item-due-today";

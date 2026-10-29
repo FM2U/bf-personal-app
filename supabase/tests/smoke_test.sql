@@ -114,7 +114,7 @@ end $$;
 
 -- 10. Targets and outreach (0008): owner sees the seeded target, manual taps and outreach logging work.
 do $$ begin
-  assert (select count(*) from public.targets) = 3, 'aal2 owner must see the 3 seeded targets';
+  assert (select count(*) from public.targets) = 6, 'aal2 owner must see the 6 seeded targets (0008, 0009, 0016)';
   assert (select count_source from public.targets where name = 'Network outreach') = 'communications_outreach', 'seed target source';
   assert (select minimum_count from public.targets where name = 'Network outreach') = 3, 'seed target minimum';
   assert (select active_weekdays from public.targets where name = 'Network outreach') = '{1,2,3,4,5}'::int[], 'seed target weekdays';
@@ -175,7 +175,7 @@ begin
 end $$;
 select public.seed_owner_targets('00000000-0000-0000-0000-000000000001');
 do $$ begin
-  assert (select count(*) from public.targets) = 3, 'seed targets must not duplicate';
+  assert (select count(*) from public.targets) = 6, 'seed targets must not duplicate';
 end $$;
 
 -- 13. Pipeline accountability (0009): new tables locked to the owner, seeds present and not duplicated.
@@ -207,8 +207,44 @@ end $$;
 select public.seed_owner_pipeline_accountability('00000000-0000-0000-0000-000000000001');
 do $$ begin
   assert (select count(*) from public.stage_tasks) = 60, 'stage tasks must not duplicate';
-  assert (select count(*) from public.targets) = 3, 'targets must not duplicate';
+  assert (select count(*) from public.targets) = 6, 'targets must not duplicate';
 end $$;
+
+-- 13b. Deal funnel (0016): three targets and five inputs for the owner, owner-only, not duplicated by a second run.
+do $$ begin
+  assert (select count(*) from public.targets where name in ('Listings screened', 'CIMs reviewed', 'Broker or owner calls')) = 3, '0016 targets';
+  assert (select count_source || ':' || period || ':' || minimum_count from public.targets where name = 'Listings screened') = 'manual:day:20', 'listings target';
+  assert (select count_source || ':' || period || ':' || minimum_count from public.targets where name = 'CIMs reviewed') = 'cims_reviewed:day:1', 'CIMs target';
+  assert (select count_source || ':' || period || ':' || minimum_count from public.targets where name = 'Broker or owner calls') = 'deal_calls:week:2', 'calls target';
+  assert (select bool_and(is_commitment and active) from public.targets where name in ('Listings screened', 'CIMs reviewed', 'Broker or owner calls')), '0016 targets are active commitments';
+  assert (select s.name from public.targets t join public.pipeline_stages s on s.id = t.stage_id where t.name = 'CIMs reviewed') = 'CIM reviewed', 'CIMs target stage';
+  assert (select p.name from public.targets t join public.pipelines p on p.id = t.pipeline_id where t.name = 'Listings screened') = 'Acquisitions', 'listings target pipeline';
+  assert (select i.name from public.targets t join public.initiatives i on i.id = t.initiative_id where t.name = 'Broker or owner calls') = 'Acquisition Search', '0016 initiative';
+  assert (select start_date from public.targets where name = 'CIMs reviewed') = (now() at time zone 'America/New_York')::date, '0016 counting starts today (New York)';
+  assert (select count(*) from public.inputs where category = 'Acquisition' and key in ('search_hours_per_day', 'minutes_per_listing_screen', 'minutes_per_cim_review', 'minutes_per_nda_reply', 'minutes_per_call')) = 5, '0016 inputs';
+  assert (select value_number from public.inputs where key = 'search_hours_per_day') = 2, 'search hours default';
+  assert (select value_number from public.inputs where key = 'minutes_per_cim_review') = 45, 'CIM minutes default';
+  assert public.schema_has_0016(), '0016 check function';
+end $$;
+select public.seed_owner_deal_funnel('00000000-0000-0000-0000-000000000001');
+do $$ begin
+  assert (select count(*) from public.targets) = 6, '0016 targets must not duplicate';
+  assert (select count(*) from public.inputs where key = 'search_hours_per_day') = 1, '0016 inputs must not duplicate';
+end $$;
+set role authenticated;
+do $$ begin
+  begin
+    perform public.seed_owner_deal_funnel('00000000-0000-0000-0000-000000000001');
+    raise exception 'a signed-in user can run the 0016 seed function';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    insert into public.targets (name, count_source) values ('Bad source', 'cims_reviewed_typo');
+    raise exception 'unknown count source allowed';
+  exception when check_violation or insufficient_privilege then null;
+  end;
+end $$;
+reset role;
 
 -- 14. Entering a stage: default next action, stage tasks, commitments (once per item and stage task).
 set role authenticated;
@@ -611,7 +647,7 @@ begin
   assert (select count(*) from public.pipeline_stages) = (select stages from reset_before), 'stages kept';
   assert (select count(*) from public.stage_tasks) = (select stage_tasks from reset_before), 'stage task lists kept';
   assert (select count(*) from public.targets) = (select targets from reset_before), 'targets kept';
-  assert (select bool_and(start_date = current_date) from public.targets), 'targets count from today';
+  assert (select bool_and(start_date = (now() at time zone 'America/New_York')::date) from public.targets), 'targets count from today';
   assert (select count(*) from public.task_templates) = (select templates from reset_before), 'recurring tasks kept';
   assert (select count(*) from public.categories) = (select categories from reset_before), 'categories kept';
   assert (select count(*) from public.categorization_rules) = (select rules from reset_before), 'category rules kept';

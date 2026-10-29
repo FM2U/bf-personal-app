@@ -13,7 +13,10 @@ import { EmptyState, Notice, PageHeader } from "@/components/app/page-header";
 import { SubmitButton } from "@/components/app/submit-button";
 import { DbUpdateNotice } from "@/components/app/target-grid";
 import { TargetCard } from "@/components/app/target-card";
-import { addTargetEntry, saveTargetMissReason, undoTargetEntry } from "@/app/actions/targets";
+import { saveTargetMissReason } from "@/app/actions/targets";
+import { CountButtons } from "@/components/app/listing-buttons";
+import { SuggestedTargets } from "@/components/app/deal-funnel-card";
+import { listingsTarget, loadDealPlan } from "@/lib/deal-funnel";
 import { COUNT_SOURCE_OPTIONS } from "@/lib/resources";
 import { date as fmtDate } from "@/lib/format";
 import { GuardedForm } from "@/components/app/unsaved-changes";
@@ -29,8 +32,13 @@ const SOURCE_SHORT: Record<string, string> = {
   deals_sourced: "Counts new acquisition items added (proprietary and brokered)",
   deals_advanced:
     "Counts each deal once per day when it moved to NDA signed or later, or a CIM request or a source contact was logged on it",
-  manual: "Counted with the +1 button",
+  cims_reviewed: "Counts each deal once, on the day it first moved to CIM reviewed or a later stage (not the stage it was added in)",
+  deal_calls: "Counts calls and meetings logged on acquisition deals, one per deal per day",
+  manual: "Counted with the +1 and +5 buttons (a note is optional)",
 };
+
+/** Count sources of the deal targets: the suggested targets line is shown above the first of them. */
+const DEAL_SOURCES = ["deals_sourced", "deals_advanced", "cims_reviewed", "deal_calls"];
 
 export default async function TargetsPage({ searchParams }: { searchParams: Promise<{ notice?: string }> }) {
   const sp = await searchParams;
@@ -42,6 +50,10 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
     loadOutreachStats(supabase, { ownerId, tz: ctx.tz, from: addDaysISO(today, -29), to: today }),
   ]);
   const summaries = summarizeTargets(data, today);
+  const listing = listingsTarget(summaries);
+  const isDeal = (t: (typeof summaries)[number]["target"]) => DEAL_SOURCES.includes(t.count_source) || t.id === listing?.target.id;
+  const firstDeal = summaries.find((s) => isDeal(s.target))?.target.id;
+  const plan = data.available && firstDeal ? await loadDealPlan(supabase, { ownerId, targets: data }) : null;
   const suggestion = await firstSuggestion([targetSuggestion(summaries, today)]);
   const deals30 = Object.fromEntries(data.targets.map((t) => [t.id, todayBreakdown(data, t.id, addDaysISO(today, -29), today)]));
   const week = weekBounds(today);
@@ -56,7 +68,7 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
     <div>
       <PageHeader
         title="Targets"
-        description="A target is a minimum count of an activity per day or per week. Counts are read from the records (outreach logged, pipeline items added) or from the +1 button."
+        description="A target is a minimum count of an activity per day or per week. Counts are read from the records (outreach logged, deals added or moved, calls logged) or from the +1 and +5 buttons."
         actions={
           data.available ? (
             <Button asChild size="sm">
@@ -80,8 +92,9 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
           const t = s.target;
           const weekTotals = rangeTotals(t.def, data.counts[t.id] ?? {}, week.start, week.end, addDaysISO(today, -1));
           return (
+            <div key={t.id} className="contents">
+            {plan && t.id === firstDeal ? <SuggestedTargets plan={plan} /> : null}
             <TargetCard
-              key={t.id}
               s={s}
               today={today}
               week={t.period === "day" ? weekTotals : null}
@@ -90,22 +103,11 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
               footnote={`${SOURCE_SHORT[t.count_source] ?? COUNT_SOURCE_OPTIONS.find((o) => o.value === t.count_source)?.label}. Counting since ${fmtDate(t.def.start_date)}.`}
               actions={
                 <>
-                  {t.count_source === "manual" && t.active ? (
-                    <>
-                      <GuardedForm action={addTargetEntry}>
-                        <input type="hidden" name="target_id" value={t.id} />
-                        <input type="hidden" name="back" value="/accountability/targets" />
-                        <SubmitButton size="sm" pendingText="Adding...">
-                          +1 today
-                        </SubmitButton>
-                      </GuardedForm>
-                      <GuardedForm action={undoTargetEntry}>
-                        <input type="hidden" name="target_id" value={t.id} />
-                        <SubmitButton size="sm" variant="outline" pendingText="Removing...">
-                          Undo last +1
-                        </SubmitButton>
-                      </GuardedForm>
-                    </>
+                  {t.count_source === "manual" && t.active ? <CountButtons targetId={t.id} back="/accountability/targets" note label={t.name} /> : null}
+                  {t.count_source === "deal_calls" || t.count_source === "cims_reviewed" ? (
+                    <Button asChild size="sm" variant="outline">
+                      <Link href={t.pipeline_id ? `/opportunities/${t.pipeline_id}` : "/opportunities"}>Open deals</Link>
+                    </Button>
                   ) : null}
                   {t.count_source === "communications_outreach" ? (
                     <Button asChild size="sm">
@@ -135,6 +137,7 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
                 </>
               }
             />
+            </div>
           );
         })}
 

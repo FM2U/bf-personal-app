@@ -12,6 +12,7 @@
 #   (k) 0001 to 0013 plus an owner and data, then UPDATE_0013_0014_RUN_ONCE.sql twice
 #   (l) 0001 to 0013, then UPDATE_0014_RUN_ONCE.sql twice
 #   (m) 0001 to 0014 (the live database on 2026-10-28) plus an owner and data, then UPDATE_0015_RUN_ONCE.sql twice
+#   (n) 0001 to 0015 (the live database on 2026-10-28, evening) plus an owner and data, then UPDATE_0016_RUN_ONCE.sql twice
 # Paths b, c, d (UPDATE_RUN_ONCE.sql) and j, k, l also check 0014: tables, policies, functions, sample removal, and reset.
 # Every UPDATE_RUN_ONCE.sql path also checks 0012 and 0013.
 # Usage: bash supabase/tests/upgrade_test.sh
@@ -76,7 +77,8 @@ do $$ begin
   assert (select is_outreach from public.communications where subject = 'Existing call') = false, 'existing communications default to not outreach';
   assert (select count(*) from pg_constraint where conname = 'communications_outcome_check') = 1, 'one outcome check';
   -- 0009
-  assert (select count(*) from public.targets) = 3, 'three targets, no duplicates';
+  assert (select count(*) from public.targets) = 6, 'six targets (0008, 0009, 0016), no duplicates';
+  assert (select count(*) from public.targets where name in ('Listings screened', 'CIMs reviewed', 'Broker or owner calls')) = 3, '0016 targets seeded once';
   assert (select count(*) from public.targets where name = 'Deals sourced' and count_source = 'deals_sourced' and minimum_count = 5) = 1, 'Deals sourced seeded once';
   assert (select count(*) from public.targets where name = 'Deals advanced' and count_source = 'deals_advanced' and minimum_count = 1) = 1, 'Deals advanced seeded once';
   assert (select start_date from public.targets where name = 'Deals advanced') = (now() at time zone 'America/New_York')::date, 'counting starts today (New York)';
@@ -147,7 +149,7 @@ do $$ begin
   assert (select introduced_by_contact_id from public.pipeline_items where name = 'Existing deal') is null, 'existing items keep an empty introduced by';
   assert (select is_consulting_lead from public.contacts where name = 'Existing contact') = false, 'existing contacts are not consulting leads';
   assert (select purpose from public.communications where subject = 'Existing call') = 'general', 'existing communication purpose kept';
-  assert (select count(*) from public.targets) = 3, 'no consulting target';
+  assert (select count(*) from public.targets where name not in ('Listings screened', 'CIMs reviewed', 'Broker or owner calls')) = 3, 'no consulting target';
 end $$;
 -- A new consulting item gets its stage tasks.
 insert into public.pipeline_items (owner_id, pipeline_id, stage_id, name)
@@ -366,7 +368,46 @@ select '0015 checks passed' as result;
 SQL
 for f in UPDATE_RUN_ONCE ALL_MIGRATIONS_RUN_ONCE; do grep -q "email_signature_html" "$DIR/$f.sql" || { echo "$f.sql is missing 0015"; exit 1; }; done
 
+# (n) Live state on 2026-10-28 (evening): 0001 to 0015 applied, an owner with an edited target and a manual count,
+# then UPDATE_0016_RUN_ONCE.sql twice. Three targets and five inputs are added once; nothing existing changes.
+setup bf_upgrade_n 0015
+su postgres -c "$PSQL -d bf_upgrade_n" <<'SQL'
+\set ON_ERROR_STOP 1
+update public.targets set minimum_count = 4 where name = 'Network outreach';
+insert into public.targets (owner_id, name, count_source) values ('00000000-0000-0000-0000-000000000001', 'Own manual target', 'manual');
+insert into public.target_entries (owner_id, target_id, count) select owner_id, id, 3 from public.targets where name = 'Own manual target';
+SQL
+for run in 1 2; do
+  echo "[bf_upgrade_n] Applying UPDATE_0016_RUN_ONCE.sql (run $run)"
+  su postgres -c "$PSQL -d bf_upgrade_n -f $DIR/UPDATE_0016_RUN_ONCE.sql"
+done
+su postgres -c "$PSQL -d bf_upgrade_n" <<'SQL'
+\set ON_ERROR_STOP 1
+do $$ begin
+  assert (select count(*) from public.targets) = 7, 'three 0016 targets added once (3 from 0008 and 0009, 1 own, 3 new)';
+  assert (select count(*) from public.targets where name = 'Listings screened' and count_source = 'manual' and minimum_count = 20 and period = 'day') = 1, 'Listings screened';
+  assert (select count(*) from public.targets where name = 'CIMs reviewed' and count_source = 'cims_reviewed' and minimum_count = 1) = 1, 'CIMs reviewed';
+  assert (select count(*) from public.targets where name = 'Broker or owner calls' and count_source = 'deal_calls' and period = 'week' and minimum_count = 2) = 1, 'Broker or owner calls';
+  assert (select bool_and(is_commitment and start_date = (now() at time zone 'America/New_York')::date) from public.targets
+          where name in ('Listings screened', 'CIMs reviewed', 'Broker or owner calls')), 'commitments counting from today (New York)';
+  assert (select minimum_count from public.targets where name = 'Network outreach') = 4, 'edited target kept';
+  assert (select sum(count) from public.target_entries) = 3, 'manual counts kept';
+  assert (select count(*) from public.inputs where key in ('search_hours_per_day', 'minutes_per_listing_screen', 'minutes_per_cim_review', 'minutes_per_nda_reply', 'minutes_per_call')) = 5, 'five inputs once';
+  assert to_regprocedure('public.schema_has_0016()') is not null, '0016 check function';
+  assert (select prosrc from pg_proc where proname = 'handle_new_owner') like '%seed_owner_deal_funnel%', 'owner setup seeds 0016';
+end $$;
+-- A second owner (future owners) gets the targets from the owner setup function.
+delete from auth.users where id = '00000000-0000-0000-0000-000000000001';
+insert into auth.users (id, email) values ('00000000-0000-0000-0000-000000000002', 'next@example.com');
+do $$ begin
+  assert (select count(*) from public.targets where owner_id = '00000000-0000-0000-0000-000000000002'
+          and name in ('Listings screened', 'CIMs reviewed', 'Broker or owner calls')) = 3, 'future owner gets the 0016 targets';
+end $$;
+select '0016 checks passed' as result;
+SQL
+for f in UPDATE_RUN_ONCE ALL_MIGRATIONS_RUN_ONCE; do grep -q "seed_owner_deal_funnel" "$DIR/$f.sql" || { echo "$f.sql is missing 0016"; exit 1; }; done
+
 echo "Upgrade paths passed: 0001-0007 + update twice, 0001-0008 + update, 0001-0009 + update twice, 0001-0010 + 0011 update twice,"
 echo "0001-0010 + 0011_0012 update twice, 0001-0011 + 0011_0012 update twice, 0001-0011 + 0012 update twice (edited text kept),"
 echo "0001-0012 + 0013 update twice, 0001-0012 + 0013_0014 update twice, 0001-0013 + 0013_0014 update twice, 0001-0013 + 0014 update twice,"
-echo "0001-0014 + 0015 update twice."
+echo "0001-0014 + 0015 update twice, 0001-0015 + 0016 update twice (future owner too)."

@@ -1,5 +1,5 @@
 -- BF Personal App: database update 0015 (Gmail signature on emails sent or drafted from the app).
--- For the live database, which has 0001 to 0014. Paste this whole file into the Supabase SQL Editor and press Run.
+-- For a database that has 0001 to 0014. Paste this whole file into the Supabase SQL Editor and press Run.
 -- Expected result: "Success. No rows returned". Safe to run more than once: nothing is duplicated, and no existing
 -- record is changed or deleted. It only adds four empty columns to owner_profile and a check function.
 -- Generated from supabase/migrations/0015_email_signature.sql by supabase/build_combined.py.

@@ -1,7 +1,8 @@
 # Regenerates the combined SQL files from supabase/migrations:
 #   supabase/ALL_MIGRATIONS_RUN_ONCE.sql  every migration (new, empty project)
-#   supabase/UPDATE_RUN_ONCE.sql          0008 to 0015 (full catch-up for an existing project with 0001 to 0007 or later)
-#   supabase/UPDATE_0015_RUN_ONCE.sql     0015 only (the live database: 0001 to 0014)
+#   supabase/UPDATE_RUN_ONCE.sql          0008 to 0016 (full catch-up for an existing project with 0001 to 0007 or later)
+#   supabase/UPDATE_0016_RUN_ONCE.sql     0016 only (the live database: 0001 to 0015)
+#   supabase/UPDATE_0015_RUN_ONCE.sql     0015 only (a database with 0001 to 0014)
 #   supabase/UPDATE_0013_0014_RUN_ONCE.sql 0013 then 0014 (the live database: 0001 to 0012, or 0001 to 0013)
 #   supabase/UPDATE_0014_RUN_ONCE.sql     0014 only (a database that already has 0001 to 0013)
 #   supabase/UPDATE_0013_RUN_ONCE.sql     0013 only (kept for reference; use UPDATE_0013_0014_RUN_ONCE.sql instead)
@@ -23,7 +24,7 @@ open("supabase/ALL_MIGRATIONS_RUN_ONCE.sql", "w").write(header + "\n".join(parts
 
 update_files = [f for f in files if f.split("/")[-1][:4] >= "0008"]
 update = (
-    "-- BF Personal App: database update (0008, 0009, 0010, 0011, 0012, 0013, 0014, and 0015).\n"
+    "-- BF Personal App: database update (0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, and 0016).\n"
     "--   0008: Daily Targets and Outreach Queue.\n"
     "--   0009: Stage task lists, stage time limits, required details, stalled items, deal source (proprietary or brokered),\n"
     "--         deal-source contacts, and the Deals sourced and Deals advanced targets.\n"
@@ -34,7 +35,8 @@ update = (
     "--   0013: Send email from the app: Gmail message ids on communications; partner reports marked sent with the date.\n"
     "--   0014: Start an initiative (drafts, plan documents, checklists), weekly AI savings ideas, sample data, Reset data.\n"
     "--   0015: Gmail signature on emails sent or drafted from the app (four columns on owner_profile).\n"
-    "-- For a database that already has 0001 to 0007 (or 0001 to 0008, 0009, 0010, 0011, 0012, 0013, or 0014). Paste this whole file into the\n"
+    "--   0016: Deal funnel: Listings screened, CIMs reviewed, and Broker or owner calls targets; search hours and minutes per step.\n"
+    "-- For a database that already has 0001 to 0007 (or 0001 to 0008, 0009, 0010, 0011, 0012, 0013, 0014, or 0015). Paste this whole file into the\n"
     "-- Supabase SQL Editor and press Run. Safe to run more than once: nothing is duplicated.\n"
     "-- Generated from supabase/migrations by supabase/build_combined.py.\n\n"
 )
@@ -117,15 +119,29 @@ open("supabase/UPDATE_0014_RUN_ONCE.sql", "w").write(u14 + m14)
 
 u15 = (
     "-- BF Personal App: database update 0015 (Gmail signature on emails sent or drafted from the app).\n"
-    "-- For the live database, which has 0001 to 0014. Paste this whole file into the Supabase SQL Editor and press Run.\n"
+    "-- For a database that has 0001 to 0014. Paste this whole file into the Supabase SQL Editor and press Run.\n"
     "-- Expected result: \"Success. No rows returned\". Safe to run more than once: nothing is duplicated, and no existing\n"
     "-- record is changed or deleted. It only adds four empty columns to owner_profile and a check function.\n"
     "-- Generated from supabase/migrations/0015_email_signature.sql by supabase/build_combined.py.\n\n"
 )
 open("supabase/UPDATE_0015_RUN_ONCE.sql", "w").write(u15 + open("supabase/migrations/0015_email_signature.sql").read())
 
+u16 = (
+    "-- BF Personal App: database update 0016 (deal funnel).\n"
+    "-- For the live database, which has 0001 to 0015. Paste this whole file into the Supabase SQL Editor and press Run.\n"
+    "-- Expected result: \"Success. No rows returned\". Safe to run more than once: nothing is duplicated, and no existing\n"
+    "-- target, input, or record is changed or deleted. What it adds:\n"
+    "--   Two count sources for targets: CIMs reviewed (cims_reviewed) and Broker or owner calls (deal_calls).\n"
+    "--   Three targets, counting from today (New York date), all commitments: Listings screened (20 per weekday, +1 and +5\n"
+    "--   buttons), CIMs reviewed (1 per weekday), Broker or owner calls (2 per week). Future owners get them too.\n"
+    "--   Five inputs (Plan, Inputs, Acquisition): search hours per day (2) and minutes to screen a listing (3), review a CIM (45),\n"
+    "--   reply or send an NDA (5), and per call (30), used for the Suggested targets line. And a check function.\n"
+    "-- Generated from supabase/migrations/0016_deal_funnel.sql by supabase/build_combined.py.\n\n"
+)
+open("supabase/UPDATE_0016_RUN_ONCE.sql", "w").write(u16 + open("supabase/migrations/0016_deal_funnel.sql").read())
+
 old = (
-    "-- USE supabase/UPDATE_RUN_ONCE.sql INSTEAD. That file includes this update (0008) and the next ones (0009 to 0015).\n"
+    "-- USE supabase/UPDATE_RUN_ONCE.sql INSTEAD. That file includes this update (0008) and the next ones (0009 to 0016).\n"
     "-- This file is kept for reference only.\n"
     "--\n"
     "-- BF Personal App: database update 0008 (Daily Targets and Outreach Queue).\n"
@@ -135,5 +151,5 @@ old = (
 open("supabase/UPDATE_0008_RUN_ONCE.sql", "w").write(old + open("supabase/migrations/0008_targets_outreach.sql").read())
 print(
     f"Wrote ALL_MIGRATIONS_RUN_ONCE.sql ({len(files)} files), UPDATE_RUN_ONCE.sql ({len(update_files)} files), "
-    "UPDATE_0015_RUN_ONCE.sql, UPDATE_0013_0014_RUN_ONCE.sql, UPDATE_0014_RUN_ONCE.sql, UPDATE_0011_0012_RUN_ONCE.sql, UPDATE_0012_RUN_ONCE.sql, UPDATE_0013_RUN_ONCE.sql, UPDATE_0011_RUN_ONCE.sql, UPDATE_0008_RUN_ONCE.sql"
+    "UPDATE_0016_RUN_ONCE.sql, UPDATE_0015_RUN_ONCE.sql, UPDATE_0013_0014_RUN_ONCE.sql, UPDATE_0014_RUN_ONCE.sql, UPDATE_0011_0012_RUN_ONCE.sql, UPDATE_0012_RUN_ONCE.sql, UPDATE_0013_RUN_ONCE.sql, UPDATE_0011_RUN_ONCE.sql, UPDATE_0008_RUN_ONCE.sql"
 )

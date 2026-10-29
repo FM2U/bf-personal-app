@@ -118,9 +118,17 @@ create trigger communications_default_purpose before insert or update on public.
 --                    that day (the stage an item is created in does not count as a move), or had a communication
 --                    with purpose cim_request or source_contact that day.
 alter table public.targets add column if not exists stage_id uuid references public.pipeline_stages (id) on delete set null;
-alter table public.targets drop constraint if exists targets_count_source_check;
-alter table public.targets add constraint targets_count_source_check
-  check (count_source in ('communications_outreach', 'pipeline_items_created', 'manual', 'deals_sourced', 'deals_advanced'));
+-- Replaced only when it does not allow deals_advanced yet, so running this again after 0016 (which allows more
+-- count sources) keeps the wider rule.
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'targets_count_source_check'
+                 and pg_get_constraintdef(oid) like '%deals_advanced%') then
+    alter table public.targets drop constraint if exists targets_count_source_check;
+    alter table public.targets add constraint targets_count_source_check
+      check (count_source in ('communications_outreach', 'pipeline_items_created', 'manual', 'deals_sourced', 'deals_advanced'));
+  end if;
+end $$;
 
 -- 7. Row Level Security, owner-only policy, grants, updated_at, and change log for the new tables
 -- (the same statements 0006 applied to every table that existed then).

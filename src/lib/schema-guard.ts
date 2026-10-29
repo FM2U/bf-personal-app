@@ -116,3 +116,15 @@ export const DB_UPDATE_NOTICE_0015 = `Database update needed: paste ${DB_UPDATE_
 export const COLUMNS_0015: Record<string, string[]> = {
   owner_profile: ["email_signature_html", "email_signature_text", "email_signature_enabled", "email_signature_updated_at"],
 };
+
+/**
+ * Database update 0016 (deal funnel): count sources cims_reviewed and deal_calls, the targets "Listings screened",
+ * "CIMs reviewed", and "Broker or owner calls", the search hours and minutes-per-step inputs, and schema_has_0016().
+ * Before it, the funnel card shows its other steps with "Database update needed" naming this file for Listings
+ * screened, the suggested targets use the default numbers, and every other screen and both scheduled jobs keep working.
+ */
+export const DB_UPDATE_FILE_0016 = "supabase/UPDATE_0016_RUN_ONCE.sql";
+export const DB_UPDATE_NOTICE_0016 = `Database update needed: paste ${DB_UPDATE_FILE_0016} into the Supabase SQL Editor and run it.`;
+export const PROBE_0016 = "schema_has_0016";
+/** Count sources that need update 0016 (the check constraint allows them only after it). */
+export const COUNT_SOURCES_0016 = ["cims_reviewed", "deal_calls"];

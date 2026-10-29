@@ -24,6 +24,8 @@ import { runwayExplanation } from "@/lib/calc/runway";
 import { consecutiveCompleteDays, nextScheduledReview } from "@/lib/calc/scores";
 import { scoreText } from "@/lib/calc/commitment-rule";
 import { summarizeTargets } from "@/lib/targets";
+import { listingsTarget } from "@/lib/deal-funnel";
+import { CountButtons } from "@/components/app/listing-buttons";
 import { KpiGroup, type Kpi } from "@/components/app/kpi-tiles";
 import { DbUpdateNotice } from "@/components/app/target-grid";
 import type { Row } from "@/lib/types";
@@ -113,6 +115,7 @@ export default async function HomePage() {
   const dayTargets = summarizeTargets(metrics.targets, today).filter((t) => t.target.period === "day" && t.today.status !== "off");
   const targetsMet = dayTargets.filter((t) => t.today.status === "met").length;
   const sourced = summarizeTargets(metrics.targets, today).find((t) => t.target.count_source === "deals_sourced" && t.target.active);
+  const listing = listingsTarget(summarizeTargets(metrics.targets, today));
   const score = metrics.values.commitment_score_week;
   const draftReview = ((draftRes.data ?? []) as Row[])[0];
   const scheduled = nextScheduledReview(today, Number(ctx.profile.weekly_review_weekday ?? 0));
@@ -137,6 +140,18 @@ export default async function HomePage() {
       hint: sourced.breakdown ? `${sourced.breakdown.proprietary} proprietary, ${sourced.breakdown.brokered} brokered` : undefined,
     });
   }
+  if (listing) {
+    productivityTiles.splice(sourced ? 3 : 2, 0, {
+      label: `${listing.target.name} today`,
+      value: listing.today.status === "off" ? `${listing.today.count}, not today` : `${listing.today.count} of ${listing.today.required}`,
+      href: "/accountability/targets",
+      tone: listing.today.status === "met" ? "good" : undefined,
+      actions: <CountButtons targetId={listing.target.id} back="/" label={listing.target.name} stretch className="flex-nowrap" />,
+      wide: true,
+      testId: "home-listings",
+    });
+  }
+  const wideProductivity = productivityTiles.length > 4;
   const accountabilityTiles: Kpi[] = [
     { label: "Commitment score this week", value: scoreText(score), href: "/accountability/scores", tone: score !== null && score !== undefined && score < 70 ? "bad" : undefined, hint: score === null || score === undefined ? "None due yet this week" : "Includes targets" },
     { label: "Days in a row with every task done", value: streak, href: "/accountability/scores", tone: streak ? "good" : undefined },
@@ -160,8 +175,9 @@ export default async function HomePage() {
         }
       />
       {suggestion ? <SuggestionLine s={suggestion} context={{ label: "Home: today's plan" }} className="mb-4" /> : null}
-      <div className={`mb-4 grid grid-cols-1 gap-4 ${productivityTiles.length > 3 ? "xl:grid-cols-2" : "lg:grid-cols-[minmax(0,3fr)_minmax(0,4fr)]"}`}>
-        <KpiGroup title="Productivity" module="productivity" tiles={productivityTiles} cols={productivityTiles.length > 3 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3"} />
+      {/* Five productivity tiles (with Listings screened and its buttons) take their own row; four or fewer sit beside Accountability. */}
+      <div className={`mb-4 grid grid-cols-1 gap-4 ${wideProductivity ? "" : productivityTiles.length > 3 ? "xl:grid-cols-2" : "lg:grid-cols-[minmax(0,3fr)_minmax(0,4fr)]"}`}>
+        <KpiGroup title="Productivity" module="productivity" tiles={productivityTiles} cols={wideProductivity ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5" : productivityTiles.length > 3 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3"} />
         <KpiGroup title="Accountability" module="accountability" tiles={accountabilityTiles} cols="grid-cols-2 sm:grid-cols-4" />
       </div>
       {!metrics.targets.available || !pipelineUpdate ? (

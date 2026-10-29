@@ -12,7 +12,7 @@ import { loadCtx, refreshNextActionAlert } from "@/lib/engine/helpers";
 import { evaluateConditions } from "@/lib/engine/rules";
 import { checkCommitments, releaseSupersededNextActions } from "@/lib/engine/tasks";
 import { nextReportDate } from "@/lib/engine/partners";
-import { DB_UPDATE_NOTICE, DB_UPDATE_NOTICE_0011, DB_UPDATE_NOTICE_0014, isCheckViolation, isMissingSchemaError, NEW_COLUMNS, NEW_TABLES, OPTIONS_0012, TABLES_0011, TABLES_0014 } from "@/lib/schema-guard";
+import { COUNT_SOURCES_0016, DB_UPDATE_NOTICE, DB_UPDATE_NOTICE_0011, DB_UPDATE_NOTICE_0014, DB_UPDATE_NOTICE_0016, isCheckViolation, isMissingSchemaError, NEW_COLUMNS, NEW_TABLES, OPTIONS_0012, TABLES_0011, TABLES_0014 } from "@/lib/schema-guard";
 import { ORG_PEOPLE_FIELD, parseOrgPeople, planOrgPeople, type OrgPeoplePlan } from "@/lib/org-people";
 import { applyOrgPeople, linkedContactIds } from "@/lib/org-people-server";
 import { DETAIL_TABLE, hasPipelineUpdate, missingForStage } from "@/lib/pipeline";
@@ -209,8 +209,9 @@ async function writeRecord(table: string, fd: FormData, fields: Field[]): Promis
     if (Array.isArray(data.active_weekdays)) data.active_weekdays = (data.active_weekdays as string[]).map(Number).filter((n) => n >= 0 && n <= 6);
     if (!id && !data.start_date) data.start_date = ctx.today;
     if ("start_date" in data && !data.start_date) delete data.start_date;
-    if (!["pipeline_items_created", "deals_sourced", "deals_advanced"].includes(String(data.count_source)) && "pipeline_id" in data) data.pipeline_id = null;
-    if (data.count_source !== "deals_advanced" && "stage_id" in data) data.stage_id = null;
+    // A manual target keeps its pipeline: its +1 buttons also show on that pipeline's page (Listings screened, 0016).
+    if (!["pipeline_items_created", "deals_sourced", "deals_advanced", "cims_reviewed", "deal_calls", "manual"].includes(String(data.count_source)) && "pipeline_id" in data) data.pipeline_id = null;
+    if (!["deals_advanced", "cims_reviewed"].includes(String(data.count_source)) && "stage_id" in data) data.stage_id = null;
   }
   if (table === "communications" && data.outcome && data.is_outreach === false) data.is_outreach = true;
   // A communication logged from a pipeline item page is saved with that item (counted by "Deals advanced").
@@ -259,6 +260,7 @@ async function writeRecord(table: string, fd: FormData, fields: Field[]): Promis
     if (isMissingSchemaError(result.error) && NEW_TABLES.includes(table)) return { ok: false, error: TABLES_0014.includes(table) ? DB_UPDATE_NOTICE_0014 : TABLES_0011.includes(table) ? DB_UPDATE_NOTICE_0011 : DB_UPDATE_NOTICE };
     // A value allowed only after update 0012 (relationship group Friend or Other).
     if (isCheckViolation(result.error) && OPTIONS_0012[table]) return { ok: false, error: DB_UPDATE_NOTICE_0011 };
+    if (isCheckViolation(result.error) && table === "targets" && COUNT_SOURCES_0016.includes(String(data.count_source))) return { ok: false, error: DB_UPDATE_NOTICE_0016 };
     return { ok: false, error: result.error.message };
   }
   savedId = result.newId;

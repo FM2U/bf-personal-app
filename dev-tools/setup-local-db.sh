@@ -16,5 +16,8 @@ for f in "$ROOT"/supabase/migrations/*.sql; do
   su postgres -c "$PSQL -d $DB -f $f"
 done
 su postgres -c "$PSQL -d $DB -c \"insert into auth.users (id, email) values ('$OWNER_ID', '$OWNER_EMAIL')\""
-if [ "${NO_DEMO:-0}" != "1" ]; then su postgres -c "$PSQL -d $DB -f $ROOT/supabase/seed/demo_seed.sql"; fi
+# The demo data uses current_date for "today". The app's today is the New York date, so the seed runs with the
+# New York time zone (PGTZ): late in the evening the UTC date is already tomorrow. The database itself stays on UTC
+# (as Supabase is), so everything the app saves behaves as in production.
+if [ "${NO_DEMO:-0}" != "1" ]; then su postgres -c "PGTZ=America/New_York $PSQL -d $DB -f $ROOT/supabase/seed/demo_seed.sql"; fi
 echo "Local database $DB is ready (owner $OWNER_EMAIL)."

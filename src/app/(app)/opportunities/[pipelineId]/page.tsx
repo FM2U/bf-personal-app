@@ -22,8 +22,11 @@ import { Stat, StatGrid } from "@/components/app/page-header";
 import { loadConsulting, loadConsultingIncome, type ConsultingData } from "@/lib/consulting";
 import { monthBounds } from "@/lib/calc/dates";
 import { DB_UPDATE_FILE_0011 } from "@/lib/schema-guard";
+import { loadDealFunnel, resolveFunnelWindow } from "@/lib/deal-funnel";
+import { DealFunnelCard } from "@/components/app/deal-funnel-card";
+import { CountButtons } from "@/components/app/listing-buttons";
 
-export default async function PipelinePage({ params, searchParams }: { params: Promise<{ pipelineId: string }>; searchParams: Promise<{ closed?: string; view?: string }> }) {
+export default async function PipelinePage({ params, searchParams }: { params: Promise<{ pipelineId: string }>; searchParams: Promise<{ closed?: string; view?: string; funnel?: string }> }) {
   const { pipelineId } = await params;
   const sp = await searchParams;
   const { supabase, ownerId } = await requireOwner();
@@ -52,6 +55,8 @@ export default async function PipelinePage({ params, searchParams }: { params: P
   const consulting = isConsulting ? await loadConsulting(supabase, { ownerId, today: ctx.today }) : null;
   const cItem = Object.fromEntries((consulting?.items ?? []).map((c) => [c.item.id, c]));
   const month = monthBounds(ctx.today);
+  const funnel = isAcq ? await loadDealFunnel(supabase, { ownerId, tz: ctx.tz, today: ctx.today, pipelineId, days: resolveFunnelWindow(sp.funnel) }) : null;
+  const listings = funnel?.listings ?? null;
   const incomeThisMonth = isConsulting && consulting?.available ? await loadConsultingIncome(supabase, { ownerId, from: month.start, to: month.end, itemIds: consulting.items.map((c) => c.item.id) }) : null;
   const jar = await cookies();
   const closedCookie = pipelineClosedCookie(pipelineId);
@@ -72,8 +77,8 @@ export default async function PipelinePage({ params, searchParams }: { params: P
   const overCount = items.filter((i) => status.byItem[i.id]?.limit?.over).length;
   const href = (p: Record<string, string>) => {
     // The list is the default, so it is left out of the address; the board keeps ?view=board.
-    const q = new URLSearchParams({ view: view === "board" ? "board" : "", ...p });
-    for (const [k, v] of [...q.entries()]) if (!v || (k === "view" && v === "list")) q.delete(k);
+    const q = new URLSearchParams({ view: view === "board" ? "board" : "", funnel: sp.funnel === "90" ? "90" : "", ...p });
+    for (const [k, v] of [...q.entries()]) if (!v || (k === "view" && v === "list") || (k === "funnel" && v === "30")) q.delete(k);
     const s = q.toString();
     return `/opportunities/${pipelineId}${s ? `?${s}` : ""}`;
   };
@@ -85,6 +90,17 @@ export default async function PipelinePage({ params, searchParams }: { params: P
         description={`Each item has a stage, a next action with a due date, and the stage's task list.${isAcq ? " Proprietary (off-market) deals are listed first in every stage." : ""} Open an item to move it between stages.`}
         actions={
           <>
+            {listings ? (
+              <div className="flex w-full flex-wrap items-center justify-end gap-x-3 gap-y-2" data-testid="header-listings">
+                <span className="text-sm text-slate-700">
+                  {listings.target.name} today:{" "}
+                  <span className={cn("tabular font-semibold", listings.today.status === "met" ? "text-status-met" : "text-slate-900")} data-testid="header-listings-count">
+                    {listings.today.status === "off" ? `${listings.today.count} (not an active day)` : `${listings.today.count} of ${listings.today.required}`}
+                  </span>
+                </span>
+                <CountButtons targetId={listings.target.id} back={`/opportunities/${pipelineId}`} label={listings.target.name} />
+              </div>
+            ) : null}
             <div className="flex rounded-md border border-border bg-white p-0.5" role="group" aria-label="View">
               <Button asChild size="sm" variant={listView ? "default" : "ghost"} className="h-7">
                 <Link href={href({ view: "list" })} aria-current={listView ? "page" : undefined}>
@@ -110,6 +126,7 @@ export default async function PipelinePage({ params, searchParams }: { params: P
       <div className="mb-4 flex flex-col gap-4">
         {!status.available ? <DbUpdateNotice compact /> : null}
         {isConsulting && consulting ? <ConsultingStrip data={consulting} incomeThisMonth={incomeThisMonth?.total ?? 0} pipelineId={pipelineId} /> : null}
+        {funnel ? <DealFunnelCard data={funnel} hrefFor={(d) => href({ funnel: String(d) })} /> : null}
         {isAcq ? <DealSourceStrip items={items} stages={allStages.filter((s) => s.outcome === "open")} tz={ctx.tz} today={ctx.today} available={status.available} /> : null}
         {stalledCount || overCount ? (
           <p className="text-sm text-muted-foreground">

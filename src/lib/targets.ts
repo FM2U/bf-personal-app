@@ -15,6 +15,7 @@ import {
 } from "@/lib/calc/targets";
 import { outreachStats, type OutreachStats } from "@/lib/calc/outreach";
 import { countDealsAdvanced, countDealsSourced, sourcedBreakdownByDay, sumBreakdown, type SourceBreakdown } from "@/lib/calc/pipeline";
+import { countDealCalls, countFirstReach, stagePosition, toStageEntries, CALL_METHODS } from "@/lib/calc/deal-funnel";
 import { fetchAll } from "@/lib/data";
 import { scoped } from "@/lib/finance";
 import { isMissingSchemaError } from "@/lib/schema-guard";
@@ -80,7 +81,8 @@ export async function loadTargets(
     const needDeals = sources.has("deals_sourced") || sources.has("deals_advanced");
     const itemsQuery = (cols: string) =>
       fetchAll((a, b) => scoped(sb.from("pipeline_items").select(cols), ownerId).gte("created_at", tsFrom).lte("created_at", tsTo).order("created_at").range(a, b));
-    const [outreach, items, entries, misses, deals] = await Promise.all([
+    const needFunnel = sources.has("cims_reviewed") || sources.has("deal_calls");
+    const [outreach, items, entries, misses, deals, funnel] = await Promise.all([
       sources.has("communications_outreach")
         ? fetchAll((a, b) => scoped(sb.from("communications").select("occurred_at"), ownerId).eq("is_outreach", true).gte("occurred_at", tsFrom).lte("occurred_at", tsTo).order("occurred_at").range(a, b))
         : Promise.resolve([] as Row[]),
@@ -93,6 +95,7 @@ export async function loadTargets(
         : Promise.resolve([] as Row[]),
       scoped(sb.from("target_misses").select("*"), ownerId).gte("period_start", addDaysISO(from, -7)).lte("period_start", to),
       needDeals ? loadDealSources(sb, ownerId, tsFrom, tsTo, sources.has("deals_advanced")) : Promise.resolve(null),
+      needFunnel ? loadFunnelSources(sb, ownerId, tsFrom, tsTo, sources) : Promise.resolve(null),
     ]);
     if (misses.error && isMissingSchemaError(misses.error)) return empty(from, to, false);
 
@@ -119,6 +122,10 @@ export async function loadTargets(
         breakdown[t.id] = sourcedBreakdownByDay(list);
       } else if (t.count_source === "deals_advanced") {
         counts[t.id] = deals ? dealsAdvancedCounts(t, deals, tz, inRange) : {};
+      } else if (t.count_source === "cims_reviewed") {
+        counts[t.id] = funnel ? cimsReviewedCounts(t, funnel, tz, inRange) : {};
+      } else if (t.count_source === "deal_calls") {
+        counts[t.id] = funnel ? dealCallsCounts(t, funnel, tz, inRange) : {};
       } else counts[t.id] = countByDay(entries.filter((e) => e.target_id === t.id).map((e) => ({ date: e.entry_date, count: Number(e.count) || 1 })));
     }
     return { available: true, targets, counts, breakdown, misses: (misses.data ?? []) as Row[], from, to };
@@ -197,6 +204,72 @@ function dealsAdvancedCounts(t: Row, d: DealSources, tz: string, inRange: (date:
   // Positions are compared per pipeline; normalize each move to "at or past" its pipeline's threshold.
   const normalized = moves.map((m) => ({ ...m, position: m.position === null ? null : m.position >= thresholdFor(m.pid) ? 1 : 0 }));
   return countDealsAdvanced({ moves: normalized, comms, minPosition: 1 });
+}
+
+type FunnelSources = {
+  acquisitionPipelines: Set<string>;
+  stages: Row[];
+  items: Record<string, { pipeline_id: string; created_at: string }>;
+  /** Every stage entry of every item (not only the date range): CIMs reviewed counts each item once, ever. */
+  history: Row[];
+  calls: Row[];
+};
+
+/** Records behind the deal funnel targets (update 0016): pipelines, stages, items, all stage history, and calls. */
+async function loadFunnelSources(sb: SupabaseClient, ownerId: string | undefined, tsFrom: string, tsTo: string, sources: Set<string>): Promise<FunnelSources> {
+  const cims = sources.has("cims_reviewed");
+  const [pipes, stages, itemRows, history, calls] = await Promise.all([
+    scoped(sb.from("pipelines").select("id,kind"), ownerId),
+    cims ? scoped(sb.from("pipeline_stages").select("id,pipeline_id,name,position,outcome"), ownerId) : Promise.resolve({ data: [] }),
+    fetchAll((a, b) => scoped(sb.from("pipeline_items").select("id,pipeline_id,created_at"), ownerId).range(a, b)),
+    cims ? fetchAll((a, b) => scoped(sb.from("stage_history").select("item_id,stage_id,entered_at"), ownerId).order("entered_at").range(a, b)) : Promise.resolve([] as Row[]),
+    sources.has("deal_calls")
+      ? fetchAll((a, b) =>
+          scoped(sb.from("communications").select("pipeline_item_id,occurred_at,method"), ownerId)
+            .in("method", CALL_METHODS)
+            .not("pipeline_item_id", "is", null)
+            .gte("occurred_at", tsFrom)
+            .lte("occurred_at", tsTo)
+            .order("occurred_at")
+            .range(a, b),
+        ).catch(() => [] as Row[])
+      : Promise.resolve([] as Row[]),
+  ]);
+  return {
+    acquisitionPipelines: new Set(((pipes.data ?? []) as Row[]).filter((p) => p.kind === "acquisition").map((p) => p.id)),
+    stages: (stages.data ?? []) as Row[],
+    items: Object.fromEntries(itemRows.map((i) => [i.id, { pipeline_id: i.pipeline_id, created_at: i.created_at }])),
+    history,
+    calls,
+  };
+}
+
+/** Items in the target's pipeline, or in every acquisition pipeline when none is set. */
+function funnelItems(t: Row, f: FunnelSources) {
+  const inPipe = (pid: string) => (t.pipeline_id ? pid === t.pipeline_id : f.acquisitionPipelines.has(pid));
+  return Object.fromEntries(Object.entries(f.items).filter(([, i]) => inPipe(i.pipeline_id)));
+}
+
+/** CIMs reviewed: each item once, on the local date it first moved into the target's stage (default CIM reviewed) or later. */
+function cimsReviewedCounts(t: Row, f: FunnelSources, tz: string, inRange: (date: string) => boolean): DayCounts {
+  const entries = toStageEntries(
+    f.history as { item_id: string; stage_id: string | null; entered_at: string }[],
+    f.stages as never,
+    funnelItems(t, f),
+    (pid) => stagePosition(f.stages as never, pid, "CIM reviewed", 4, t.stage_id),
+    (ts) => localDate(ts, tz),
+  );
+  return Object.fromEntries(Object.entries(countFirstReach(entries)).filter(([d]) => inRange(d)));
+}
+
+/** Broker or owner calls: calls, meetings, and video calls on the target's items, one per item per local date. */
+function dealCallsCounts(t: Row, f: FunnelSources, tz: string, inRange: (date: string) => boolean): DayCounts {
+  const items = funnelItems(t, f);
+  const comms = f.calls
+    .filter((c) => items[c.pipeline_item_id])
+    .map((c) => ({ item_id: c.pipeline_item_id as string, date: localDate(c.occurred_at, tz), method: c.method as string }))
+    .filter((c) => inRange(c.date));
+  return countDealCalls(comms);
 }
 
 /** Today's proprietary and brokered counts for a Deals sourced target (null for other targets). */

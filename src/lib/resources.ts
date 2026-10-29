@@ -86,6 +86,8 @@ export const COUNT_SOURCE_OPTIONS: Option[] = [
   { value: "pipeline_items_created", label: "Pipeline items added" },
   { value: "deals_sourced", label: "Deals sourced (new acquisition items, with proprietary and brokered counts)" },
   { value: "deals_advanced", label: "Deals advanced (CIM requested, source contacted, or moved to the chosen stage or later)" },
+  { value: "cims_reviewed", label: "CIMs reviewed (each acquisition item once, when it first moves to the chosen stage or later)" },
+  { value: "deal_calls", label: "Broker or owner calls (calls and meetings logged on acquisition items)" },
   { value: "manual", label: "Manual count (press +1)" },
 ];
 
@@ -1101,8 +1103,8 @@ const R: Resource[] = [
       { name: "minimum_count", label: "Minimum count per period", type: "number", required: true, default: 3 },
       { name: "active_weekdays", label: "Days it applies (per-day targets only)", type: "multiselect", options: WEEKDAY_OPTIONS, default: "1,2,3,4,5" },
       { name: "count_source", label: "What is counted", type: "select", options: COUNT_SOURCE_OPTIONS, required: true, default: "communications_outreach" },
-      { name: "pipeline_id", label: "Only this pipeline (pipeline items added, deals sourced, deals advanced)", type: "ref", ref: "pipelines" },
-      { name: "stage_id", label: "Deals advanced: count moves into this stage or later", type: "ref", ref: "pipeline_stages", help: "Empty = NDA signed." },
+      { name: "pipeline_id", label: "Only this pipeline (deal targets; a manual count also shows its +1 buttons on this pipeline's page)", type: "ref", ref: "pipelines" },
+      { name: "stage_id", label: "Deals advanced or CIMs reviewed: count moves into this stage or later", type: "ref", ref: "pipeline_stages", help: "Empty = NDA signed (Deals advanced) or CIM reviewed (CIMs reviewed)." },
       { name: "initiative_id", label: "Initiative", type: "ref", ref: "initiatives" },
       { name: "start_date", label: "Counting starts on", type: "date", help: "Days before this date are not counted as met or missed. Empty = today." },
       { name: "is_commitment", label: "Counts as a commitment (included in the commitment score)", type: "boolean", default: true },
