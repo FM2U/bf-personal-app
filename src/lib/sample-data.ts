@@ -18,6 +18,8 @@ export type SampleSetup = {
   budgetedCategoryIds: string[];
   acquisitions: { pipelineId: string; stages: Record<string, string> } | null;
   consulting: { pipelineId: string; stages: Record<string, string> } | null;
+  /** The starter "Detailed" partner report template (database update 0017), given to the sample partner. */
+  reportTemplateId?: string | null;
 };
 
 /** Tables sample data writes to, in insert order. Removal deletes in the reverse dependency order (SQL). */
@@ -55,13 +57,16 @@ export function buildSampleData(s: SampleSetup, newId: () => string): { batches:
   const today = s.today;
 
   // Accounts: 2 checking/savings and 2 cards (Personal), 1 Cyan Arc LLC account
-  const acc = { checking: newId(), savings: newId(), card1: newId(), card2: newId(), llc: newId() };
+  const acc = { checking: newId(), savings: newId(), card1: newId(), card2: newId(), llc: newId(), brokerage: newId(), retirement: newId() };
   const accounts = [
     { id: acc.checking, entity_id: s.personalEntityId, name: "Sample Checking", institution: "Sample Bank", kind: "checking", last4: "0101", include_in_runway: true },
     { id: acc.savings, entity_id: s.personalEntityId, name: "Sample Savings", institution: "Sample Bank", kind: "savings", last4: "0202", include_in_runway: true, is_emergency_fund: true },
     { id: acc.card1, entity_id: s.personalEntityId, name: "Sample Rewards Card", institution: "Sample Card Co.", kind: "credit_card", last4: "0303", include_in_runway: true },
     { id: acc.card2, entity_id: s.personalEntityId, name: "Sample Travel Card", institution: "Sample Card Co.", kind: "credit_card", last4: "0404", include_in_runway: true },
     { id: acc.llc, entity_id: s.llcEntityId, name: "Sample LLC Operating", institution: "Sample Bank", kind: "checking", last4: "0505", include_in_runway: false },
+    // Investments and retirement (balance sheet groups; not counted in runway).
+    { id: acc.brokerage, entity_id: s.personalEntityId, name: "Sample Brokerage", institution: "Sample Investments", kind: "investment", last4: "0606", include_in_runway: false },
+    { id: acc.retirement, entity_id: s.personalEntityId, name: "Sample Retirement IRA", institution: "Sample Investments", kind: "retirement", last4: "0707", include_in_runway: false },
   ];
   const balances: Record<string, unknown>[] = [];
   for (let m = 3; m >= 1; m--) {
@@ -72,6 +77,8 @@ export function buildSampleData(s: SampleSetup, newId: () => string): { batches:
       { id: newId(), account_id: acc.card1, as_of: asOf, balance: 5600 + (3 - m) * 200, source: "manual" },
       { id: newId(), account_id: acc.card2, as_of: asOf, balance: 2600 + (3 - m) * 100, source: "manual" },
       { id: newId(), account_id: acc.llc, as_of: asOf, balance: 7400 + (3 - m) * 600, source: "manual" },
+      { id: newId(), account_id: acc.brokerage, as_of: asOf, balance: 24000 + (3 - m) * 400, source: "manual" },
+      { id: newId(), account_id: acc.retirement, as_of: asOf, balance: 61000 + (3 - m) * 700, source: "manual" },
     );
   }
   balances.push(
@@ -80,6 +87,8 @@ export function buildSampleData(s: SampleSetup, newId: () => string): { batches:
     { id: newId(), account_id: acc.card1, as_of: today, balance: 6150, source: "manual" },
     { id: newId(), account_id: acc.card2, as_of: today, balance: 2890, source: "manual" },
     { id: newId(), account_id: acc.llc, as_of: today, balance: 9200, source: "manual" },
+    { id: newId(), account_id: acc.brokerage, as_of: today, balance: 25300, source: "manual" },
+    { id: newId(), account_id: acc.retirement, as_of: today, balance: 63400, source: "manual" },
   );
 
   // Organizations and contacts (deal sources, friends, a broker, a client, a partner)
@@ -176,7 +185,7 @@ export function buildSampleData(s: SampleSetup, newId: () => string): { batches:
     { id: newId(), entity_id: s.personalEntityId, name: "Sample Travel Card", kind: "credit_card", account_id: acc.card2, current_balance: 2890, balance_as_of: today, apr: 21.49, minimum_payment: 90, due_day: 22 },
   ];
 
-  const partners = [{ id: newId(), name: "Sample Partner A", is_pseudonym: true, contact_id: c.partner, email: "partner-a@example.com", schedule: "weekly", delivery_methods: ["email"], next_report_on: addDaysISO(today, 7), is_active: true, notes: "Sample accountability partner for testing." }];
+  const partners = [{ id: newId(), name: "Sample Partner A", is_pseudonym: true, contact_id: c.partner, email: "partner-a@example.com", schedule: "weekly", delivery_methods: ["email"], next_report_on: addDaysISO(today, 7), is_active: true, notes: "Sample accountability partner for testing.", ...(s.reportTemplateId ? { report_template_id: s.reportTemplateId } : {}) }];
 
   const comms = [
     { id: newId(), occurred_at: `${addDaysISO(today, -12)}T15:00:00Z`, method: "call", direction: "outgoing", contact_id: c.friendA, subject: "Sample call: off-market deals", summary: "Asked about owners thinking of selling.", is_outreach: true, outcome: "referral", purpose: "deal_sourcing" },

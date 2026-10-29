@@ -29,7 +29,32 @@ export type MimeInput = {
   boundary?: string;
   /** For a reply: the Message-ID header of the message being answered (adds In-Reply-To and References). */
   inReplyTo?: string | null;
+  /**
+   * The message as HTML made by the app itself (the visual partner report email: tables and inline styles). When
+   * given, it is the HTML part as is (no editor cleaning) and `body` is the text part. Never pass typed HTML here.
+   */
+  html?: string | null;
+  /** Files attached to the email (for example the partner report PDF). The message becomes multipart/mixed. */
+  attachments?: MimeAttachment[] | null;
 };
+
+export type MimeAttachment = { filename: string; contentType: string; data: Uint8Array };
+
+/** A file name safe for the Content-Disposition header: ASCII letters, digits, spaces, dots, dashes, underscores. */
+export function safeFileName(name: string): string {
+  const clean = String(name ?? "")
+    .normalize("NFKD")
+    .replace(/[^A-Za-z0-9 ._-]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 100);
+  return clean || "attachment";
+}
+
+function base64Bytes(data: Uint8Array): string {
+  const b64 = Buffer.from(data).toString("base64");
+  return (b64.match(/.{1,76}/g) ?? [""]).join("\r\n");
+}
 
 /** True for one plain email address such as name@example.com (shared with the browser: src/lib/email-address.ts). */
 export { isValidEmail };
@@ -84,14 +109,29 @@ export function buildMimeMessage(msg: MimeInput, opts: { requireValidTo?: boolea
   const headers = [`To: ${to}`, `Subject: ${encodeHeaderValue(msg.subject)}`, "MIME-Version: 1.0"];
   const replyTo = msg.inReplyTo ? cleanHeaderValue(msg.inReplyTo) : "";
   if (replyTo) headers.push(`In-Reply-To: ${replyTo}`, `References: ${replyTo}`);
-  headers.push(`Content-Type: multipart/alternative; boundary="${boundary}"`);
   const sig = msg.signature && msg.signature.html.trim() ? msg.signature : null;
-  const message = emailBodyParts(msg);
+  const message = msg.html ? { text: String(msg.body ?? ""), html: msg.html } : emailBodyParts(msg);
   const text = normalizeLineBreaks(emailText(message.text, sig?.text ?? null));
   const html = emailHtml(message.text, sig?.html ?? null, message.html);
   const part = (type: string, content: string) =>
     `--${boundary}\r\nContent-Type: ${type}; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n${base64Lines(content)}\r\n`;
-  return `${headers.join("\r\n")}\r\n\r\n${part("text/plain", text)}${part("text/html", html)}--${boundary}--\r\n`;
+  const alternative = `${part("text/plain", text)}${part("text/html", html)}--${boundary}--\r\n`;
+  const files = (msg.attachments ?? []).filter((a) => a && a.data && a.data.length);
+  if (!files.length) {
+    headers.push(`Content-Type: multipart/alternative; boundary="${boundary}"`);
+    return `${headers.join("\r\n")}\r\n\r\n${alternative}`;
+  }
+  // With attachments: multipart/mixed holding the two message parts (multipart/alternative), then each file.
+  const mixed = `${boundary}_mixed`;
+  headers.push(`Content-Type: multipart/mixed; boundary="${mixed}"`);
+  const attached = files
+    .map((f) => {
+      const name = safeFileName(f.filename);
+      const type = /^[a-z]+\/[a-z0-9.+-]+$/i.test(f.contentType) ? f.contentType : "application/octet-stream";
+      return `--${mixed}\r\nContent-Type: ${type}; name="${name}"\r\nContent-Disposition: attachment; filename="${name}"\r\nContent-Transfer-Encoding: base64\r\n\r\n${base64Bytes(f.data)}\r\n`;
+    })
+    .join("");
+  return `${headers.join("\r\n")}\r\n\r\n--${mixed}\r\nContent-Type: multipart/alternative; boundary="${boundary}"\r\n\r\n${alternative}${attached}--${mixed}--\r\n`;
 }
 
 /** The message in the form the Gmail API expects in "raw" (base64url). */

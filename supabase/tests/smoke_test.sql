@@ -246,6 +246,34 @@ do $$ begin
 end $$;
 reset role;
 
+-- 13c. Partner report templates (0017): three starter templates, not duplicated by a second run, owner-only.
+do $$ begin
+  assert (select count(*) from public.partner_report_templates where starter_key is not null) = 3, '0017 starter templates';
+  assert (select name from public.partner_report_templates where starter_key = 'standard') = 'Standard', 'Standard template';
+  assert (select array_length(measures, 1) from public.partner_report_templates where starter_key = 'detailed') = 17, 'Detailed has every measure';
+  assert (select bool_and(period = 'week') from public.partner_report_templates), 'week by default';
+  assert public.schema_has_0017(), '0017 check function';
+  assert (select prosrc from pg_proc where proname = 'handle_new_owner') like '%seed_owner_report_templates%', 'owner setup seeds 0017';
+end $$;
+select public.seed_owner_report_templates('00000000-0000-0000-0000-000000000001');
+do $$ begin
+  assert (select count(*) from public.partner_report_templates) = 3, '0017 templates must not duplicate';
+end $$;
+set role authenticated;
+do $$ begin
+  begin
+    perform public.seed_owner_report_templates('00000000-0000-0000-0000-000000000001');
+    raise exception 'a signed-in user can run the 0017 seed function';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    insert into public.partner_report_templates (name, period) values ('Bad period', 'year');
+    raise exception 'unknown period allowed';
+  exception when check_violation or insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+
 -- 14. Entering a stage: default next action, stage tasks, commitments (once per item and stage task).
 set role authenticated;
 select set_config('request.jwt.claim.aal', 'aal2', false);
@@ -582,6 +610,11 @@ select owner_id, id, current_date - 7, current_date, 'finalized', now() from pub
 insert into public.ai_conversations (owner_id, title) values ('00000000-0000-0000-0000-000000000001', 'Reset chat');
 insert into public.documents (owner_id, record_type, record_id, storage_path, file_name)
 select owner_id, 'accounts', id, owner_id || '/accounts/statement.pdf', 'statement.pdf' from public.accounts where name = 'Real checking kept';
+-- Partner report templates: one added, one starter renamed, one starter deleted (created again by the reset).
+insert into public.partner_report_templates (owner_id, name, measures) values ('00000000-0000-0000-0000-000000000001', 'My own template', '{tasks_done}');
+update public.partner_report_templates set name = 'Summary renamed' where starter_key = 'summary';
+delete from public.partner_report_templates where starter_key = 'detailed';
+update public.partners set report_template_id = (select id from public.partner_report_templates where name = 'My own template') where name = 'Reset partner';
 update public.targets set start_date = current_date - 30;
 create temp table reset_before as
 select (select count(*) from public.pipelines) pipelines, (select count(*) from public.pipeline_stages) stages,
@@ -662,6 +695,9 @@ begin
   assert (select count(*) from public.decision_conditions where name = 'Runway under 6 months') = 1, 'default condition created again';
   assert (select count(*) from public.change_log) <= (select change_log from reset_before) + 6, 'change log not filled with one entry per deleted row';
   assert (select count(*) from public.change_log where field = 'all_data_reset' and actor = 'owner') = 1, 'All data reset entry';
+  assert (select count(*) from public.partner_report_templates where starter_key is null) = 0, 'templates you added deleted';
+  assert (select count(*) from public.partner_report_templates where starter_key is not null) = 3, 'starter templates kept or created again';
+  assert (select name from public.partner_report_templates where starter_key = 'summary') = 'Summary renamed', 'renamed starter template kept as is';
 end $$;
 reset role;
 

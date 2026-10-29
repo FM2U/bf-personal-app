@@ -28,6 +28,9 @@ import { SuggestionLine } from "@/components/app/suggestion-line";
 import { pipelineSuggestion, taskSuggestion, type Suggestion } from "@/lib/suggestions";
 import { firstSuggestion } from "@/lib/suggestions-server";
 import { loadPipelineStatus } from "@/lib/pipeline";
+import { loadScorecard } from "@/lib/deal-scorecard";
+import type { Scorecard } from "@/lib/calc/deal-scorecard";
+import { DealScorecard } from "@/components/app/deal-scorecard";
 import type { Row } from "@/lib/types";
 
 const COMMS_TABLES = new Set(["contacts", "organizations", "pipeline_items", "funding_sources", "debts", "partners", "decisions", "goals", "milestones"]);
@@ -66,9 +69,20 @@ export default async function RecordPage({ params, searchParams }: { params: Pro
   const detailFields = r.fields.filter((f) => !rules.hide.includes(f.name) && !(combineSource && f.name === "source"));
   // One suggestion line, from the record's own data (no AI call): a quiet pipeline item, a task that keeps moving.
   let suggestion: Suggestion | null = null;
+  // Deal scorecard (top of the side column): every pipeline item, also while editing.
+  let scorecard: Scorecard | null = null;
+  let itemStatus: Awaited<ReturnType<typeof loadPipelineStatus>> | null = null;
+  if (table === "pipeline_items") {
+    const [{ data: stageRows }, { data: pipeRow }] = await Promise.all([
+      supabase.from("pipeline_stages").select("*").eq("pipeline_id", row.pipeline_id).order("position"),
+      supabase.from("pipelines").select("kind").eq("id", row.pipeline_id).maybeSingle(),
+    ]);
+    itemStatus = await loadPipelineStatus(supabase, [row], { ownerId, tz: ctx.tz, today: ctx.today, stages: (stageRows ?? []) as Row[] }).catch(() => null);
+    scorecard = await loadScorecard(supabase, { item: row, pipelineKind: (pipeRow as Row | null)?.kind ?? null, stages: (stageRows ?? []) as Row[], status: itemStatus?.byItem[id], stallDays: itemStatus?.stallDays ?? 7, today: ctx.today }).catch(() => null);
+  }
   if (!editing && table === "pipeline_items") {
     const [status, { data: nextTask }] = await Promise.all([
-      loadPipelineStatus(supabase, [row], { ownerId, tz: ctx.tz, today: ctx.today }).catch(() => null),
+      Promise.resolve(itemStatus),
       supabase.from("tasks").select("title").eq("pipeline_item_id", id).eq("status", "todo").order("due_date").limit(1),
     ]);
     suggestion = await firstSuggestion([
@@ -166,6 +180,7 @@ export default async function RecordPage({ params, searchParams }: { params: Pro
           ) : null}
         </div>
         <div className="flex min-w-0 flex-col gap-4">
+          {scorecard ? <DealScorecard card={scorecard} /> : null}
           <ExtraSidePanels sb={supabase} ownerId={ownerId} table={table} row={row} today={ctx.today} labels={labels} refOptions={refOptions} />
           <LinkedRecordsPanel sb={supabase} table={table} id={id} />
           {COMMS_TABLES.has(table) ? <CommunicationsPanel sb={supabase} table={table} id={id} /> : null}

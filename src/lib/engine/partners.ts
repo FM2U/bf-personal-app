@@ -11,6 +11,8 @@ import { markdownToPlain } from "@/lib/markdown";
 import { loadTargets, targetTotals } from "@/lib/targets";
 import type { Row } from "@/lib/types";
 import { createAlert, createTask, type Ctx } from "./helpers";
+import { buildReportMeasures } from "./report-measures";
+import { reportEmailHtml, reportEmailText, type ReportTemplate } from "@/lib/calc/partner-report";
 
 export function nextReportDate(schedule: string, from: string): string {
   if (schedule === "monthly") return addMonthsISO(from, 1);
@@ -42,6 +44,12 @@ export async function buildPartnerSnapshot(ctx: Ctx, partner: Row, start: string
   const metrics = await computeMetrics(sb, ctx.today, ownerId);
   const snap = metrics.snapshot;
   const out: Row = { generated_on: ctx.today, period_start: start, period_end: end, sections };
+  // Numbers for every report template (week, two weeks, month ending on the report date). Never blocks the report.
+  try {
+    out.measures = await buildReportMeasures(ctx, end, { months: snap.runway.months, target: snap.inputs.num.runway_target_months ?? null });
+  } catch {
+    // The report keeps its sections; templates then use what the sections saved.
+  }
   if (sections.includes("runway")) {
     const ids = snap.accounts.filter((a) => a.is_active && a.include_in_runway && ["checking", "savings", "cash"].includes(a.kind) && (snap.includeBusiness || a.entity_kind !== "business")).map((a) => a.id);
     out.runway = {
@@ -190,6 +198,33 @@ export async function schedulePartnerReports(ctx: Ctx): Promise<{ created: numbe
     await ctx.sb.from("partners").update({ next_report_on: next }).eq("id", p.id);
   }
   return { created };
+}
+
+/**
+ * Adds the template numbers to a draft made before report templates (snapshot.measures missing). Called when the draft
+ * is finalized, so every finalized report from now on can be sent with any template. A finalized report is never changed.
+ */
+export async function ensureReportMeasures(ctx: Ctx, report: Row): Promise<Row> {
+  if (report.status !== "draft" || report.snapshot?.measures) return report;
+  try {
+    const metrics = await computeMetrics(ctx.sb, ctx.today, ctx.ownerId);
+    const measures = await buildReportMeasures(ctx, String(report.period_end), { months: metrics.snapshot.runway.months, target: metrics.snapshot.inputs.num.runway_target_months ?? null });
+    const snapshot = { ...(report.snapshot ?? {}), measures };
+    const { error } = await ctx.sb.from("partner_reports").update({ snapshot }).eq("id", report.id);
+    return error ? report : { ...report, snapshot };
+  } catch {
+    return report;
+  }
+}
+
+/**
+ * The report email built from one or two templates: the visual HTML (tiles, misses, gold line under the header) and
+ * the plain text part (src/lib/calc/partner-report.ts). Used by Send now, Save to Gmail drafts, finalize, and the preview.
+ */
+export function templateReportEmail(partner: Row, report: Row, link: string | null, templates: ReportTemplate[]): { subject: string; body: string; html: string } {
+  const input = { partnerName: String(partner.name), report: { period_start: report.period_start, period_end: report.period_end, summary: report.summary ?? null, snapshot: report.snapshot ?? null }, templates, link };
+  const text = reportEmailText(input);
+  return { subject: text.subject, body: text.body, html: reportEmailHtml(input) };
 }
 
 /** Text of the report for email, call script, or letter. */

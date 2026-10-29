@@ -11,12 +11,20 @@ import { saveReportToGmailDrafts, sendPartnerReportEmail, type SendResult } from
 import type { SendPermission } from "@/lib/google-scopes";
 import { STATUS_BOX, STATUS_TEXT } from "@/lib/status";
 import { cn } from "@/lib/utils";
-import type { SignatureSetup } from "@/lib/email-signature";
+import { emailHtml, type SignatureSetup } from "@/lib/email-signature";
 import { emailHtmlFor } from "@/lib/email-body";
 import { EmailHtmlPreview } from "@/components/app/email-preview";
 
-/** body: the plain text; bodyHtml: the formatted editor's HTML when the message was written there. */
-export type EmailPreview = { to: string; subject: string; body: string; bodyHtml?: string | null };
+/**
+ * body: the plain text; bodyHtml: the formatted editor's HTML when the message was written there; html: the app's own
+ * visual HTML (partner reports), shown as is; attachment: the name of a file sent with the email.
+ */
+export type EmailPreview = { to: string; subject: string; body: string; bodyHtml?: string | null; html?: string | null; attachment?: string | null };
+
+/** The HTML part exactly as it will be sent (message, then the signature when included). */
+export function previewHtml(shown: EmailPreview, signatureHtml: string | null): string {
+  return shown.html ? emailHtml(shown.body, signatureHtml, shown.html) : emailHtmlFor(shown, signatureHtml);
+}
 
 /** "Include signature": shown only when a signature is saved. Checked by default when the setting is on. */
 export function IncludeSignature({ checked, onChange, disabled, testId = "include-signature" }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; testId?: string }) {
@@ -232,6 +240,14 @@ export function SendOrSaveButtons({
                 <dd className="break-all font-medium text-slate-900">{shown.to}</dd>
                 <dt className="text-muted-foreground">Subject</dt>
                 <dd className="font-medium text-slate-900">{shown.subject || "(No subject)"}</dd>
+                {shown.attachment ? (
+                  <>
+                    <dt className="text-muted-foreground">Attached</dt>
+                    <dd className="break-all text-slate-900" data-testid="send-preview-attachment">
+                      {shown.attachment}
+                    </dd>
+                  </>
+                ) : null}
               </dl>
               <div className="flex flex-col gap-1.5">
                 <div className="flex min-h-8 items-center justify-between gap-3">
@@ -239,7 +255,7 @@ export function SendOrSaveButtons({
                   {signature ? <IncludeSignature checked={withSignature} onChange={setWithSignature} disabled={sending} testId="confirm-include-signature" /> : null}
                 </div>
                 <div className="max-h-[45vh] overflow-y-auto rounded-md" data-testid="send-preview-body">
-                  <EmailHtmlPreview html={emailHtmlFor(shown, signature && withSignature ? signature.html : null)} testId="send-preview-frame" title="The email as it will be sent" />
+                  <EmailHtmlPreview html={previewHtml(shown, signature && withSignature ? signature.html : null)} testId="send-preview-frame" title="The email as it will be sent" />
                 </div>
               </div>
               {!editable && readOnlyNote ? <p className="text-xs text-muted-foreground">{readOnlyNote}</p> : null}
@@ -268,7 +284,10 @@ export function SendOrSaveButtons({
   );
 }
 
-/** Partner report page (finalized report): Send now and Save to Gmail drafts. The text cannot be edited here. */
+/**
+ * Partner report page (finalized report): Send now and Save to Gmail drafts. The text cannot be edited here.
+ * `options` are the chosen templates and the PDF choice (Delivery card); the preview shows the same email.
+ */
 export function ReportSendButtons({
   reportId,
   permission,
@@ -277,32 +296,34 @@ export function ReportSendButtons({
   alreadySent,
   hasDraft,
   signature = null,
+  options,
 }: {
   reportId: string;
   permission: SendPermission;
   fromEmail: string | null;
-  preview: EmailPreview;
+  preview: EmailPreview | (() => EmailPreview);
   alreadySent: boolean;
   hasDraft: boolean;
   signature?: SignatureSetup | null;
+  options?: { templateIds: string[]; attachPdf: boolean };
 }) {
   const router = useRouter();
   return (
     <SendOrSaveButtons
       permission={permission}
       fromEmail={fromEmail}
-      preview={() => preview}
+      preview={typeof preview === "function" ? preview : () => preview}
       editable={false}
       readOnlyNote="A finalized report does not change. To change the wording, press Save to Gmail drafts and edit it in Gmail."
       sendLabel={alreadySent ? "Send again" : "Send now"}
       signature={signature}
       send={async (requestId, includeSignature) => {
-        const r = await sendPartnerReportEmail({ reportId, requestId, includeSignature });
+        const r = await sendPartnerReportEmail({ reportId, requestId, includeSignature, templateIds: options?.templateIds ?? null, attachPdf: !!options?.attachPdf });
         if (r.ok) router.refresh();
         return r;
       }}
       saveDraft={async (includeSignature) => {
-        const r = await saveReportToGmailDrafts(reportId, includeSignature);
+        const r = await saveReportToGmailDrafts(reportId, includeSignature, { templateIds: options?.templateIds ?? null, attachPdf: !!options?.attachPdf });
         if (r.ok) router.refresh();
         return r;
       }}

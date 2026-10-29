@@ -10,7 +10,8 @@ import { applyCategoryRules, detectAndSaveRecurring } from "@/lib/engine/finance
 import { buildMorningPlan } from "@/lib/engine/run";
 import { dailyCloseCommitments, dailyCloseTargets, ensureReview, type ReviewKind } from "@/lib/engine/reviews";
 import { resolveCloseReasons, type CloseMiss } from "@/lib/calc/commitment-rule";
-import { createPartnerReport, reportText, activeLinkFor } from "@/lib/engine/partners";
+import { createPartnerReport, activeLinkFor, ensureReportMeasures, templateReportEmail } from "@/lib/engine/partners";
+import { chooseTemplates, loadReportTemplates } from "@/lib/report-templates";
 import { repaymentSchedule } from "@/lib/calc/savings";
 import { encrypt, randomToken, sha256 } from "@/lib/crypto";
 import { createGmailDraft } from "@/lib/google";
@@ -294,8 +295,10 @@ export async function finalizeReport(fd: FormData) {
   const { supabase, ownerId } = await requireOwner();
   const id = String(fd.get("id"));
   const summary = String(fd.get("summary") ?? "");
-  const { data: report } = await supabase.from("partner_reports").select("*").eq("id", id).single();
-  if (!report || report.status !== "draft") return;
+  const { data: found } = await supabase.from("partner_reports").select("*").eq("id", id).single();
+  if (!found || found.status !== "draft") return;
+  // A draft made before report templates gets the template numbers now, before it is finalized (and never changes after).
+  const report = await ensureReportMeasures(await loadCtx(supabase, ownerId), found);
   const { data: partner } = await supabase.from("partners").select("*").eq("id", report.partner_id).single();
   await supabase.from("partner_reports").update({ summary, summary_source: summary === report.summary ? report.summary_source : "owner" }).eq("id", id);
   await supabase.from("partner_reports").update({ status: "finalized", finalized_at: new Date().toISOString() }).eq("id", id);
@@ -303,9 +306,9 @@ export async function finalizeReport(fd: FormData) {
   let gmailId: string | null = null;
   if (partner?.delivery_methods?.includes("email") && partner.email) {
     const link = await activeLinkFor({ sb: supabase }, partner.id);
-    const text = reportText(partner, { ...report, summary }, link, "email");
+    const text = templateReportEmail(partner, { ...report, summary }, link, chooseTemplates((await loadReportTemplates(supabase, ownerId)).templates, null, partner));
     try {
-      gmailId = await createGmailDraft(supabase, ownerId, { to: partner.email, subject: text.subject, body: text.body });
+      gmailId = await createGmailDraft(supabase, ownerId, { to: partner.email, subject: text.subject, body: text.body, html: text.html });
       if (gmailId) delivered.push("gmail_draft");
     } catch {
       gmailId = null;
@@ -324,8 +327,8 @@ export async function createGmailDraftForReport(fd: FormData) {
   const { data: partner } = await supabase.from("partners").select("*").eq("id", report.partner_id).single();
   if (!partner?.email) throw new Error("Add an email address to the accountability partner first.");
   const link = await activeLinkFor({ sb: supabase }, partner.id);
-  const text = reportText(partner, report, link, "email");
-  const gmailId = await createGmailDraft(supabase, ownerId, { to: partner.email, subject: text.subject, body: text.body });
+  const text = templateReportEmail(partner, report, link, chooseTemplates((await loadReportTemplates(supabase, ownerId)).templates, null, partner));
+  const gmailId = await createGmailDraft(supabase, ownerId, { to: partner.email, subject: text.subject, body: text.body, html: text.html });
   if (!gmailId) throw new Error("Google is not connected. Connect Google in Settings.");
   await supabase.from("partner_reports").update({ gmail_draft_id: gmailId, delivered_via: [...new Set([...(report.delivered_via ?? []), "gmail_draft"])] }).eq("id", id);
   done();

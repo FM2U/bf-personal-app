@@ -1,6 +1,6 @@
 /**
  * "Reset all data" (Settings, Sample data and reset). The database function public.reset_all_data('RESET')
- * (supabase/migrations/0014_initiative_builder_reset.sql) deletes the tables in RESET_DELETE_TABLES, in this order,
+ * (supabase/migrations/0017_partner_report_templates.sql; first written in 0014) deletes the tables in RESET_DELETE_TABLES, in this order,
  * in one transaction, and keeps RESET_KEEP_TABLES. src/lib/reset.test.ts checks that these lists match the SQL
  * function and that every table in the app is in exactly one list.
  */
@@ -22,8 +22,12 @@ export const RESET_DELETE_TABLES = [
   "communications", "contacts", "organizations",
 ] as const;
 
-/** Partly deleted: initiatives the owner created. The default initiatives (and any initiative a pipeline belongs to) stay. */
-export const RESET_PARTIAL_TABLES = ["initiatives"] as const;
+/**
+ * Partly deleted: initiatives the owner created (the default initiatives, and any initiative a pipeline belongs to,
+ * stay) and partner report templates the owner added (the starter templates Summary, Standard, Detailed stay and are
+ * created again when missing; database update 0017).
+ */
+export const RESET_PARTIAL_TABLES = ["initiatives", "partner_report_templates"] as const;
 
 export const DEFAULT_INITIATIVES = ["Personal Finance", "Acquisition Search", "Employment", "Rosara", "Other Income", "Consulting"];
 
@@ -97,6 +101,7 @@ export const RESET_TABLE_LABELS: Record<string, string> = {
   milestones: "Milestones",
   milestone_options: "Milestone options",
   initiatives: "Initiatives you created",
+  partner_report_templates: "Partner report templates you added",
   calendar_events: "Calendar time blocks",
   daily_plans: "Morning plans",
   sample_records: "Sample data markers",

@@ -14,7 +14,9 @@ import { ReportView } from "@/components/app/report-view";
 import { createGmailDraftForReport, finalizeReport, saveReportSummary } from "@/app/actions/domain";
 import { date as fmtDate, dateTime } from "@/lib/format";
 import { AiText } from "@/components/app/ai-text";
-import { ReportSendButtons } from "@/components/app/send-email";
+import { ReportEmailPanel } from "@/components/app/report-email-panel";
+import { loadReportTemplates } from "@/lib/report-templates";
+import { defaultTemplateFor } from "@/lib/calc/partner-report";
 import { getGoogleConnection, getSendPermission } from "@/lib/google";
 import { loadSignature } from "@/lib/signature-store";
 
@@ -29,7 +31,9 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
   const methods: string[] = partner?.delivery_methods ?? [];
   const script = partner ? reportText(partner, report, link, "phone").body : "";
   const emailText = partner ? reportText(partner, report, link, "email") : null;
-  const [permission, google, signature] = await Promise.all([getSendPermission(supabase, ownerId), getGoogleConnection(supabase, ownerId), loadSignature(supabase, ownerId)]);
+  const [permission, google, signature, templateData] = await Promise.all([getSendPermission(supabase, ownerId), getGoogleConnection(supabase, ownerId), loadSignature(supabase, ownerId), loadReportTemplates(supabase, ownerId)]);
+  const defaultTemplate = defaultTemplateFor(templateData.templates, (partner?.report_template_id as string | null | undefined) ?? null);
+  const canSend = !draft && methods.includes("email") && !!partner?.email && permission !== "not_connected";
   const delivered = (report.delivered_via ?? []) as string[];
   // Sent from the app: the date is on the report after update 0013; before it, the change log has it.
   let sentAt: string | null = (report.sent_at as string | null | undefined) ?? null;
@@ -89,6 +93,32 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
               </CardContent>
             </Card>
           ) : null}
+          <Card>
+            <CardHeader>
+              <CardTitle>Report email</CardTitle>
+              <CardDescription>
+                Choose the template (which numbers the email shows), or two templates in one email. The preview is the email as it will be sent. Templates are set up in{" "}
+                <Link href="/accountability/report-templates" className="text-primary-strong hover:underline">
+                  Report templates
+                </Link>
+                .
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              {draft ? <Notice>Preview only. Finalize the report to send it.</Notice> : null}
+              <ReportEmailPanel
+                reportId={report.id}
+                input={{ partnerName: String(partner?.name ?? "Accountability partner"), report: { period_start: report.period_start, period_end: report.period_end, summary: report.summary ?? null, snapshot: report.snapshot ?? null }, link }}
+                templates={templateData.templates}
+                defaultTemplateId={defaultTemplate.id}
+                send={
+                  canSend && partner?.email
+                    ? { to: String(partner.email), permission, fromEmail: (google?.google_email as string | null) ?? null, alreadySent: delivered.includes("gmail_sent"), hasDraft: !!report.gmail_draft_id, signature }
+                    : null
+                }
+              />
+            </CardContent>
+          </Card>
           <ReportView report={draft ? { ...report, summary: null } : report} />
         </div>
         <div className="flex flex-col gap-4">
@@ -115,15 +145,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
                       </SubmitButton>
                     </GuardedForm>
                   ) : (
-                    <ReportSendButtons
-                      reportId={report.id}
-                      permission={permission}
-                      fromEmail={(google?.google_email as string | null) ?? null}
-                      preview={{ to: partner.email, subject: emailText.subject, body: emailText.body }}
-                      alreadySent={delivered.includes("gmail_sent")}
-                      hasDraft={!!report.gmail_draft_id}
-                      signature={signature}
-                    />
+                    <p className="text-sm text-muted-foreground">Send now and Save to Gmail drafts are under the email preview.</p>
                   )
                 ) : (
                   <Notice tone="warn">Add an email address to the accountability partner to send this report.</Notice>

@@ -29,10 +29,10 @@ const cookieValue = `base64-${Buffer.from(JSON.stringify(session)).toString("bas
 
 const PAGES = (process.env.PAGES || [
   "/", "/plan", "/plan/goals", "/plan/milestones", "/plan/conditions", "/plan/inputs", "/plan/scenarios", "/plan/decisions",
-  "/finance", "/finance/expenses", "/finance/import", "/finance/budget", "/finance/debt", "/finance/funding", "/finance/income", "/finance/savings",
+  "/finance", "/finance/balance-sheet", "/finance/expenses", "/finance/import", "/finance/budget", "/finance/debt", "/finance/funding", "/finance/income", "/finance/savings",
   "/opportunities", "/people", "/people/organizations", "/people/communications", "/people/outreach",
   "/productivity", "/productivity/tasks", "/productivity/recurring", "/productivity/calendar", "/productivity/pipeline-actions",
-  "/accountability", "/accountability/targets", "/accountability/reviews", "/accountability/scores", "/accountability/partners", "/accountability/reports",
+  "/accountability", "/accountability/targets", "/accountability/reviews", "/accountability/scores", "/accountability/partners", "/accountability/reports", "/accountability/report-templates",
   "/settings", "/settings/email", "/settings/ai", "/settings/imports", "/settings/partner-access", "/settings/initiatives", "/settings/categories", "/settings/export", "/settings/profile", "/settings/change-log",
   "/proposals", "/plan/start", "/settings/data", "/records/tasks/new", "/records/decision_conditions/new", "/records/pipeline_items/new", "/records/contacts/new", "/records/organizations/new",
 ].join(",")).split(",");
@@ -104,7 +104,7 @@ async function keyPages() {
     page.on("console", (m) => {
       if (m.type() === "error") errors.push(m.text());
     });
-    const base = vpName === "desktop" ? PAGES : vpName === "phone" ? (process.env.PHONE_PAGES || "/,/finance/expenses,/opportunities,/plan/inputs,/accountability/targets,/people/outreach,/productivity").split(",") : [];
+    const base = vpName === "desktop" ? PAGES : vpName === "phone" ? (process.env.PHONE_PAGES || "/,/finance/expenses,/finance/balance-sheet,/accountability/report-templates,/opportunities,/plan/inputs,/accountability/targets,/people/outreach,/productivity").split(",") : [];
     const list = [...new Set([...base, ...KEY])];
     for (const p of list) {
       errors.length = 0;

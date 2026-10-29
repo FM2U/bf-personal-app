@@ -6,6 +6,8 @@ import { loadCtx } from "@/lib/engine/helpers";
 import { daysBetween, todayInTz, weekBounds } from "@/lib/calc/dates";
 import { compareDeals } from "@/lib/calc/pipeline";
 import { loadPipelineStatus, type ItemStatus } from "@/lib/pipeline";
+import { scorecardFrom, stageLites } from "@/lib/deal-scorecard";
+import { ScorecardDot } from "@/components/app/deal-scorecard";
 import { Card, CardContent, CardHeader, CardNote, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge, dueClass } from "@/components/ui/badge";
@@ -53,6 +55,9 @@ export default async function PipelinePage({ params, searchParams }: { params: P
     extra = Object.fromEntries(((data ?? []) as Row[]).map((d) => [d.item_id, d]));
   }
   const status = await loadPipelineStatus(supabase, items, { ownerId, tz: ctx.tz, today: ctx.today, stages: allStages });
+  // Deal scorecard dot per row (the same overall color as the card on the item window and page).
+  const lites = stageLites(allStages);
+  const scoreOf = (i: Row) => scorecardFrom({ item: i, detail: extra[i.id], stages: lites, status: status.byItem[i.id], stallDays: status.stallDays, today: ctx.today });
   const isAcq = pipe.kind === "acquisition";
   const isConsulting = pipe.kind === "consulting";
   const consulting = isConsulting ? await loadConsulting(supabase, { ownerId, today: ctx.today }) : null;
@@ -174,9 +179,12 @@ export default async function PipelinePage({ params, searchParams }: { params: P
                     return (
                       <TR key={i.id}>
                         <TD>
-                          <Link href={`/records/pipeline_items/${i.id}`} className="clamp-2 font-medium hover:underline">
-                            {i.name}
-                          </Link>
+                          <span className="flex items-baseline gap-2">
+                            <ScorecardDot card={scoreOf(i)} />
+                            <Link href={`/records/pipeline_items/${i.id}`} className="clamp-2 min-w-0 font-medium hover:underline">
+                              {i.name}
+                            </Link>
+                          </span>
                           {isConsulting ? <span className="clamp-1 text-xs text-muted-foreground">{i.organization_id ? orgName[i.organization_id] : "Client not set"}</span> : null}
                         </TD>
                         {isAcq ? (
@@ -260,7 +268,10 @@ export default async function PipelinePage({ params, searchParams }: { params: P
                                 : null;
                       return (
                         <Link key={i.id} href={`/records/pipeline_items/${i.id}`} className="flex min-w-0 flex-col gap-1 rounded-lg border border-border bg-white p-2 shadow-xs hover:border-primary">
-                          <span className="clamp-2 text-[13px] font-medium leading-4 text-slate-900">{i.name}</span>
+                          <span className="flex items-baseline gap-1.5">
+                            <ScorecardDot card={scoreOf(i)} />
+                            <span className="clamp-2 min-w-0 text-[13px] font-medium leading-4 text-slate-900">{i.name}</span>
+                          </span>
                           {i.organization_id ? <span className="clamp-1 text-[11px] leading-4 text-muted-foreground">{orgName[i.organization_id]}</span> : null}
                           {money1 ? <span className="clamp-1 text-[11px] leading-4 text-slate-600">{money1}</span> : null}
                           {(isAcq && i.deal_source_type) || st?.stalled || st?.limit?.over ? (

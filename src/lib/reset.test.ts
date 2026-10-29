@@ -5,7 +5,8 @@ import { DEFAULT_INITIATIVES, exportIsRecent, RESET_DELETE_TABLES, RESET_KEEP_TA
 import { EXPORT_TABLES } from "./resources";
 
 const dir = path.join(__dirname, "../../supabase/migrations");
-const sql = readFileSync(path.join(dir, "0014_initiative_builder_reset.sql"), "utf8");
+// The latest migration that defines reset_all_data (0014 first, 0017 added partner report templates).
+const sql = readFileSync(path.join(dir, readdirSync(dir).filter((f) => readFileSync(path.join(dir, f), "utf8").includes("create or replace function public.reset_all_data")).sort().pop()!), "utf8");
 const fn = sql.slice(sql.indexOf("create or replace function public.reset_all_data"));
 const listIn = (name: string, text: string) => text.match(new RegExp(`${name} text\\[\\] := array\\[([\\s\\S]*?)\\];`))![1].match(/'([^']+)'/g)!.map((s) => s.slice(1, -1));
 
@@ -45,6 +46,11 @@ describe("Reset all data: keep and delete lists", () => {
     expect(fn).toMatch(/<> 'RESET'/);
     expect(fn).toMatch(/update targets set start_date = v_today/);
     expect(fn).toMatch(/'all_data_reset'/);
+  });
+
+  it("deletes partner report templates you added and keeps (or creates again) the starter templates", () => {
+    expect(fn).toMatch(/delete from partner_report_templates where owner_id = v_owner and starter_key is null/);
+    expect(fn).toMatch(/perform public\.seed_owner_report_templates\(v_owner\)/);
   });
 });
 

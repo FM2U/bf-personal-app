@@ -7,6 +7,7 @@
  * - Editor: the shared record form with collapsible sections; Save returns to the overview with "Saved".
  * - Initiative draft overview, plan text, the step-by-step setup (setup-window.tsx), Work through tasks (work-window.tsx).
  */
+import { DealScorecard } from "@/components/app/deal-scorecard";
 import { useCallback, useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { ArrowRight, ArrowUpRight, LayoutGrid, CalendarClock, CalendarDays, CheckCircle2, Circle, ListChecks, Mail, MessageSquare, Pencil, Phone, Plus, Users } from "lucide-react";
@@ -543,7 +544,9 @@ function PipelineWindow({ d, reload }: { d: Extract<OverviewData, { kind: "pipel
               <ItemStatusBadges status={d.status ?? undefined} itemStatus={d.itemStatus} />
             </div>
           </div>
-          <section className="flex min-w-0 flex-col gap-2 rounded-xl border border-border bg-white px-4 pb-4 pt-3.5" data-testid="pipeline-move-stage">
+          {/* Top right: the deal scorecard (second on tablets and phones, third on wide screens). */}
+          <DealScorecard card={d.scorecard} className="min-w-0 xl:order-last" />
+          <section className="flex min-w-0 flex-col gap-2 rounded-xl border border-border bg-white px-4 pb-4 pt-3.5 md:col-span-2 xl:col-span-1" data-testid="pipeline-move-stage">
             <h3 className="text-sm font-semibold text-slate-900">Move stage</h3>
             <p className="text-xs text-slate-600">
               Now in <span className="font-medium text-slate-800">{stageName}</span>.{" "}
@@ -562,7 +565,13 @@ function PipelineWindow({ d, reload }: { d: Extract<OverviewData, { kind: "pipel
               </Button>
             </div>
           </section>
-          <section className="flex min-w-0 flex-col gap-2 rounded-xl border border-border bg-white px-4 pb-4 pt-3.5 md:col-span-2 xl:col-span-1" data-testid="pipeline-log-activity">
+
+        </div>
+        <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <FieldsTile fields={shown} className="md:col-span-2 xl:col-span-1" />
+          <LinesTile title="Tasks for this item" icon={ListChecks} items={d.stageTasks} today={b.today} empty="No tasks for this item." />
+          <div className="flex min-w-0 flex-col gap-4">
+          <section className="flex min-w-0 flex-col gap-2 rounded-xl border border-border bg-white px-4 pb-4 pt-3.5" data-testid="pipeline-log-activity">
             <h3 className="text-sm font-semibold text-slate-900">Log activity</h3>
             <div className="grid grid-cols-2 gap-2">
               <NativeSelect value={method} onChange={(e) => setMethod(e.target.value)} aria-label="How">
@@ -601,11 +610,6 @@ function PipelineWindow({ d, reload }: { d: Extract<OverviewData, { kind: "pipel
               <MessageSquare /> Log activity
             </Button>
           </section>
-        </div>
-        <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2 xl:grid-cols-3">
-          <FieldsTile fields={shown} className="md:col-span-2 xl:col-span-1" />
-          <LinesTile title="Tasks for this item" icon={ListChecks} items={d.stageTasks} today={b.today} empty="No tasks for this item." />
-          <div className="flex min-w-0 flex-col gap-4">
             <LinesTile title="Recent activity" icon={MessageSquare} items={d.activity} today={b.today} empty="No activity logged yet." />
             {d.people.length ? (
               <section className="rounded-xl border border-border bg-white px-4 pb-3 pt-3.5">

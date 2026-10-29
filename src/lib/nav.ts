@@ -26,6 +26,7 @@ export const NAV: NavModule[] = [
     icon: "wallet",
     tabs: [
       { href: "/finance", label: "Accounts and Cash" },
+      { href: "/finance/balance-sheet", label: "Balance Sheet" },
       { href: "/finance/expenses", label: "Expenses" },
       { href: "/finance/import", label: "Import CSV" },
       { href: "/finance/budget", label: "Budget" },
@@ -73,6 +74,7 @@ export const NAV: NavModule[] = [
       { href: "/accountability/scores", label: "Completion scores" },
       { href: "/accountability/partners", label: "Accountability partners" },
       { href: "/accountability/reports", label: "Partner reports" },
+      { href: "/accountability/report-templates", label: "Report templates" },
     ],
   },
   {

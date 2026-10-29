@@ -1,7 +1,8 @@
 # Regenerates the combined SQL files from supabase/migrations:
 #   supabase/ALL_MIGRATIONS_RUN_ONCE.sql  every migration (new, empty project)
-#   supabase/UPDATE_RUN_ONCE.sql          0008 to 0016 (full catch-up for an existing project with 0001 to 0007 or later)
-#   supabase/UPDATE_0016_RUN_ONCE.sql     0016 only (the live database: 0001 to 0015)
+#   supabase/UPDATE_RUN_ONCE.sql          0008 to 0017 (full catch-up for an existing project with 0001 to 0007 or later)
+#   supabase/UPDATE_0017_RUN_ONCE.sql     0017 only (the live database: 0001 to 0016)
+#   supabase/UPDATE_0016_RUN_ONCE.sql     0016 only (a database with 0001 to 0015)
 #   supabase/UPDATE_0015_RUN_ONCE.sql     0015 only (a database with 0001 to 0014)
 #   supabase/UPDATE_0013_0014_RUN_ONCE.sql 0013 then 0014 (the live database: 0001 to 0012, or 0001 to 0013)
 #   supabase/UPDATE_0014_RUN_ONCE.sql     0014 only (a database that already has 0001 to 0013)
@@ -24,7 +25,7 @@ open("supabase/ALL_MIGRATIONS_RUN_ONCE.sql", "w").write(header + "\n".join(parts
 
 update_files = [f for f in files if f.split("/")[-1][:4] >= "0008"]
 update = (
-    "-- BF Personal App: database update (0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, and 0016).\n"
+    "-- BF Personal App: database update (0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, and 0017).\n"
     "--   0008: Daily Targets and Outreach Queue.\n"
     "--   0009: Stage task lists, stage time limits, required details, stalled items, deal source (proprietary or brokered),\n"
     "--         deal-source contacts, and the Deals sourced and Deals advanced targets.\n"
@@ -36,7 +37,8 @@ update = (
     "--   0014: Start an initiative (drafts, plan documents, checklists), weekly AI savings ideas, sample data, Reset data.\n"
     "--   0015: Gmail signature on emails sent or drafted from the app (four columns on owner_profile).\n"
     "--   0016: Deal funnel: Listings screened, CIMs reviewed, and Broker or owner calls targets; search hours and minutes per step.\n"
-    "-- For a database that already has 0001 to 0007 (or 0001 to 0008, 0009, 0010, 0011, 0012, 0013, 0014, or 0015). Paste this whole file into the\n"
+    "--   0017: Partner report templates (Summary, Standard, Detailed, and your own) and a default template per partner.\n"
+    "-- For a database that already has 0001 to 0007 (or 0001 to 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, or 0016). Paste this whole file into the\n"
     "-- Supabase SQL Editor and press Run. Safe to run more than once: nothing is duplicated.\n"
     "-- Generated from supabase/migrations by supabase/build_combined.py.\n\n"
 )
@@ -128,7 +130,7 @@ open("supabase/UPDATE_0015_RUN_ONCE.sql", "w").write(u15 + open("supabase/migrat
 
 u16 = (
     "-- BF Personal App: database update 0016 (deal funnel).\n"
-    "-- For the live database, which has 0001 to 0015. Paste this whole file into the Supabase SQL Editor and press Run.\n"
+    "-- For a database that has 0001 to 0015 (the live database with 0001 to 0016 uses UPDATE_0017_RUN_ONCE.sql). Paste this whole file into the Supabase SQL Editor and press Run.\n"
     "-- Expected result: \"Success. No rows returned\". Safe to run more than once: nothing is duplicated, and no existing\n"
     "-- target, input, or record is changed or deleted. What it adds:\n"
     "--   Two count sources for targets: CIMs reviewed (cims_reviewed) and Broker or owner calls (deal_calls).\n"
@@ -140,8 +142,22 @@ u16 = (
 )
 open("supabase/UPDATE_0016_RUN_ONCE.sql", "w").write(u16 + open("supabase/migrations/0016_deal_funnel.sql").read())
 
+u17 = (
+    "-- BF Personal App: database update 0017 (partner report templates).\n"
+    "-- For the live database, which has 0001 to 0016. Paste this whole file into the Supabase SQL Editor and press Run.\n"
+    "-- Expected result: \"Success. No rows returned\". Safe to run more than once: nothing is duplicated, and no existing\n"
+    "-- record is changed or deleted. What it adds:\n"
+    "--   A table of partner report templates (which measures a report shows, the period, an optional note) with three\n"
+    "--   starter templates for you and future owners: Summary, Standard, Detailed.\n"
+    "--   A default template on each accountability partner (Standard for existing partners).\n"
+    "--   Reset all data: also deletes templates you added and keeps the three starter templates. And a check function.\n"
+    "-- The balance sheet and the deal scorecard need no database change.\n"
+    "-- Generated from supabase/migrations/0017_partner_report_templates.sql by supabase/build_combined.py.\n\n"
+)
+open("supabase/UPDATE_0017_RUN_ONCE.sql", "w").write(u17 + open("supabase/migrations/0017_partner_report_templates.sql").read())
+
 old = (
-    "-- USE supabase/UPDATE_RUN_ONCE.sql INSTEAD. That file includes this update (0008) and the next ones (0009 to 0016).\n"
+    "-- USE supabase/UPDATE_RUN_ONCE.sql INSTEAD. That file includes this update (0008) and the next ones (0009 to 0017).\n"
     "-- This file is kept for reference only.\n"
     "--\n"
     "-- BF Personal App: database update 0008 (Daily Targets and Outreach Queue).\n"
@@ -151,5 +167,5 @@ old = (
 open("supabase/UPDATE_0008_RUN_ONCE.sql", "w").write(old + open("supabase/migrations/0008_targets_outreach.sql").read())
 print(
     f"Wrote ALL_MIGRATIONS_RUN_ONCE.sql ({len(files)} files), UPDATE_RUN_ONCE.sql ({len(update_files)} files), "
-    "UPDATE_0016_RUN_ONCE.sql, UPDATE_0015_RUN_ONCE.sql, UPDATE_0013_0014_RUN_ONCE.sql, UPDATE_0014_RUN_ONCE.sql, UPDATE_0011_0012_RUN_ONCE.sql, UPDATE_0012_RUN_ONCE.sql, UPDATE_0013_RUN_ONCE.sql, UPDATE_0011_RUN_ONCE.sql, UPDATE_0008_RUN_ONCE.sql"
+    "UPDATE_0017_RUN_ONCE.sql, UPDATE_0016_RUN_ONCE.sql, UPDATE_0015_RUN_ONCE.sql, UPDATE_0013_0014_RUN_ONCE.sql, UPDATE_0014_RUN_ONCE.sql, UPDATE_0011_0012_RUN_ONCE.sql, UPDATE_0012_RUN_ONCE.sql, UPDATE_0013_RUN_ONCE.sql, UPDATE_0011_RUN_ONCE.sql, UPDATE_0008_RUN_ONCE.sql"
 )

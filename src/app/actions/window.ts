@@ -22,6 +22,8 @@ import { loadInitiativeSummary } from "@/lib/initiative/summary-server";
 import type { InitiativeSummary } from "@/lib/initiative/summary";
 import { loadQuickView, type QuickViewData } from "@/app/actions/quick-view";
 import { loadPipelineStatus, missingForStage, type ItemStatus } from "@/lib/pipeline";
+import { loadScorecard } from "@/lib/deal-scorecard";
+import type { Scorecard } from "@/lib/calc/deal-scorecard";
 import { moveItemToStage } from "@/lib/pipeline-moves";
 import { sortTasksProprietaryFirst } from "@/lib/calc/pipeline";
 import { loadDealRanks } from "@/lib/pipeline";
@@ -72,6 +74,7 @@ export type OverviewData =
       compose: ComposeSetup | null;
       tomorrow: string;
       suggestion: Suggestion | null;
+      scorecard: Scorecard;
     }
   | { ok: true; kind: "scenario"; id: string; title: string; description: string; results: { label: string; current: string; scenario: string }[]; changes: { label: string; value: string; table: string | null; id: string | null }[] };
 
@@ -174,6 +177,7 @@ async function pipelineOverview(sb: Awaited<ReturnType<typeof requireOwner>>["su
   const next = stageList.find((s) => s.outcome !== "lost" && Number(s.position) > Number(current?.position ?? 0));
   const missing = next && row.status === "open" ? await missingForStage(sb, row, next.id) : [];
   const status = await loadPipelineStatus(sb, [row], { ownerId, tz: ctx.tz, today: ctx.today, stages: stageList }).catch(() => null);
+  const scorecard = await loadScorecard(sb, { item: row, pipelineKind: (pipe?.kind as string | null) ?? null, stages: stageList, status: status?.byItem[row.id], stallDays: status?.stallDays ?? 7, today: ctx.today });
   const ids = [row.primary_contact_id, row.source_contact_id, row.introduced_by_contact_id].filter(Boolean) as string[];
   const [{ data: contacts }, orgRes] = await Promise.all([
     ids.length ? sb.from("contacts").select("id,name").in("id", ids) : Promise.resolve({ data: [] }),
@@ -206,6 +210,7 @@ async function pipelineOverview(sb: Awaited<ReturnType<typeof requireOwner>>["su
     people,
     compose: await loadComposeSetup(sb, ownerId, "pipeline_items", row),
     tomorrow: addDaysISO(ctx.today, 1),
+    scorecard,
     suggestion: await firstSuggestion([
       pipelineSuggestion({
         id: row.id,

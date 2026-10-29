@@ -422,21 +422,37 @@ function decodeRaw(raw) {
   const boundary = (contentType.match(/boundary="?([^";]+)"?/) || [])[1];
   if (boundary) {
     // multipart/alternative: decode every part; body is the text part, html the HTML part.
-    const chunks = bodyRaw.split(`--${boundary}`);
-    const parts = chunks.slice(1, -1).map((c) => {
-      const part = c.replace(/^\r\n/, "");
-      const i = part.indexOf("\r\n\r\n");
-      const ph = part.slice(0, i);
-      const encoded = part.slice(i + 4).replace(/\r\n$/, "");
-      const type = (ph.match(/Content-Type:\s*([^;\r\n]+)/i) || [])[1] || "";
-      const charset = (ph.match(/charset=([^;\r\n]+)/i) || [])[1] || "";
-      const content = /base64/i.test(ph) ? Buffer.from(encoded.replace(/\r\n/g, ""), "base64").toString("utf8") : encoded;
-      return { type: type.trim().toLowerCase(), charset: charset.trim(), content };
-    });
+    // multipart/mixed (a file attached): the first part is the multipart/alternative message, then each file
+    // (listed in attachments with its type, file name, and size; the PDF's first bytes in head).
+    const splitParts = (raw, bnd) => {
+      const chunks = raw.split(`--${bnd}`);
+      return {
+        closed: chunks[chunks.length - 1].startsWith("--"),
+        parts: chunks.slice(1, -1).map((c) => {
+          const part = c.replace(/^\r\n/, "");
+          const i = part.indexOf("\r\n\r\n");
+          const ph = part.slice(0, i);
+          const encoded = part.slice(i + 4).replace(/\r\n$/, "");
+          const type = ((ph.match(/Content-Type:\s*([^;\r\n]+)/i) || [])[1] || "").trim().toLowerCase();
+          const charset = ((ph.match(/charset=([^;\r\n]+)/i) || [])[1] || "").trim();
+          const inner = (ph.match(/boundary="?([^";\r\n]+)"?/i) || [])[1];
+          const filename = (ph.match(/filename="([^"]*)"/i) || [])[1] || null;
+          const bytes = /base64/i.test(ph) ? Buffer.from(encoded.replace(/\r\n/g, ""), "base64") : Buffer.from(encoded, "utf8");
+          return { type, charset, inner, filename, bytes, raw: encoded, content: bytes.toString("utf8") };
+        }),
+      };
+    };
+    const top = splitParts(bodyRaw, boundary);
+    let parts = top.parts;
+    const attachments = [];
+    if (/multipart\/mixed/i.test(contentType)) {
+      const alt = parts.find((x) => x.type === "multipart/alternative");
+      for (const x of parts) if (x !== alt) attachments.push({ type: x.type, filename: x.filename, size: x.bytes.length, head: x.bytes.subarray(0, 5).toString("latin1") });
+      parts = alt ? splitParts(alt.raw, alt.inner).parts : [];
+    }
     const text = parts.find((x) => x.type === "text/plain");
     const html = parts.find((x) => x.type === "text/html");
-    const closed = chunks[chunks.length - 1].startsWith("--");
-    return { to: headers.to, subject, body: text?.content ?? "", html: html?.content ?? null, contentType, parts: parts.map((x) => `${x.type}; ${x.charset}`), closed, headers };
+    return { to: headers.to, subject, body: text?.content ?? "", html: html?.content ?? null, contentType, parts: parts.map((x) => `${x.type}; ${x.charset}`), attachments, closed: top.closed, headers };
   }
   const body = headers["content-transfer-encoding"] === "base64" ? Buffer.from(bodyRaw.replace(/\r\n/g, ""), "base64").toString("utf8") : bodyRaw;
   return { to: headers.to, subject, body, html: null, contentType, parts: [], headers };

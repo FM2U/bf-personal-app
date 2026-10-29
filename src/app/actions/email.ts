@@ -5,7 +5,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
 import { evaluateConditions } from "@/lib/engine/rules";
-import { activeLinkFor, reportText } from "@/lib/engine/partners";
+import { activeLinkFor, templateReportEmail } from "@/lib/engine/partners";
+import { chooseTemplates, loadReportTemplates } from "@/lib/report-templates";
+import { reportPdf, reportPdfName } from "@/lib/report-pdf";
+import type { MimeAttachment } from "@/lib/gmail-mime";
 import { createGmailDraft, getGoogleConnection, sendGmailMessage } from "@/lib/google";
 import { sendPermission } from "@/lib/google-scopes";
 import { explainGoogleError } from "@/lib/google-errors";
@@ -73,7 +76,11 @@ async function permissionProblem(sb: SupabaseClient, ownerId: string): Promise<S
   return { ok: false, reason: "not_connected", message: "Google is not connected. Connect Google in Settings, Connections, or save the message another way." };
 }
 
-async function sendOne(sb: SupabaseClient, ownerId: string, msg: { to: string; subject: string; body: string; bodyHtml?: string | null; threadId?: string | null; includeSignature?: boolean }): Promise<{ id: string; threadId: string | null } | SendResult> {
+async function sendOne(
+  sb: SupabaseClient,
+  ownerId: string,
+  msg: { to: string; subject: string; body: string; bodyHtml?: string | null; html?: string | null; attachments?: MimeAttachment[] | null; threadId?: string | null; includeSignature?: boolean },
+): Promise<{ id: string; threadId: string | null } | SendResult> {
   try {
     const res = await sendGmailMessage(sb, ownerId, msg);
     if (!res) return { ok: false, reason: "not_connected", message: "Google is not connected. Connect Google in Settings, Connections." };
@@ -299,8 +306,28 @@ export async function writeEmailWithAI(input: ComposeInput & { instruction: stri
   }
 }
 
+/** What the partner report Delivery card sends with: one or two templates and the optional PDF. */
+export type ReportSendOptions = { templateIds?: string[] | null; attachPdf?: boolean };
+
+/**
+ * The report email for the chosen templates (or the partner's default template): the visual HTML, the plain text part,
+ * and, when asked, the PDF of the same report.
+ */
+async function buildReportEmail(sb: SupabaseClient, ownerId: string, report: Row, partner: Row, opts: ReportSendOptions) {
+  const link = await activeLinkFor({ sb }, String(partner.id));
+  const { templates: all } = await loadReportTemplates(sb, ownerId);
+  const templates = chooseTemplates(all, opts.templateIds ?? null, partner);
+  const email = templateReportEmail(partner, report, link, templates);
+  let attachments: MimeAttachment[] | null = null;
+  if (opts.attachPdf) {
+    const bytes = await reportPdf({ partnerName: String(partner.name), report: { period_start: report.period_start, period_end: report.period_end, summary: report.summary ?? null, snapshot: report.snapshot ?? null }, templates, link });
+    attachments = [{ filename: reportPdfName(String(report.period_start), String(report.period_end)), contentType: "application/pdf", data: bytes }];
+  }
+  return { ...email, templates, attachments };
+}
+
 /** Partner report page: sends the finalized report email to the accountability partner and marks the report sent. */
-export async function sendPartnerReportEmail(input: { reportId: string; requestId: string; includeSignature?: boolean }): Promise<SendResult> {
+export async function sendPartnerReportEmail(input: { reportId: string; requestId: string; includeSignature?: boolean } & ReportSendOptions): Promise<SendResult> {
   const { supabase, ownerId } = await requireOwner();
   if (!REQUEST_ID.test(String(input.requestId ?? ""))) return { ok: false, reason: "invalid", message: "The send request was not valid. Reload the page and try again." };
   const done = await previousSend(supabase, input.requestId);
@@ -313,15 +340,19 @@ export async function sendPartnerReportEmail(input: { reportId: string; requestI
   const problem = await permissionProblem(supabase, ownerId);
   if (problem) return problem;
 
-  const link = await activeLinkFor({ sb: supabase }, partner.id);
-  const text = reportText(partner, report, link, "email");
-  const sent = await sendOne(supabase, ownerId, { to: String(partner.email), subject: text.subject, body: text.body, includeSignature: typeof input.includeSignature === "boolean" ? input.includeSignature : undefined });
+  let email: Awaited<ReturnType<typeof buildReportEmail>>;
+  try {
+    email = await buildReportEmail(supabase, ownerId, report as Row, partner as Row, input);
+  } catch {
+    return { ok: false, reason: "google", message: "The report email or its PDF could not be made. Try again without the PDF." };
+  }
+  const sent = await sendOne(supabase, ownerId, { to: String(partner.email), subject: email.subject, body: email.body, html: email.html, attachments: email.attachments, includeSignature: typeof input.includeSignature === "boolean" ? input.includeSignature : undefined });
   if ("ok" in sent) return sent;
 
   const sentAt = new Date().toISOString();
   let contact: Row | null = null;
   if (partner.contact_id) contact = ((await supabase.from("contacts").select("*").eq("id", partner.contact_id).maybeSingle()).data as Row | null) ?? null;
-  const commId = await saveCommunication(supabase, { kind: "partner_report", ownerId, to: String(partner.email), subject: text.subject, body: text.body, sentAt, contact }, sent);
+  const commId = await saveCommunication(supabase, { kind: "partner_report", ownerId, to: String(partner.email), subject: email.subject, body: email.body, sentAt, contact }, sent);
   if (commId) await supabase.from("record_links").insert({ owner_id: ownerId, from_type: "communications", from_id: commId, to_type: "partners", to_id: partner.id, relation: "partner report" });
 
   const delivered = [...new Set([...((report.delivered_via as string[] | null) ?? []), "gmail_sent"])];
@@ -331,7 +362,19 @@ export async function sendPartnerReportEmail(input: { reportId: string; requestI
   await writeChangeLog(supabase, ownerId, {
     table: "partner_reports",
     recordId: String(report.id),
-    value: { request_id: input.requestId, kind: "partner_report", to: partner.email, subject: text.subject, partner_id: partner.id, communication_id: commId, gmail_message_id: sent.id, gmail_thread_id: sent.threadId, sent_at: sentAt },
+    value: {
+      request_id: input.requestId,
+      kind: "partner_report",
+      to: partner.email,
+      subject: email.subject,
+      partner_id: partner.id,
+      templates: email.templates.map((t) => t.name),
+      pdf_attached: !!email.attachments,
+      communication_id: commId,
+      gmail_message_id: sent.id,
+      gmail_thread_id: sent.threadId,
+      sent_at: sentAt,
+    },
   });
   await supabase.from("tasks").update({ status: "done" }).eq("source_key", `partner-report:${report.id}`).eq("status", "todo");
   revalidatePath("/", "layout");
@@ -339,16 +382,15 @@ export async function sendPartnerReportEmail(input: { reportId: string; requestI
 }
 
 /** Partner report page: Save to Gmail drafts (the existing behavior), returning a message instead of an error page. */
-export async function saveReportToGmailDrafts(reportId: string, includeSignature?: boolean): Promise<{ ok: boolean; message: string }> {
+export async function saveReportToGmailDrafts(reportId: string, includeSignature?: boolean, opts: ReportSendOptions = {}): Promise<{ ok: boolean; message: string }> {
   const { supabase, ownerId } = await requireOwner();
   const { data: report } = await supabase.from("partner_reports").select("*").eq("id", reportId).maybeSingle();
   if (!report) return { ok: false, message: "Report not found." };
   const { data: partner } = await supabase.from("partners").select("*").eq("id", report.partner_id).maybeSingle();
   if (!partner?.email) return { ok: false, message: "Add an email address to the accountability partner first." };
   try {
-    const link = await activeLinkFor({ sb: supabase }, partner.id);
-    const text = reportText(partner, report, link, "email");
-    const gmailId = await createGmailDraft(supabase, ownerId, { to: partner.email, subject: text.subject, body: text.body, includeSignature: typeof includeSignature === "boolean" ? includeSignature : undefined });
+    const email = await buildReportEmail(supabase, ownerId, report as Row, partner as Row, opts);
+    const gmailId = await createGmailDraft(supabase, ownerId, { to: partner.email, subject: email.subject, body: email.body, html: email.html, attachments: email.attachments, includeSignature: typeof includeSignature === "boolean" ? includeSignature : undefined });
     if (!gmailId) return { ok: false, message: "Google is not connected. Connect Google in Settings, Connections." };
     await supabase.from("partner_reports").update({ gmail_draft_id: gmailId, delivered_via: [...new Set([...((report.delivered_via as string[] | null) ?? []), "gmail_draft"])] }).eq("id", report.id);
     revalidatePath("/", "layout");

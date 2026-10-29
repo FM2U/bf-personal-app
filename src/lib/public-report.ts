@@ -3,6 +3,8 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { sha256 } from "@/lib/crypto";
 import { env } from "@/lib/env";
 import type { Row } from "@/lib/types";
+import { defaultTemplateFor, type ReportTemplate } from "@/lib/calc/partner-report";
+import { loadReportTemplates } from "@/lib/report-templates";
 
 /**
  * Looks up a private partner link by the hash of its token, using the service role key.
@@ -28,4 +30,14 @@ export async function partnerReports(partnerId: string): Promise<Row[]> {
     .order("period_end", { ascending: false })
     .limit(52);
   return (data ?? []) as Row[];
+}
+
+/**
+ * The partner's report template for the public page (the partner's default template, otherwise Standard). Reads only
+ * the owner's templates and this partner's template choice. Before database update 0017: the starter Standard template.
+ */
+export async function partnerTemplate(partnerId: string, ownerId: string): Promise<ReportTemplate> {
+  const sb = createServiceClient();
+  const [{ templates }, { data: partner }] = await Promise.all([loadReportTemplates(sb, ownerId), sb.from("partners").select("report_template_id").eq("id", partnerId).maybeSingle()]);
+  return defaultTemplateFor(templates, ((partner as Row | null)?.report_template_id as string | null | undefined) ?? null);
 }

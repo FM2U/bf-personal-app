@@ -52,6 +52,8 @@ export async function loadSampleData(fd: FormData) {
     supabase.from("pipeline_stages").select("id,pipeline_id,name"),
   ]);
   const ent = (entities ?? []) as Row[];
+  // The starter Detailed report template (database update 0017; empty before it).
+  const { data: detailedTemplate } = await supabase.from("partner_report_templates").select("id").eq("starter_key", "detailed").maybeSingle();
   const budgetId = ((budgets ?? []) as Row[])[0]?.id ?? null;
   const pipeOf = (kind: string) => {
     const p = ((pipes ?? []) as Row[]).find((x) => x.kind === kind);
@@ -68,6 +70,7 @@ export async function loadSampleData(fd: FormData) {
       budgetedCategoryIds: ((lines ?? []) as Row[]).filter((l) => l.budget_id === budgetId).map((l) => l.category_id),
       acquisitions: pipeOf("acquisition"),
       consulting: pipeOf("consulting"),
+      reportTemplateId: ((detailedTemplate as Row | null)?.id as string | undefined) ?? null,
     },
     () => randomUUID(),
   );

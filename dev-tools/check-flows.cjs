@@ -2744,6 +2744,233 @@ const expectText = async (page, text) => {
     await page.screenshot({ path: path.join(OUT, "desktop-window-ask-ai.png") });
   });
 
+  // ---------- Build C2: deal scorecard, balance sheet, partner report templates, visual report email ----------
+  // Own 1280 window (the Email button section's 1280 window is closed by now); the phone page is still open.
+  const c2ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  await c2ctx.addCookies([cookie]);
+  const c2page = await c2ctx.newPage();
+  const C2VIEWS = [["desktop", page], ["desktop1280", c2page], ["phone", ph]];
+
+  await step("Deal scorecard: card on the item page and in the window (top right), four checks with colors, hover help; dots in the list", async () => {
+    const acq = await one("select id from pipelines where kind = 'acquisition' limit 1");
+    const item = await one("select id from pipeline_items where name = 'Demo Landscaping LLC' limit 1");
+    // An overdue next action makes the Next action check red and the overall red.
+    await pg.query("update pipeline_items set next_action = 'Call the broker', next_action_due = $2, status = 'open' where id = $1", [item.id, nyDate(-2)]);
+    await page.goto(`${BASE}/records/pipeline_items/${item.id}`);
+    const card = page.getByTestId("deal-scorecard");
+    await card.waitFor();
+    if ((await card.getByTestId("scorecard-next_action").getAttribute("data-color")) !== "red") throw new Error("overdue next action is not red");
+    if ((await card.getByTestId("scorecard-overall").getAttribute("data-color")) !== "red") throw new Error("overall is not red");
+    if (!/Overdue 2 days/.test(await card.getByTestId("scorecard-next_action").innerText())) throw new Error("overdue value");
+    if (!/\d of 4 on track/.test(await card.getByTestId("scorecard-overall").innerText())) throw new Error("score text");
+    for (const k of ["stage_time", "next_action", "required", "activity"]) await card.getByTestId(`scorecard-${k}`).waitFor();
+    // Top right: the card is the first thing in the side column, level with the Next required action card.
+    const cb = await card.boundingBox();
+    const nb = await page.locator("#next-action").first().boundingBox();
+    if (nb && (cb.x < nb.x + nb.width || Math.abs(cb.y - nb.y) > 4)) throw new Error(`card not top right: ${JSON.stringify(cb)} vs ${JSON.stringify(nb)}`);
+    // Hover shows what the check means and what to do.
+    const help = card.getByTestId("scorecard-help-next_action");
+    if (await help.isVisible()) throw new Error("help shown before hover");
+    await card.getByTestId("scorecard-next_action").hover();
+    await page.waitForTimeout(250);
+    if (!(await help.isVisible()) || !/Do the next action today/.test(await help.innerText())) throw new Error("hover help");
+    await page.screenshot({ path: path.join(OUT, "desktop-scorecard-hover.png") });
+    // Due today: the check turns amber.
+    await pg.query("update pipeline_items set next_action_due = $2 where id = $1", [item.id, nyDate(0)]);
+    await page.reload();
+    if ((await page.getByTestId("scorecard-next_action").getAttribute("data-color")) !== "amber") throw new Error("due today is not amber");
+    // Window: the card is in the top row, on the right on wide screens.
+    for (const [name, pg_] of C2VIEWS) {
+      await pg_.goto(`${BASE}/opportunities/${acq.id}?w=r/pipeline_items/${item.id}`);
+      const w = pg_.locator("[data-url-window]").getByTestId("deal-scorecard");
+      await w.waitFor();
+      if (name !== "phone") {
+        const wb = await w.boundingBox();
+        const na = await pg_.locator("[data-url-window]").getByTestId("pipeline-move-stage").boundingBox();
+        if (name === "desktop" && !(wb.x > na.x && Math.abs(wb.y - na.y) < 4)) throw new Error(`${name}: scorecard not right of Move stage`);
+      }
+      await pg_.screenshot({ path: path.join(OUT, `${name}-scorecard-window.png`) });
+      await pg_.goto(`${BASE}/records/pipeline_items/${item.id}`);
+      await pg_.getByTestId("deal-scorecard").waitFor();
+      await pg_.screenshot({ path: path.join(OUT, `${name}-scorecard-page.png`), fullPage: name === "phone" });
+    }
+    // List: one dot per open item, in the overall color.
+    await page.goto(`${BASE}/opportunities/${acq.id}`);
+    const open = (await one("select count(*)::int n from pipeline_items where pipeline_id = $1 and status = 'open'", [acq.id])).n;
+    const dots = await page.getByTestId("scorecard-dot").count();
+    if (dots !== open) throw new Error(`dots ${dots}, open items ${open}`);
+    const row = page.locator("tr", { hasText: "Demo Landscaping LLC" }).getByTestId("scorecard-dot");
+    if (!["amber", "red"].includes(await row.getAttribute("data-color"))) throw new Error("list dot color");
+    await page.screenshot({ path: path.join(OUT, "desktop-scorecard-list.png") });
+  });
+
+  await step("Balance sheet: assets by type, liabilities, net worth equal to Accounts and Cash, Personal / Cyan Arc LLC / Both, trend", async () => {
+    await page.goto(`${BASE}/finance`);
+    const overview = (await page.getByTestId("net-worth-tile").innerText()).trim();
+    await page.getByTestId("net-worth-tile").click();
+    await page.waitForURL(/\/finance\/balance-sheet/);
+    // Runway counts Personal accounts only (default setting), so the sheet opens on Personal.
+    if ((await page.getByTestId("sheet-scope").getByRole("link", { name: "Personal" }).getAttribute("aria-current")) !== "page") throw new Error("not Personal by default");
+    await page.getByTestId("sheet-assets").waitFor();
+    await page.getByTestId("sheet-group-cash").waitFor();
+    const money = (t) => Number(t.replace(/[^0-9.-]/g, ""));
+    const db = await one(`select
+      (select coalesce(sum(b.balance), 0) from accounts a join account_current_balances b on b.account_id = a.id join entities e on e.id = a.entity_id where a.is_active and a.kind not in ('credit_card','loan') and e.kind <> 'business') assets,
+      (select coalesce(sum(abs(b.balance)), 0) from accounts a join account_current_balances b on b.account_id = a.id join entities e on e.id = a.entity_id where a.is_active and a.kind in ('credit_card','loan') and e.kind <> 'business') liab`);
+    const unlinked = (await one("select coalesce(sum(abs(current_balance)),0) d from debts d left join entities e on e.id = d.entity_id where d.is_active and d.account_id is null and coalesce(e.kind, 'personal') <> 'business'")).d;
+    const want = Math.round((Number(db.assets) - Number(db.liab) - Number(unlinked)) * 100) / 100;
+    const shown = money(await page.getByTestId("sheet-net-worth").innerText());
+    if (Math.abs(shown - want) > 0.01) throw new Error(`Personal net worth ${shown}, records ${want}`);
+    await page.getByTestId("sheet-scope").getByRole("link", { name: "Both" }).click();
+    await page.waitForURL(/scope=all/);
+    const both = (await page.getByTestId("sheet-net-worth").innerText()).trim();
+    if (money(both) !== money(overview)) throw new Error(`Both ${both} differs from Accounts and Cash ${overview}`);
+    await page.getByTestId("sheet-trend").waitFor();
+    const chart = await page.getByTestId("sheet-trend").locator(".recharts-surface").count();
+    const empty = await page.getByTestId("sheet-trend-empty").count();
+    if (!chart && !empty) throw new Error("no trend and no explanation");
+    for (const [name, pg_] of C2VIEWS) {
+      await pg_.goto(`${BASE}/finance/balance-sheet`);
+      await pg_.getByTestId("sheet-assets").waitFor();
+      await pg_.waitForTimeout(300);
+      await pg_.screenshot({ path: path.join(OUT, `${name}-balance-sheet.png`), fullPage: true });
+      const over = await pg_.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+      if (over) throw new Error(`${name}: the page scrolls sideways`);
+    }
+    // Nav link
+    await page.goto(`${BASE}/finance`);
+    await page.getByRole("link", { name: "Balance Sheet", exact: true }).first().click();
+    await page.waitForURL(/\/finance\/balance-sheet/);
+  });
+
+  await step("Report templates: three starters; add, edit and rename, delete; choose a partner's default", async () => {
+    await page.goto(`${BASE}/accountability/report-templates`);
+    await page.getByTestId("template-list").waitFor();
+    const names = await page.getByTestId("template-card").locator("p.font-medium").allInnerTexts();
+    for (const n of ["Summary", "Standard", "Detailed"]) if (!names.includes(n)) throw new Error(`missing starter ${n}: ${names}`);
+    // Add
+    await page.getByTestId("template-add").click();
+    await page.getByTestId("template-name").fill("Deal search weekly");
+    await page.getByTestId("template-period").selectOption("two_weeks");
+    await page.getByTestId("template-note").fill("This period I focused on screening and broker calls.");
+    for (const k of ["listings_screened", "cims_reviewed", "deal_calls", "completion_pct"]) await page.getByTestId(`measure-${k}`).check();
+    await page.screenshot({ path: path.join(OUT, "desktop-report-template-editor.png"), fullPage: true });
+    await page.getByTestId("template-save").click();
+    await expectText(page, "Added Deal search weekly.");
+    let t = await one("select * from partner_report_templates where name = 'Deal search weekly'");
+    if (!t || t.period !== "two_weeks" || t.measures.join(",") !== "completion_pct,listings_screened,cims_reviewed,deal_calls" || t.starter_key) throw new Error(`added: ${JSON.stringify(t)}`);
+    // Saving with no measures is refused with a plain message.
+    await page.getByTestId("template-add").click();
+    await page.getByTestId("template-name").fill("Empty one");
+    await page.getByTestId("template-save").click();
+    await expectText(page, "Choose at least one measure.");
+    await page.getByLabel("Close the template editor").click();
+    // Edit and rename
+    await page.getByTestId("template-card").filter({ hasText: "Deal search weekly" }).getByTestId("template-edit").click();
+    await page.getByTestId("template-name").fill("Deal search focus");
+    await page.getByTestId("measure-completion_pct").uncheck();
+    await page.getByTestId("measure-pipeline_moves").check();
+    await page.getByTestId("template-save").click();
+    await expectText(page, "Saved Deal search focus.");
+    t = await one("select * from partner_report_templates where id = $1", [t.id]);
+    if (t.name !== "Deal search focus" || t.measures.includes("completion_pct") || !t.measures.includes("pipeline_moves")) throw new Error(`edited: ${JSON.stringify(t)}`);
+    // Delete another one
+    await page.getByTestId("template-add").click();
+    await page.getByTestId("template-name").fill("To delete");
+    await page.getByTestId("measure-tasks_done").check();
+    await page.getByTestId("template-save").click();
+    await expectText(page, "Added To delete.");
+    await page.getByTestId("template-card").filter({ hasText: "To delete" }).getByTestId("template-delete").click();
+    await page.getByTestId("template-delete-confirm").click();
+    await expectText(page, "Deleted To delete.");
+    if (await one("select 1 x from partner_report_templates where name = 'To delete'")) throw new Error("not deleted");
+    // Partner default
+    const partner = await one("select id, name from partners order by name limit 1");
+    await page.getByLabel(`Default template for ${partner.name}`).selectOption({ label: "Deal search focus" });
+    await expectText(page, "Saved");
+    const chosen = await one("select t.name from partners p join partner_report_templates t on t.id = p.report_template_id where p.id = $1", [partner.id]);
+    if (chosen?.name !== "Deal search focus") throw new Error(`partner default: ${JSON.stringify(chosen)}`);
+    for (const [name, pg_] of C2VIEWS) {
+      await pg_.goto(`${BASE}/accountability/report-templates`);
+      await pg_.getByTestId("template-list").waitFor();
+      await pg_.screenshot({ path: path.join(OUT, `${name}-report-templates.png`), fullPage: true });
+    }
+  });
+
+  await step("Partner report: two templates in one email with the PDF attached; preview first; Gmail gets HTML tiles, text, and the PDF (Google stand-in)", async () => {
+    const id = (await one("select id from partner_reports where status = 'finalized' order by finalized_at desc limit 1")).id;
+    const partner = await one("select p.* from partners p join partner_reports r on r.partner_id = p.id where r.id = $1", [id]);
+    await page.goto(`${BASE}/accountability/reports/${id}`);
+    await page.getByTestId("report-email-panel").waitFor();
+    // The partner's default template is chosen first.
+    const firstLabel = await page.getByTestId("report-template-first").locator("option:checked").innerText();
+    if (partner.report_template_id && !/partner's default/.test(firstLabel)) throw new Error(`default not chosen: ${firstLabel}`);
+    const std = await one("select id from partner_report_templates where starter_key = 'standard'");
+    const focus = await one("select id from partner_report_templates where name = 'Deal search focus'");
+    await page.getByTestId("report-template-first").selectOption(std.id);
+    await page.getByTestId("report-template-second").selectOption(focus.id);
+    if (await page.getByTestId("report-attach-pdf").isChecked()) throw new Error("PDF checked by default");
+    await page.getByTestId("report-attach-pdf").check();
+    const preview = await page.frameLocator("[data-testid=report-email-preview]").locator("body").innerText();
+    for (const want of ["Accountability report", "Standard", "Deal search focus", "Commitments completed", "Listings screened"]) if (!preview.includes(want)) throw new Error(`preview misses ${want}`);
+    for (const [name, pg_] of C2VIEWS) {
+      if (pg_ !== page) {
+        await pg_.goto(`${BASE}/accountability/reports/${id}`);
+        await pg_.getByTestId("report-template-first").selectOption(std.id);
+        await pg_.getByTestId("report-template-second").selectOption(focus.id, { timeout: 10000 }).catch(async (e) => {
+          await pg_.screenshot({ path: `/tmp/fail-${name}.png`, fullPage: true });
+          throw new Error(`${name}: ${e.message.split("\n")[0]}`);
+        });
+      }
+      await pg_.getByTestId("report-email-panel").scrollIntoViewIfNeeded();
+      await pg_.waitForTimeout(400);
+      await pg_.screenshot({ path: path.join(OUT, `${name}-report-email-preview.png`), fullPage: true });
+    }
+    // The PDF link answers with a PDF.
+    const href = await page.getByTestId("report-pdf-link").getAttribute("href");
+    const pdf = await page.request.get(`${BASE}${href}`);
+    if (pdf.headers()["content-type"] !== "application/pdf" || !(await pdf.body()).subarray(0, 5).toString().startsWith("%PDF")) throw new Error("PDF link");
+    const before = (await gsent()).length;
+    await page.getByTestId("send-now").click();
+    const dlg = page.getByRole("dialog", { name: "Send this email?" });
+    await dlg.waitFor();
+    if (!/Accountability report .*\.pdf/.test(await dlg.getByTestId("send-preview-attachment").innerText())) throw new Error("dialog has no attachment line");
+    const shown = await previewText(page);
+    if (!shown.includes("Deal search focus") || !shown.includes("Standard")) throw new Error("dialog preview");
+    await page.screenshot({ path: path.join(OUT, "desktop-report-send-two-templates.png") });
+    await page.getByTestId("send-confirm").click();
+    await page.getByTestId("send-success").waitFor();
+    const list = await gsent();
+    if (list.length !== before + 1) throw new Error("expected one email");
+    const m = list[list.length - 1];
+    if (!m.contentType.startsWith("multipart/mixed")) throw new Error(`not multipart/mixed: ${m.contentType}`);
+    if (m.parts.length !== 2 || !m.html || !m.body) throw new Error("text and HTML parts");
+    const pdfPart = m.attachments.find((a) => a.type === "application/pdf");
+    if (!pdfPart || pdfPart.head !== "%PDF-" || !/^Accountability report \d{4}-\d{2}-\d{2} to \d{4}-\d{2}-\d{2}\.pdf$/.test(pdfPart.filename)) throw new Error(`pdf: ${JSON.stringify(m.attachments)}`);
+    for (const want of [">Standard <span", ">Deal search focus <span", "max-width:600px", "background-color:#d9bd84", 'role="presentation"']) if (!m.html.includes(want)) throw new Error(`html misses ${want}`);
+    if (/<style|<script|<img (?!.*googleusercontent)/i.test(m.html.split("gmail_signature")[0])) throw new Error("html not email-safe");
+    if (!m.body.includes("STANDARD (") || !m.body.includes("DEAL SEARCH FOCUS (") || !m.body.includes("- Listings screened:")) throw new Error("text part");
+    const log = await one("select new_value from change_log where field = 'email_sent' and table_name = 'partner_reports' and record_id = $1 order by created_at desc limit 1", [id]);
+    if (log.new_value.templates.join(",") !== "Standard,Deal search focus" || log.new_value.pdf_attached !== true) throw new Error(`change log: ${JSON.stringify(log.new_value)}`);
+    // Save to Gmail drafts with the default template and no PDF: multipart/alternative with the tiles.
+    await page.goto(`${BASE}/accountability/reports/${id}`);
+    const draftsBefore = (await gdrafts()).length;
+    await page.getByTestId("save-draft").click();
+    await expectText(page, "Gmail draft created");
+    const dr = (await gdrafts()).slice(draftsBefore).pop();
+    if (!dr || !dr.contentType.startsWith("multipart/alternative") || !dr.html.includes("Deal search focus") || dr.html.includes("Standard <span")) throw new Error("draft with the partner's default template");
+    // Public page uses the partner's default template.
+    if (publicLink) {
+      const anon = await browser.newContext({ viewport: { width: 390, height: 844 } });
+      const p = await anon.newPage();
+      await p.goto(publicLink.replace(/^https?:\/\/[^/]+/, BASE));
+      await p.getByTestId("report-tiles").waitFor();
+      if (!(await p.getByTestId("report-tiles").innerText()).includes("Deal search focus")) throw new Error("public page template");
+      await p.screenshot({ path: path.join(OUT, "phone-public-report-tiles.png"), fullPage: true });
+      await anon.close();
+    }
+  });
+
   await step("Load sample data: warns about real records first, then loads marked sample rows", async () => {
     const before = await one("select (select count(*)::int from transactions) t, (select count(*)::int from accounts) a");
     sampleBefore = await sampleLike();
@@ -2760,7 +2987,7 @@ const expectText = async (page, text) => {
       (select count(*)::int from accounts where name like 'Sample %') accounts,
       (select count(*)::int from transactions) t,
       (select count(*)::int from recurring_series s where review_flag and review_status = 'unreviewed' and exists (select 1 from sample_records r where r.record_id = s.id)) unused`);
-    if (s.marked < 450 || s.accounts !== 5 || s.t <= before.t) throw new Error(JSON.stringify(s));
+    if (s.marked < 450 || s.accounts !== 7 || s.t <= before.t) throw new Error(JSON.stringify(s));
     if (s.unused !== 2) throw new Error(`unused subscriptions flagged: ${s.unused}`);
     if (s.series < 10) throw new Error(`recurring charges found: ${s.series}`);
     const unmarked = await one("select count(*)::int n from accounts a where a.name like 'Sample %' and not exists (select 1 from sample_records r where r.record_id = a.id)");

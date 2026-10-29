@@ -4,7 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { decrypt } from "@/lib/crypto";
 import { env, isGoogleConfigured } from "@/lib/env";
 import type { Row } from "@/lib/types";
-import { gmailRaw } from "@/lib/gmail-mime";
+import { gmailRaw, type MimeAttachment } from "@/lib/gmail-mime";
 import { sendPermission, type SendPermission } from "@/lib/google-scopes";
 import { loadSignature } from "@/lib/signature-store";
 import { sanitizeSignatureHtml, signatureHtmlToText } from "@/lib/email-signature";
@@ -13,7 +13,8 @@ export { GOOGLE_SCOPES, GMAIL_SEND_SCOPE, GMAIL_SETTINGS_SCOPE } from "@/lib/goo
 
 /** An email the app sends or drafts. includeSignature: true or false from the checkbox; omitted uses the setting. */
 /** body: the plain text; bodyHtml: the formatted editor's HTML when the message was written there (see gmail-mime). */
-export type AppEmail = { to: string; subject: string; body: string; bodyHtml?: string | null; includeSignature?: boolean };
+/** html: the app's own visual HTML (partner reports); attachments: files such as the report PDF (see gmail-mime). */
+export type AppEmail = { to: string; subject: string; body: string; bodyHtml?: string | null; html?: string | null; attachments?: MimeAttachment[] | null; includeSignature?: boolean };
 
 /** The signature to add to this email, or null (none saved, the setting is off, or unchecked for this email). */
 async function signatureFor(sb: SupabaseClient, ownerId: string, include: boolean | undefined): Promise<{ html: string; text: string } | null> {
@@ -85,7 +86,7 @@ export async function createGmailDraft(sb: SupabaseClient, ownerId: string, msg:
   const signature = await signatureFor(sb, ownerId, msg.includeSignature);
   const res = await gmail.users.drafts.create({
     userId: "me",
-    requestBody: { message: { raw: gmailRaw({ to: msg.to, subject: msg.subject, body: msg.body, bodyHtml: msg.bodyHtml ?? null, signature }, { requireValidTo: false }) } },
+    requestBody: { message: { raw: gmailRaw({ to: msg.to, subject: msg.subject, body: msg.body, bodyHtml: msg.bodyHtml ?? null, html: msg.html ?? null, attachments: msg.attachments ?? null, signature }, { requireValidTo: false }) } },
   });
   return res.data.id ?? null;
 }
@@ -112,7 +113,7 @@ export async function sendGmailMessage(
   const signature = await signatureFor(sb, ownerId, msg.includeSignature);
   const res = await gmail.users.messages.send({
     userId: "me",
-    requestBody: { raw: gmailRaw({ to: msg.to, subject: msg.subject, body: msg.body, bodyHtml: msg.bodyHtml ?? null, inReplyTo: msg.inReplyTo, signature }), ...(msg.threadId ? { threadId: msg.threadId } : {}) },
+    requestBody: { raw: gmailRaw({ to: msg.to, subject: msg.subject, body: msg.body, bodyHtml: msg.bodyHtml ?? null, html: msg.html ?? null, attachments: msg.attachments ?? null, inReplyTo: msg.inReplyTo, signature }), ...(msg.threadId ? { threadId: msg.threadId } : {}) },
   });
   if (!res.data.id) throw new Error("Gmail did not return a message id.");
   return { id: res.data.id, threadId: res.data.threadId ?? null };

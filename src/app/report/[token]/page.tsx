@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { createServiceClient } from "@/lib/supabase/server";
-import { partnerReports, resolvePartnerLink } from "@/lib/public-report";
+import { partnerReports, partnerTemplate, resolvePartnerLink } from "@/lib/public-report";
+import { ReportTiles } from "@/components/app/report-tiles";
 import { ReportView } from "@/components/app/report-view";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,7 @@ export default async function PublicReportPage({ params, searchParams }: { param
   await createServiceClient().from("partner_links").update({ last_viewed_at: new Date().toISOString() }).eq("id", resolved.link.id);
   const reports = await partnerReports(resolved.link.partner_id);
   const report = reports.find((r) => r.id === sp.r) ?? reports[0];
+  const template = await partnerTemplate(resolved.link.partner_id, resolved.ownerId);
   return (
     <div className="mx-auto max-w-4xl px-4 py-8">
       <header className="mb-6">
@@ -38,7 +40,8 @@ export default async function PublicReportPage({ params, searchParams }: { param
       ) : null}
       {report ? (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          <div className="lg:col-span-2">
+          <div className="flex min-w-0 flex-col gap-4 lg:col-span-2">
+            <ReportTiles input={{ partnerName: resolved.partnerName, report: { period_start: report.period_start, period_end: report.period_end, summary: report.summary ?? null, snapshot: report.snapshot ?? null }, templates: [template], link: null }} />
             <ReportView report={report} />
           </div>
           <div className="flex flex-col gap-4">

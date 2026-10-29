@@ -13,6 +13,7 @@
 #   (l) 0001 to 0013, then UPDATE_0014_RUN_ONCE.sql twice
 #   (m) 0001 to 0014 (the live database on 2026-10-28) plus an owner and data, then UPDATE_0015_RUN_ONCE.sql twice
 #   (n) 0001 to 0015 (the live database on 2026-10-28, evening) plus an owner and data, then UPDATE_0016_RUN_ONCE.sql twice
+#   (o) 0001 to 0016 (the live database on 2026-10-29) plus an owner, partners, and a report, then UPDATE_0017_RUN_ONCE.sql twice
 # Paths b, c, d (UPDATE_RUN_ONCE.sql) and j, k, l also check 0014: tables, policies, functions, sample removal, and reset.
 # Every UPDATE_RUN_ONCE.sql path also checks 0012 and 0013.
 # Usage: bash supabase/tests/upgrade_test.sh
@@ -407,7 +408,50 @@ select '0016 checks passed' as result;
 SQL
 for f in UPDATE_RUN_ONCE ALL_MIGRATIONS_RUN_ONCE; do grep -q "seed_owner_deal_funnel" "$DIR/$f.sql" || { echo "$f.sql is missing 0016"; exit 1; }; done
 
+# (o) Live state on 2026-10-29: 0001 to 0016 applied, an owner with two partners and a finalized report, then
+# UPDATE_0017_RUN_ONCE.sql twice. Three starter templates are added once; each partner gets Standard; a partner's
+# template chosen between the two runs is kept; the finalized report is unchanged; a future owner gets the templates.
+setup bf_upgrade_o 0016
+su postgres -c "$PSQL -d bf_upgrade_o" <<'SQL'
+\set ON_ERROR_STOP 1
+insert into public.partners (owner_id, name, email) values ('00000000-0000-0000-0000-000000000001', 'Partner one', 'one@example.com'),
+  ('00000000-0000-0000-0000-000000000001', 'Partner two', 'two@example.com');
+insert into public.partner_reports (owner_id, partner_id, period_start, period_end, status, finalized_at, snapshot, summary)
+select owner_id, id, current_date - 6, current_date, 'finalized', now(), '{"sections":["commitments"]}', 'Kept summary' from public.partners where name = 'Partner one';
+SQL
+for run in 1 2; do
+  echo "[bf_upgrade_o] Applying UPDATE_0017_RUN_ONCE.sql (run $run)"
+  su postgres -c "$PSQL -d bf_upgrade_o -f $DIR/UPDATE_0017_RUN_ONCE.sql"
+  if [ "$run" = 1 ]; then
+    su postgres -c "$PSQL -d bf_upgrade_o -c \"update public.partners set report_template_id = (select id from public.partner_report_templates where starter_key = 'detailed') where name = 'Partner two'\""
+  fi
+done
+su postgres -c "$PSQL -d bf_upgrade_o" <<'SQL'
+\set ON_ERROR_STOP 1
+do $$ begin
+  assert (select count(*) from public.partner_report_templates) = 3, 'three starter templates once';
+  assert (select string_agg(name, ',' order by sort_order) from public.partner_report_templates) = 'Summary,Standard,Detailed', 'starter names';
+  assert (select t.starter_key from public.partners p join public.partner_report_templates t on t.id = p.report_template_id where p.name = 'Partner one') = 'standard', 'existing partner gets Standard';
+  assert (select t.starter_key from public.partners p join public.partner_report_templates t on t.id = p.report_template_id where p.name = 'Partner two') = 'detailed', 'chosen template kept on the second run';
+  assert (select summary from public.partner_reports limit 1) = 'Kept summary', 'finalized report unchanged';
+  assert (select relrowsecurity from pg_class where relname = 'partner_report_templates'), 'RLS on';
+  assert exists (select 1 from pg_policies where tablename = 'partner_report_templates' and policyname = 'owner_only'), 'owner policy';
+  assert exists (select 1 from pg_trigger where tgname = 'log_change' and tgrelid = 'public.partner_report_templates'::regclass), 'change log trigger';
+  assert to_regprocedure('public.schema_has_0017()') is not null, '0017 check function';
+  assert (select prosrc from pg_proc where proname = 'reset_all_data') like '%partner_report_templates%', 'reset knows templates';
+end $$;
+-- (the finalized report may be deleted only in bulk, as during Reset; the app allows one owner at a time)
+select set_config('app.bulk_delete', 'on', false);
+delete from auth.users where id = '00000000-0000-0000-0000-000000000001';
+insert into auth.users (id, email) values ('00000000-0000-0000-0000-000000000002', 'next@example.com');
+do $$ begin
+  assert (select count(*) from public.partner_report_templates where owner_id = '00000000-0000-0000-0000-000000000002') = 3, 'future owner gets the templates';
+end $$;
+select '0017 checks passed' as result;
+SQL
+for f in UPDATE_RUN_ONCE ALL_MIGRATIONS_RUN_ONCE; do grep -q "seed_owner_report_templates" "$DIR/$f.sql" || { echo "$f.sql is missing 0017"; exit 1; }; done
+
 echo "Upgrade paths passed: 0001-0007 + update twice, 0001-0008 + update, 0001-0009 + update twice, 0001-0010 + 0011 update twice,"
 echo "0001-0010 + 0011_0012 update twice, 0001-0011 + 0011_0012 update twice, 0001-0011 + 0012 update twice (edited text kept),"
 echo "0001-0012 + 0013 update twice, 0001-0012 + 0013_0014 update twice, 0001-0013 + 0013_0014 update twice, 0001-0013 + 0014 update twice,"
-echo "0001-0014 + 0015 update twice, 0001-0015 + 0016 update twice (future owner too)."
+echo "0001-0014 + 0015 update twice, 0001-0015 + 0016 update twice (future owner too), 0001-0016 + 0017 update twice (future owner too)."

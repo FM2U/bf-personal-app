@@ -1,5 +1,5 @@
 -- BF Personal App: database update 0016 (deal funnel).
--- For the live database, which has 0001 to 0015. Paste this whole file into the Supabase SQL Editor and press Run.
+-- For a database that has 0001 to 0015 (the live database with 0001 to 0016 uses UPDATE_0017_RUN_ONCE.sql). Paste this whole file into the Supabase SQL Editor and press Run.
 -- Expected result: "Success. No rows returned". Safe to run more than once: nothing is duplicated, and no existing
 -- target, input, or record is changed or deleted. What it adds:
 --   Two count sources for targets: CIMs reviewed (cims_reviewed) and Broker or owner calls (deal_calls).

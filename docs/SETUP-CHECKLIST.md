@@ -3,7 +3,23 @@
 Do these in order. Each line says where to copy a value from and where to paste it.
 Vercel variables go in: Vercel, project bf-personal-app, Settings, Environment Variables (Production).
 
-## 000. Deal funnel (the live database has 0001 to 0015; about 2 minutes)
+## 0000. Partner report templates (the live database has 0001 to 0016; about 3 minutes)
+
+One database update. Until it is run, report emails use the three starter templates (Standard by default), Accountability, Report templates shows "Database update needed" (naming the file), and everything else keeps working. The balance sheet and the deal scorecard need no update.
+
+**Step 1: database update 0017 (about 1 minute)**
+- [ ] Open the file `supabase/UPDATE_0017_RUN_ONCE.sql` in the GitHub repository (bf-personal-app), press "Copy raw file"
+- [ ] Supabase, project bf-personal-app, SQL Editor, New query: paste, press **Run**. Expected result: "Success. No rows returned"
+- [ ] Running it a second time is safe. It adds three starter templates once and gives each partner the Standard template; it changes no report
+
+**Step 2: check it (about 2 minutes)**
+- [ ] Accountability, Report templates: three cards (Summary, Standard, Detailed), no "Database update needed" notice. On the right, each partner shows Standard. Pick another template for a partner if you want
+- [ ] Optional: press Add template, give it a name, tick the measures, choose the period, Save template
+- [ ] Open a finalized partner report: the Report email card shows the template choice, "Second template (optional)", "Attach a PDF of the report" (off), and the preview. Send now shows the same email before it sends
+- [ ] Finance, Balance Sheet: assets by type, liabilities, net worth, and the trend (Personal by default; Cyan Arc LLC and Both are one click away)
+- [ ] Any pipeline item: the Deal scorecard card at the top right, and a colored dot before each item in the pipeline list
+
+## 000. Deal funnel (a database with 0001 to 0015; already done on the live database; about 2 minutes)
 
 One database update. Until it is run, the Acquisitions page shows the funnel with "Database update needed" (naming the file) and everything else keeps working.
 
@@ -59,7 +75,7 @@ One file runs both updates. Use it whether or not `UPDATE_0013_RUN_ONCE.sql` was
 ## 1. Supabase (database)
 
 - [ ] Create a Supabase project (sign in with GitHub). Region: US East. Save the database password somewhere safe.
-- [ ] SQL Editor: paste and run `supabase/ALL_MIGRATIONS_RUN_ONCE.sql` (0001 to 0016), or each file from `supabase/migrations/` in order: 0001 to 0016.
+- [ ] SQL Editor: paste and run `supabase/ALL_MIGRATIONS_RUN_ONCE.sql` (0001 to 0017), or each file from `supabase/migrations/` in order: 0001 to 0017.
 - [ ] Authentication, Sign In / Providers, Email: enabled. Multi-Factor: TOTP enabled.
 - [ ] Copy Settings, API, **Project URL** to Vercel `NEXT_PUBLIC_SUPABASE_URL`
 - [ ] Copy Settings, API, **anon public** key to Vercel `NEXT_PUBLIC_SUPABASE_ANON_KEY`
@@ -97,7 +113,7 @@ One file runs both updates. Use it whether or not `UPDATE_0011_RUN_ONCE.sql` was
 ## 1c. Database update (older database only: one combined file)
 
 Do this once if the database was set up before 0010 (it has 0001 to 0007, 0001 to 0008, or 0001 to 0009).
-It also includes 0011 to 0016, so steps 000, 00, and 0 and the database parts of steps 1a and 1b are then not needed (Reconnect Google in steps 00 and 1a still is). The file holds nine updates:
+It also includes 0011 to 0017, so steps 0000, 000, 00, and 0 and the database parts of steps 1a and 1b are then not needed (Reconnect Google in steps 00 and 1a still is). The file holds ten updates:
 - **0008:** Daily Targets, Outreach Queue.
 - **0009:** stage task lists, time limits, required details, stalled items, deal source, Deals sourced and Deals advanced targets.
 - **0010:** commitment rule. Only pipeline next actions, milestones, daily targets, and the reviews are commitments. Regular tasks that are not done move to the next day.
@@ -107,6 +123,7 @@ It also includes 0011 to 0016, so steps 000, 00, and 0 and the database parts of
 - **0014:** Start an initiative, checklists, savings ideas, sample data, Reset all data (see step 0).
 - **0015:** Gmail signature on app emails (see step 00).
 - **0016:** deal funnel: Listings screened, CIMs reviewed, and Broker or owner calls targets; search hours and minutes per step (see step 000).
+- **0017:** partner report templates and a default template per partner (see step 0000).
 
 - [ ] Open the file `supabase/UPDATE_RUN_ONCE.sql` in the GitHub repository (bf-personal-app), press "Copy raw file"
 - [ ] Supabase, project bf-personal-app, SQL Editor, New query: paste, press **Run**. Expected result: "Success. No rows returned"

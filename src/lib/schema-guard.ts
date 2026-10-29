@@ -128,3 +128,17 @@ export const DB_UPDATE_NOTICE_0016 = `Database update needed: paste ${DB_UPDATE_
 export const PROBE_0016 = "schema_has_0016";
 /** Count sources that need update 0016 (the check constraint allows them only after it). */
 export const COUNT_SOURCES_0016 = ["cims_reviewed", "deal_calls"];
+
+/**
+ * Database update 0017 (partner report templates): the partner_report_templates table with the starter templates
+ * Summary, Standard, and Detailed, partners.report_template_id, and schema_has_0017(). Before it, the report email
+ * and the public page use the three starter templates from the code (STARTER_TEMPLATES in
+ * src/lib/calc/partner-report.ts), Accountability, Report templates shows DB_UPDATE_NOTICE_0017 instead of the
+ * editor, and every other screen and both scheduled jobs keep working. The balance sheet and the deal scorecard need
+ * no database change.
+ */
+export const DB_UPDATE_FILE_0017 = "supabase/UPDATE_0017_RUN_ONCE.sql";
+export const DB_UPDATE_NOTICE_0017 = `Database update needed: paste ${DB_UPDATE_FILE_0017} into the Supabase SQL Editor and run it.`;
+export const PROBE_0017 = "schema_has_0017";
+export const TABLES_0017 = ["partner_report_templates"];
+export const COLUMNS_0017: Record<string, string[]> = { partners: ["report_template_id"] };

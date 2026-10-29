@@ -48,7 +48,19 @@ export default async function AccountsPage() {
         <CardContent className="pt-5">
 <StatGrid className="md:grid-cols-4">
           <Stat label="Available cash (counted in runway)" value={money(snap.cash)} hint={snap.includeBusiness ? "Personal and Cyan Arc LLC" : "Personal accounts only"} />
-          <Stat label="Net worth" value={money(snap.netWorth.netWorth)} />
+          <Stat
+            label="Net worth"
+            value={
+              <Link href="/finance/balance-sheet" className="hover:underline" data-testid="net-worth-tile">
+                {money(snap.netWorth.netWorth)}
+              </Link>
+            }
+            hint={
+              <Link href="/finance/balance-sheet" className="text-primary-strong hover:underline">
+                Open balance sheet
+              </Link>
+            }
+          />
           <Stat label="Assets" value={money(snap.netWorth.assets)} />
           <Stat label="Debts" value={money(snap.netWorth.liabilities)} />
         </StatGrid>
