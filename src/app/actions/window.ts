@@ -687,3 +687,31 @@ export async function loadScenarioSummary(ids: string[]): Promise<({ ok: true } 
   });
   return { ok: true, ...data };
 }
+
+// ---------- Resolve a missed commitment ----------
+
+export type ResolveWindowData =
+  | Fail
+  | {
+      ok: true;
+      today: string;
+      miss: { id: string; missedOn: string; reason: string | null; resolution: string; newDue: string | null; decisionId: string | null };
+      commitment: { id: string; title: string; recordType: string; recordId: string; type: string; due: string; missCount: number; status: string };
+    };
+
+/** The resolve window (`?w=resolve/<miss id>`): the miss and its commitment. */
+export async function loadResolveWindow(missId: string): Promise<ResolveWindowData> {
+  const { supabase, ownerId } = await requireOwner();
+  const ctx = await loadCtx(supabase, ownerId);
+  const { data: m } = await supabase.from("missed_commitments").select("*").eq("id", missId).maybeSingle();
+  if (!m) return { ok: false, error: "This miss was not found. It may have been removed." };
+  const { data: c } = await supabase.from("commitments").select("*").eq("id", m.commitment_id).maybeSingle();
+  if (!c) return { ok: false, error: "The commitment for this miss was not found." };
+  const type = c.record_type === "tasks" ? "Task" : c.record_type === "milestones" ? "Milestone" : "Goal";
+  return {
+    ok: true,
+    today: ctx.today,
+    miss: { id: m.id, missedOn: m.missed_on, reason: m.reason ?? null, resolution: m.resolution, newDue: m.new_due_date ?? null, decisionId: m.decision_id ?? null },
+    commitment: { id: c.id, title: c.title, recordType: c.record_type, recordId: c.record_id, type, due: c.due_date, missCount: Number(c.miss_count ?? 0), status: c.status },
+  };
+}

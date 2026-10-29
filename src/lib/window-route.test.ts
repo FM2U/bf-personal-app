@@ -6,6 +6,7 @@ import {
   parentView,
   parseWindowParam,
   previousStep,
+  resolveHref,
   SETUP_STEPS,
   stepForField,
   stepPosition,
@@ -35,6 +36,7 @@ describe("window addresses", () => {
       { kind: "plan", initiativeId: ID },
       { kind: "scenario-summary", ids: [ID] },
       { kind: "scenario-summary", ids: [ID, ID2] },
+      { kind: "resolve", missId: ID },
     ];
     for (const v of views) expect(parseWindowParam(windowParam(v))).toEqual(v);
   });
@@ -134,5 +136,17 @@ describe("scenario summary window", () => {
     expect(fullPageHref({ kind: "scenario-summary", ids: [ID] })).toBe(`/plan/scenarios/${ID}`);
     expect(fullPageHref({ kind: "scenario-summary", ids: [ID, ID2] })).toBe(`/plan/scenarios/compare?ids=${ID},${ID2}`);
     expect(parseWindowParam(new URL(`http://x${withWindow("/plan/scenarios", { kind: "scenario-summary", ids: [ID, ID2] })}`).searchParams.get("w"))).toEqual({ kind: "scenario-summary", ids: [ID, ID2] });
+  });
+});
+
+describe("resolve window", () => {
+  it("one missed commitment, medium, over the Commitments page", () => {
+    expect(parseWindowParam(`resolve/${ID}`)).toEqual({ kind: "resolve", missId: ID });
+    expect(parseWindowParam("resolve/not-an-id")).toBeNull();
+    expect(parseWindowParam("resolve")).toBeNull();
+    expect(windowSize({ kind: "resolve", missId: ID })).toBe("medium");
+    expect(resolveHref(ID)).toBe(`/accountability?w=resolve/${ID}`);
+    expect(fullPageHref({ kind: "resolve", missId: ID })).toBe(resolveHref(ID));
+    expect(parseWindowParam(new URL(`http://x${resolveHref(ID)}`).searchParams.get("w"))).toEqual({ kind: "resolve", missId: ID });
   });
 });

@@ -155,7 +155,7 @@ export default async function HomePage() {
   const accountabilityTiles: Kpi[] = [
     { label: "Commitment score this week", value: scoreText(score), href: "/accountability/scores", tone: score !== null && score !== undefined && score < 70 ? "bad" : undefined, hint: score === null || score === undefined ? "None due yet this week" : "Includes targets" },
     { label: "Days in a row with every task done", value: streak, href: "/accountability/scores", tone: streak ? "good" : undefined },
-    { label: "Open missed commitments", value: missRes.count ?? 0, href: "/accountability", tone: missRes.count ? "bad" : undefined, hint: missRes.count ? "Reason needed" : undefined },
+    { label: "Open missed commitments", value: missRes.count ?? 0, href: "/accountability?status=missed", tone: missRes.count ? "bad" : undefined, hint: missRes.count ? "Reason needed" : undefined },
     draftReview
       ? { label: "Next review due", value: REVIEW_NAME[draftReview.kind] ?? "Review", href: `/accountability/reviews/${draftReview.id}`, tone: "warn", hint: `Due now, draft ready` }
       : { label: "Next review due", value: REVIEW_NAME[scheduled.kind], href: "/accountability/reviews", hint: scheduled.date === today ? "Today" : fmtDate(scheduled.date, "EEE, MMM d") },

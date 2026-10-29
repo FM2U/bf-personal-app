@@ -249,6 +249,7 @@ function testIdFor(v: WindowView): string {
   if (v.kind === "work") return "tasks-window";
   if (v.kind === "plan") return "plan-window";
   if (v.kind === "scenario-summary") return "scenario-summary-window";
+  if (v.kind === "resolve") return "resolve-miss-window";
   return "draft-window";
 }
 

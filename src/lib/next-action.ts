@@ -1,4 +1,5 @@
 import "server-only";
+import { resolveHref } from "@/lib/window-route";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { date as fmtDate, money } from "@/lib/format";
 import { newRecordHref, recordHref } from "@/lib/resources";
@@ -93,10 +94,13 @@ export async function nextActionFor(sb: SupabaseClient, table: string, row: Row,
       return { text: "No action required.", tone: "done" };
     case "commitments":
       if (row.status === "open") return { text: "Keep this commitment.", due: row.due_date, tone: row.due_date < today ? "overdue" : "normal" };
-      if (row.status === "missed") return { text: "Missed. Give a one-line reason and set a new date or open a decision.", href: "/accountability", linkText: "Resolve", tone: "overdue" };
+      if (row.status === "missed") {
+        const { data } = await sb.from("missed_commitments").select("id").eq("commitment_id", row.id).eq("resolution", "pending").order("missed_on", { ascending: false }).limit(1);
+        return { text: "Missed. Give a one-line reason and set a new date or open a decision.", href: data?.[0] ? resolveHref(String(data[0].id)) : "/accountability?status=missed", linkText: "Resolve", tone: "overdue" };
+      }
       return { text: `Status: ${row.status.replace(/_/g, " ")}.`, tone: "done" };
     case "missed_commitments":
-      return row.resolution === "pending" ? { text: "Give a one-line reason and set a new date or open a decision.", href: "/accountability", linkText: "Resolve", tone: "overdue" } : { text: "Resolved.", tone: "done" };
+      return row.resolution === "pending" ? { text: "Give a one-line reason and set a new date or open a decision.", href: resolveHref(String(row.id)), linkText: "Resolve", tone: "overdue" } : { text: "Resolved.", tone: "done" };
     case "partners":
       return { text: row.next_report_on ? `Next report draft on ${fmtDate(row.next_report_on)}.` : "Set the next report date.", href: row.next_report_on ? undefined : edit, linkText: "Set date", tone: "normal" };
     case "accounts": {

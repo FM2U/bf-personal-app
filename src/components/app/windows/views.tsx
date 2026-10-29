@@ -30,6 +30,7 @@ import { SetupWindow } from "@/components/app/windows/setup-window";
 import { WorkWindow } from "@/components/app/windows/work-window";
 import { TaskWindow } from "@/components/app/windows/task-window";
 import { ScenarioSummaryWindow } from "@/components/app/windows/scenario-summary";
+import { ResolveWindow } from "@/components/app/windows/resolve-window";
 import { loadEditForm, loadPlanText, loadRecordOverview, loadSetup, logActivityInWindow, moveStageInWindow, moveTaskToTomorrow, type EditFormData, type LineItem, type OverviewData, type SetupData } from "@/app/actions/window";
 import { setTaskStatus, updateRecordFields } from "@/app/actions/records";
 import type { QuickField } from "@/app/actions/quick-view";
@@ -236,6 +237,8 @@ export function WindowView() {
       return <WorkWindow />;
     case "scenario-summary":
       return <ScenarioSummaryWindow ids={view.ids} />;
+    case "resolve":
+      return <ResolveWindow missId={view.missId} />;
   }
 }
 

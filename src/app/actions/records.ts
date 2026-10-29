@@ -470,42 +470,49 @@ export async function markCommitment(fd: FormData): Promise<PanelResult> {
   return { ok: true };
 }
 
-/** Missed commitment flow: one-line reason, then a new date or a decision record. */
-export async function resolveMiss(fd: FormData) {
-  const missId = String(fd.get("miss_id"));
+/**
+ * Missed commitment flow: one-line reason, then a new date or a decision record. Used by the resolve window
+ * (`?w=resolve/<miss id>`), so it never revalidates (see src/app/actions/window.ts); the window reloads the page
+ * underneath when it closes.
+ */
+export async function resolveMiss(fd: FormData): Promise<{ ok: true; resolution: "new_date" | "decision"; decisionId: string | null } | { ok: false; error: string }> {
+  const missId = String(fd.get("miss_id") ?? "");
   const reason = String(fd.get("reason") ?? "").trim();
   const resolution = String(fd.get("resolution") ?? "");
   const newDate = String(fd.get("new_due_date") ?? "");
-  if (!reason) throw new Error("A one-line reason is required.");
+  if (!reason) return { ok: false, error: "A one-line reason is required." };
+  if (resolution !== "new_date" && resolution !== "decision") return { ok: false, error: "Choose New date or Open a decision." };
+  if (resolution === "new_date" && !/^\d{4}-\d{2}-\d{2}$/.test(newDate)) return { ok: false, error: "Choose a new date." };
   const { supabase, ownerId } = await requireOwner();
-  const { data: miss } = await supabase.from("missed_commitments").select("*").eq("id", missId).single();
-  if (!miss) return;
-  const { data: c } = await supabase.from("commitments").select("*").eq("id", miss.commitment_id).single();
-  if (!c) return;
+  const { data: miss } = await supabase.from("missed_commitments").select("*").eq("id", missId).maybeSingle();
+  if (!miss) return { ok: false, error: "This miss was not found. It may have been removed." };
+  if (miss.resolution !== "pending") return { ok: false, error: "This miss already has a reason and a resolution." };
+  const { data: c } = await supabase.from("commitments").select("*").eq("id", miss.commitment_id).maybeSingle();
+  if (!c) return { ok: false, error: "The commitment for this miss was not found." };
+  let decisionId: string | null = null;
   if (resolution === "new_date") {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) throw new Error("Choose a new date.");
     await supabase.from("missed_commitments").update({ reason, resolution: "new_date", new_due_date: newDate }).eq("id", missId);
     await supabase.from("commitments").update({ status: "open", due_date: newDate }).eq("id", c.id);
     if (c.record_type === "tasks") await supabase.from("tasks").update({ due_date: newDate, status: "todo" }).eq("id", c.record_id);
     if (c.record_type === "milestones") await supabase.from("milestones").update({ due_date: newDate, status: "active" }).eq("id", c.record_id);
     if (c.record_type === "goals") await supabase.from("goals").update({ deadline: newDate, status: "active" }).eq("id", c.record_id);
   } else {
-    const { data: d } = await supabase
+    const { data: d, error } = await supabase
       .from("decisions")
       .insert({ owner_id: ownerId, title: `Missed commitment: ${c.title}`, context: `Reason given: ${reason}. Missed ${c.miss_count} time(s).`, source: "missed_commitment", source_id: c.id, status: "open" })
       .select("id")
       .single();
-    if (d) {
-      await supabase.from("decision_options").insert([
-        { owner_id: ownerId, decision_id: d.id, label: "Set a new date", sort_order: 1 },
-        { owner_id: ownerId, decision_id: d.id, label: "Change the commitment", sort_order: 2 },
-        { owner_id: ownerId, decision_id: d.id, label: "Drop the commitment", sort_order: 3 },
-      ]);
-      await supabase.from("missed_commitments").update({ reason, resolution: "decision", decision_id: d.id }).eq("id", missId);
-      await supabase.from("commitments").update({ status: "closed_by_decision" }).eq("id", c.id);
-    }
+    if (!d) return { ok: false, error: `Not saved: ${error?.message ?? "the decision could not be created."}` };
+    decisionId = d.id;
+    await supabase.from("decision_options").insert([
+      { owner_id: ownerId, decision_id: d.id, label: "Set a new date", sort_order: 1 },
+      { owner_id: ownerId, decision_id: d.id, label: "Change the commitment", sort_order: 2 },
+      { owner_id: ownerId, decision_id: d.id, label: "Drop the commitment", sort_order: 3 },
+    ]);
+    await supabase.from("missed_commitments").update({ reason, resolution: "decision", decision_id: d.id }).eq("id", missId);
+    await supabase.from("commitments").update({ status: "closed_by_decision" }).eq("id", c.id);
   }
   await supabase.from("tasks").update({ status: "done" }).eq("source_key", `miss:${c.id}:${miss.missed_on}`);
   await supabase.from("alerts").update({ status: "dismissed", dismissed_at: new Date().toISOString() }).eq("dedupe_key", `miss:${c.id}:${miss.missed_on}`).eq("status", "open");
-  revalidatePath("/", "layout");
+  return { ok: true, resolution, decisionId };
 }

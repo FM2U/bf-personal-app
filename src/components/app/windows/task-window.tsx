@@ -28,6 +28,7 @@ import { ActionError, ErrorView, FullPageButton, LoadingView, useLoad, ViewLayou
 import { loadTaskWindow, moveTaskToTomorrow, type TaskWindowData } from "@/app/actions/window";
 import { markCommitment, setTaskStatus } from "@/app/actions/records";
 import { movedNote } from "@/lib/calc/commitment-rule";
+import { resolveHref } from "@/lib/window-route";
 import { date as fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -157,8 +158,8 @@ export function TaskDetails({ d, reload, hideContextNext = false }: { d: Ok; rel
                           <span className="tabular text-slate-600">{fmtDate(m.missedOn)}</span>
                           <span className={cn("clamp-2", !m.reason && "text-muted-foreground")}>{m.reason ?? "No reason given yet"}</span>
                           {m.resolution === "pending" ? (
-                            <Link href={`/accountability?miss=${m.id}`} className="whitespace-nowrap text-xs font-medium text-primary-strong hover:underline">
-                              Give the reason
+                            <Link href={resolveHref(m.id)} data-window={`resolve/${m.id}`} className="whitespace-nowrap text-xs font-medium text-primary-strong hover:underline" data-testid="task-window-resolve">
+                              Resolve
                             </Link>
                           ) : (
                             <span className="whitespace-nowrap text-xs text-slate-600">{m.resolution === "new_date" && m.newDue ? `New date ${fmtDate(m.newDue)}` : RESOLUTION[m.resolution] ?? m.resolution}</span>

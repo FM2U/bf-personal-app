@@ -17,6 +17,7 @@
  *   work, work/<task id>   Work through tasks (today's tasks one at a time)
  *   plan/<initiative id>   an initiative's plan document as text
  *   ss/<id>[,<id>...]      the scenario summary (one scenario, or the scenarios being compared)
+ *   resolve/<miss id>      resolve a missed commitment: a one-line reason, then a new date or a decision
  */
 import { getResource } from "@/lib/resources";
 
@@ -57,7 +58,8 @@ export type WindowView =
   | { kind: "setup"; draftId: string; step: SetupStep }
   | { kind: "work"; taskId: string | null }
   | { kind: "plan"; initiativeId: string }
-  | { kind: "scenario-summary"; ids: string[] };
+  | { kind: "scenario-summary"; ids: string[] }
+  | { kind: "resolve"; missId: string };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isId = (s: string | undefined): s is string => !!s && UUID.test(s);
@@ -108,6 +110,8 @@ export function parseWindowParam(w: string | null | undefined): WindowView | nul
       return rest.length === 1 && isId(rest[0]) ? { kind: "work", taskId: rest[0] } : null;
     case "plan":
       return rest.length === 1 && isId(rest[0]) ? { kind: "plan", initiativeId: rest[0] } : null;
+    case "resolve":
+      return rest.length === 1 && isId(rest[0]) ? { kind: "resolve", missId: rest[0] } : null;
     case "ss": {
       const ids = rest.length === 1 ? rest[0].split(",").filter(Boolean) : [];
       return ids.length && ids.length <= 5 && ids.every(isId) ? { kind: "scenario-summary", ids } : null;
@@ -138,6 +142,8 @@ export function windowParam(v: WindowView): string {
       return `plan/${v.initiativeId}`;
     case "scenario-summary":
       return `ss/${v.ids.join(",")}`;
+    case "resolve":
+      return `resolve/${v.missId}`;
   }
 }
 
@@ -150,10 +156,16 @@ export function withWindow(current: string, v: WindowView | null): string {
   return `${url.pathname}${q ? `?${q}` : ""}`;
 }
 
-/** Large windows: overviews, editors, the setup, Work through tasks. Medium: the quick view of other records. */
+/** Large windows: overviews, editors, the setup, Work through tasks. Medium: the quick view of other records, resolving a miss. */
 export function windowSize(v: WindowView): "large" | "medium" {
+  if (v.kind === "resolve") return "medium";
   if (v.kind === "record") return (OVERVIEW_TABLES as readonly string[]).includes(v.table) || (TASK_WINDOW_TABLES as readonly string[]).includes(v.table) ? "large" : "medium";
   return "large";
+}
+
+/** The address that opens the resolve window for a missed commitment, over the Commitments page. */
+export function resolveHref(missId: string): string {
+  return `/accountability?${WINDOW_PARAM}=resolve/${missId}`;
 }
 
 /** Where Back goes when the window was opened straight at this view (a refresh or a bookmarked link). */
@@ -236,6 +248,8 @@ export function fullPageHref(v: WindowView): string {
       return `/records/initiatives/${v.initiativeId}`;
     case "scenario-summary":
       return v.ids.length === 1 ? `/plan/scenarios/${v.ids[0]}` : `/plan/scenarios/compare?ids=${v.ids.join(",")}`;
+    case "resolve":
+      return `/accountability?${WINDOW_PARAM}=resolve/${v.missId}`;
   }
 }
 

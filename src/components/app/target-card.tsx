@@ -22,7 +22,7 @@ function Bar({ pct, status, className }: { pct: number; status: Status; classNam
  * One tile: small label, large number, a progress bar (or the same space left empty, so every tile lines up), and a
  * small gray note. Every tile has the same order and heights.
  */
-function Tile({ label, value, note, bar, valueClass, testId }: { label: string; value: React.ReactNode; note?: React.ReactNode; bar?: { pct: number; status: Status }; valueClass?: string; testId?: string }) {
+export function Tile({ label, value, note, bar, valueClass, testId }: { label: string; value: React.ReactNode; note?: React.ReactNode; bar?: { pct: number; status: Status }; valueClass?: string; testId?: string }) {
   return (
     <div className="flex min-w-0 flex-col justify-center border-slate-200 px-3 py-3.5" data-testid={testId}>
       <p className="clamp-1 text-xs font-medium leading-4 text-slate-600" title={label}>
@@ -38,7 +38,7 @@ function Tile({ label, value, note, bar, valueClass, testId }: { label: string; 
 }
 
 /** A row of equal tiles with thin dividers between them. 4 across on a wide card, 2 across on the phone. */
-function TileRow({ children, cols = 4, testId, grow = false }: { children: React.ReactNode; cols?: 2 | 3 | 4; testId?: string; /** Fills the rest of the column's height (each tile's content is centered, so tiles in a row stay aligned). */ grow?: boolean }) {
+export function TileRow({ children, cols = 4, testId, grow = false }: { children: React.ReactNode; cols?: 2 | 3 | 4; testId?: string; /** Fills the rest of the column's height (each tile's content is centered, so tiles in a row stay aligned). */ grow?: boolean }) {
   // Phone (and cols 2): two across, a line left of the second tile and above the second row. Wider: one row.
   const two = "grid-cols-2 [&>*:nth-child(2n)]:border-l [&>*:nth-child(n+3)]:border-t";
   const wide =

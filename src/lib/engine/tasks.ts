@@ -6,6 +6,7 @@ import type { Row } from "@/lib/types";
 import { groupMovesByCount, planRollover } from "@/lib/calc/commitment-rule";
 import { isMissingSchemaError } from "@/lib/schema-guard";
 import { createAlert, createTask, type Ctx } from "./helpers";
+import { resolveHref } from "@/lib/window-route";
 import { checklistsToReset, type ChecklistRow } from "@/lib/checklists";
 
 /** True when a recurring template is due on the given date. */
@@ -262,7 +263,7 @@ export async function checkCommitments(ctx: Ctx, includeToday: boolean): Promise
     await createAlert(ctx, {
       kind: "missed_commitment",
       message: `Missed commitment: ${c.title}. Give a one-line reason and set a new date or open a decision.`,
-      href: missId ? `/accountability?miss=${missId}` : "/accountability",
+      href: missId ? resolveHref(missId) : "/accountability?status=missed",
       related_type: "commitments",
       related_id: c.id,
       dedupe_key: `miss:${c.id}:${c.due_date}`,

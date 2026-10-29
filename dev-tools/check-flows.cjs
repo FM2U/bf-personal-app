@@ -110,18 +110,46 @@ const expectText = async (page, text) => {
   const page = await ctx.newPage();
   global.__page = page;
   page.on("dialog", (d) => d.accept());
+  // Database checks (local Postgres).
+  const pg = new (require("pg").Client)({ connectionString: process.env.DATABASE_URL || "postgres://postgres:postgres@127.0.0.1:5432/bf_dev" });
+  await pg.connect();
+  const one = async (sql, params = []) => (await pg.query(sql, params)).rows[0];
 
-  await step("Resolve a missed commitment with a reason and new date", async () => {
+  await step("Resolve a missed commitment with a reason and new date (count bar, Resolve opens the resolve window)", async () => {
     await page.goto(`${BASE}/accountability`);
-    const before = await page.locator('input[name="reason"]').count();
+    const tile = Number((await page.getByTestId("count-resolve").locator("p").nth(1).innerText()).trim());
+    const before = await page.getByTestId("commitment-resolve").count();
     if (!before) throw new Error("no missed commitments to resolve");
-    await page.locator('input[name="reason"]').first().fill("Spent the afternoon on the broker call.");
-    await page.locator('form:has(input[name="reason"]) button[type="submit"]').first().click();
-    await page.waitForLoadState("networkidle");
-    // Wait for the list to refresh (a fixed wait was too short on a slow run).
-    await page.waitForFunction((n) => document.querySelectorAll('input[name="reason"]').length === n, before - 1, { timeout: 15000 }).catch(() => {});
-    const after = await page.locator('input[name="reason"]').count();
+    if (tile < before) throw new Error(`To resolve tile ${tile}, Resolve buttons ${before}`);
+    // Missed rows that need a reason come first.
+    const statuses = await page.getByTestId("commitment-row").evaluateAll((els) => els.map((e) => e.getAttribute("data-status")));
+    const firstOther = statuses.findIndex((x) => x !== "missed");
+    if (firstOther >= 0 && statuses.slice(firstOther).includes("missed")) throw new Error(`order: ${statuses.join(",")}`);
+    await page.getByTestId("commitment-resolve").first().click();
+    await page.waitForURL(/w=resolve%2F|w=resolve\//);
+    const win = page.locator("[data-url-window]");
+    await win.getByTestId("resolve-window").waitFor({ timeout: 20000 });
+    await win.getByLabel(/Why was it missed/).fill("Spent the afternoon on the broker call.");
+    await win.getByTestId("resolve-save").click();
+    await win.waitFor({ state: "detached", timeout: 20000 });
+    await page.getByTestId("page-flash").waitFor();
+    await page.waitForFunction((n) => document.querySelectorAll('[data-testid="commitment-resolve"]').length === n, before - 1, { timeout: 15000 }).catch(() => {});
+    const after = await page.getByTestId("commitment-resolve").count();
     if (after !== before - 1) throw new Error(`expected ${before - 1} left, found ${after}`);
+    // A tile applies its filter in the address and is shown as the active one.
+    await page.getByTestId("count-open").click();
+    await page.waitForURL(/status=open/);
+    if ((await page.getByTestId("count-open").getAttribute("aria-current")) !== "true") throw new Error("Open tile not active");
+    const shown = await page.getByTestId("commitment-row").count();
+    const want = (await one("select count(*)::int n from commitments where status = 'open'")).n;
+    if (shown !== want) throw new Error(`open rows ${shown}, want ${want}`);
+    // An older alert link (?miss=<id>) opens the resolve window.
+    const m = await one("select id from missed_commitments where resolution = 'pending' limit 1");
+    if (m) {
+      await page.goto(`${BASE}/accountability?miss=${m.id}`);
+      await page.locator("[data-url-window] [data-testid=resolve-window]").waitFor({ timeout: 20000 });
+      await page.screenshot({ path: path.join(OUT, "flow-resolve-window.png") });
+    }
   });
 
   await step("Open the decision created by the missed milestone and choose an option", async () => {
@@ -172,9 +200,13 @@ const expectText = async (page, text) => {
   });
 
   await step("Commitments page shows the shared reason on today's misses", async () => {
+    // The reason given in the daily close is filled in when the resolve window opens.
+    const pend = await one("select id, reason from missed_commitments where resolution = 'pending' and reason like '%broker call ran all afternoon%' limit 1");
+    if (!pend) throw new Error("no pending miss with the shared reason");
     await page.goto(`${BASE}/accountability`);
-    const values = await page.locator('input[name="reason"]').evaluateAll((els) => els.map((e) => e.value));
-    if (!values.some((v) => v.includes("broker call ran all afternoon"))) throw new Error(`reasons: ${values.join(" | ")}`);
+    await page.locator(`[data-testid=commitment-resolve][data-window="resolve/${pend.id}"]`).click();
+    const v = await page.locator("[data-url-window]").getByLabel(/Why was it missed/).inputValue();
+    if (!v.includes("broker call ran all afternoon")) throw new Error(`reason: ${v}`);
   });
 
   await step("Weekly review draft renders and lists tasks moved 5 or more times (reschedule one)", async () => {
@@ -735,9 +767,6 @@ const expectText = async (page, text) => {
   const GMOCK = process.env.GOOGLE_API_MOCK_URL || "http://localhost:54329";
   const gpost = async (pathName, body = {}) => (await fetch(`${GMOCK}${pathName}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
   const gsent = async () => (await fetch(`${GMOCK}/__sent`)).json();
-  const pg = new (require("pg").Client)({ connectionString: process.env.DATABASE_URL || "postgres://postgres:postgres@127.0.0.1:5432/bf_dev" });
-  await pg.connect();
-  const one = async (sql, params = []) => (await pg.query(sql, params)).rows[0];
   const outreachCount = async () => {
     const text = await page.locator("body").innerText();
     const m = text.match(/Network outreach today\s*(\d+) of (\d+)/);
@@ -2715,7 +2744,7 @@ const expectText = async (page, text) => {
     await page.getByTestId("filter-label").first().click();
     await page.waitForURL((u) => !u.search.includes("method"));
     await page.goto(`${BASE}/accountability?status=all&type=tasks`);
-    const shown = await page.locator("table").first().locator("tbody tr").count();
+    const shown = await page.getByTestId("commitment-row").count();
     const want = (await one("select count(*)::int n from commitments where record_type = 'tasks'")).n;
     if (shown !== want) throw new Error(`commitments shown ${shown}, want ${want}`);
     await page.goto(`${BASE}/opportunities/${acqPipe}?status=lost`);
