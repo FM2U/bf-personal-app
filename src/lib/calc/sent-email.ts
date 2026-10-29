@@ -6,10 +6,23 @@
  */
 
 import { fixDashes, markdownToPlain } from "@/lib/markdown";
+import { emailBodyHtmlToText, isEmailBodyEmpty, sanitizeEmailBodyHtml } from "@/lib/email-body";
 
 /** The exact subject and text an outreach email is saved or sent with (the confirmation dialog shows the same). */
 export function prepareOutreachEmail(subject: string, body: string): { subject: string; body: string } {
   return { subject: fixDashes(String(subject ?? "")).trim().slice(0, 200), body: markdownToPlain(fixDashes(String(body ?? "")).trim()) };
+}
+
+/**
+ * The exact subject and message an email is sent or saved with, from the formatted editor when there is editor
+ * HTML: the HTML is cleaned and the text is made from it (the text is not changed in any other way, so what the
+ * editor shows is what is sent). Without editor HTML: prepareOutreachEmail.
+ */
+export function prepareEmailMessage(subject: string, body: string, bodyHtml?: string | null): { subject: string; body: string; bodyHtml: string | null } {
+  const html = String(bodyHtml ?? "");
+  if (!html.trim() || isEmailBodyEmpty(html)) return { ...prepareOutreachEmail(subject, body), bodyHtml: null };
+  const clean = sanitizeEmailBodyHtml(html);
+  return { subject: fixDashes(String(subject ?? "")).trim().slice(0, 200), body: emailBodyHtmlToText(clean), bodyHtml: clean };
 }
 
 export type OutreachPurpose = "general" | "deal_sourcing" | "consulting";

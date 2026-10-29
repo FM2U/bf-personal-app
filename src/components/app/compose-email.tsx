@@ -1,10 +1,10 @@
 "use client";
 
-import { useId, useRef, useState, useTransition } from "react";
+import { useId, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Mail, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input, NativeSelect, Textarea } from "@/components/ui/input";
+import { Input, NativeSelect } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Notice } from "@/components/app/page-header";
 import { SendOrSaveButtons } from "@/components/app/send-email";
@@ -12,7 +12,9 @@ import { useUnsavedWork } from "@/components/app/unsaved-changes";
 import { saveComposedGmailDraft, sendComposedEmail, writeEmailWithAI } from "@/app/actions/email";
 import { emailAddressProblem } from "@/lib/email-address";
 import { matchRecipient } from "@/lib/calc/compose-email";
-import { prepareOutreachEmail } from "@/lib/calc/sent-email";
+import { prepareEmailMessage } from "@/lib/calc/sent-email";
+import { emailBodyHtmlToText, textToEditorHtml } from "@/lib/email-body";
+import { EmailEditor, type EmailEditorApi } from "@/components/app/email-editor";
 import type { ComposeSetup } from "@/lib/compose-email";
 import { STATUS_BOX, STATUS_TEXT } from "@/lib/status";
 import { cn } from "@/lib/utils";
@@ -31,14 +33,16 @@ export function ComposeEmailDialog({ setup, open, onOpenChange }: { setup: Compo
   const [to, setTo] = useState(setup.defaultTo);
   const [toTouched, setToTouched] = useState(false);
   const [subject, setSubject] = useState("");
-  const [body, setBody] = useState("");
+  // The Message box holds formatted text (editor HTML); `body` is its plain text version.
+  const [bodyHtml, setBodyHtml] = useState("");
+  const body = useMemo(() => emailBodyHtmlToText(bodyHtml), [bodyHtml]);
   const [instruction, setInstruction] = useState("");
   const [aiError, setAiError] = useState<string | null>(null);
   const [writing, startWriting] = useTransition();
   const [sent, setSent] = useState(false);
   const [savedAs, setSavedAs] = useState<string | null>(null);
   const [askDiscard, setAskDiscard] = useState(false);
-  const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const editorApi = useRef<EmailEditorApi | null>(null);
   const aiRef = useRef<HTMLInputElement>(null);
   // "Send to" is shown when there is a choice to make: several people, or one person on an organization or item page.
   const showChooser = setup.recipients.length > 1 || (setup.recipients.length === 1 && !setup.contactId);
@@ -46,7 +50,7 @@ export function ComposeEmailDialog({ setup, open, onOpenChange }: { setup: Compo
   const chosen = matchRecipient(to, setup.recipients);
   const contactId = chosen?.contactId ?? setup.contactId;
   const toProblem = emailAddressProblem(to);
-  const snapshot = `${to}\n${subject}\n${body}`;
+  const snapshot = `${to}\n${subject}\n${bodyHtml}`;
   const dirty = !sent && (subject.trim() !== "" || body.trim() !== "") && savedAs !== snapshot;
 
   useUnsavedWork(open && dirty, "This email is not sent or saved to Gmail drafts yet. Leaving discards it.");
@@ -55,7 +59,7 @@ export function ComposeEmailDialog({ setup, open, onOpenChange }: { setup: Compo
     setTo(setup.defaultTo);
     setToTouched(false);
     setSubject("");
-    setBody("");
+    setBodyHtml("");
     setInstruction("");
     setAiError(null);
     setSent(false);
@@ -76,7 +80,8 @@ export function ComposeEmailDialog({ setup, open, onOpenChange }: { setup: Compo
       const r = await writeEmailWithAI({ to, contactId, pipelineItemId: setup.pipelineItemId, organizationId: setup.organizationId, instruction, subject: "", body: "" });
       if (!r.ok) return setAiError(r.error);
       setSubject(r.subject);
-      setBody(r.body);
+      // The AI writes "- " bullets; the Message box shows them as a real list (the same rule as the email).
+      setBodyHtml(textToEditorHtml(r.body));
     });
   }
 
@@ -89,6 +94,10 @@ export function ComposeEmailDialog({ setup, open, onOpenChange }: { setup: Compo
         className="max-w-2xl"
         aria-describedby={`${ids}-desc`}
         data-testid="compose-dialog"
+        onEscapeKeyDown={(e) => {
+          // Escape in the editor's "Link address" row closes only that row.
+          if (e.target instanceof Element && e.target.closest("[data-testid=editor-link-form]")) e.preventDefault();
+        }}
         onOpenAutoFocus={(e) => {
           // Start in "Write with AI" when the address is filled; otherwise in To.
           if (setup.defaultTo) {
@@ -207,21 +216,16 @@ export function ComposeEmailDialog({ setup, open, onOpenChange }: { setup: Compo
           </label>
           <Input id={`${ids}-subject`} value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={200} data-testid="compose-subject" />
         </div>
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor={`${ids}-body`} className={LABEL}>
-            Message
-          </label>
-          <Textarea id={`${ids}-body`} ref={bodyRef} value={body} onChange={(e) => setBody(e.target.value)} rows={10} data-testid="compose-body" />
-        </div>
+        <EmailEditor label="Message" labelClassName={LABEL} value={bodyHtml} onChange={setBodyHtml} apiRef={editorApi} testId="compose-body" />
 
         <SendOrSaveButtons
           permission={setup.permission}
           fromEmail={setup.fromEmail}
           disabled={!body.trim() || !!toProblem}
-          preview={() => ({ to: to.trim(), ...prepareOutreachEmail(subject, body) })}
+          preview={() => ({ to: to.trim(), ...prepareEmailMessage(subject, body, bodyHtml) })}
           signature={setup.signature}
           send={async (requestId, includeSignature) => {
-            const r = await sendComposedEmail({ to: to.trim(), subject, body, requestId, includeSignature, ...context });
+            const r = await sendComposedEmail({ to: to.trim(), subject, body, bodyHtml, requestId, includeSignature, ...context });
             if (r.ok) {
               setSent(true);
               router.refresh();
@@ -231,13 +235,13 @@ export function ComposeEmailDialog({ setup, open, onOpenChange }: { setup: Compo
           saveDraft={
             setup.canGmail
               ? async (includeSignature) => {
-                  const r = await saveComposedGmailDraft({ to: to.trim(), subject, body, includeSignature });
+                  const r = await saveComposedGmailDraft({ to: to.trim(), subject, body, bodyHtml, includeSignature });
                   if (r.ok) setSavedAs(snapshot);
                   return r;
                 }
               : undefined
           }
-          onEdit={() => bodyRef.current?.focus()}
+          onEdit={() => editorApi.current?.focus()}
           afterSendNote={savedAs ? "A Gmail draft of this email was saved earlier. Delete it in Gmail so it is not sent twice." : null}
         />
         {toProblem && body.trim() && !sent ? <p className="-mt-2 text-xs text-muted-foreground">Send now and Save to Gmail drafts become available once To holds one valid email address.</p> : null}

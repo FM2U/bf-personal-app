@@ -124,6 +124,8 @@ function attrValue(tag: string, name: string, raw: string): string | null {
     case "width":
     case "height":
       return /^\d{1,4}(%|px)?$/.test(v) ? v : null;
+    case "start":
+      return /^\d{1,4}$/.test(v) ? v : null;
     case "colspan":
     case "rowspan":
     case "cellpadding":
@@ -161,7 +163,16 @@ function parseAttrs(src: string): Array<[string, string]> {
  * addresses, and images keep only https addresses (an image without one is removed).
  */
 export function sanitizeSignatureHtml(input: string): string {
-  const html = String(input ?? "").slice(0, SIGNATURE_MAX_LENGTH * 2);
+  return sanitizeHtml(input);
+}
+
+/** Extra tags and attributes for a sanitizer built on the signature rules (the email message adds lists). */
+export type SanitizeOptions = { extraTags?: string[]; extraAttrs?: Record<string, string[]>; maxLength?: number };
+
+/** The signature sanitizer with optional extra tags (used by the email message editor: ul, ol, li). */
+export function sanitizeHtml(input: string, opts: SanitizeOptions = {}): string {
+  const html = String(input ?? "").slice(0, (opts.maxLength ?? SIGNATURE_MAX_LENGTH) * 2);
+  const allowedTags = opts.extraTags?.length ? new Set([...ALLOWED_TAGS, ...opts.extraTags]) : ALLOWED_TAGS;
   const out: string[] = [];
   const stack: string[] = [];
   let dropping: string | null = null;
@@ -202,7 +213,7 @@ export function sanitizeSignatureHtml(input: string): string {
       if (!closing && !/\/\s*$/.test(m[3])) dropping = tag;
       continue;
     }
-    if (!ALLOWED_TAGS.has(tag)) continue;
+    if (!allowedTags.has(tag)) continue;
     if (closing) {
       if (VOID_TAGS.has(tag)) continue;
       const at = stack.lastIndexOf(tag);
@@ -210,7 +221,7 @@ export function sanitizeSignatureHtml(input: string): string {
       while (stack.length > at) out.push(`</${stack.pop()}>`);
       continue;
     }
-    const allowed = new Set([...COMMON_ATTRS, ...(ALLOWED_ATTRS[tag] ?? [])]);
+    const allowed = new Set([...COMMON_ATTRS, ...(ALLOWED_ATTRS[tag] ?? []), ...(opts.extraAttrs?.[tag] ?? [])]);
     const attrs: string[] = [];
     const seen = new Set<string>();
     let hasSrc = false;
@@ -286,37 +297,55 @@ export function signatureHtmlToText(html: string): string {
 }
 
 const BULLET = /^\s*(?:[-*\u2022])\s+(.*)$/;
+const NUMBERED = /^\s*(\d{1,3})[.)]\s+(.*)$/;
 
-/** The message text as HTML: text escaped, line breaks kept, runs of "- " lines as a bulleted list. */
-export function bodyToHtml(body: string): string {
+/** One block of a plain text message: lines of text, a bulleted list, or a numbered list (with its first number). */
+export type BodyBlock = { kind: "text"; lines: string[] } | { kind: "ul"; items: string[] } | { kind: "ol"; items: string[]; start: number };
+
+/**
+ * Reads a plain text message into blocks: runs of "- " (or "* ", "\u2022 ") lines become a bulleted list, runs of
+ * "1. " lines a numbered list, everything else stays as lines of text (blank lines kept).
+ */
+export function parseBodyLines(body: string): BodyBlock[] {
   const lines = String(body ?? "").replace(/\r\n|\r/g, "\n").split("\n");
-  const blocks: string[] = [];
-  let text: string[] = [];
-  let items: string[] = [];
-  const flushText = () => {
-    if (!text.length) return;
-    // A blank line right before a list still shows as a blank line.
-    blocks.push(text.map(escapeHtml).join("<br>") + (text.length > 1 && text[text.length - 1] === "" ? "<br>" : ""));
-    text = [];
-  };
-  const flushItems = () => {
-    if (!items.length) return;
-    blocks.push(`<ul style="margin:0;padding-left:24px">${items.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>`);
-    items = [];
-  };
+  const blocks: BodyBlock[] = [];
   for (const line of lines) {
+    const last = blocks[blocks.length - 1];
     const b = BULLET.exec(line);
     if (b) {
-      flushText();
-      items.push(b[1]);
-    } else {
-      flushItems();
-      text.push(line);
+      if (last?.kind === "ul") last.items.push(b[1]);
+      else blocks.push({ kind: "ul", items: [b[1]] });
+      continue;
     }
+    const n = NUMBERED.exec(line);
+    if (n) {
+      if (last?.kind === "ol") last.items.push(n[2]);
+      else blocks.push({ kind: "ol", items: [n[2]], start: Number(n[1]) });
+      continue;
+    }
+    if (last?.kind === "text") last.lines.push(line);
+    else blocks.push({ kind: "text", lines: [line] });
   }
-  flushText();
-  flushItems();
-  return blocks.join("");
+  return blocks;
+}
+
+/** The list style used in emails (no extra space above or below, Gmail's indent). */
+export const EMAIL_LIST_STYLE = "margin:0;padding-left:24px";
+
+/** The message text as HTML: text escaped, line breaks kept, runs of "- " lines as a bulleted list, "1. " lines as a numbered list. */
+export function bodyToHtml(body: string): string {
+  return parseBodyLines(body)
+    .map((b) => {
+      if (b.kind === "text") {
+        const t = b.lines;
+        // A blank line right before a list still shows as a blank line.
+        return t.map(escapeHtml).join("<br>") + (t.length > 1 && t[t.length - 1] === "" ? "<br>" : "");
+      }
+      const items = b.items.map((x) => `<li>${escapeHtml(x)}</li>`).join("");
+      if (b.kind === "ul") return `<ul style="${EMAIL_LIST_STYLE}">${items}</ul>`;
+      return `<ol style="${EMAIL_LIST_STYLE}"${b.start !== 1 ? ` start="${b.start}"` : ""}>${items}</ol>`;
+    })
+    .join("");
 }
 
 /** What Gmail puts between the message and the signature (a blank line, then "-- " on its own line). */
@@ -340,11 +369,15 @@ export function signatureHasOwnSeparator(signature: string | null | undefined): 
   return /^[-\u2010-\u2015\u2212]{2}(\s|$)/.test(text);
 }
 
-/** The HTML part of an email: the message, then the signature (already sanitized when stored; sanitized again here). */
-export function emailHtml(body: string, signatureHtml?: string | null): string {
+/**
+ * The HTML part of an email: the message, then the signature (already sanitized when stored; sanitized again here).
+ * `messageHtml`: the message already in email HTML (from the message editor, see src/lib/email-body.ts); when
+ * omitted the plain text `body` is converted with bodyToHtml.
+ */
+export function emailHtml(body: string, signatureHtml?: string | null, messageHtml?: string | null): string {
   const sig = signatureHtml ? sanitizeSignatureHtml(signatureHtml) : "";
   const prefix = signatureHasOwnSeparator(sig) ? SIGNATURE_GAP_HTML : GMAIL_SIGNATURE_PREFIX_HTML;
-  return `<div dir="ltr">${bodyToHtml(body)}${sig ? `${prefix}<div dir="ltr" class="gmail_signature">${sig}</div>` : ""}</div>`;
+  return `<div dir="ltr">${messageHtml ?? bodyToHtml(body)}${sig ? `${prefix}<div dir="ltr" class="gmail_signature">${sig}</div>` : ""}</div>`;
 }
 
 /** The plain text part of an email: the message, then "-- " (unless the signature has its own) and the plain signature. */

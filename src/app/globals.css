@@ -216,3 +216,52 @@ select:not([multiple]):not([size]) {
   .no-print { display: none !important; }
   body { background: white; }
 }
+
+/*
+ * The formatted email message box (src/components/app/email-editor-impl.tsx). One line per paragraph with no space
+ * between (as Gmail writes a message), lists with Gmail's 24px indent and no space above or below, cobalt links.
+ */
+.email-editor-height {
+  min-height: 11rem;
+}
+@media (min-width: 640px) {
+  .email-editor-height {
+    min-height: 13rem;
+  }
+}
+.email-editor-content {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.email-editor-content p {
+  margin: 0;
+}
+.email-editor-content ul,
+.email-editor-content ol {
+  margin: 0;
+  padding-left: 24px;
+}
+.email-editor-content ul {
+  list-style: disc;
+}
+.email-editor-content ul ul {
+  list-style: circle;
+}
+.email-editor-content ol {
+  list-style: decimal;
+}
+.email-editor-content strong {
+  font-weight: 700;
+}
+.email-editor-content a {
+  color: var(--primary-strong);
+  text-decoration: underline;
+  cursor: text;
+}
+.email-editor-content p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: var(--muted-foreground);
+}

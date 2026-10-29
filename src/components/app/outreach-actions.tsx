@@ -1,22 +1,23 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, useTransition } from "react";
+import { useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import Link from "next/link";
 import { Check, Copy, Mail, PenLine, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input, NativeSelect, Textarea } from "@/components/ui/input";
+import { Input, NativeSelect } from "@/components/ui/input";
 import { SubmitButton } from "@/components/app/submit-button";
 import { Notice } from "@/components/app/page-header";
 import { createOutreachGmailDraft, draftOutreachMessage, logOutreach, type DraftResult } from "@/app/actions/targets";
-import { markdownToPlain } from "@/lib/markdown";
-import { prepareOutreachEmail } from "@/lib/calc/sent-email";
+import { prepareEmailMessage } from "@/lib/calc/sent-email";
+import { editorHtmlToEmailHtml, emailBodyHtmlToText, textToEditorHtml } from "@/lib/email-body";
+import { EmailEditor, type EmailEditorApi } from "@/components/app/email-editor";
 import { sendOutreachEmail } from "@/app/actions/email";
 import { SendOrSaveButtons } from "@/components/app/send-email";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { GuardedForm } from "@/components/app/unsaved-changes";
+import { GuardedForm, useUnsavedWork } from "@/components/app/unsaved-changes";
 import { ComposeEmailDialog } from "@/components/app/compose-email";
 import type { ComposeSetup, GmailSetup } from "@/lib/compose-email";
 
@@ -161,11 +162,16 @@ export function DraftMessagePanel({ contactId, onClose, back = "/people/outreach
   const router = useRouter();
   const [draft, setDraft] = useState<DraftResult | null>(null);
   const [subject, setSubject] = useState("");
-  const [body, setBody] = useState("");
+  // The Message box holds formatted text (editor HTML); `body` is its plain text version.
+  const [bodyHtml, setBodyHtml] = useState("");
+  const [loadedHtml, setLoadedHtml] = useState("");
+  const body = useMemo(() => emailBodyHtmlToText(bodyHtml), [bodyHtml]);
   const [status, setStatus] = useState<{ ok: boolean; message: string } | null>(null);
   const [savedDraft, setSavedDraft] = useState(false);
+  const [savedAs, setSavedAs] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
   const [pending, start] = useTransition();
-  const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const editorApi = useRef<EmailEditorApi | null>(null);
 
   useEffect(() => {
     start(async () => {
@@ -173,15 +179,26 @@ export function DraftMessagePanel({ contactId, onClose, back = "/people/outreach
       setDraft(r);
       if (r.ok) {
         setSubject(r.subject);
-        setBody(r.body);
+        // The AI writes "- " bullets; the Message box shows them as a real list (the same rule as the email).
+        const html = textToEditorHtml(r.body);
+        setBodyHtml(html);
+        setLoadedHtml(html);
       }
     });
   }, [contactId]);
 
+  // Edited text that is not sent or saved to Gmail drafts: leaving asks first.
+  const edited = !!draft?.ok && bodyHtml !== loadedHtml && savedAs !== `${subject}\n${bodyHtml}` && !sending;
+  useUnsavedWork(edited, "This message is edited and not sent or saved to Gmail drafts yet. Leaving discards it.");
+
   async function copy() {
-    const text = `Subject: ${subject}\n\n${markdownToPlain(body)}`;
+    const text = `Subject: ${subject}\n\n${body}`;
     try {
-      await navigator.clipboard.writeText(text);
+      // Formatted for email apps (bullets stay bullets), plain text for everything else.
+      if (typeof ClipboardItem !== "undefined" && navigator.clipboard.write) {
+        const html = `<div dir="ltr">${editorHtmlToEmailHtml(bodyHtml)}</div>`;
+        await navigator.clipboard.write([new ClipboardItem({ "text/plain": new Blob([body], { type: "text/plain" }), "text/html": new Blob([html], { type: "text/html" }) })]);
+      } else await navigator.clipboard.writeText(text);
       setStatus({ ok: true, message: "Copied. Paste it into your email or text app, send it, then press Log outreach." });
     } catch {
       setStatus({ ok: false, message: "Copy did not work in this browser. Select the text and copy it by hand." });
@@ -205,19 +222,18 @@ export function DraftMessagePanel({ contactId, onClose, back = "/people/outreach
             Subject
             <Input value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={200} />
           </label>
-          <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
-            Message
-            <Textarea ref={bodyRef} value={body} onChange={(e) => setBody(e.target.value)} rows={8} />
-          </label>
+          <EmailEditor label="Message" labelClassName="text-xs text-muted-foreground" value={bodyHtml} onChange={setBodyHtml} apiRef={editorApi} testId="draft-body" />
           {showSend ? (
             <SendOrSaveButtons
               permission={draft.sendPermission}
               fromEmail={draft.fromEmail}
               disabled={!body.trim()}
-              preview={() => ({ to: draft.email ?? "", ...prepareOutreachEmail(subject, body) })}
+              preview={() => ({ to: draft.email ?? "", ...prepareEmailMessage(subject, body, bodyHtml) })}
               signature={draft.signature}
               send={async (requestId, includeSignature) => {
-                const r = await sendOutreachEmail({ contactId, subject, body, requestId, includeSignature });
+                setSending(true);
+                const r = await sendOutreachEmail({ contactId, subject, body, bodyHtml, requestId, includeSignature });
+                if (!r.ok) setSending(false);
                 if (r.ok) {
                   const when = format(new Date(r.sentAt), "MMM d, yyyy 'at' h:mm a");
                   const msg = r.alreadySent
@@ -231,13 +247,16 @@ export function DraftMessagePanel({ contactId, onClose, back = "/people/outreach
               saveDraft={
                 draft.canGmail
                   ? async (includeSignature) => {
-                      const r = await createOutreachGmailDraft(contactId, subject, body, includeSignature);
-                      if (r.ok) setSavedDraft(true);
+                      const r = await createOutreachGmailDraft(contactId, subject, body, includeSignature, bodyHtml);
+                      if (r.ok) {
+                        setSavedDraft(true);
+                        setSavedAs(`${subject}\n${bodyHtml}`);
+                      }
                       return r;
                     }
                   : undefined
               }
-              onEdit={() => bodyRef.current?.focus()}
+              onEdit={() => editorApi.current?.focus()}
               afterSendNote={savedDraft ? "A Gmail draft of this message was saved earlier. Delete it in Gmail so it is not sent twice." : null}
               extra={
                 <Button type="button" size="sm" variant="outline" onClick={copy} disabled={!body.trim()}>
@@ -254,7 +273,9 @@ export function DraftMessagePanel({ contactId, onClose, back = "/people/outreach
                   disabled={pending || !body.trim()}
                   onClick={() =>
                     start(async () => {
-                      setStatus(await createOutreachGmailDraft(contactId, subject, body));
+                      const r = await createOutreachGmailDraft(contactId, subject, body, undefined, bodyHtml);
+                      if (r.ok) setSavedAs(`${subject}\n${bodyHtml}`);
+                      setStatus(r);
                     })
                   }
                 >

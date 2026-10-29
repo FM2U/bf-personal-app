@@ -43,7 +43,43 @@ const openFull = async (page, link) => {
 const SIGNATURE_LOGO = fs.readFileSync(path.join(__dirname, "fixtures", "signature-logo.png"));
 const routeSignatureImage = (context) => context.route("https://lh3.googleusercontent.com/**", (r) => r.fulfill({ status: 200, contentType: "image/png", body: SIGNATURE_LOGO }));
 // The confirmation dialog shows the email in a frame (exactly as an email app shows it).
-const previewText = (pg_, testId = "send-preview-frame") => pg_.frameLocator(`[data-testid=${testId}]`).locator("body").innerText();
+// A blank line (Gmail's <div><br></div>) reads as 3 line breaks in innerText; it is one blank line on screen.
+const previewText = async (pg_, testId = "send-preview-frame") => (await pg_.frameLocator(`[data-testid=${testId}]`).locator("body").innerText()).replace(/\n{3,}/g, "\n\n");
+// The email Message box is a formatted editor (contenteditable). fillEditor replaces its content by pasting plain
+// text (the editor turns "- " and "1. " lines into lists, as it does for AI drafts); editorText reads what it shows.
+const fillEditor = async (loc, text) => {
+  await loc.waitFor();
+  await loc.click();
+  await loc.press("ControlOrMeta+a");
+  await loc.press("Delete");
+  await loc.evaluate((el, t) => {
+    const dt = new DataTransfer();
+    dt.setData("text/plain", t);
+    el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+  }, text);
+};
+// editorText: the box as plain text (one line per paragraph, list items with "- " or "1. ", as the text part is made).
+const editorText = (loc) =>
+  loc.evaluate((root) => {
+    const out = [];
+    const walk = (el, depth) => {
+      for (const c of el.children) {
+        if (c.tagName === "P") out.push(c.textContent);
+        else if (c.tagName === "UL" || c.tagName === "OL") {
+          let n = Number(c.getAttribute("start") || 1);
+          for (const li of c.children) {
+            const own = [...li.children].filter((x) => x.tagName === "P").map((x) => x.textContent).join(" ");
+            out.push(`${"  ".repeat(depth)}${c.tagName === "OL" ? `${n++}. ` : "- "}${own}`);
+            for (const sub of li.children) if (sub.tagName === "UL" || sub.tagName === "OL") walk({ children: [sub] }, depth + 1);
+          }
+        }
+      }
+    };
+    walk(root, 0);
+    return out.join("\n").replace(/\s+$/, "");
+  });
+// The text a person reads in the box (list marks are drawn, not text): no line may start with "- ".
+const shownText = (loc) => loc.evaluate((el) => el.innerText);
 const expectText = async (page, text) => {
   try {
     await page.waitForFunction((t) => document.body.innerText.includes(t), text, { timeout: 15000 });
@@ -746,10 +782,10 @@ const expectText = async (page, text) => {
     const before = await outreachCount();
     const first = (await page.locator("a[href^='/records/contacts/']").first().innerText()).trim();
     await page.getByRole("button", { name: "Draft message" }).first().click();
-    const box = page.locator("textarea");
+    const box = page.getByTestId("draft-body");
     await box.waitFor();
     await page.locator('label:has-text("Subject") input').fill("Café check-in ✓");
-    await box.fill("Hi Quinn,\n\nDoes anyone come to mind?\n- Owner-operated\n- No broker yet\n\nThanks,\nBram");
+    await fillEditor(box, "Hi Quinn,\n\nDoes anyone come to mind?\n- Owner-operated\n- No broker yet\n\nThanks,\nBram");
     await page.getByTestId("send-now").click();
     const dlg = page.getByRole("dialog", { name: "Send this email?" });
     await dlg.waitFor();
@@ -761,7 +797,12 @@ const expectText = async (page, text) => {
     await page.screenshot({ path: path.join(OUT, "flow-send-confirm.png") });
     await page.getByTestId("send-edit").click();
     await dlg.waitFor({ state: "hidden" });
-    if (!(await box.evaluate((el) => el === document.activeElement))) throw new Error("Edit did not return to the message");
+    // The editor takes focus on the next frame after the dialog closes.
+    try {
+      await page.waitForFunction(() => document.activeElement?.getAttribute("data-testid") === "draft-body", null, { timeout: 3000 });
+    } catch {
+      throw new Error("Edit did not return to the message");
+    }
     if ((await gsent()).length) throw new Error("sent before confirming");
     await page.getByTestId("send-now").click();
     await dlg.waitFor();
@@ -788,15 +829,15 @@ const expectText = async (page, text) => {
     await gpost("/__mode", { sendError: "server" });
     await page.goto(`${BASE}/people/outreach`);
     await page.getByRole("button", { name: "Draft message" }).first().click();
-    const box = page.locator("textarea");
+    const box = page.getByTestId("draft-body");
     await box.waitFor();
-    await box.fill("Kept text after a failure.\nSecond line.");
+    await fillEditor(box, "Kept text after a failure.\nSecond line.");
     await page.getByTestId("send-now").click();
     await page.getByTestId("send-confirm").click();
     await page.getByTestId("send-failed").waitFor();
     await expectText(page, "Not sent. Gmail had a problem on its side.");
     await expectText(page, "Google said: Backend Error");
-    if ((await box.inputValue()) !== "Kept text after a failure.\nSecond line.") throw new Error("text not kept");
+    if ((await editorText(box)) !== "Kept text after a failure.\nSecond line.") throw new Error(`text not kept: ${JSON.stringify(await editorText(box))}`);
     await page.screenshot({ path: path.join(OUT, "flow-send-failed.png"), fullPage: true });
     await page.getByTestId("save-draft").click();
     await expectText(page, "Gmail draft created for");
@@ -807,7 +848,7 @@ const expectText = async (page, text) => {
   await step("Phone: confirmation dialog and Sent", async () => {
     await ph.goto(`${BASE}/people/outreach`);
     await ph.getByRole("button", { name: "Draft message" }).first().click();
-    await ph.locator("textarea").waitFor();
+    await ph.getByTestId("draft-body").waitFor();
     await ph.getByTestId("send-now").click();
     await ph.getByRole("dialog", { name: "Send this email?" }).waitFor();
     await ph.screenshot({ path: path.join(OUT, "phone-send-confirm.png") });
@@ -871,7 +912,11 @@ const expectText = async (page, text) => {
     if (!(await page.getByTestId("send-now").isDisabled())) throw new Error("Send now is enabled with an empty message");
     await page.getByTestId("compose-ai-line").fill("ask about off-market deals");
     await page.getByTestId("compose-ai-write").click();
-    await page.waitForFunction(() => (document.querySelector("[data-testid=compose-body]")?.value ?? "").includes("Hi Morgan"), null, { timeout: 15000 });
+    await page.waitForFunction(() => (document.querySelector("[data-testid=compose-body]")?.innerText ?? "").includes("Hi Morgan"), null, { timeout: 15000 });
+    // The AI's "- " bullets show as a real list in the Message box (no "- " text left).
+    const body = page.getByTestId("compose-body");
+    if ((await body.locator("ul > li").count()) !== 2) throw new Error(`AI bullets are not a list: ${await body.innerHTML()}`);
+    if (/(^|\n)- /.test(await shownText(body))) throw new Error("a leading '- ' is still shown as text");
     if (!(await page.getByTestId("compose-subject").inputValue()).includes("off-market deals")) throw new Error("AI subject not filled");
     await page.screenshot({ path: path.join(OUT, "desktop-compose-email.png") });
     await page.getByTestId("send-now").click();
@@ -915,7 +960,7 @@ const expectText = async (page, text) => {
     await page.getByTestId("compose-recipient").selectOption(item.source_contact_id);
     if ((await composeTo(page)) !== item.source_email) throw new Error("choosing Deal came from did not fill To");
     await page.getByTestId("compose-to").fill("bad@");
-    await page.getByTestId("compose-body").fill("Test");
+    await fillEditor(page.getByTestId("compose-body"), "Test");
     await page.getByTestId("compose-to-error").waitFor();
     if (!(await page.getByTestId("send-now").isDisabled())) throw new Error("Send now enabled with an invalid address");
     await page.keyboard.press("Escape");
@@ -928,7 +973,7 @@ const expectText = async (page, text) => {
     await page.getByTestId("email-button").click();
     if ((await composeTo(page)) !== item.source_email) throw new Error(`Deal came from not chosen: ${await composeTo(page)}`);
     await page.getByTestId("compose-subject").fill("Following up on the CIM");
-    await page.getByTestId("compose-body").fill("Hi Pat,\n\nCould you send the CIM?\n\nThanks,\nBram");
+    await fillEditor(page.getByTestId("compose-body"), "Hi Pat,\n\nCould you send the CIM?\n\nThanks,\nBram");
     await page.getByTestId("send-now").click();
     await page.getByTestId("send-confirm").click();
     await page.getByTestId("compose-dialog").getByTestId("send-success").waitFor();
@@ -953,11 +998,11 @@ const expectText = async (page, text) => {
     }
     if ((await composeTo(page)) !== robin.email) throw new Error(`To: ${await composeTo(page)}`);
     await page.getByTestId("compose-subject").fill("Consulting next quarter");
-    await page.getByTestId("compose-body").fill("Hi Robin,\n\nA quick note about next quarter.\n\nBest,\nBram");
+    await fillEditor(page.getByTestId("compose-body"), "Hi Robin,\n\nA quick note about next quarter.\n\nBest,\nBram");
     await page.keyboard.press("Escape");
     await page.getByTestId("compose-discard").waitFor();
     await page.getByRole("button", { name: "Keep writing" }).click();
-    if ((await page.getByTestId("compose-body").inputValue()).indexOf("next quarter") < 0) throw new Error("text not kept");
+    if ((await editorText(page.getByTestId("compose-body"))).indexOf("next quarter") < 0) throw new Error("text not kept");
     await page.getByTestId("save-draft").click();
     await expectText(page, `Gmail draft created for ${robin.email}`);
     if ((await gsent()).length !== sentBefore) throw new Error("Save to Gmail drafts sent an email");
@@ -988,7 +1033,7 @@ const expectText = async (page, text) => {
     await page.getByTestId("compose-dialog").waitFor();
     if ((await composeTo(page)) !== addr) throw new Error(`To: ${await composeTo(page)}`);
     await page.getByTestId("compose-subject").fill("Nice to meet you");
-    await page.getByTestId("compose-body").fill("Hi,\n\nGood to meet you at the event.\n\nBram");
+    await fillEditor(page.getByTestId("compose-body"), "Hi,\n\nGood to meet you at the event.\n\nBram");
     for (const [vp, pg_] of EVIEWS.slice(1)) {
       await pg_.goto(`${BASE}/people/outreach`);
       await pg_.getByTestId("not-in-queue-email").fill(addr);
@@ -1024,7 +1069,7 @@ const expectText = async (page, text) => {
     await pg_.getByTestId("email-button").click();
     await pg_.getByTestId("compose-dialog").waitFor();
     await pg_.getByTestId("compose-subject").fill(subject);
-    await pg_.getByTestId("compose-body").fill(body);
+    await fillEditor(pg_.getByTestId("compose-body"), body);
   };
   const unsafeGone = (html, where) => {
     for (const bad of ["<script", "onerror", "javascript:", "alert("]) if (html.includes(bad)) throw new Error(`${where} still has ${bad}`);
@@ -1168,7 +1213,7 @@ const expectText = async (page, text) => {
     await ph.goto(`${BASE}/records/contacts/${c.id}`);
     await ph.getByTestId("email-button").click();
     await ph.getByTestId("compose-subject").fill("Signature check");
-    await ph.getByTestId("compose-body").fill("Hi Morgan,\n\nA short note to check the signature.\n\nThanks,\nBram");
+    await fillEditor(ph.getByTestId("compose-body"), "Hi Morgan,\n\nA short note to check the signature.\n\nThanks,\nBram");
     await ph.getByTestId("include-signature").scrollIntoViewIfNeeded();
     await ph.screenshot({ path: path.join(OUT, "phone-compose-signature.png") });
     await ph.getByTestId("send-now").click();
@@ -1225,9 +1270,174 @@ const expectText = async (page, text) => {
   await step("Outreach Queue Draft message: Include signature shown and checked", async () => {
     await page.goto(`${BASE}/people/outreach`);
     await page.getByRole("button", { name: "Draft message" }).first().click();
-    await page.locator("textarea").first().waitFor();
+    await page.getByTestId("draft-body").waitFor();
     await page.getByTestId("include-signature").waitFor();
     if (!(await page.getByTestId("include-signature").isChecked())) throw new Error("not checked");
+  });
+
+  // ---------- Formatted message box (bullets, numbers, bold, italic, links shown as they will be sent) ----------
+  const lastOf = async (list) => (await list())[(await list()).length - 1];
+
+  await step("Formatted message: Draft message shows the template's bullets as a real list", async () => {
+    await page.goto(`${BASE}/people/outreach`);
+    await page.getByRole("button", { name: "Draft message" }).first().click();
+    const box = page.getByTestId("draft-body");
+    await box.waitFor();
+    await page.waitForFunction(() => (document.querySelector("[data-testid=draft-body]")?.innerText ?? "").includes("Hi "), null, { timeout: 15000 });
+    if ((await box.locator("ul > li").count()) < 2) throw new Error(`bullets are not a list: ${await box.innerHTML()}`);
+    if (/(^|\n)- /.test(await shownText(box))) throw new Error("a leading '- ' is still shown as text");
+  });
+
+  await step("Formatted message: toolbar Bold and Bulleted list, typed '- ' and '1. ' start lists, Ctrl+I, Ctrl+K link; Send now gives HTML lists and '- ' text", async () => {
+    const c = await morgan();
+    const before = (await gsent()).length;
+    await page.goto(`${BASE}/records/contacts/${c.id}`);
+    await page.getByTestId("email-button").click();
+    await page.getByTestId("compose-dialog").waitFor();
+    await page.getByTestId("compose-subject").fill("Formatting check");
+    const ed = page.getByTestId("compose-body");
+    await ed.click();
+    const kb = page.keyboard;
+    await kb.type("Plain then ");
+    await page.getByTestId("editor-bold").click();
+    await kb.type("bold words");
+    await page.getByTestId("editor-bold").click();
+    await kb.type(" after.");
+    if ((await ed.locator("strong").innerText()) !== "bold words") throw new Error(`Bold did not apply: ${await ed.innerHTML()}`);
+    await kb.press("Enter");
+    await page.getByTestId("editor-bullets").click();
+    if ((await page.getByTestId("editor-bullets").getAttribute("aria-pressed")) !== "true") throw new Error("Bulleted list button not shown as on");
+    await kb.type("First item");
+    await kb.press("Enter");
+    await kb.type("Second item");
+    await kb.press("Enter");
+    await kb.press("Enter");
+    await kb.type("Middle line");
+    await kb.press("Enter");
+    await kb.type("- Typed bullet");
+    await kb.press("Enter");
+    await kb.press("Enter");
+    await kb.type("1. Typed number");
+    await kb.press("Enter");
+    await kb.press("Enter");
+    await kb.press("ControlOrMeta+i");
+    await kb.type("italic");
+    await kb.press("ControlOrMeta+i");
+    await kb.type(" see ");
+    await kb.press("ControlOrMeta+k");
+    await page.getByTestId("editor-link-input").fill("example.com/deck");
+    await page.getByTestId("editor-link-input").press("Enter");
+    if ((await ed.locator("ul").count()) !== 2 || (await ed.locator("ul").first().locator("li").count()) !== 2) throw new Error(`bulleted lists: ${await ed.innerHTML()}`);
+    if ((await ed.locator("ol > li").innerText()) !== "Typed number") throw new Error(`numbered list: ${await ed.innerHTML()}`);
+    if ((await ed.locator("em").innerText()) !== "italic") throw new Error("Ctrl+I did not apply");
+    if ((await ed.locator("a").getAttribute("href")) !== "https://example.com/deck") throw new Error(`link: ${await ed.innerHTML()}`);
+    if (/(^|\n)(- |1\. )/.test(await shownText(ed))) throw new Error("typed list marks are still text");
+    await page.screenshot({ path: path.join(OUT, "desktop-compose-formatting.png") });
+    // The link can be edited and removed from the same button.
+    await ed.locator("a").click();
+    await page.getByTestId("editor-link").click();
+    if ((await page.getByTestId("editor-link-input").inputValue()) !== "https://example.com/deck") throw new Error("Edit link does not show the address");
+    await page.getByTestId("editor-link-input").fill("https://example.com/deck2");
+    await page.getByTestId("editor-link-save").click();
+    if ((await ed.locator("a").getAttribute("href")) !== "https://example.com/deck2") throw new Error("link not changed");
+    await page.getByTestId("include-signature").uncheck();
+    await page.getByTestId("send-now").click();
+    await page.getByRole("dialog", { name: "Send this email?" }).waitFor();
+    const frame = page.frameLocator("[data-testid=send-preview-frame]");
+    if ((await frame.locator("ul > li").count()) !== 3 || (await frame.locator("ol > li").count()) !== 1 || !(await frame.locator("strong").count()) || !(await frame.locator("em").count())) throw new Error("confirmation does not show the formatting");
+    await page.screenshot({ path: path.join(OUT, "desktop-confirm-formatting.png") });
+    await page.getByTestId("send-confirm").click();
+    await page.getByTestId("compose-dialog").getByTestId("send-success").waitFor();
+    const sent = await gsent();
+    if (sent.length !== before + 1) throw new Error("not sent once");
+    const last = sent[sent.length - 1];
+    for (const t of ['<ul style="margin:0;padding-left:24px"><li>First item</li><li>Second item</li></ul>', "<strong>bold words</strong>", "<em>italic</em>", '<ol style="margin:0;padding-left:24px"><li>Typed number</li></ol>', '<a href="https://example.com/deck2">example.com/deck</a>'])
+      if (!last.html.includes(t)) throw new Error(`HTML part is missing ${t}: ${last.html}`);
+    if (last.html.includes("<p>")) throw new Error("HTML part has editor paragraphs");
+    for (const t of ["Plain then bold words after.\r\n- First item\r\n- Second item\r\nMiddle line\r\n- Typed bullet\r\n1. Typed number\r\n", "italic see example.com/deck (https://example.com/deck2)"])
+      if (!last.body.includes(t)) throw new Error(`text part is missing ${JSON.stringify(t)}: ${JSON.stringify(last.body)}`);
+    const comm = await commByGmail(last.id);
+    if (!String(comm.summary).includes("- First item")) throw new Error(`communication summary: ${comm.summary}`);
+  });
+
+  await step("Formatted message: Write with AI then Send now and Save to Gmail drafts both carry <ul><li> and '- '", async () => {
+    const c = await morgan();
+    await page.goto(`${BASE}/records/contacts/${c.id}`);
+    await page.getByTestId("email-button").click();
+    await page.getByTestId("compose-ai-line").fill("ask about off-market deals");
+    await page.getByTestId("compose-ai-write").click();
+    await page.getByTestId("compose-body").locator("ul > li").nth(1).waitFor({ timeout: 15000 });
+    const draftsBefore = (await gdrafts()).length;
+    await page.getByTestId("save-draft").click();
+    await expectText(page, "Gmail draft created for");
+    if ((await gdrafts()).length !== draftsBefore + 1) throw new Error("no draft");
+    const d = await lastOf(gdrafts);
+    if (!d.html.includes("<li>What you are seeing right now</li><li>Anyone I should talk to</li></ul>") || !d.body.includes("\r\n- What you are seeing right now\r\n- Anyone I should talk to\r\n")) throw new Error(`draft: ${JSON.stringify(d.body)} ${d.html}`);
+    await page.getByTestId("send-now").click();
+    await page.getByTestId("send-confirm").click();
+    await page.getByTestId("compose-dialog").getByTestId("send-success").waitFor();
+    const s2 = await lastOf(gsent);
+    if (s2.html.replace(/gmail_signature[\s\S]*$/, "") !== d.html.replace(/gmail_signature[\s\S]*$/, "")) throw new Error("Send now and the Gmail draft differ");
+    if (s2.body !== d.body) throw new Error("text parts differ");
+  });
+
+  await step("Formatted message: typing in the editor counts as unsaved (close asks, reload asks, Draft message link asks)", async () => {
+    const c = await morgan();
+    await page.goto(`${BASE}/records/contacts/${c.id}`);
+    await page.getByTestId("email-button").click();
+    await page.getByTestId("compose-body").click();
+    await page.keyboard.type("Typed only");
+    await page.keyboard.press("Escape");
+    await page.getByTestId("compose-discard").waitFor();
+    await page.getByRole("button", { name: "Discard email" }).click();
+    {
+      const probe = await ctx.newPage();
+      await probe.goto(`${BASE}/records/contacts/${c.id}`);
+      await probe.getByTestId("email-button").click();
+      await probe.getByTestId("compose-body").click();
+      await probe.keyboard.type("Typed only");
+      let kind = null;
+      probe.on("dialog", async (dlg) => {
+        kind = dlg.type();
+        await dlg.dismiss();
+      });
+      await probe.close({ runBeforeUnload: true });
+      await new Promise((r) => setTimeout(r, 1000));
+      if (kind !== "beforeunload") throw new Error("no reload/close prompt after typing in the editor");
+      if (!probe.isClosed()) await probe.close();
+    }
+    await page.goto(`${BASE}/people/outreach`);
+    await page.getByRole("button", { name: "Draft message" }).first().click();
+    const box = page.getByTestId("draft-body");
+    await page.waitForFunction(() => (document.querySelector("[data-testid=draft-body]")?.innerText ?? "").includes("Hi "), null, { timeout: 15000 });
+    await box.click();
+    await page.keyboard.press("ControlOrMeta+End");
+    await page.keyboard.type(" Edited.");
+    await page.locator("nav a[href='/']").first().click();
+    await page.getByRole("dialog").filter({ hasText: "Leaving discards it" }).waitFor({ timeout: 5000 });
+    await page.getByRole("button", { name: "Stay on this page" }).click();
+    if (!/\/people\/outreach/.test(page.url())) throw new Error("left the page with an edited draft");
+  });
+
+  await step("Phone: Write with AI shows bullets in the Message box; the confirmation shows them", async () => {
+    const c = await morgan();
+    await ph.goto(`${BASE}/records/contacts/${c.id}`);
+    await ph.getByTestId("email-button").click();
+    await ph.getByTestId("compose-ai-line").fill("ask about off-market deals");
+    await ph.getByTestId("compose-ai-write").click();
+    await ph.getByTestId("compose-body").locator("ul > li").nth(1).waitFor({ timeout: 15000 });
+    await ph.getByTestId("compose-body").scrollIntoViewIfNeeded();
+    await ph.screenshot({ path: path.join(OUT, "phone-compose-ai-draft.png") });
+    const vw = await ph.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
+    if (vw[0] > vw[1]) throw new Error(`page scrolls sideways: ${vw}`);
+    await ph.getByTestId("send-now").click();
+    await ph.getByRole("dialog", { name: "Send this email?" }).waitFor();
+    await ph.waitForTimeout(600);
+    if ((await ph.frameLocator("[data-testid=send-preview-frame]").locator("ul > li").count()) !== 2) throw new Error("confirmation has no list");
+    await ph.screenshot({ path: path.join(OUT, "phone-confirm-ai-draft.png") });
+    await ph.getByTestId("send-edit").click();
+    await ph.keyboard.press("Escape");
+    await ph.getByRole("button", { name: "Discard email" }).click();
   });
 
   await e1280ctx.close();

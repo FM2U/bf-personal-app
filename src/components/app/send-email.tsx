@@ -11,10 +11,12 @@ import { saveReportToGmailDrafts, sendPartnerReportEmail, type SendResult } from
 import type { SendPermission } from "@/lib/google-scopes";
 import { STATUS_BOX, STATUS_TEXT } from "@/lib/status";
 import { cn } from "@/lib/utils";
-import { emailHtml, type SignatureSetup } from "@/lib/email-signature";
+import type { SignatureSetup } from "@/lib/email-signature";
+import { emailHtmlFor } from "@/lib/email-body";
 import { EmailHtmlPreview } from "@/components/app/email-preview";
 
-export type EmailPreview = { to: string; subject: string; body: string };
+/** body: the plain text; bodyHtml: the formatted editor's HTML when the message was written there. */
+export type EmailPreview = { to: string; subject: string; body: string; bodyHtml?: string | null };
 
 /** "Include signature": shown only when a signature is saved. Checked by default when the setting is on. */
 export function IncludeSignature({ checked, onChange, disabled, testId = "include-signature" }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; testId?: string }) {
@@ -237,7 +239,7 @@ export function SendOrSaveButtons({
                   {signature ? <IncludeSignature checked={withSignature} onChange={setWithSignature} disabled={sending} testId="confirm-include-signature" /> : null}
                 </div>
                 <div className="max-h-[45vh] overflow-y-auto rounded-md" data-testid="send-preview-body">
-                  <EmailHtmlPreview html={emailHtml(shown.body, signature && withSignature ? signature.html : null)} testId="send-preview-frame" title="The email as it will be sent" />
+                  <EmailHtmlPreview html={emailHtmlFor(shown, signature && withSignature ? signature.html : null)} testId="send-preview-frame" title="The email as it will be sent" />
                 </div>
               </div>
               {!editable && readOnlyNote ? <p className="text-xs text-muted-foreground">{readOnlyNote}</p> : null}

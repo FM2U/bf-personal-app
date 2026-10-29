@@ -12,7 +12,7 @@ import { explainGoogleError } from "@/lib/google-errors";
 import { emailAddressProblem, isValidEmail } from "@/lib/email-address";
 import { composePurpose } from "@/lib/calc/compose-email";
 import { AI_SYSTEM_MESSAGE, AIUnavailable, callClaude, cleanText, parseJsonFromText, textOf } from "@/lib/ai/claude";
-import { prepareOutreachEmail, sentEmailCommunication, type SentEmailInput } from "@/lib/calc/sent-email";
+import { prepareEmailMessage, sentEmailCommunication, type SentEmailInput } from "@/lib/calc/sent-email";
 import { isCheckViolation, isMissingSchemaError } from "@/lib/schema-guard";
 import { isGoogleConfigured } from "@/lib/env";
 import type { Row } from "@/lib/types";
@@ -73,7 +73,7 @@ async function permissionProblem(sb: SupabaseClient, ownerId: string): Promise<S
   return { ok: false, reason: "not_connected", message: "Google is not connected. Connect Google in Settings, Connections, or save the message another way." };
 }
 
-async function sendOne(sb: SupabaseClient, ownerId: string, msg: { to: string; subject: string; body: string; threadId?: string | null; includeSignature?: boolean }): Promise<{ id: string; threadId: string | null } | SendResult> {
+async function sendOne(sb: SupabaseClient, ownerId: string, msg: { to: string; subject: string; body: string; bodyHtml?: string | null; threadId?: string | null; includeSignature?: boolean }): Promise<{ id: string; threadId: string | null } | SendResult> {
   try {
     const res = await sendGmailMessage(sb, ownerId, msg);
     if (!res) return { ok: false, reason: "not_connected", message: "Google is not connected. Connect Google in Settings, Connections." };
@@ -89,6 +89,8 @@ type OutreachDelivery = {
   to: string;
   subject: string;
   body: string;
+  /** The formatted editor's HTML (the text part is made from it). */
+  bodyHtml?: string | null;
   contact: Row | null;
   pipelineItemId?: string | null;
   organizationId?: string | null;
@@ -103,7 +105,7 @@ type OutreachDelivery = {
  * pipeline item when there is one, and a change log entry. Shared by Draft message and the Email button.
  */
 async function deliverOutreach(sb: SupabaseClient, ownerId: string, d: OutreachDelivery): Promise<SendResult> {
-  const msg = prepareOutreachEmail(d.subject, d.body);
+  const msg = prepareEmailMessage(d.subject, d.body, d.bodyHtml);
   if (!msg.body.trim()) return { ok: false, reason: "invalid", message: "The message is empty." };
   const problem = await permissionProblem(sb, ownerId);
   if (problem) return problem;
@@ -149,7 +151,7 @@ async function deliverOutreach(sb: SupabaseClient, ownerId: string, d: OutreachD
 }
 
 /** Outreach Queue, Draft message: sends the approved text to the contact and logs it as outreach. */
-export async function sendOutreachEmail(input: { contactId: string; subject: string; body: string; requestId: string; pipelineItemId?: string | null; purpose?: string | null; threadId?: string | null; includeSignature?: boolean }): Promise<SendResult> {
+export async function sendOutreachEmail(input: { contactId: string; subject: string; body: string; bodyHtml?: string | null; requestId: string; pipelineItemId?: string | null; purpose?: string | null; threadId?: string | null; includeSignature?: boolean }): Promise<SendResult> {
   const { supabase, ownerId } = await requireOwner();
   if (!REQUEST_ID.test(String(input.requestId ?? ""))) return { ok: false, reason: "invalid", message: "The send request was not valid. Reload the page and try again." };
   const done = await previousSend(supabase, input.requestId);
@@ -163,6 +165,7 @@ export async function sendOutreachEmail(input: { contactId: string; subject: str
     to: String(contact.email).trim(),
     subject: input.subject,
     body: input.body,
+    bodyHtml: input.bodyHtml ?? null,
     contact,
     pipelineItemId: input.pipelineItemId ?? null,
     purpose: input.purpose ?? null,
@@ -176,6 +179,8 @@ export type ComposeInput = {
   to: string;
   subject: string;
   body: string;
+  /** The formatted editor's HTML (the text part is made from it). */
+  bodyHtml?: string | null;
   /** The listed person whose address is in To, or the contact page's contact. */
   contactId?: string | null;
   pipelineItemId?: string | null;
@@ -219,6 +224,7 @@ export async function sendComposedEmail(input: ComposeInput & { requestId: strin
     to,
     subject: input.subject,
     body: input.body,
+    bodyHtml: input.bodyHtml ?? null,
     contact,
     pipelineItemId: pipelineItem?.id ?? null,
     organizationId,
@@ -228,12 +234,12 @@ export async function sendComposedEmail(input: ComposeInput & { requestId: strin
 }
 
 /** The Email button: Save to Gmail drafts. Sends nothing and logs nothing (the owner sends it from Gmail). */
-export async function saveComposedGmailDraft(input: { to: string; subject: string; body: string; includeSignature?: boolean }): Promise<{ ok: boolean; message: string }> {
+export async function saveComposedGmailDraft(input: { to: string; subject: string; body: string; bodyHtml?: string | null; includeSignature?: boolean }): Promise<{ ok: boolean; message: string }> {
   const { supabase, ownerId } = await requireOwner();
   const to = String(input.to ?? "").trim();
   const bad = emailAddressProblem(to);
   if (bad) return { ok: false, message: bad };
-  const msg = prepareOutreachEmail(input.subject, input.body);
+  const msg = prepareEmailMessage(input.subject, input.body, input.bodyHtml);
   if (!msg.body.trim()) return { ok: false, message: "The message is empty." };
   try {
     const id = await createGmailDraft(supabase, ownerId, { to, ...msg, includeSignature: typeof input.includeSignature === "boolean" ? input.includeSignature : undefined });

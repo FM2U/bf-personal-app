@@ -11,7 +11,7 @@ import { DB_UPDATE_NOTICE, isCheckViolation, isMissingSchemaError } from "@/lib/
 import { GROUP_LABELS, OUTCOME_LABELS, type RelationshipGroup } from "@/lib/calc/outreach";
 import { isGoogleConfigured } from "@/lib/env";
 import { sendPermission, type SendPermission } from "@/lib/google-scopes";
-import { outreachPurpose, prepareOutreachEmail } from "@/lib/calc/sent-email";
+import { outreachPurpose, prepareEmailMessage } from "@/lib/calc/sent-email";
 import type { Row } from "@/lib/types";
 import { loadSignature } from "@/lib/signature-store";
 import type { SignatureSetup } from "@/lib/email-signature";
@@ -235,12 +235,12 @@ export async function draftOutreachMessage(contactId: string): Promise<DraftResu
 }
 
 /** After approval: creates a Gmail draft (Bram presses send in Gmail). Never sends. */
-export async function createOutreachGmailDraft(contactId: string, subject: string, body: string, includeSignature?: boolean): Promise<{ ok: boolean; message: string }> {
+export async function createOutreachGmailDraft(contactId: string, subject: string, body: string, includeSignature?: boolean, bodyHtml?: string | null): Promise<{ ok: boolean; message: string }> {
   const { supabase, ownerId } = await requireOwner();
   const { data: c } = await supabase.from("contacts").select("name,email").eq("id", contactId).maybeSingle();
   if (!c?.email) return { ok: false, message: "This contact has no email address. Copy the message instead." };
   try {
-    const id = await createGmailDraft(supabase, ownerId, { to: c.email, ...prepareOutreachEmail(subject, body), includeSignature: typeof includeSignature === "boolean" ? includeSignature : undefined });
+    const id = await createGmailDraft(supabase, ownerId, { to: c.email, ...prepareEmailMessage(subject, body, bodyHtml), includeSignature: typeof includeSignature === "boolean" ? includeSignature : undefined });
     if (!id) return { ok: false, message: "Google is not connected. Copy the message instead, or connect Google in Settings." };
     return { ok: true, message: `Gmail draft created for ${c.name}. Open Gmail to review and send it. After sending, press Log outreach.` };
   } catch (e) {
