@@ -11,10 +11,10 @@ import { CalendarClock, CheckCircle2, Pencil, SkipForward } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge, DueWord, dueClass } from "@/components/ui/badge";
 import { Notice } from "@/components/app/page-header";
-import { NextActionCard } from "@/components/app/next-action-card";
 import { useWindowNav } from "@/components/app/window-host";
-import { ActionError, FieldsTile, FullPageButton, Skeleton, useLoad, ViewLayout, clearWindowCache } from "@/components/app/windows/views";
-import { loadRecordOverview, loadWorkTasks, moveTaskToTomorrow, type OverviewData, type WorkTask } from "@/app/actions/window";
+import { ActionError, FullPageButton, Skeleton, useLoad, ViewLayout, clearWindowCache } from "@/components/app/windows/views";
+import { TaskDetails, useTaskWindow } from "@/components/app/windows/task-window";
+import { loadWorkTasks, moveTaskToTomorrow, type WorkTask } from "@/app/actions/window";
 import { setTaskStatus } from "@/app/actions/records";
 import { workPosition } from "@/lib/window-route";
 import { movedNote } from "@/lib/calc/commitment-rule";
@@ -102,7 +102,7 @@ export function WorkWindow() {
 
 function WorkTaskView({ s, taskId, today, onOutcome }: { s: Session; taskId: string; today: string; tomorrow: string; onOutcome: (id: string, o: Outcome) => void }) {
   const nav = useWindowNav();
-  const { data, reload } = useLoad<OverviewData>(`overview:tasks:${taskId}`, () => loadRecordOverview("tasks", taskId));
+  const { data, reload } = useTaskWindow("tasks", taskId);
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const pos = useMemo(() => workPosition(s.ids, taskId), [s.ids, taskId]);
@@ -133,7 +133,8 @@ function WorkTaskView({ s, taskId, today, onOutcome }: { s: Session; taskId: str
       </span>
     </div>
   );
-  const quick = data && data.ok && data.kind === "quick" ? data : null;
+  const quick = data && data.ok ? data : null;
+  const isCommitment = !!quick?.commitment && ["open", "missed"].includes(quick.commitment.status);
   return (
     <ViewLayout
       title="Work through tasks"
@@ -158,8 +159,8 @@ function WorkTaskView({ s, taskId, today, onOutcome }: { s: Session; taskId: str
           <Button
             size="sm"
             variant="outline"
-            disabled={pending || !quick || quick.commitment || outcome === "done"}
-            title={quick?.commitment ? "A commitment keeps its date." : undefined}
+            disabled={pending || !quick || isCommitment || outcome === "done"}
+            title={isCommitment ? "A commitment keeps its date." : undefined}
             data-testid="work-tomorrow"
             onClick={() =>
               start(async () => {
@@ -201,41 +202,20 @@ function WorkTaskView({ s, taskId, today, onOutcome }: { s: Session; taskId: str
           <>
             <section className="rounded-xl border border-border bg-white px-4 py-4 sm:px-5">
               <div className="flex flex-wrap items-center gap-2 text-xs">
-                {quick.commitment ? <Badge variant="default">Commitment</Badge> : <Badge variant="neutral">Regular task</Badge>}
+                {isCommitment ? <Badge variant="default">Commitment</Badge> : <Badge variant="neutral">Regular task</Badge>}
                 {outcome ? <Badge variant="success">{outcome === "done" ? "Done" : outcome === "moved" ? "Moved to tomorrow" : "Skipped"}</Badge> : null}
-                <DueWord due={quick.base.next.due ?? null} today={today} />
+                <DueWord due={quick.task?.due ?? null} today={today} />
               </div>
-              <h2 className={cn("mt-2 text-xl font-semibold leading-snug text-slate-900", quick.base.taskDone && "text-muted-foreground line-through")} data-testid="work-task-title">
+              <h2 className={cn("mt-2 text-xl font-semibold leading-snug text-slate-900", quick.task?.done && "text-muted-foreground line-through")} data-testid="work-task-title">
                 {quick.base.title || title}
               </h2>
               <p className="mt-1 text-sm text-slate-600">
-                {quick.base.next.due ? (
-                  <span className={cn("tabular", dueClass(quick.base.next.due, today))}>Due {fmtDate(quick.base.next.due)}</span>
-                ) : (
-                  "No due date"
-                )}
-                {movedNote(Number(quick.base.fields.find((f) => f.label.startsWith("Times moved"))?.text ?? 0)) ? <span className="text-status-soon"> {movedNote(Number(quick.base.fields.find((f) => f.label.startsWith("Times moved"))?.text ?? 0))}</span> : null}
+                {quick.task?.due ? <span className={cn("tabular", dueClass(quick.task.due, today))}>Due {fmtDate(quick.task.due)}</span> : "No due date"}
+                {movedNote(quick.task?.timesMoved ?? 0) ? <span className="text-status-soon"> {movedNote(quick.task?.timesMoved ?? 0)}</span> : null}
               </p>
             </section>
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              {quick.context ? (
-                <button
-                  type="button"
-                  onClick={() => nav.push({ kind: "record", table: quick.context!.table, id: quick.context!.id })}
-                  className="flex min-w-0 flex-col rounded-xl border border-border bg-white px-4 py-3 text-left hover:border-primary-border hover:bg-primary-soft/40"
-                  data-testid="work-linked-record"
-                >
-                  <span className="text-xs font-medium uppercase tracking-wide text-slate-600">For {quick.context.singular.toLowerCase()}</span>
-                  <span className="clamp-2 mt-1 text-base font-semibold text-primary-strong">{quick.context.title}</span>
-                  <span className="mt-2 text-xs font-medium uppercase tracking-wide text-slate-600">Its next required action</span>
-                  <span className="clamp-2 mt-0.5 text-sm text-slate-800">{quick.context.next.text}</span>
-                  {quick.context.next.due ? <span className={cn("tabular mt-0.5 text-xs", dueClass(quick.context.next.due, today) || "text-slate-500")}>Due {fmtDate(quick.context.next.due)}</span> : null}
-                </button>
-              ) : (
-                <NextActionCard action={quick.base.next} today={today} compact />
-              )}
-              <FieldsTile fields={quick.base.fields.filter((f) => !["Status", "Due date", "Created by", "Times moved to the next day"].includes(f.label))} />
-            </div>
+            {/* The same content as the task window everywhere else (src/components/app/windows/task-window.tsx). */}
+            <TaskDetails d={quick} reload={reload} />
           </>
         )}
         {data && !data.ok ? <Button size="sm" variant="outline" className="self-start" onClick={reload}>Try again</Button> : null}

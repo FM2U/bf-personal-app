@@ -21,6 +21,8 @@ import { SuggestionLine } from "@/components/app/suggestion-line";
 import { savingsIdeasSuggestion } from "@/lib/suggestions";
 import { firstSuggestion } from "@/lib/suggestions-server";
 import { loadSavingsIdeas } from "@/lib/engine/savings-ideas";
+import { ListFilter } from "@/components/app/filter-panel";
+import { applyFilters, isDefaultFilters, plainParams, readFilters, type FilterSpec } from "@/lib/list-filters";
 
 export const metadata = { title: "Expenses" };
 
@@ -30,12 +32,7 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
   const ctx = await loadCtx(supabase, ownerId);
   const month = /^\d{4}-\d{2}$/.test(sp.month ?? "") ? sp.month : ctx.today.slice(0, 7);
   const mb = monthBounds(`${month}-01`);
-  let q = supabase.from("transactions").select("*").gte("date", mb.start).lte("date", mb.end).order("date", { ascending: false }).limit(1000);
-  if (sp.category === "none") q = q.is("category_id", null).eq("is_transfer", false);
-  else if (sp.category) q = q.eq("category_id", sp.category);
-  if (sp.account) q = q.eq("account_id", sp.account);
-  if (sp.kind === "out") q = q.lt("amount", 0);
-  if (sp.kind === "in") q = q.gt("amount", 0);
+  const q = supabase.from("transactions").select("*").gte("date", mb.start).lte("date", mb.end).order("date", { ascending: false }).limit(1000);
   const [{ data: txns }, { data: cats }, { data: accounts }, { data: series }, { count: uncategorized }, { count: pendingCats }] = await Promise.all([
     q,
     supabase.from("categories").select("id,name,kind").order("name"),
@@ -44,8 +41,23 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
     supabase.from("transactions").select("id", { count: "exact", head: true }).is("category_id", null).eq("is_transfer", false),
     supabase.from("ai_proposals").select("id", { count: "exact", head: true }).eq("status", "pending").eq("source", "category_suggestion"),
   ]);
-  const rows = (txns ?? []) as Row[];
   const catList = (cats ?? []) as { id: string; name: string; kind: string }[];
+  // Filter panel: Category, Account, Money in or out (in the address; the month stays a dropdown).
+  const txFilters: FilterSpec[] = [
+    {
+      column: { key: "category", title: "Category", options: [{ value: "none", label: "Uncategorized" }, ...catList.map((c) => ({ value: c.id, label: c.name }))] },
+      test: (t, p) => (t.category_id ? p.includes(String(t.category_id)) : p.includes("none") && !t.is_transfer),
+    },
+    { column: { key: "account", title: "Account", options: ((accounts ?? []) as Row[]).map((a) => ({ value: String(a.id), label: String(a.name) })) }, test: (t, p) => p.includes(String(t.account_id)) },
+    {
+      column: { key: "kind", title: "Money in or out", options: [{ value: "out", label: "Money out" }, { value: "in", label: "Money in" }, { value: "transfer", label: "Transfers" }, { value: "recurring", label: "Recurring charges" }] },
+      test: (t, p) => (p.includes("out") && Number(t.amount) < 0 && !t.is_transfer) || (p.includes("in") && Number(t.amount) > 0 && !t.is_transfer) || (p.includes("transfer") && !!t.is_transfer) || (p.includes("recurring") && !!t.recurring_series_id),
+    },
+  ];
+  const txCols = txFilters.map((f) => f.column);
+  const txState = readFilters(sp, txCols);
+  const txFiltering = !isDefaultFilters(txState, txCols);
+  const rows = applyFilters((txns ?? []) as Row[], txFilters, txState, ctx.today);
   const catName = Object.fromEntries(catList.map((c) => [c.id, c.name]));
   const accName = Object.fromEntries(((accounts ?? []) as Row[]).map((a) => [a.id, a.name]));
   const out = rows.filter((t) => Number(t.amount) < 0 && !t.is_transfer).reduce((s, t) => s - Number(t.amount), 0);
@@ -88,40 +100,26 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <Card className="xl:col-span-2">
           <CardHeader className="gap-3">
-            <form className="grid grid-cols-2 gap-2 md:grid-cols-5" method="get">
-              <NativeSelect name="month" defaultValue={month} aria-label="Month">
-                {months.map((m) => (
-                  <option key={m} value={m}>
-                    {fmtDate(`${m}-01`, "MMMM yyyy")}
-                  </option>
-                ))}
-              </NativeSelect>
-              <NativeSelect name="category" defaultValue={sp.category ?? ""} aria-label="Category">
-                <option value="">All categories</option>
-                <option value="none">Uncategorized</option>
-                {catList.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </NativeSelect>
-              <NativeSelect name="account" defaultValue={sp.account ?? ""} aria-label="Account">
-                <option value="">All accounts</option>
-                {((accounts ?? []) as Row[]).map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                  </option>
-                ))}
-              </NativeSelect>
-              <NativeSelect name="kind" defaultValue={sp.kind ?? ""} aria-label="Money in or out">
-                <option value="">Money in and out</option>
-                <option value="out">Money out</option>
-                <option value="in">Money in</option>
-              </NativeSelect>
-              <Button type="submit" variant="outline">
-                Show
-              </Button>
-            </form>
+            <div className="flex flex-wrap items-start gap-2">
+              <form className="flex items-center gap-2" method="get">
+                {Object.entries(plainParams(sp))
+                  .filter(([k]) => ["category", "account", "kind"].includes(k))
+                  .map(([k, v]) => (
+                    <input key={k} type="hidden" name={k} value={v} />
+                  ))}
+                <NativeSelect name="month" defaultValue={month} aria-label="Month" className="h-8 w-44">
+                  {months.map((m) => (
+                    <option key={m} value={m}>
+                      {fmtDate(`${m}-01`, "MMMM yyyy")}
+                    </option>
+                  ))}
+                </NativeSelect>
+                <Button type="submit" size="sm" variant="outline">
+                  Show month
+                </Button>
+              </form>
+              <ListFilter path="/finance/expenses" layout={[[txCols[0]], [txCols[1]], [txCols[2]]]} state={txState} keep={plainParams(sp)} testId="expenses-filter" />
+            </div>
             <StatGrid className="grid-cols-3">
               <Stat label="Money out (excluding transfers)" value={money(out)} />
               <Stat label="Money in (excluding transfers)" value={money(inn)} />
@@ -162,9 +160,9 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
               </Table>
             ) : (
               <EmptyState
-                title="No transactions for these filters."
-                body="Import a CSV file from your bank or card, or add a transaction by hand. Plaid adds transactions automatically once connected."
-                action={<Button asChild size="sm"><Link href="/finance/import">Import CSV</Link></Button>}
+                title={txFiltering ? "No transactions match these filters." : "No transactions this month."}
+                body={txFiltering ? "Remove a filter label above, or press Reset." : "Import a CSV file from your bank or card, or add a transaction by hand. Plaid adds transactions automatically once connected."}
+                action={txFiltering ? undefined : <Button asChild size="sm"><Link href="/finance/import">Import CSV</Link></Button>}
               />
             )}
           </CardContent>

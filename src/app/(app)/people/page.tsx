@@ -6,7 +6,8 @@ import { ListCard } from "@/components/app/list-card";
 
 export const metadata = { title: "Contacts" };
 
-export default async function ContactsPage() {
+export default async function ContactsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const sp = await searchParams;
   const { supabase, ownerId } = await requireOwner();
   const ctx = await loadCtx(supabase, ownerId);
   return (
@@ -23,7 +24,19 @@ export default async function ContactsPage() {
           emptyTitle="No follow-ups in the next 14 days."
           emptyBody="Set a follow-up date on a contact to get a task and a calendar event on that date."
         />
-        <ListCard sb={supabase} table="contacts" title="All contacts" />
+        <ListCard
+          sb={supabase}
+          table="contacts"
+          title="All contacts"
+          filter={{
+            path: "/people",
+            sp,
+            today: ctx.today,
+            columns: [["relationship_group"], ["roles"], ["organization_id"], ["follow_up_date", "is_deal_source", "is_consulting_lead"]],
+            dateModes: { follow_up_date: "due" },
+            titles: { follow_up_date: "Follow-up date", relationship_group: "Relationship group" },
+          }}
+        />
       </div>
     </div>
   );

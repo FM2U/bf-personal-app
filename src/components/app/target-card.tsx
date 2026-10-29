@@ -2,7 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardNote, CardTitle } from "@/components/ui/card";
 import { TargetDayGrid, TargetLegend, TargetWeekGrid } from "@/components/app/target-grid";
 import { describeTarget } from "@/lib/calc/targets";
-import { countStatus, progressPct, STATUS_DOT, STATUS_TEXT, type Status } from "@/lib/status";
+import { countStatus, progressPct, STATUS_DOT, type Status } from "@/lib/status";
 import type { TargetSummary } from "@/lib/targets";
 import { cn } from "@/lib/utils";
 
@@ -18,44 +18,47 @@ function Bar({ pct, status, className }: { pct: number; status: Status; classNam
   );
 }
 
-/** One labeled number: small charcoal label (2 lines at most, full text on hover), value in medium weight. */
-function Fig({ label, value, hint, status }: { label: string; value: React.ReactNode; hint?: string; status?: Status }) {
+/**
+ * One tile: small label, large number, a progress bar (or the same space left empty, so every tile lines up), and a
+ * small gray note. Every tile has the same order and heights.
+ */
+function Tile({ label, value, note, bar, valueClass, testId }: { label: string; value: React.ReactNode; note?: React.ReactNode; bar?: { pct: number; status: Status }; valueClass?: string; testId?: string }) {
   return (
-    <div className="min-w-0">
-      <p className="clamp-2 text-xs font-medium leading-4 text-slate-600" title={label}>
+    <div className="flex min-w-0 flex-col justify-center border-slate-200 px-3 py-3.5" data-testid={testId}>
+      <p className="clamp-1 text-xs font-medium leading-4 text-slate-600" title={label}>
         {label}
       </p>
-      <p className={cn("tabular mt-0.5 text-base font-medium leading-6 text-slate-900", status && status !== "neutral" && STATUS_TEXT[status])}>{value}</p>
-      {hint ? (
-        <p className="clamp-1 text-xs leading-4 text-muted-foreground" title={hint}>
-          {hint}
-        </p>
-      ) : null}
+      <p className={cn("tabular mt-1 text-2xl font-semibold leading-8 tracking-tight text-slate-900", valueClass)}>{value}</p>
+      {bar ? <Bar pct={bar.pct} status={bar.status} className="mt-1" /> : <div aria-hidden className="mt-1 h-1.5" />}
+      <p className="clamp-1 mt-1.5 text-xs leading-4 text-muted-foreground" title={typeof note === "string" ? note : undefined}>
+        {note ?? "\u00a0"}
+      </p>
     </div>
   );
 }
 
-/** A group of figures under a small heading, with a thin line above it. */
-function Group({ title, children, className, row = false }: { title: string; children: React.ReactNode; className?: string; row?: boolean }) {
-  if (row)
-    return (
-      <section className={cn("grid min-w-0 grid-cols-[9.5rem_minmax(0,1fr)] items-start gap-x-4 border-t border-slate-200 py-2.5", className)}>
-        <h4 className="pt-0.5 text-xs font-semibold text-slate-500">{title}</h4>
-        <div className="min-w-0 max-w-xs">{children}</div>
-      </section>
-    );
+/** A row of equal tiles with thin dividers between them. 4 across on a wide card, 2 across on the phone. */
+function TileRow({ children, cols = 4, testId, grow = false }: { children: React.ReactNode; cols?: 2 | 3 | 4; testId?: string; /** Fills the rest of the column's height (each tile's content is centered, so tiles in a row stay aligned). */ grow?: boolean }) {
+  // Phone (and cols 2): two across, a line left of the second tile and above the second row. Wider: one row.
+  const two = "grid-cols-2 [&>*:nth-child(2n)]:border-l [&>*:nth-child(n+3)]:border-t";
+  const wide =
+    cols === 4
+      ? "sm:grid-cols-4 sm:[&>*:nth-child(n+3)]:border-t-0 sm:[&>*:not(:first-child)]:border-l"
+      : cols === 3
+        ? "sm:grid-cols-3 sm:[&>*:nth-child(n+3)]:border-t-0 sm:[&>*:not(:first-child)]:border-l"
+        : "";
   return (
-    <section className={cn("min-w-0 border-t border-slate-200 pt-2.5", className)}>
-      <h4 className="mb-1.5 text-[11px] font-semibold text-slate-500">{title}</h4>
+    <div className={cn("grid auto-rows-fr rounded-lg border border-slate-200 bg-white", grow && "lg:flex-1", two, wide)} data-testid={testId}>
       {children}
-    </section>
+    </div>
   );
 }
 
 /**
- * A daily or weekly target (Accountability, Targets): name, Commitment badge, and its rule on top; today's count
- * large with a progress bar; then This week, Streak, Last 26 weeks, and the target's own quality numbers in an even
- * grid; the history grid beside it.
+ * A daily or weekly target (Accountability, Targets): name, Commitment badge, and its rule on top. Left: a row of 4 equal
+ * tiles (Today with a bar and "N to go", This week with a bar, Streak met and missed, Last 26 weeks completion rate),
+ * then a Quality row with the target's own numbers, in the same tile style (small label, large number, small gray
+ * note) with thin lines between tiles. Right: the history grid.
  */
 export function TargetCard({
   s,
@@ -65,7 +68,10 @@ export function TargetCard({
   deals30,
   actions,
   footnote,
+  counter,
 }: {
+  /** A target counted by hand: its daily count strip (buttons and help line), under the tiles. */
+  counter?: React.ReactNode;
   s: TargetSummary;
   today: string;
   week: { total: number; required: number } | null;
@@ -82,6 +88,85 @@ export function TargetCard({
   const left = Math.max(0, s.today.required - s.today.count);
   const isOutreach = t.count_source === "communications_outreach" && outreach30;
   const quality = isOutreach || s.breakdown || deals30;
+  const pct = (c: number, r: number) => progressPct(c, r);
+  // Weekly targets: the tile after "This week so far" is last week's result.
+  const lastWeek = weekly ? [...s.history].reverse().find((h) => h.end < s.today.start && h.status !== "off") ?? null : null;
+  const one = unit.slice(0, -1);
+  const streakNote = s.missedInARow > 0 ? `Missed ${s.missedInARow} ${s.missedInARow === 1 ? one : unit} in a row` : s.metInARow > 0 ? `Met ${s.metInARow} ${s.metInARow === 1 ? one : unit} in a row` : `No ${unit} in a row yet`;
+  const tiles = (
+    <>
+      <Tile
+        label={weekly ? "This week" : "Today"}
+        testId="target-today"
+        value={off ? "Not counted" : (
+          <>
+            {s.today.count} <span className="text-base font-medium text-slate-500">of {s.today.required}</span>
+          </>
+        )}
+        valueClass={status === "met" ? "text-status-met" : undefined}
+        bar={{ pct: off ? 0 : pct(s.today.count, s.today.required), status }}
+        note={<span className={cn(status === "met" ? "font-medium text-status-met" : off ? "" : "font-medium text-status-soon")}>{off ? (weekly ? "Not counted yet" : "Not an active day") : status === "met" ? "Met" : `${left} to go`}</span>}
+      />
+      {!weekly && week ? (
+        <Tile
+          label="This week"
+          testId="target-week"
+          value={
+            <>
+              {week.total} <span className="text-base font-medium text-slate-500">of {week.required}</span>
+            </>
+          }
+          bar={{ pct: pct(week.total, week.required), status: week.total >= week.required ? "met" : "neutral" }}
+          note={week.total >= week.required ? "Met for the week" : `${Math.max(0, week.required - week.total)} to go this week`}
+        />
+      ) : (
+        <Tile
+          label="Last week"
+          testId="target-week"
+          value={lastWeek ? (
+            <>
+              {lastWeek.count} <span className="text-base font-medium text-slate-500">of {lastWeek.required}</span>
+            </>
+          ) : "No data yet"}
+          valueClass={lastWeek ? (lastWeek.status === "met" ? "text-status-met" : lastWeek.status === "missed" ? "text-status-missed" : undefined) : "text-base font-medium text-muted-foreground"}
+          note={lastWeek ? (lastWeek.status === "met" ? "Met" : lastWeek.status === "missed" ? "Missed" : "") : "Counting started this week"}
+        />
+      )}
+      <Tile
+        label="Streak"
+        testId="target-streak"
+        value={
+          <span className="flex items-baseline gap-3 whitespace-nowrap">
+            <span className={cn(s.metInARow ? "text-status-met" : undefined)}>
+              {s.metInARow} <span className="text-xs font-medium text-slate-500">Met</span>
+            </span>
+            <span className={cn(s.missedInARow > 0 ? "text-status-missed" : undefined)}>
+              {s.missedInARow} <span className="text-xs font-medium text-slate-500">Missed</span>
+            </span>
+          </span>
+        }
+        note={streakNote}
+      />
+      <Tile
+        label="Last 26 weeks"
+        testId="target-rate"
+        value={s.rate.pct === null ? <span className="text-base font-medium text-muted-foreground">No data yet</span> : `${s.rate.pct}%`}
+        note={`${s.rate.met} met, ${s.rate.missed} missed`}
+      />
+    </>
+  );
+  const qualityTiles: React.ReactNode[] = [];
+  if (isOutreach) {
+    qualityTiles.push(<Tile key="reply" label="Reply rate" value={outreach30.replyRatePct === null ? <span className="text-base font-medium text-muted-foreground">No outreach</span> : `${outreach30.replyRatePct}%`} note={`${outreach30.sent} sent`} />);
+    qualityTiles.push(<Tile key="meet" label="Meetings booked" value={outreach30.meetings} note="Last 30 days" />);
+    if (outreach30.dealSourcing !== null)
+      qualityTiles.push(<Tile key="deal" label="Deal-sourcing share" value={outreach30.dealSourcingSharePct === null ? <span className="text-base font-medium text-muted-foreground">No outreach</span> : `${outreach30.dealSourcingSharePct}%`} note={`${outreach30.dealSourcing} of ${outreach30.sent} were deal asks`} />);
+  }
+  if (s.breakdown) {
+    qualityTiles.push(<Tile key="prop" label={weekly ? "Proprietary this week" : "Proprietary today"} value={s.breakdown.proprietary} note={s.breakdown.notSet ? `${s.breakdown.notSet} with no source set` : "Off-market deals"} />);
+    qualityTiles.push(<Tile key="brok" label={weekly ? "Brokered this week" : "Brokered today"} value={s.breakdown.brokered} note="Listed by a broker" />);
+  }
+  if (deals30) qualityTiles.push(<Tile key="share" label="Proprietary share" value={deals30.proprietarySharePct === null ? <span className="text-base font-medium text-muted-foreground">No deals</span> : `${deals30.proprietarySharePct}%`} note={`${deals30.proprietary} of ${deals30.total} deals, 30 days`} />);
   return (
     <Card className={cn(!t.active && "opacity-70")} data-testid="target-card">
       <CardHeader className="flex-row flex-wrap items-start justify-between gap-3 pb-2">
@@ -97,65 +182,16 @@ export function TargetCard({
         <div className="flex flex-wrap gap-2">{actions}</div>
       </CardHeader>
       <CardContent className="grid grid-cols-1 gap-x-8 gap-y-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
-        <div className="flex min-w-0 flex-col gap-3">
-          <div data-testid="target-today">
-            <p className="text-xs font-medium text-slate-600">{weekly ? "This week so far" : "Today"}</p>
-            <p className="flex flex-wrap items-baseline gap-x-3">
-              <span className={cn("tabular text-3xl font-semibold leading-tight tracking-tight", status === "met" ? "text-status-met" : "text-slate-900")}>
-                {off ? "Not counted" : (
-                  <>
-                    {s.today.count} <span className="text-lg font-medium text-slate-500">of {s.today.required}</span>
-                  </>
-                )}
-              </span>
-              <span className={cn("text-sm font-medium", status === "met" ? "text-status-met" : off ? "text-muted-foreground" : "text-status-soon")}>
-                {off ? (weekly ? "" : "Not an active day") : status === "met" ? "Met" : `${left} to go`}
-              </span>
-            </p>
-            <Bar pct={off ? 0 : progressPct(s.today.count, s.today.required)} status={status} className="mt-2 h-2" />
-          </div>
-          {/* With no quality numbers, the groups stack as rows (title left, numbers right) so the column fills the card's height. */}
-          <div className={cn(quality ? cn("grid grid-cols-2 gap-x-4 gap-y-3", !weekly && "sm:grid-cols-3") : "flex flex-col")}>
-            {!weekly && week ? (
-              <Group title="This week" row={!quality}>
-                <Fig label="Done" value={`${week.total} of ${week.required}`} />
-                <Bar pct={progressPct(week.total, week.required)} status={week.total >= week.required ? "met" : "neutral"} className="mt-1.5" />
-              </Group>
-            ) : null}
-            <Group title={`Streak, ${unit} in a row`} row={!quality}>
-              <div className="grid grid-cols-2 gap-2">
-                <Fig label="Met" value={s.metInARow} status={s.metInARow ? "met" : undefined} />
-                <Fig label="Missed" value={s.missedInARow} status={s.missedInARow > 0 ? "missed" : undefined} />
-              </div>
-            </Group>
-            <Group title="Last 26 weeks" row={!quality}>
-              <Fig label="Completion rate" value={s.rate.pct === null ? "No data yet" : `${s.rate.pct}%`} hint={`${s.rate.met} met, ${s.rate.missed} missed`} />
-            </Group>
-          </div>
-          {quality ? (
-            <Group title={isOutreach ? "Quality, last 30 days" : "Deal source"}>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
-                {isOutreach ? (
-                  <>
-                    <Fig label="Reply rate" value={outreach30.replyRatePct === null ? "No outreach" : `${outreach30.replyRatePct}%`} hint={`${outreach30.sent} sent`} />
-                    <Fig label="Meetings booked" value={outreach30.meetings} />
-                    {outreach30.dealSourcing !== null ? (
-                      <Fig label="Deal-sourcing share" value={outreach30.dealSourcingSharePct === null ? "No outreach" : `${outreach30.dealSourcingSharePct}%`} hint={`${outreach30.dealSourcing} of ${outreach30.sent} were deal asks`} />
-                    ) : null}
-                  </>
-                ) : null}
-                {s.breakdown ? (
-                  <>
-                    <Fig label={weekly ? "Proprietary this week" : "Proprietary today"} value={s.breakdown.proprietary} hint={s.breakdown.notSet ? `${s.breakdown.notSet} with no source set` : undefined} />
-                    <Fig label={weekly ? "Brokered this week" : "Brokered today"} value={s.breakdown.brokered} />
-                  </>
-                ) : null}
-                {deals30 ? (
-                  <Fig label="Proprietary share, 30 days" value={deals30.proprietarySharePct === null ? "No deals" : `${deals30.proprietarySharePct}%`} hint={`${deals30.proprietary} of ${deals30.total} deals`} />
-                ) : null}
-              </div>
-            </Group>
+        {/* Left: tiles in rows. A daily target with no quality numbers shows its 4 tiles 2 by 2, so the column is as tall as the history grid beside it. */}
+        <div className="flex min-w-0 flex-col gap-4" data-testid="target-tiles">
+          <TileRow cols={!quality && !weekly ? 2 : 4} grow={!counter} testId="target-tiles-main">{tiles}</TileRow>
+          {qualityTiles.length ? (
+            <section className={cn("flex min-w-0 flex-col", !counter && "lg:flex-1")} data-testid="target-quality">
+              <h4 className="mb-1 text-xs font-semibold text-slate-700">{isOutreach ? "Quality, last 30 days" : "Quality: deal source"}</h4>
+              <TileRow cols={qualityTiles.length >= 3 ? 3 : 2} grow={!counter}>{qualityTiles}</TileRow>
+            </section>
           ) : null}
+          {counter}
         </div>
         <div className="flex min-w-0 flex-col gap-2">
           <p className="text-xs font-medium text-slate-600">{weekly ? "History by week" : "History by day, last 8 weeks"}</p>

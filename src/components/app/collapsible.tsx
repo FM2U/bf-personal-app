@@ -134,7 +134,16 @@ export function CollapsibleCard({
     if (storageKey) writeSaved(storageKey, { [id]: !own });
   };
   return (
-    <section className={cn("flex break-inside-avoid flex-col rounded-xl border border-border bg-card text-card-foreground shadow-sm", className)} data-testid={testId ?? "collapsible-card"} data-open={open ? "" : undefined}>
+    <section
+      className={cn(
+        "relative flex break-inside-avoid flex-col rounded-xl border border-border bg-card text-card-foreground shadow-sm",
+        // Open: a 2px gold bar on the left (README UI rules, gold lines).
+        open && "before:absolute before:inset-y-3 before:-left-px before:w-0.5 before:rounded-full before:bg-gold",
+        className,
+      )}
+      data-testid={testId ?? "collapsible-card"}
+      data-open={open ? "" : undefined}
+    >
       <div className={cn("flex items-start gap-2 px-5 pt-4", open ? "pb-3" : "pb-4")}>
         <button type="button" onClick={toggle} aria-expanded={open} className="group flex min-w-0 flex-1 items-start gap-2 text-left" data-testid="collapsible-toggle">
           <ChevronRight aria-hidden className={cn("mt-0.5 h-4 w-4 shrink-0 text-slate-500 transition-transform group-hover:text-primary-strong", open && "rotate-90")} />

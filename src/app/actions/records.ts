@@ -20,6 +20,7 @@ import type { Row } from "@/lib/types";
 import { canQuickCreate, quickCreateFields } from "@/lib/quick-create";
 import { safeLeaveTarget } from "@/lib/form-dirty";
 import { titleOf } from "@/lib/data";
+import { documentPath, documentSizeError, DOCUMENT_KINDS, isDocumentPathFor } from "@/lib/documents";
 
 export type FormState = { ok: boolean; error?: string; message?: string; link?: { href: string; label: string } } | null;
 
@@ -329,69 +330,106 @@ export async function deleteRecord(fd: FormData) {
 
 const LINKABLE = new Set([...Object.keys(RESOURCES), "documents", "notes"]);
 
-export async function addLink(fd: FormData) {
+type PanelResult = { ok: true } | { ok: false; error: string };
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Right-panel actions (links, documents, notes) inside a window send __quiet: no revalidation (the window reloads itself). */
+const settle = (fd: FormData | null) => {
+  if (!fd || fd.get("__quiet") !== "1") revalidatePath("/", "layout");
+};
+
+export async function addLink(fd: FormData): Promise<PanelResult> {
   const fromType = String(fd.get("from_type"));
   const fromId = String(fd.get("from_id"));
   const target = String(fd.get("target") ?? ""); // "table:id"
-  const relation = String(fd.get("relation") ?? "") || null;
+  const relation = String(fd.get("relation") ?? "").trim() || null;
   const [toType, toId] = target.split(":");
-  if (!LINKABLE.has(fromType) || !LINKABLE.has(toType) || !toId) return;
+  if (!toId) return { ok: false, error: "Choose a record to link first." };
+  if (!LINKABLE.has(fromType) || !LINKABLE.has(toType)) return { ok: false, error: "This kind of record cannot be linked." };
   const { supabase, ownerId } = await requireOwner();
   const { error } = await supabase.from("record_links").insert({ owner_id: ownerId, from_type: fromType, from_id: fromId, to_type: toType, to_id: toId, relation });
-  if (error && error.code !== "23505") throw new Error(error.message);
-  revalidatePath("/", "layout");
+  if (error && error.code !== "23505") return { ok: false, error: `The link was not saved: ${error.message}` };
+  settle(fd);
+  return { ok: true };
 }
 
-export async function removeLink(fd: FormData) {
+export async function removeLink(fd: FormData): Promise<PanelResult> {
   const { supabase } = await requireOwner();
-  await supabase.from("record_links").delete().eq("id", String(fd.get("id")));
-  revalidatePath("/", "layout");
+  const { error } = await supabase.from("record_links").delete().eq("id", String(fd.get("id")));
+  if (error) return { ok: false, error: `The link was not removed: ${error.message}` };
+  settle(fd);
+  return { ok: true };
 }
 
-export async function addNote(fd: FormData) {
+export async function addNote(fd: FormData): Promise<PanelResult> {
   const body = String(fd.get("body") ?? "").trim();
-  if (!body) return;
+  if (!body) return { ok: false, error: "Type a note first." };
   const { supabase, ownerId } = await requireOwner();
-  await supabase.from("notes").insert({ owner_id: ownerId, record_type: String(fd.get("record_type")), record_id: String(fd.get("record_id")), body });
-  revalidatePath("/", "layout");
+  const { error } = await supabase.from("notes").insert({ owner_id: ownerId, record_type: String(fd.get("record_type")), record_id: String(fd.get("record_id")), body });
+  if (error) return { ok: false, error: `The note was not saved: ${error.message}` };
+  settle(fd);
+  return { ok: true };
 }
 
-export async function deleteNote(fd: FormData) {
+export async function deleteNote(fd: FormData): Promise<PanelResult> {
   const { supabase } = await requireOwner();
-  await supabase.from("notes").delete().eq("id", String(fd.get("id")));
-  revalidatePath("/", "layout");
+  const { error } = await supabase.from("notes").delete().eq("id", String(fd.get("id")));
+  if (error) return { ok: false, error: `The note was not deleted: ${error.message}` };
+  settle(fd);
+  return { ok: true };
 }
 
-export async function uploadDocument(fd: FormData) {
-  const file = fd.get("file");
-  if (!(file instanceof File) || !file.size) return;
-  const recordType = String(fd.get("record_type"));
-  const recordId = String(fd.get("record_id"));
+type UploadTarget = { recordType: string; recordId: string };
+
+/**
+ * Step 1 of an upload (Documents card): checks the file and makes a signed upload address in the owner's folder of
+ * the documents bucket. The browser then sends the file straight to Supabase Storage (uploadToSignedUrl), so the file
+ * never passes through a server action (1 MB limit) or a Vercel function (about 4.5 MB). The storage rules of
+ * migration 0007 apply: the signed-in owner (aal2) may add files only under their own folder.
+ */
+export async function startDocumentUpload(input: UploadTarget & { fileName: string; size: number }): Promise<{ ok: true; path: string; token: string } | { ok: false; error: string }> {
+  const tooBig = documentSizeError(Number(input.size) || 0);
+  if (tooBig) return { ok: false, error: tooBig };
+  if (!LINKABLE.has(input.recordType) || !UUID_RE.test(input.recordId)) return { ok: false, error: "Documents cannot be added to this record." };
   const { supabase, ownerId } = await requireOwner();
-  const safe = file.name.replace(/[^a-zA-Z0-9._-]+/g, "_");
-  const path = `${ownerId}/${recordType}/${recordId}/${Date.now()}_${safe}`;
-  const { error } = await supabase.storage.from("documents").upload(path, file, { contentType: file.type || "application/octet-stream" });
-  if (error) throw new Error(`Upload failed: ${error.message}`);
-  await supabase.from("documents").insert({
-    owner_id: ownerId,
-    record_type: recordType,
-    record_id: recordId,
-    storage_path: path,
-    file_name: file.name,
-    mime_type: file.type,
-    size_bytes: file.size,
-    kind: String(fd.get("kind") ?? "other"),
-    description: String(fd.get("description") ?? "") || null,
-  });
-  revalidatePath("/", "layout");
+  const path = documentPath(ownerId, input.recordType, input.recordId, String(input.fileName ?? "file"), Date.now());
+  const { data, error } = await supabase.storage.from("documents").createSignedUploadUrl(path);
+  if (error || !data?.token) return { ok: false, error: `The upload could not start: ${error?.message ?? "no upload address was returned"}. Try again.` };
+  return { ok: true, path, token: data.token };
 }
 
-export async function deleteDocument(fd: FormData) {
+/** Step 2 of an upload: the file is in storage; save the document record that shows it on the record page. */
+export async function saveDocumentRecord(input: UploadTarget & { path: string; fileName: string; size: number; mimeType: string; kind: string; quiet?: boolean }): Promise<PanelResult> {
+  const { supabase, ownerId } = await requireOwner();
+  if (!isDocumentPathFor(input.path, ownerId, input.recordType, input.recordId)) return { ok: false, error: "The uploaded file could not be matched to this record. Upload it again." };
+  const kind = (DOCUMENT_KINDS as readonly string[]).includes(input.kind) ? input.kind : "other";
+  const { error } = await supabase.from("documents").insert({
+    owner_id: ownerId,
+    record_type: input.recordType,
+    record_id: input.recordId,
+    storage_path: input.path,
+    file_name: String(input.fileName).slice(0, 300),
+    mime_type: input.mimeType || null,
+    size_bytes: Number(input.size) || null,
+    kind,
+    description: null,
+  });
+  if (error) {
+    // The record was not saved: remove the file so nothing is left in storage without a record.
+    await supabase.storage.from("documents").remove([input.path]);
+    return { ok: false, error: `The file was uploaded, but its record was not saved: ${error.message}. Upload it again.` };
+  }
+  if (!input.quiet) revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+export async function deleteDocument(fd: FormData): Promise<PanelResult> {
   const { supabase } = await requireOwner();
   const { data } = await supabase.from("documents").select("storage_path").eq("id", String(fd.get("id"))).maybeSingle();
+  const { error } = await supabase.from("documents").delete().eq("id", String(fd.get("id")));
+  if (error) return { ok: false, error: `The document was not deleted: ${error.message}` };
   if (data?.storage_path) await supabase.storage.from("documents").remove([data.storage_path]);
-  await supabase.from("documents").delete().eq("id", String(fd.get("id")));
-  revalidatePath("/", "layout");
+  settle(fd);
+  return { ok: true };
 }
 
 /** Marks a task done or not done. `quiet` (inside a window): no revalidation; the window reloads the page itself. */
@@ -410,15 +448,15 @@ export async function dismissAlert(fd: FormData) {
 }
 
 /** Marks a task, milestone, or goal as a commitment with a due date. */
-export async function markCommitment(fd: FormData) {
+export async function markCommitment(fd: FormData): Promise<PanelResult> {
   const recordType = String(fd.get("record_type"));
   const recordId = String(fd.get("record_id"));
-  if (!["tasks", "milestones", "goals"].includes(recordType)) return;
+  if (!["tasks", "milestones", "goals"].includes(recordType)) return { ok: false, error: "Only tasks, milestones, and goals can be commitments." };
   const { supabase, ownerId } = await requireOwner();
-  const { data: rec } = await supabase.from(recordType).select("*").eq("id", recordId).single();
-  if (!rec) return;
+  const { data: rec } = await supabase.from(recordType).select("*").eq("id", recordId).maybeSingle();
+  if (!rec) return { ok: false, error: "This record was not found." };
   const due = String(fd.get("due_date") ?? "") || rec.due_date || rec.deadline;
-  if (!due) throw new Error("Set a due date on the record first.");
+  if (!due) return { ok: false, error: "Set a due date first." };
   const { error } = await supabase.from("commitments").insert({
     owner_id: ownerId,
     title: rec.title,
@@ -427,8 +465,9 @@ export async function markCommitment(fd: FormData) {
     due_date: due,
     original_due_date: due,
   });
-  if (error && error.code !== "23505") throw new Error(error.message);
-  revalidatePath("/", "layout");
+  if (error && error.code !== "23505") return { ok: false, error: `Not marked: ${error.message}` };
+  settle(fd);
+  return { ok: true };
 }
 
 /** Missed commitment flow: one-line reason, then a new date or a decision record. */

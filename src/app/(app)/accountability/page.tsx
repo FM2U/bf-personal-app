@@ -14,10 +14,23 @@ import { recordHref } from "@/lib/resources";
 import { date as fmtDate } from "@/lib/format";
 import type { Row } from "@/lib/types";
 import { GuardedForm } from "@/components/app/unsaved-changes";
+import { ListFilter } from "@/components/app/filter-panel";
+import { applyFilters, dateMatches, DUE_BUCKETS, isDefaultFilters, plainParams, readFilters, type FilterSpec } from "@/lib/list-filters";
+
+/** The commitments list filter: Status (open by default), Type, Due date, Times missed. In the address. */
+const COMMITMENT_FILTERS: FilterSpec[] = [
+  {
+    column: { key: "status", title: "Status", defaults: ["open"], options: [{ value: "open", label: "Open" }, { value: "met", label: "Met" }, { value: "missed", label: "Missed" }, { value: "closed_by_decision", label: "Closed by a decision" }, { value: "released", label: "No longer a commitment" }] },
+    test: (c, p) => p.includes(String(c.status)),
+  },
+  { column: { key: "type", title: "Type", options: [{ value: "tasks", label: "Task" }, { value: "milestones", label: "Milestone" }, { value: "goals", label: "Goal" }] }, test: (c, p) => p.includes(String(c.record_type)) },
+  { column: { key: "due", title: "Due date", options: DUE_BUCKETS.filter((b) => b.value !== "none") }, test: (c, p, today) => dateMatches(c.due_date, p, "due", today) },
+  { column: { key: "missed", title: "Times missed", options: [{ value: "0", label: "Never" }, { value: "1", label: "Once" }, { value: "2", label: "2 or more" }] }, test: (c, p) => p.includes(String(Math.min(2, Number(c.miss_count ?? 0)))) },
+];
 
 export const metadata = { title: "Commitments" };
 
-export default async function CommitmentsPage({ searchParams }: { searchParams: Promise<{ miss?: string }> }) {
+export default async function CommitmentsPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const sp = await searchParams;
   const { supabase, ownerId } = await requireOwner();
   const ctx = await loadCtx(supabase, ownerId);
@@ -29,7 +42,10 @@ export default async function CommitmentsPage({ searchParams }: { searchParams: 
   const byId = Object.fromEntries(list.map((c) => [c.id, c]));
   const pending = ((misses ?? []) as Row[]).filter((m) => m.resolution === "pending");
   const resolved = ((misses ?? []) as Row[]).filter((m) => m.resolution !== "pending");
-  const open = list.filter((c) => c.status === "open");
+  const filterCols = COMMITMENT_FILTERS.map((f) => f.column);
+  const filterState = readFilters(sp, filterCols);
+  const filtering = !isDefaultFilters(filterState, filterCols);
+  const open = applyFilters(list, COMMITMENT_FILTERS, filterState, ctx.today);
   const repeated = list.filter((c) => c.miss_count >= 2 && c.status !== "released");
   return (
     <div>
@@ -115,8 +131,11 @@ export default async function CommitmentsPage({ searchParams }: { searchParams: 
         </Card>
         <Card className="xl:col-span-3">
           <CardHeader>
-            <CardTitle>Open commitments</CardTitle>
+            <CardTitle>Commitments</CardTitle>
             <CardDescription>To add one, open a task, milestone, or goal and press Mark as commitment.</CardDescription>
+            <div className="mt-2">
+              <ListFilter path="/accountability" layout={[[filterCols[0]], [filterCols[1]], [filterCols[2]], [filterCols[3]]]} state={filterState} keep={plainParams(sp)} testId="commitments-filter" />
+            </div>
           </CardHeader>
           <CardContent>
             {open.length ? (
@@ -128,6 +147,7 @@ export default async function CommitmentsPage({ searchParams }: { searchParams: 
                     <TH>Due</TH>
                     <TH>Original due date</TH>
                     <TH>Times missed</TH>
+                    <TH>Status</TH>
                   </TR>
                 </THead>
                 <TBody>
@@ -142,12 +162,18 @@ export default async function CommitmentsPage({ searchParams }: { searchParams: 
                       <TD className={dueClass(c.due_date, ctx.today)}>{fmtDate(c.due_date)}</TD>
                       <TD>{fmtDate(c.original_due_date)}</TD>
                       <TD>{c.miss_count}</TD>
+                      <TD>
+                        <StatusBadge status={c.status} />
+                      </TD>
                     </TR>
                   ))}
                 </TBody>
               </Table>
             ) : (
-              <EmptyState title="No open commitments." body="Pipeline next actions and the review tasks create them automatically. To add one, open a task or milestone and press Mark as commitment." />
+              <EmptyState
+                title={filtering ? "No commitments match these filters." : "No open commitments."}
+                body={filtering ? "Remove a filter label above, or press Reset." : "Pipeline next actions and the review tasks create them automatically. To add one, open a task or milestone and press Mark as commitment."}
+              />
             )}
           </CardContent>
         </Card>

@@ -24,9 +24,12 @@ import { monthBounds } from "@/lib/calc/dates";
 import { DB_UPDATE_FILE_0011 } from "@/lib/schema-guard";
 import { loadDealFunnel, resolveFunnelWindow } from "@/lib/deal-funnel";
 import { DealFunnelCard } from "@/components/app/deal-funnel-card";
-import { CountButtons } from "@/components/app/listing-buttons";
+import { DailyCountCard } from "@/components/app/listing-buttons";
+import { ListFilter } from "@/components/app/filter-panel";
+import { applyFilters, dateMatches, DUE_BUCKETS, isDefaultFilters, plainParams, readFilters, type FilterSpec } from "@/lib/list-filters";
+import { DEAL_SOURCE_OPTIONS } from "@/lib/resources";
 
-export default async function PipelinePage({ params, searchParams }: { params: Promise<{ pipelineId: string }>; searchParams: Promise<{ closed?: string; view?: string; funnel?: string }> }) {
+export default async function PipelinePage({ params, searchParams }: { params: Promise<{ pipelineId: string }>; searchParams: Promise<Record<string, string | undefined>> }) {
   const { pipelineId } = await params;
   const sp = await searchParams;
   const { supabase, ownerId } = await requireOwner();
@@ -72,7 +75,25 @@ export default async function PipelinePage({ params, searchParams }: { params: P
     return Math.round(done.reduce((s, h) => s + daysBetween(h.entered_at.slice(0, 10), h.exited_at.slice(0, 10)), 0) / done.length);
   };
   const closedCount = items.filter((i) => i.status !== "open").length;
-  const shown = items.filter((i) => showClosed || i.status === "open");
+  // Filter panel (list and board): stage, status, deal source (acquisitions), next action due, flags. In the address.
+  const filterSpecs: FilterSpec[] = [
+    { column: { key: "stage", title: "Stage", options: allStages.map((s) => ({ value: String(s.id), label: String(s.name) })) }, test: (i, p) => p.includes(String(i.stage_id)) },
+    { column: { key: "status", title: "Status", options: [{ value: "open", label: "Open" }, { value: "won", label: "Won" }, { value: "lost", label: "Lost" }] }, test: (i, p) => p.includes(String(i.status)) },
+    ...(isAcq
+      ? [{ column: { key: "source", title: "Deal source", options: [...DEAL_SOURCE_OPTIONS, { value: "none", label: "Not set" }] }, test: (i: Row, p: string[]) => p.includes(i.deal_source_type ? String(i.deal_source_type) : "none") }]
+      : []),
+    { column: { key: "due", title: "Next action due", options: DUE_BUCKETS }, test: (i, p, today) => dateMatches(i.next_action_due, p, "due", today) },
+    {
+      column: { key: "flag", title: "Flags", options: [{ value: "stalled", label: "Stalled" }, { value: "over", label: "Over the stage time limit" }, { value: "no_action", label: "No next action" }] },
+      test: (i, p) => (p.includes("stalled") && !!status.byItem[String(i.id)]?.stalled) || (p.includes("over") && !!status.byItem[String(i.id)]?.limit?.over) || (p.includes("no_action") && !i.next_action),
+    },
+  ];
+  const byKey = Object.fromEntries(filterSpecs.map((f) => [f.column.key, f.column]));
+  const filterLayout = [[byKey.stage], isAcq ? [byKey.status, byKey.source] : [byKey.status], [byKey.due], [byKey.flag]];
+  const filterState = readFilters(sp, filterSpecs.map((f) => f.column));
+  const filtering = !isDefaultFilters(filterState, filterSpecs.map((f) => f.column));
+  const visibleItems = applyFilters(items, filterSpecs, filterState, ctx.today);
+  const shown = visibleItems.filter((i) => showClosed || i.status === "open");
   const stalledCount = items.filter((i) => status.byItem[i.id]?.stalled).length;
   const overCount = items.filter((i) => status.byItem[i.id]?.limit?.over).length;
   const href = (p: Record<string, string>) => {
@@ -90,17 +111,6 @@ export default async function PipelinePage({ params, searchParams }: { params: P
         description={`Each item has a stage, a next action with a due date, and the stage's task list.${isAcq ? " Proprietary (off-market) deals are listed first in every stage." : ""} Open an item to move it between stages.`}
         actions={
           <>
-            {listings ? (
-              <div className="flex w-full flex-wrap items-center justify-end gap-x-3 gap-y-2" data-testid="header-listings">
-                <span className="text-sm text-slate-700">
-                  {listings.target.name} today:{" "}
-                  <span className={cn("tabular font-semibold", listings.today.status === "met" ? "text-status-met" : "text-slate-900")} data-testid="header-listings-count">
-                    {listings.today.status === "off" ? `${listings.today.count} (not an active day)` : `${listings.today.count} of ${listings.today.required}`}
-                  </span>
-                </span>
-                <CountButtons targetId={listings.target.id} back={`/opportunities/${pipelineId}`} label={listings.target.name} />
-              </div>
-            ) : null}
             <div className="flex rounded-md border border-border bg-white p-0.5" role="group" aria-label="View">
               <Button asChild size="sm" variant={listView ? "default" : "ghost"} className="h-7">
                 <Link href={href({ view: "list" })} aria-current={listView ? "page" : undefined}>
@@ -124,6 +134,7 @@ export default async function PipelinePage({ params, searchParams }: { params: P
       />
       <RememberPipelineView closedCookie={closedCookie} showClosed={showClosed} />
       <div className="mb-4 flex flex-col gap-4">
+        {listings ? <DailyCountCard summary={listings} back={`/opportunities/${pipelineId}`} /> : null}
         {!status.available ? <DbUpdateNotice compact /> : null}
         {isConsulting && consulting ? <ConsultingStrip data={consulting} incomeThisMonth={incomeThisMonth?.total ?? 0} pipelineId={pipelineId} /> : null}
         {funnel ? <DealFunnelCard data={funnel} hrefFor={(d) => href({ funnel: String(d) })} /> : null}
@@ -135,6 +146,9 @@ export default async function PipelinePage({ params, searchParams }: { params: P
             {overCount ? <span className="font-medium text-status-missed">{overCount} over the stage time limit</span> : null}. Stalled = no stage change and no activity for {status.stallDays} days or more.
           </p>
         ) : null}
+      </div>
+      <div className="mb-3">
+        <ListFilter path={`/opportunities/${pipelineId}`} layout={filterLayout} state={filterState} keep={plainParams(sp)} testId="pipeline-filter" />
       </div>
       {listView ? (
         <Card>
@@ -199,7 +213,7 @@ export default async function PipelinePage({ params, searchParams }: { params: P
                 </TBody>
               </Table>
             </div>
-            {!shown.length ? <p className="py-4 text-center text-sm text-muted-foreground">No items yet.</p> : null}
+            {!shown.length ? <p className="py-4 text-center text-sm text-muted-foreground">{filtering ? "No items match these filters. Remove a filter label above, or press Reset." : "No items yet."}</p> : null}
           </CardContent>
         </Card>
       ) : (
@@ -211,7 +225,7 @@ export default async function PipelinePage({ params, searchParams }: { params: P
             style={{ gridTemplateColumns: `repeat(${stageList.length}, minmax(var(--col-min), 1fr))` }}
           >
             {stageList.map((s) => {
-              const its = items.filter((i) => i.stage_id === s.id);
+              const its = visibleItems.filter((i) => i.stage_id === s.id);
               const avg = avgDays(s.id);
               return (
                 <section key={s.id} className="flex min-w-0 flex-col rounded-xl border border-border bg-slate-50/80" aria-label={s.name}>

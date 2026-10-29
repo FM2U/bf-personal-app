@@ -146,7 +146,7 @@ export default async function HomePage() {
       value: listing.today.status === "off" ? `${listing.today.count}, not today` : `${listing.today.count} of ${listing.today.required}`,
       href: "/accountability/targets",
       tone: listing.today.status === "met" ? "good" : undefined,
-      actions: <CountButtons targetId={listing.target.id} back="/" label={listing.target.name} stretch className="flex-nowrap" />,
+      actions: <CountButtons targetId={listing.target.id} back="/" label={listing.target.name} stretch short className="flex-nowrap" />,
       wide: true,
       testId: "home-listings",
     });

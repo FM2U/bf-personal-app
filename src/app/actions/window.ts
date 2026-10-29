@@ -42,6 +42,9 @@ import type { Row } from "@/lib/types";
 import { goalSuggestion, pipelineSuggestion, taskSuggestion, type Suggestion } from "@/lib/suggestions";
 import { firstSuggestion } from "@/lib/suggestions-server";
 import { buildScenarioSummary, type ScenarioSummaryData, type SummaryColumn } from "@/lib/scenario-summary";
+import { loadDocuments, loadHistory, loadLinked, loadNotes, type DocumentItem, type HistoryItem, type LinkedData, type NoteItem } from "@/lib/record-panels-data";
+import { loadChecklists } from "@/components/app/checklist-panel";
+import { checklistProgress } from "@/lib/checklists";
 
 type QuickOk = Extract<QuickViewData, { ok: true }>;
 export type LineItem = { table: string; id: string; title: string; due: string | null; status: string | null; note?: string | null };
@@ -401,6 +404,98 @@ export async function moveTaskToTomorrow(taskId: string): Promise<{ ok: true } |
   if (error) return fail(error.message);
   await checkCommitments(ctx, false);
   return { ok: true };
+}
+
+// ---------- The task and commitment window ----------
+
+export type TaskWindowData =
+  | Fail
+  | {
+      ok: true;
+      /** The record the window shows: a task, or a commitment on a milestone or goal (a task's commitment shows the task). */
+      table: "tasks" | "commitments";
+      base: QuickOk;
+      tomorrow: string;
+      task: { done: boolean; due: string | null; timesMoved: number } | null;
+      commitment: { id: string; due: string; originalDue: string | null; status: string; missCount: number; recordType: string; recordId: string; misses: { id: string; missedOn: string; reason: string | null; resolution: string; newDue: string | null }[] } | null;
+      /** Mark as commitment (tasks without one): the suggested due date. */
+      markDue: string | null;
+      context: Extract<OverviewData, { kind: "quick" }>["context"];
+      suggestion: Suggestion | null;
+      checklists: { name: string; text: string }[];
+      linked: LinkedData;
+      documents: DocumentItem[];
+      notes: NoteItem[];
+      history: HistoryItem[];
+    };
+
+/**
+ * Everything the full task page shows, for the one task and commitment window (quick view of a task or commitment,
+ * Work through tasks, links on Home, task lists, and Commitments): details, next required action, the record it is
+ * for, the commitment and its misses, checklists, linked records, documents, notes, and change history.
+ */
+export async function loadTaskWindow(table: string, id: string): Promise<TaskWindowData> {
+  if (table !== "tasks" && table !== "commitments") return fail("This window shows tasks and commitments.");
+  const { supabase: sb, ownerId } = await requireOwner();
+  let subject: "tasks" | "commitments" = table;
+  let subjectId = id;
+  let commitmentRow: Row | null = null;
+  if (table === "commitments") {
+    const { data } = await sb.from("commitments").select("*").eq("id", id).maybeSingle();
+    if (!data) return fail("This commitment was not found. It may have been deleted.");
+    commitmentRow = data as Row;
+    // A task's commitment shows the task (with its commitment and misses), exactly as when the task is opened.
+    if (commitmentRow.record_type === "tasks") {
+      subject = "tasks";
+      subjectId = String(commitmentRow.record_id);
+    }
+  }
+  const base = await loadQuickView(subject, subjectId, 60);
+  if (!base.ok) return base;
+  const { data: rowData } = await sb.from(subject).select("*").eq("id", subjectId).maybeSingle();
+  const row = (rowData ?? {}) as Row;
+  if (subject === "tasks" && !commitmentRow) {
+    const { data } = await sb.from("commitments").select("*").eq("record_type", "tasks").eq("record_id", subjectId).order("created_at", { ascending: false }).limit(1);
+    commitmentRow = ((data ?? []) as Row[])[0] ?? null;
+  }
+  const ctx = await loadCtx(sb, ownerId);
+  const [missRes, context, linked, documents, notes, history, lists, suggestion] = await Promise.all([
+    commitmentRow ? sb.from("missed_commitments").select("*").eq("commitment_id", commitmentRow.id).order("missed_on", { ascending: false }) : Promise.resolve({ data: [] }),
+    subject === "tasks" ? taskContext(sb, row, ctx.today) : Promise.resolve(null),
+    loadLinked(sb, subject, subjectId),
+    loadDocuments(sb, subject, subjectId),
+    loadNotes(sb, subject, subjectId),
+    loadHistory(sb, subject, subjectId),
+    subject === "tasks" && row.template_id ? loadChecklists(sb, { templateId: row.template_id }).catch(() => null) : Promise.resolve(null),
+    subject === "tasks" ? firstSuggestion([taskSuggestion(row as { id: string; status: string; times_moved?: number | null })]) : Promise.resolve(null),
+  ]);
+  return {
+    ok: true,
+    table: subject,
+    base,
+    tomorrow: addDaysISO(ctx.today, 1),
+    task: subject === "tasks" ? { done: row.status === "done", due: row.due_date ?? null, timesMoved: Number(row.times_moved ?? 0) } : null,
+    commitment: commitmentRow
+      ? {
+          id: String(commitmentRow.id),
+          due: String(commitmentRow.due_date),
+          originalDue: commitmentRow.original_due_date ?? null,
+          status: String(commitmentRow.status),
+          missCount: Number(commitmentRow.miss_count ?? 0),
+          recordType: String(commitmentRow.record_type),
+          recordId: String(commitmentRow.record_id),
+          misses: ((missRes.data ?? []) as Row[]).map((m) => ({ id: String(m.id), missedOn: String(m.missed_on), reason: m.reason ?? null, resolution: String(m.resolution ?? "pending"), newDue: m.new_due_date ?? null })),
+        }
+      : null,
+    markDue: subject === "tasks" && !commitmentRow ? row.due_date ?? null : null,
+    context,
+    suggestion,
+    checklists: (lists?.lists ?? []).map((l) => ({ name: String(l.name ?? "Checklist"), text: checklistProgress(((lists?.items ?? []) as Row[]).filter((i) => i.checklist_id === l.id) as { checked: boolean }[]).text })),
+    linked,
+    documents,
+    notes,
+    history,
+  };
 }
 
 // ---------- Step-by-step initiative setup ----------

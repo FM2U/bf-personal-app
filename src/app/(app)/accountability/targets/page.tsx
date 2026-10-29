@@ -14,7 +14,7 @@ import { SubmitButton } from "@/components/app/submit-button";
 import { DbUpdateNotice } from "@/components/app/target-grid";
 import { TargetCard } from "@/components/app/target-card";
 import { saveTargetMissReason } from "@/app/actions/targets";
-import { CountButtons } from "@/components/app/listing-buttons";
+import { DailyCountStrip } from "@/components/app/listing-buttons";
 import { SuggestedTargets } from "@/components/app/deal-funnel-card";
 import { listingsTarget, loadDealPlan } from "@/lib/deal-funnel";
 import { COUNT_SOURCE_OPTIONS } from "@/lib/resources";
@@ -100,10 +100,10 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
               week={t.period === "day" ? weekTotals : null}
               outreach30={t.count_source === "communications_outreach" ? outreach30 : null}
               deals30={deals30[t.id] ?? null}
+              counter={t.count_source === "manual" && t.active ? <DailyCountStrip targetId={t.id} name={t.name} back="/accountability/targets" /> : null}
               footnote={`${SOURCE_SHORT[t.count_source] ?? COUNT_SOURCE_OPTIONS.find((o) => o.value === t.count_source)?.label}. Counting since ${fmtDate(t.def.start_date)}.`}
               actions={
                 <>
-                  {t.count_source === "manual" && t.active ? <CountButtons targetId={t.id} back="/accountability/targets" note label={t.name} /> : null}
                   {t.count_source === "deal_calls" || t.count_source === "cims_reviewed" ? (
                     <Button asChild size="sm" variant="outline">
                       <Link href={t.pipeline_id ? `/opportunities/${t.pipeline_id}` : "/opportunities"}>Open deals</Link>

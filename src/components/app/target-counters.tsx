@@ -52,7 +52,7 @@ export function TargetCounters({ available, summaries, back }: { available: bool
             ) : null}
             <div className="mt-auto pt-1">
               {t.count_source === "manual" ? (
-                <CountButtons targetId={t.id} back={back} label={t.name} stretch className="flex-nowrap" />
+                <CountButtons targetId={t.id} back={back} label={t.name} stretch short className="flex-nowrap" />
               ) : t.count_source === "cims_reviewed" || t.count_source === "deal_calls" ? (
                 <Button asChild size="sm" variant="outline" className="w-full">
                   <Link href={t.pipeline_id ? `/opportunities/${t.pipeline_id}` : "/opportunities"}>Open deals</Link>

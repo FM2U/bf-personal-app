@@ -1,4 +1,5 @@
 import { requireOwner } from "@/lib/auth";
+import { loadCtx } from "@/lib/engine/helpers";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/app/page-header";
 import { ListCard } from "@/components/app/list-card";
@@ -13,8 +14,10 @@ const KINDS: { kind: "daily" | "weekly" | "monthly" | "quarterly"; title: string
   { kind: "quarterly", title: "Quarterly review", body: "Goal progress per initiative, decision conditions due this quarter, Inputs and Assumptions reviewed, next quarter's milestones set." },
 ];
 
-export default async function ReviewsPage() {
-  const { supabase } = await requireOwner();
+export default async function ReviewsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const sp = await searchParams;
+  const { supabase, ownerId } = await requireOwner();
+  const ctx = await loadCtx(supabase, ownerId);
   return (
     <div>
       <PageHeader title="Reviews" description="Required reviews, scheduled on Google Calendar. Each review is drafted by the AI from the data and completed by you." />
@@ -33,7 +36,7 @@ export default async function ReviewsPage() {
           </Card>
         ))}
       </div>
-      <ListCard sb={supabase} table="reviews" title="All reviews" limit={200} emptyTitle="No reviews yet." emptyBody="Reviews are drafted on schedule by the morning and evening jobs. You can also open one now with the buttons above." />
+      <ListCard sb={supabase} table="reviews" title="All reviews" limit={300} filter={{ path: "/accountability/reviews", sp, today: ctx.today, columns: [["kind"], ["status"], ["period_end"]], dateModes: { period_end: "past" }, titles: { period_end: "Period ended" } }} emptyTitle="No reviews yet." emptyBody="Reviews are drafted on schedule by the morning and evening jobs. You can also open one now with the buttons above." />
     </div>
   );
 }

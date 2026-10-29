@@ -40,26 +40,20 @@ function withExclusions(table: string, fields: Field[], exclude: Record<string, 
   });
 }
 
-/** A small section heading with a short gold rule under it. */
+/** A small section heading with a thin gold divider under it (the divider under a title is gold, README UI rules). */
 function SectionHeading({ children }: { children: React.ReactNode }) {
-  return (
-    <h3 className="relative mb-3 border-b border-slate-200 pb-1.5 text-sm font-semibold text-slate-900">
-      {children}
-      <span aria-hidden className="absolute -bottom-px left-0 h-px w-8 bg-gold" />
-    </h3>
-  );
+  return <h3 className="mb-3 border-b border-gold-rule pb-1.5 text-sm font-semibold text-slate-900">{children}</h3>;
 }
 
 /** A section heading that opens and closes its fields (forms inside a window). Closed: the field names, on one line. */
 function SectionToggle({ name, open, onToggle, fieldNames }: { name: string; open: boolean; onToggle: () => void; fieldNames: string }) {
   return (
-    <h3 className={cn("relative border-b border-slate-200 text-sm font-semibold text-slate-900", open ? "mb-3" : "mb-2")}>
+    <h3 className={cn("border-b border-slate-200 text-sm font-semibold text-slate-900", open ? "mb-3" : "mb-2")}>
       <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full items-center gap-2 pb-1.5 text-left hover:text-primary-strong" data-testid="form-section-toggle">
         <ChevronRight aria-hidden className={cn("h-4 w-4 shrink-0 text-slate-500 transition-transform", open && "rotate-90")} />
         <span className="whitespace-nowrap">{name}</span>
         {!open ? <span className="clamp-1 min-w-0 text-xs font-normal text-muted-foreground">{fieldNames}</span> : null}
       </button>
-      <span aria-hidden className="absolute -bottom-px left-0 h-px w-8 bg-gold" />
     </h3>
   );
 }
@@ -645,7 +639,8 @@ export function RecordForm({
             const name = sectionName(g);
             const open = isOpen(name);
             return (
-              <div key={g.section ?? `g${gi}`} className={cn(gi > 0 && "mt-1")}>
+              /* An open collapsible section has a 2px gold bar on its left (a closed one keeps the space, so rows stay aligned). */
+              <div key={g.section ?? `g${gi}`} className={cn(gi > 0 && "mt-1", collapsible && "border-l-2 pl-3", collapsible && (open ? "border-gold" : "border-transparent"))} data-section-open={collapsible && open ? "" : undefined}>
                 {collapsible ? (
                   <SectionToggle name={name} open={open} onToggle={() => setSections({ ...openMap, [name]: !open })} fieldNames={g.fields.map((f) => f.label.split(" (")[0]).join(", ")} />
                 ) : g.section && !(g.fields.length === 1 && g.fields[0].label === g.section) ? (
@@ -659,7 +654,7 @@ export function RecordForm({
             );
           })}
           {layout.more.length ? (
-            <details className="group mb-4 rounded-lg border border-slate-200 bg-slate-50/50" open={moreOpen} data-testid="more-details">
+            <details className="group relative mb-4 rounded-lg border border-slate-200 bg-slate-50/50 open:before:absolute open:before:inset-y-3 open:before:-left-px open:before:w-0.5 open:before:rounded-full open:before:bg-gold" open={moreOpen} data-testid="more-details">
               <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm font-medium text-slate-700 hover:text-slate-900 [&::-webkit-details-marker]:hidden">
                 <ChevronRight aria-hidden className="h-4 w-4 text-slate-500 transition-transform group-open:rotate-90" />
                 <span className="whitespace-nowrap">More details</span>

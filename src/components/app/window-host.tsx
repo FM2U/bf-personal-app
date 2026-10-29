@@ -16,7 +16,7 @@
  * The draft review page keeps a local summary window (openSummary) whose lines scroll to fields on that page.
  */
 import { createContext, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { CheckCircle2 } from "lucide-react";
 import { WindowFrame, WindowShell } from "@/components/ui/window";
 import { Button } from "@/components/ui/button";
@@ -24,7 +24,8 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { SummaryContent } from "@/components/app/initiative-summary";
 import { AskAiButton } from "@/components/app/ask-ai-button";
 import { WindowView as WindowViewContent } from "@/components/app/windows/views";
-import { guardHistory, hasUnsavedIn } from "@/components/app/unsaved-changes";
+import { finishLabel, guardHistory, hasUnsavedIn, saveForLeave, StepList, unsavedParts } from "@/components/app/unsaved-changes";
+import { notifyAddressChanged, useWindowParam } from "@/lib/window-url";
 import { fullPageHref, hrefToView, parentView, parseWindowParam, WINDOW_PARAM, windowParam, windowSize, withWindow, type WindowView } from "@/lib/window-route";
 import type { InitiativeSummary, SummaryRef } from "@/lib/initiative/summary";
 
@@ -70,10 +71,12 @@ export function openWindowView(v: WindowView, how: "push" | "replace" = "push") 
       guardHistory.sentinel = false;
       window.history.replaceState(state, "", url);
     } else window.history.pushState(state, "", url);
+    notifyAddressChanged();
     return;
   }
   if (how === "replace") {
     window.history.replaceState({ __winDoc: DOC, __winDepth: same ? s.__winDepth ?? 0 : 0, __winPrev: same ? s.__winPrev ?? null : null, __winRootDoc: same ? s.__winRootDoc : undefined }, "", url);
+    notifyAddressChanged();
     return;
   }
   const state: WinState = { __winDoc: DOC, __winDepth: (same ? s.__winDepth ?? 0 : 0) + 1, __winPrev: cur, __winRootDoc: same ? s.__winRootDoc : undefined };
@@ -81,6 +84,7 @@ export function openWindowView(v: WindowView, how: "push" | "replace" = "push") 
     guardHistory.sentinel = false;
     window.history.replaceState(state, "", url);
   } else window.history.pushState(state, "", url);
+  notifyAddressChanged();
 }
 
 /** True when Back inside the window can step back through history made in this page load. */
@@ -111,6 +115,7 @@ function closeWindowHistory() {
     window.history.go(-((s.__winDepth ?? 0) + 1 + extra));
   } else {
     window.history.replaceState({ ...s, __winDoc: undefined, __winDepth: undefined, __winPrev: undefined, __winRootDoc: undefined }, "", withWindow(here(), null));
+    notifyAddressChanged();
   }
 }
 
@@ -254,9 +259,17 @@ function viewKey(v: WindowView): string {
   return windowParam(v);
 }
 
+/** The close question: what is not saved, and what can be finished from it. */
+type Confirm = { proceed: () => void; canSave: boolean; steps: { message: string; finish: string; form: HTMLFormElement }[]; others: number };
+function confirmFor(proceed: () => void): Confirm {
+  const { steps, others } = unsavedParts(document.querySelector("[data-url-window]"));
+  return { proceed, canSave: !!windowSaver.fn, steps, others: others.length };
+}
+
 function UrlWindow() {
   const router = useRouter();
-  const w = useSearchParams().get(WINDOW_PARAM);
+  // Read from the address at once, not through the router (see src/lib/window-url.ts).
+  const w = useWindowParam();
   const view = useMemo(() => parseWindowParam(w), [w]);
   // Closed by the owner: hidden at once while the address catches up.
   const [hiddenFor, setHiddenFor] = useState<string | null>(null);
@@ -265,7 +278,7 @@ function UrlWindow() {
     setLastW(w);
     setHiddenFor(null);
   }
-  const [confirm, setConfirm] = useState<null | { proceed: () => void; canSave: boolean }>(null);
+  const [confirm, setConfirm] = useState<null | Confirm>(null);
   const [saving, setSaving] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
 
@@ -299,7 +312,7 @@ function UrlWindow() {
   }, [w]);
 
   const ask = useCallback((proceed: () => void) => {
-    if (hasUnsavedIn(document.querySelector("[data-url-window]"))) setConfirm({ proceed, canSave: !!windowSaver.fn });
+    if (hasUnsavedIn(document.querySelector("[data-url-window]"))) setConfirm(confirmFor(proceed));
     else proceed();
   }, []);
 
@@ -359,7 +372,7 @@ function UrlWindow() {
       if (!inHost && window.location.pathname === fullPageHref(v).split("?")[0] && v.kind === "record") return;
       e.preventDefault();
       e.stopPropagation();
-      if (inHost && hasUnsavedIn(host)) setConfirm({ proceed: () => openWindowView(v, "push"), canSave: !!windowSaver.fn });
+      if (inHost && hasUnsavedIn(host)) setConfirm(confirmFor(() => openWindowView(v, "push")));
       else openWindowView(v, "push");
     };
     window.addEventListener("click", onClick, true);
@@ -369,9 +382,17 @@ function UrlWindow() {
   const saveAndGo = async () => {
     const c = confirm;
     if (!c) return;
-    if (!windowSaver.fn) return;
     setSaving(true);
-    const ok = await windowSaver.fn().catch(() => false);
+    let ok = true;
+    // Add steps first (Link, Upload, Add note), then the editor's own save.
+    for (const st of c.steps) {
+      const r = await saveForLeave(st.form, null);
+      if (!r.ok) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok && c.others && windowSaver.fn) ok = await windowSaver.fn().catch(() => false);
     setSaving(false);
     setConfirm(null);
     if (ok) c.proceed();
@@ -412,12 +433,25 @@ function UrlWindow() {
       ) : null}
       <Dialog open={!!confirm} onOpenChange={(o) => (!o && !saving ? setConfirm(null) : null)}>
         <DialogContent className="max-w-md" aria-describedby="window-unsaved-desc" data-testid="window-unsaved">
-          <DialogTitle>Close without saving?</DialogTitle>
-          <DialogDescription id="window-unsaved-desc">This window has changes that are not saved yet.</DialogDescription>
+          {confirm?.steps.length ? (
+            <>
+              <DialogTitle>{confirm.steps.length === 1 && !confirm.others ? "Finish this step before you close?" : "Finish these steps before you close?"}</DialogTitle>
+              <DialogDescription id="window-unsaved-desc" className="sr-only">
+                {confirm.steps.map((x) => x.message).join(" ")}
+              </DialogDescription>
+              <StepList steps={confirm.steps} />
+              {confirm.others ? <p className="text-sm text-slate-700">Other changes in this window are not saved yet.</p> : null}
+            </>
+          ) : (
+            <>
+              <DialogTitle>Close without saving?</DialogTitle>
+              <DialogDescription id="window-unsaved-desc">This window has changes that are not saved yet.</DialogDescription>
+            </>
+          )}
           <div className="flex flex-col gap-2 sm:flex-row-reverse sm:flex-wrap sm:justify-start">
-            {confirm?.canSave ? (
+            {confirm && (confirm.steps.length || confirm.canSave) ? (
               <Button onClick={saveAndGo} disabled={saving} data-testid="window-unsaved-save">
-                {saving ? "Saving..." : "Save and close"}
+                {saving ? "Saving..." : confirm.steps.length ? finishLabel(confirm.steps, confirm.others, "close") : "Save and close"}
               </Button>
             ) : null}
             <Button
@@ -435,7 +469,7 @@ function UrlWindow() {
               Close without saving
             </Button>
             <Button variant="ghost" disabled={saving} onClick={() => setConfirm(null)} data-testid="window-unsaved-stay">
-              Keep editing
+              {confirm?.steps.length ? "Stay in this window" : "Keep editing"}
             </Button>
           </div>
         </DialogContent>

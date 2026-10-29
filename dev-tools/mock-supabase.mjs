@@ -186,6 +186,72 @@ function authFrom(req) {
   return {};
 }
 
+// ---------- Storage stand-in (LOCAL TESTING ONLY) ----------
+// The documents bucket, kept in memory. The rules of the storage policies in migration 0007 are checked here:
+// signed in, assurance level aal2, and the first folder of the path is the user's id. Signed upload URLs
+// (createSignedUploadUrl, then uploadToSignedUrl from the browser), signed download URLs, and remove.
+// Test controls: GET /__storage lists the stored files; POST /__storage {"failUpload": true} makes the next uploads fail.
+const stored = new Map();
+const uploadTokens = new Map();
+let storageMode = { failUpload: false };
+const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "*", "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS" };
+async function rawBody(req) {
+  const chunks = [];
+  for await (const c of req) chunks.push(c);
+  return Buffer.concat(chunks);
+}
+async function storage(req, res, url) {
+  const out = (status, body) => send(res, status, body, CORS);
+  if (req.method === "OPTIONS") return send(res, 204, undefined, CORS);
+  if (url.pathname === "/__storage") {
+    if (req.method === "POST") {
+      storageMode = { ...storageMode, ...((await readBody(req)) || {}) };
+      return out(200, storageMode);
+    }
+    return out(200, [...stored.entries()].map(([path, f]) => ({ path, size: f.size, type: f.type })));
+  }
+  const owns = (auth, path) => auth.service || (auth.sub && auth.aal === "aal2" && path.split("/")[0] === auth.sub);
+  const deny = () => out(403, { statusCode: "403", error: "Unauthorized", message: "new row violates row-level security policy" });
+  let m = url.pathname.match(/^\/storage\/v1\/object\/upload\/sign\/documents\/(.+)$/);
+  if (m && req.method === "POST") {
+    const path = decodeURIComponent(m[1]);
+    if (!owns(authFrom(req), path)) return deny();
+    if (stored.has(path)) return out(400, { statusCode: "409", error: "Duplicate", message: "The resource already exists" });
+    const token = Math.random().toString(36).slice(2);
+    uploadTokens.set(token, path);
+    return out(200, { url: `/object/upload/sign/documents/${m[1]}?token=${token}` });
+  }
+  if (m && req.method === "PUT") {
+    const path = decodeURIComponent(m[1]);
+    const body = await rawBody(req);
+    if (uploadTokens.get(url.searchParams.get("token") ?? "") !== path) return out(400, { statusCode: "400", error: "InvalidSignature", message: "invalid signature" });
+    if (storageMode.failUpload) return out(500, { statusCode: "500", error: "internal", message: "Storage is not reachable (test)" });
+    uploadTokens.delete(url.searchParams.get("token"));
+    stored.set(path, { size: body.length, type: String(req.headers["content-type"] ?? ""), body });
+    return out(200, { Key: `documents/${path}` });
+  }
+  m = url.pathname.match(/^\/storage\/v1\/object\/sign\/documents\/(.+)$/);
+  if (m && req.method === "POST") {
+    const path = decodeURIComponent(m[1]);
+    if (!owns(authFrom(req), path)) return deny();
+    if (!stored.has(path)) return out(400, { statusCode: "404", error: "not_found", message: "Object not found" });
+    return out(200, { signedURL: `/object/sign/documents/${m[1]}?token=download` });
+  }
+  if (m && req.method === "GET") {
+    const f = stored.get(decodeURIComponent(m[1]));
+    if (!f) return out(404, { message: "Object not found" });
+    res.writeHead(200, { "Content-Type": "application/octet-stream", ...CORS });
+    return res.end(f.body);
+  }
+  if (url.pathname === "/storage/v1/object/documents" && req.method === "DELETE") {
+    const auth = authFrom(req);
+    const { prefixes = [] } = (await readBody(req)) || {};
+    const removed = prefixes.filter((p) => owns(auth, p) && stored.delete(p));
+    return out(200, removed.map((name) => ({ name })));
+  }
+  return out(400, { message: "Not supported by the local storage stand-in" });
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   try {
@@ -207,7 +273,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (url.pathname.startsWith("/auth/v1/logout")) return send(res, 204);
     if (url.pathname.startsWith("/auth/v1/")) return send(res, 400, { message: "Not supported by the local mock" });
-    if (url.pathname.startsWith("/storage/v1/")) return send(res, 400, { message: "Storage is not supported by the local mock" });
+    if (url.pathname.startsWith("/storage/v1/") || url.pathname.startsWith("/__storage")) return storage(req, res, url);
 
     // RPC
     const rpc = url.pathname.match(/^\/rest\/v1\/rpc\/([a-z0-9_]+)$/);

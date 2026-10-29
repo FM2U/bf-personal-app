@@ -36,6 +36,8 @@
   --gold-strong: #7a5714;
   --gold-soft: #fbf4e2;
   --gold-border: #e8d29a;
+  /* Thin gold lines: the divider under window and section titles, the rules between filter columns (graphics only). */
+  --gold-rule: #d9bd84;
   /* Additional accents: module icons and chart series. */
   --violet: #6d28d9;
   --violet-soft: #f3eefd;
@@ -86,6 +88,7 @@
   --color-gold-strong: var(--gold-strong);
   --color-gold-soft: var(--gold-soft);
   --color-gold-border: var(--gold-border);
+  --color-gold-rule: var(--gold-rule);
   --color-violet: var(--violet);
   --color-violet-soft: var(--violet-soft);
   --color-cyan: var(--cyan);

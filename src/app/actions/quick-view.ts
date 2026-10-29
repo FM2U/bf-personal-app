@@ -39,7 +39,7 @@ function recordStatus(v: string): Status {
 }
 
 /** The data for the quick view window of one record (key fields, next required action, main actions). */
-export async function loadQuickView(table: string, id: string): Promise<QuickViewData> {
+export async function loadQuickView(table: string, id: string, maxFields = 12): Promise<QuickViewData> {
   const r = getResource(table);
   if (!r) return { ok: false, error: "This kind of record cannot be shown here." };
   const { supabase, ownerId } = await requireOwner();
@@ -47,7 +47,7 @@ export async function loadQuickView(table: string, id: string): Promise<QuickVie
   if (!row) return { ok: false, error: "This record was not found. It may have been deleted." };
   const [ctx, rules] = await Promise.all([loadCtx(supabase, ownerId), formRules(supabase, table, row as Row)]);
   const combineSource = table === "pipeline_items" && !rules.hide.includes("source_contact_id");
-  const fields = quickFields(table, row as Row, [...rules.hide, ...(combineSource ? ["source"] : [])]);
+  const fields = quickFields(table, row as Row, [...rules.hide, ...(combineSource ? ["source"] : [])], maxFields);
   // Titles of the referenced records, one query per referenced table.
   const refIds: Record<string, Set<string>> = {};
   for (const f of fields) if (f.type === "ref" && f.ref) (refIds[f.ref] ??= new Set()).add(String(row[f.name]));

@@ -12,6 +12,7 @@ import { chatState } from "@/components/app/chat-bus";
  * - medium: 60% of the screen width, at most 960px (quick view of a task, contact, organization, milestone).
  * The title row (and a toolbar under it, such as the setup's step bar) and the action row stay in place; only the
  * content between them scrolls. On the phone (under 640px) every window fills the screen.
+ * When a question is asked in Ask AI inside a window, the window grows to about 85% of the screen height.
  * Rule: a window never opens on top of another window. Inside a window, links open in the same window (with Back)
  * or go to the full page.
  */
@@ -75,7 +76,10 @@ export function WindowShell({
           className={cn(
             "fixed inset-0 z-50 flex flex-col overflow-hidden bg-background shadow-2xl outline-none",
             "sm:inset-auto sm:left-1/2 sm:top-1/2 sm:max-h-[90vh] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:border sm:border-border",
-            minHeight && "sm:min-h-[min(36rem,90vh)]",
+            // A question in Ask AI (the chat inside the window) grows the window to about 85% of the screen height,
+            // smoothly; the chat sets data-chat-tall (src/components/app/chat-panel.tsx).
+            "transition-[min-height] duration-300 ease-out motion-reduce:transition-none sm:data-[chat-tall]:min-h-[85vh]",
+            minHeight ? "sm:min-h-[min(36rem,90vh)]" : "sm:min-h-0",
             WINDOW_SIZE[size],
           )}
         >
@@ -117,7 +121,8 @@ export function WindowLayout({
     "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-accent hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
   return (
     <>
-      <div className="flex shrink-0 items-start gap-3 border-b border-border bg-white px-4 py-3 sm:px-6">
+      {/* The divider under the window title is a thin gold line (README UI rules). */}
+      <div className="flex shrink-0 items-start gap-3 border-b border-gold-rule bg-white px-4 py-3 sm:px-6">
         {onBack ? (
           <button
             type="button"

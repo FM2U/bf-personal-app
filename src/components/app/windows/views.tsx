@@ -27,6 +27,7 @@ import { SuggestionLine } from "@/components/app/suggestion-line";
 import type { ChatContext } from "@/components/app/chat-bus";
 import { SetupWindow } from "@/components/app/windows/setup-window";
 import { WorkWindow } from "@/components/app/windows/work-window";
+import { TaskWindow } from "@/components/app/windows/task-window";
 import { ScenarioSummaryWindow } from "@/components/app/windows/scenario-summary";
 import { loadEditForm, loadPlanText, loadRecordOverview, loadSetup, logActivityInWindow, moveStageInWindow, moveTaskToTomorrow, type EditFormData, type LineItem, type OverviewData, type SetupData } from "@/app/actions/window";
 import { setTaskStatus, updateRecordFields } from "@/app/actions/records";
@@ -218,7 +219,8 @@ export function WindowView() {
   const { view } = useWindowNav();
   switch (view.kind) {
     case "record":
-      return <RecordWindow table={view.table} id={view.id} />;
+      // Tasks and commitments: the one task window (the same content from every place it is opened).
+      return view.table === "tasks" || view.table === "commitments" ? <TaskWindow table={view.table} id={view.id} /> : <RecordWindow table={view.table} id={view.id} />;
     case "edit":
       return <EditWindow table={view.table} id={view.id} prefill={{}} />;
     case "new":

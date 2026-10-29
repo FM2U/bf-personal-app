@@ -1837,7 +1837,8 @@ const expectText = async (page, text) => {
       await page.getByTestId("window-back").click();
     }
     const box = await page.locator("[data-window-host]").boundingBox();
-    if (box.width > 960 + 2 || box.width < 1440 * 0.55) throw new Error(`quick view width ${box.width}`);
+    // A task opens the one task window (large: 85% of the width, at most 1400px).
+    if (box.width > 1400 + 2 || box.width < 1440 * 0.8) throw new Error(`task window width ${box.width}`);
     await page.getByTestId("quick-view-full-page").click();
     await page.waitForURL(/\/records\/tasks\/[0-9a-f-]{36}$/);
     if (await dialogs(page)) throw new Error("window still open on the full page");
@@ -2426,7 +2427,7 @@ const expectText = async (page, text) => {
     await closeWindow();
   };
 
-  await step("Listings screened: +1, +5, and Undo last on the target card (note saved), the Acquisitions header, Home, and Productivity", async () => {
+  await step("Listings screened: +1, +5, and Undo last on the target card (note saved), the Acquisitions daily count card, Home, and Productivity", async () => {
     await page.goto(`${BASE}/accountability/targets`);
     const start = await listingsTotal();
     if ((await cardCount("Listings screened")) !== start) throw new Error("card count differs from the entries");
@@ -2443,10 +2444,13 @@ const expectText = async (page, text) => {
     await waitFor(() => cardCount("Listings screened"), start + 5, "card after Undo last (removes the +1 only)");
     await page.screenshot({ path: path.join(OUT, "flow-listings-target.png"), fullPage: false });
 
-    // Acquisitions page header
+    // Acquisitions page: the Daily count card under the header
     await page.goto(`${BASE}/opportunities/${acqPipe}`);
-    const header = page.getByTestId("header-listings");
-    const headerCount = async () => Number((await page.getByTestId("header-listings-count").innerText()).match(/^(\d+)/)[1]);
+    const header = page.getByTestId("daily-count");
+    if (!/^Daily count: Listings screened/.test(await header.innerText())) throw new Error("daily count card title");
+    if (!(await header.getByRole("button", { name: /^Add 1 to/ }).innerText()).includes("+1 listing")) throw new Error("button text: +1 listing");
+    if (!/Press after you review listings on broker sites or email lists\./.test(await header.innerText())) throw new Error("help line");
+    const headerCount = async () => Number((await page.getByTestId("daily-count-number").innerText()).match(/^(\d+)/)[1]);
     if ((await headerCount()) !== start + 5) throw new Error(`header shows ${await headerCount()}`);
     await clickCount(header, "Add 1");
     await waitFor(headerCount, start + 6, "header after +1");
@@ -2591,6 +2595,153 @@ const expectText = async (page, text) => {
     }
     await page.screenshot({ path: path.join(OUT, "flow-funnel-suggested.png"), fullPage: false });
     await pg.query("update inputs set value_number = 2 where key = 'search_hours_per_day'");
+  });
+
+  // ---------- Build C1: windows, uploads, add steps, task window, filters, Ask AI in a window ----------
+
+  await step("Windows open on every address change: away and back to Home, then Work through tasks (also while the page underneath is still reloading)", async () => {
+    await page.goto(`${BASE}/`);
+    for (const href of ["/plan", "/productivity", "/accountability", "/"]) {
+      await page.locator(`nav a[href='${href}']`).first().click();
+      await page.waitForURL((u) => u.pathname === href);
+    }
+    await page.getByTestId("work-through-tasks").first().click();
+    await page.waitForURL(/\?w=work/);
+    await page.getByTestId("tasks-window").waitFor({ timeout: 3000 });
+    await page.getByTestId("work-skip").click();
+    await page.getByTestId("window-close").click();
+    await page.getByTestId("tasks-window").waitFor({ state: "detached" });
+    // The page underneath reloads after the window changed something: make that reload slow, then open the window again.
+    await page.route("**/*", async (r) => {
+      const h = r.request().headers();
+      if (h.rsc && !h["next-router-prefetch"]) await new Promise((res) => setTimeout(res, 4000));
+      await r.continue().catch(() => {});
+    });
+    const t0 = Date.now();
+    await page.getByTestId("work-through-tasks").first().click();
+    await page.getByTestId("tasks-window").waitFor({ timeout: 2000 });
+    if (Date.now() - t0 > 2000) throw new Error(`window took ${Date.now() - t0} ms`);
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+    await page.keyboard.press("Escape");
+    await page.getByTestId("tasks-window").waitFor({ state: "detached" });
+    // Other windows: a task from Task lists, then Back and Forward.
+    await page.goto(`${BASE}/productivity/tasks`);
+    await page.locator("table a[href^='/records/tasks/']").first().click();
+    await page.getByTestId("task-window-body").waitFor();
+    await page.goBack();
+    await page.getByTestId("task-window-body").waitFor({ state: "detached" });
+    await page.goForward();
+    await page.getByTestId("task-window-body").waitFor({ timeout: 3000 });
+  });
+
+  await step("Documents and add steps: buttons gray until something is chosen; leaving names each unfinished step; Finish all saves the link, the file (straight to storage), and the note", async () => {
+    const c = await one("select id from commitments order by created_at limit 1");
+    const file = path.join(require("node:os").tmpdir(), "c1-upload.pdf");
+    fs.writeFileSync(file, Buffer.alloc(2_500_000, 65));
+    await page.goto(`${BASE}/records/commitments/${c.id}`);
+    for (const t of ["Linked records", "Documents"]) {
+      const b = page.getByRole("button", { name: new RegExp(`^${t}`) });
+      if ((await b.getAttribute("aria-expanded")) !== "true") await b.click();
+    }
+    if ((await page.getByTestId("upload-submit").getAttribute("data-filled")) !== null) throw new Error("Upload cobalt before a file is chosen");
+    const sel = page.getByLabel("Record to link");
+    await sel.selectOption(await sel.locator("option").nth(1).getAttribute("value"));
+    await page.setInputFiles("[data-testid=upload-form] input[type=file]", file);
+    await page.getByLabel("Note", { exact: true }).fill("Note from the C1 check");
+    for (const id of ["link-submit", "upload-submit", "note-submit"]) if ((await page.getByTestId(id).getAttribute("data-filled")) === null) throw new Error(`${id} not cobalt`);
+    await page.locator("nav a[href='/plan']").first().click();
+    const steps = (await page.getByTestId("unsaved-steps").innerText()).split("\n");
+    if (steps.join("|") !== "You chose a record but did not press Link.|You chose a file but did not press Upload.|You typed a note but did not press Add note.") throw new Error(`steps: ${steps.join("|")}`);
+    if ((await page.getByTestId("unsaved-save").innerText()) !== "Finish all 3 and leave") throw new Error("finish button");
+    await page.getByTestId("unsaved-save").click();
+    await page.waitForURL(/\/plan$/, { timeout: 20000 });
+    const doc = await one("select storage_path, size_bytes from documents where record_id = $1", [c.id]);
+    if (!doc || Number(doc.size_bytes) !== 2_500_000) throw new Error(`document: ${JSON.stringify(doc)}`);
+    const stored = await (await fetch("http://localhost:54321/__storage")).json();
+    if (!stored.some((f) => f.path === doc.storage_path)) throw new Error("file not in storage");
+    if (!(await one("select 1 from notes where record_id = $1 and body = 'Note from the C1 check'", [c.id]))) throw new Error("note");
+    if (!(await one("select 1 from record_links where from_id = $1", [c.id]))) throw new Error("link");
+    // One step only: the dialog names it and offers Upload and leave.
+    await page.goto(`${BASE}/records/commitments/${c.id}`);
+    await page.setInputFiles("[data-testid=upload-form] input[type=file]", file);
+    await page.locator("nav a[href='/plan']").first().click();
+    if ((await page.getByTestId("unsaved-save").innerText()) !== "Upload and leave") throw new Error("Upload and leave");
+    await page.getByTestId("unsaved-stay").click();
+    // Over 25 MB: a message under the form, nothing uploaded.
+    const big = path.join(require("node:os").tmpdir(), "c1-big.pdf");
+    fs.writeFileSync(big, Buffer.alloc(26 * 1024 * 1024, 65));
+    await page.setInputFiles("[data-testid=upload-form] input[type=file]", big);
+    await page.getByTestId("upload-submit").click();
+    if (!/The limit is 25 MB/.test(await page.getByTestId("panel-error").innerText())) throw new Error("size message");
+    if ((await one("select count(*)::int n from documents where record_id = $1", [c.id])).n !== 1) throw new Error("big file uploaded");
+    await page.getByLabel("Note", { exact: true }).fill("");
+    await page.setInputFiles("[data-testid=upload-form] input[type=file]", []);
+  });
+
+  await step("Task window: the same full content (details, commitment and misses, linked records, documents, notes, history) from Task lists, Commitments, and Work through tasks", async () => {
+    const t = await one("select t.id, t.title from tasks t join commitments c on c.record_type = 'tasks' and c.record_id = t.id where t.status = 'todo' order by t.due_date limit 1");
+    const sections = async () => {
+      await page.getByTestId("task-window-body").waitFor();
+      for (const id of ["task-window-details", "task-window-commitment", "panel-linked", "panel-documents", "panel-notes", "panel-history"]) await page.locator(`[data-url-window] [data-testid=${id}]`).waitFor();
+    };
+    await page.goto(`${BASE}/productivity/tasks?w=r/tasks/${t.id}`);
+    await sections();
+    await page.screenshot({ path: path.join(OUT, "desktop-window-task.png") });
+    await page.goto(`${BASE}/accountability`);
+    await page.locator(`a[href='/records/tasks/${t.id}']`).first().click();
+    await sections();
+    // Add a note inside the window: saved, the window shows it, no page reload of the window.
+    await page.locator("[data-url-window]").getByLabel("Note", { exact: true }).fill("Note added in the window");
+    await page.locator("[data-url-window]").getByTestId("note-submit").click();
+    await page.locator("[data-url-window]").getByText("Note added in the window", { exact: true }).waitFor();
+    await page.goto(`${BASE}/?w=work`);
+    await page.getByTestId("work-task").waitFor();
+    await page.locator("[data-url-window] [data-testid=panel-notes]").waitFor();
+  });
+
+  await step("Filters: communications, commitments, and the pipeline list filter in the address; gold lines between columns", async () => {
+    await page.goto(`${BASE}/people/communications`);
+    await page.getByTestId("filter-button").click();
+    const cols = page.getByTestId("filter-column");
+    if ((await cols.count()) !== 4) throw new Error(`columns: ${await cols.count()}`);
+    const border = await cols.nth(1).evaluate((el) => getComputedStyle(el).borderLeftColor);
+    if (border !== "rgb(217, 189, 132)") throw new Error(`divider color ${border}`);
+    await page.getByTestId("filter-method-call").check();
+    await page.getByTestId("filter-apply").click();
+    await page.waitForURL(/method=call/);
+    const rows = await page.locator("table tbody tr").count();
+    const calls = (await one("select count(*)::int n from communications where method = 'call'")).n;
+    if (rows !== calls) throw new Error(`rows ${rows}, calls ${calls}`);
+    await page.getByTestId("filter-label").first().click();
+    await page.waitForURL((u) => !u.search.includes("method"));
+    await page.goto(`${BASE}/accountability?status=all&type=tasks`);
+    const shown = await page.locator("table").first().locator("tbody tr").count();
+    const want = (await one("select count(*)::int n from commitments where record_type = 'tasks'")).n;
+    if (shown !== want) throw new Error(`commitments shown ${shown}, want ${want}`);
+    await page.goto(`${BASE}/opportunities/${acqPipe}?status=lost`);
+    const lost = (await one("select count(*)::int n from pipeline_items where pipeline_id = $1 and status = 'lost'", [acqPipe])).n;
+    // The last table is the item list (the Deal source card above has its own table).
+    if ((await page.locator("table").last().locator("tbody tr").count()) !== lost) throw new Error("pipeline filter");
+    if (!lost && !(await page.getByText("No items match these filters.").count())) throw new Error("no-match line");
+  });
+
+  await step("Ask AI in a window: a question grows the window to about 85% of the screen height; the reply is in view", async () => {
+    const t = await one("select id from tasks where status = 'todo' limit 1");
+    await page.goto(`${BASE}/?w=r/tasks/${t.id}`);
+    const win = page.locator("[data-url-window]");
+    await win.getByRole("button", { name: /Ask AI about this/ }).click();
+    const h0 = (await win.boundingBox()).height;
+    await page.getByTestId("ai-chat").getByLabel("Message", { exact: true }).fill("What should I do next on this?");
+    await page.getByTestId("ai-chat").getByRole("button", { name: "Send", exact: true }).click();
+    await page.getByTestId("ai-chat-assistant").waitFor({ timeout: 20000 });
+    await page.waitForTimeout(500);
+    const h1 = (await win.boundingBox()).height;
+    const vh = page.viewportSize().height;
+    if (h1 < vh * 0.8 || h1 < h0) throw new Error(`window ${h0} to ${h1} of ${vh}`);
+    const reply = await page.getByTestId("ai-chat-assistant").last().boundingBox();
+    const box = await page.getByTestId("ai-chat-scroll").boundingBox();
+    if (reply.y < box.y - 1 || reply.y > box.y + box.height) throw new Error("reply not in view");
+    await page.screenshot({ path: path.join(OUT, "desktop-window-ask-ai.png") });
   });
 
   await step("Load sample data: warns about real records first, then loads marked sample rows", async () => {

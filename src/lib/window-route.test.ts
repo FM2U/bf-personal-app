@@ -47,10 +47,11 @@ describe("window addresses", () => {
     expect(withWindow(`/?w=work&x=1`, null)).toBe("/?x=1");
     expect(withWindow(`/?w=work#today`, null)).toBe("/");
   });
-  it("sizes: overviews, editors, setup, and work are large; the quick view is medium", () => {
+  it("sizes: overviews, the task window, editors, setup, and work are large; the quick view is medium", () => {
     expect(windowSize({ kind: "record", table: "initiatives", id: ID })).toBe("large");
     expect(windowSize({ kind: "record", table: "pipeline_items", id: ID })).toBe("large");
-    expect(windowSize({ kind: "record", table: "tasks", id: ID })).toBe("medium");
+    expect(windowSize({ kind: "record", table: "tasks", id: ID })).toBe("large");
+    expect(windowSize({ kind: "record", table: "commitments", id: ID })).toBe("large");
     expect(windowSize({ kind: "record", table: "contacts", id: ID })).toBe("medium");
     expect(windowSize({ kind: "edit", table: "tasks", id: ID })).toBe("large");
     expect(windowSize({ kind: "work", taskId: null })).toBe("large");
@@ -71,7 +72,7 @@ describe("window addresses", () => {
 
 describe("which links open a window", () => {
   it("on a page: initiatives, goals, milestones, pipeline items, tasks, contacts, organizations, scenarios, drafts", () => {
-    for (const t of ["initiatives", "goals", "milestones", "pipeline_items", "tasks", "contacts", "organizations"]) expect(hrefToView(`/records/${t}/${ID}`)).toEqual({ kind: "record", table: t, id: ID });
+    for (const t of ["initiatives", "goals", "milestones", "pipeline_items", "tasks", "commitments", "contacts", "organizations"]) expect(hrefToView(`/records/${t}/${ID}`)).toEqual({ kind: "record", table: t, id: ID });
     expect(hrefToView(`/plan/scenarios/${ID}`)).toEqual({ kind: "record", table: "scenarios", id: ID });
     expect(hrefToView(`/plan/initiatives/drafts/${ID}`)).toEqual({ kind: "draft", id: ID });
     expect(hrefToView(`/plan/initiatives/drafts/${ID}?step=goals`)).toEqual({ kind: "setup", draftId: ID, step: "goals" });

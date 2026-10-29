@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname } from "next/navigation";
+import { useWindowParam } from "@/lib/window-url";
 import { MessageSquare, Send, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
@@ -44,11 +45,11 @@ export function ChatPanel({ aiReady }: { aiReady: boolean }) {
   const [context, setContext] = useState<ChatContext | null>(null);
   const [target, setTarget] = useState<Element | null>(null);
   const path = usePathname();
-  const endRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   // A window opening or moving on (for example from the chat's "Open the setup" link) closes the chat, so it never
   // covers the window and never answers about a record that is no longer on screen.
-  const win = useSearchParams().get("w");
+  const win = useWindowParam();
   const [lastWin, setLastWin] = useState(win);
   if (lastWin !== win) {
     setLastWin(win);
@@ -58,9 +59,32 @@ export function ChatPanel({ aiReady }: { aiReady: boolean }) {
     }
   }
 
+  // Inside a window, a question makes the window taller (about 85% of the screen height, see WindowShell) so the
+  // answer has room; the conversation scrolls inside the chat.
+  const asked = messages.length > 0 || busy;
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, open]);
+    if (!open || !target) return;
+    if (asked) target.setAttribute("data-chat-tall", "");
+    else target.removeAttribute("data-chat-tall");
+    return () => target.removeAttribute("data-chat-tall");
+  }, [open, target, asked]);
+
+  // The latest message stays in view: a new answer shows from its first line, anything else scrolls to the end.
+  // Run again after the window has grown (the height change takes 300 ms).
+  useEffect(() => {
+    const show = () => {
+      const box = scrollRef.current;
+      if (!box) return;
+      const all = box.querySelectorAll<HTMLElement>("[data-chat-msg]");
+      const last = all[all.length - 1];
+      // The box is positioned, so offsetTop is measured from its top.
+      if (last && last.dataset.chatMsg === "assistant" && !busy) box.scrollTo({ top: Math.max(0, last.offsetTop - 8), behavior: "smooth" });
+      else box.scrollTo({ top: box.scrollHeight, behavior: "smooth" });
+    };
+    show();
+    const t = setTimeout(show, 360);
+    return () => clearTimeout(t);
+  }, [messages, open, busy]);
 
   useEffect(() => {
     chatState.openInWindow = open && !!target;
@@ -173,7 +197,7 @@ export function ChatPanel({ aiReady }: { aiReady: boolean }) {
           </button>
         </div>
       ) : null}
-      <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
+      <div ref={scrollRef} className="relative min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3" data-testid="ai-chat-scroll">
         {!aiReady ? <p className="rounded-md bg-status-soon-bg p-3 text-sm text-status-soon">The AI is not set up yet. Add ANTHROPIC_API_KEY in Vercel (see docs/SETUP-CHECKLIST.md).</p> : null}
         {!messages.length ? (
           context ? (
@@ -209,6 +233,7 @@ export function ChatPanel({ aiReady }: { aiReady: boolean }) {
                   : "mr-8 rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-900"
             }
             data-testid={`ai-chat-${m.role}`}
+            data-chat-msg={m.role}
           >
             {m.role === "assistant" ? <AiText text={m.content} /> : <p className="whitespace-pre-wrap">{m.content}</p>}
             {m.link ? (
@@ -224,7 +249,6 @@ export function ChatPanel({ aiReady }: { aiReady: boolean }) {
           </div>
         ))}
         {busy ? <p className="text-xs text-muted-foreground">The AI is reading your data...</p> : null}
-        <div ref={endRef} />
       </div>
       <form
         data-unsaved="off"

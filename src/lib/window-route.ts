@@ -64,10 +64,13 @@ const isId = (s: string | undefined): s is string => !!s && UUID.test(s);
 const isTable = (s: string | undefined): s is string => !!s && /^[a-z_]+$/.test(s) && !!getResource(s);
 
 /** Records that open in a window when a link to them is clicked on a page (inside a window, every record type does). */
-export const WINDOW_TABLES = ["initiatives", "goals", "milestones", "pipeline_items", "scenarios", "tasks", "contacts", "organizations"] as const;
+export const WINDOW_TABLES = ["initiatives", "goals", "milestones", "pipeline_items", "scenarios", "tasks", "commitments", "contacts", "organizations"] as const;
 
 /** Records whose window shows a large overview first (the others show the medium quick view). */
 export const OVERVIEW_TABLES = ["initiatives", "goals", "pipeline_items", "scenarios"] as const;
+
+/** Tasks and commitments open the one task window: large, with everything the full task page shows. */
+export const TASK_WINDOW_TABLES = ["tasks", "commitments"] as const;
 
 export function isSetupStep(s: string | undefined | null): s is SetupStep {
   return !!s && (SETUP_STEPS as readonly string[]).includes(s);
@@ -149,7 +152,7 @@ export function withWindow(current: string, v: WindowView | null): string {
 
 /** Large windows: overviews, editors, the setup, Work through tasks. Medium: the quick view of other records. */
 export function windowSize(v: WindowView): "large" | "medium" {
-  if (v.kind === "record") return (OVERVIEW_TABLES as readonly string[]).includes(v.table) ? "large" : "medium";
+  if (v.kind === "record") return (OVERVIEW_TABLES as readonly string[]).includes(v.table) || (TASK_WINDOW_TABLES as readonly string[]).includes(v.table) ? "large" : "medium";
   return "large";
 }
 
