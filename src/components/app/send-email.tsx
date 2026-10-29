@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { format } from "date-fns";
+import { formatInZone } from "@/lib/format";
 import { Mail, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -46,7 +46,7 @@ function newRequestId(): string {
 
 function sentTime(iso: string): string {
   try {
-    return format(new Date(iso), "MMM d, yyyy 'at' h:mm a");
+    return formatInZone(iso, "MMM d, yyyy 'at' h:mm a");
   } catch {
     return iso;
   }

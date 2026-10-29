@@ -1,4 +1,5 @@
 "use client";
+import { APP_TIME_ZONE } from "@/lib/format";
 
 import { useEffect, useState } from "react";
 import { CheckCircle2, Download } from "lucide-react";
@@ -53,7 +54,7 @@ export function ResetFlow({ exportedAt, disabled }: { exportedAt: string | null;
           </Button>
           {step1 ? (
             <span className="inline-flex items-center gap-1.5 text-sm text-status-met" data-testid="reset-export-done">
-              <CheckCircle2 className="h-4 w-4" /> Downloaded at {new Date(downloadedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+              <CheckCircle2 className="h-4 w-4" /> Downloaded at {new Date(downloadedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: APP_TIME_ZONE })}
             </span>
           ) : waiting ? (
             <span className="text-sm text-muted-foreground">Preparing the export...</span>

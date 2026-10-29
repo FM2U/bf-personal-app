@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { format } from "date-fns";
+import { formatInZone } from "@/lib/format";
 import Link from "next/link";
 import { Check, Copy, Mail, PenLine, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -235,7 +235,7 @@ export function DraftMessagePanel({ contactId, onClose, back = "/people/outreach
                 const r = await sendOutreachEmail({ contactId, subject, body, bodyHtml, requestId, includeSignature });
                 if (!r.ok) setSending(false);
                 if (r.ok) {
-                  const when = format(new Date(r.sentAt), "MMM d, yyyy 'at' h:mm a");
+                  const when = formatInZone(r.sentAt, "MMM d, yyyy 'at' h:mm a");
                   const msg = r.alreadySent
                     ? `Already sent to ${draft.email} on ${when}. It was not sent again.`
                     : `Sent to ${draft.email} on ${when}. It is in Gmail, Sent. ${r.note ?? ""}${savedDraft ? " A Gmail draft of this message was saved earlier: delete it in Gmail so it is not sent twice." : ""}`;

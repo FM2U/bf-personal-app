@@ -1,3 +1,4 @@
+import { APP_TIME_ZONE } from "@/lib/format";
 import { notFound } from "next/navigation";
 import { requireOwner } from "@/lib/auth";
 import { activeLinkFor, reportText } from "@/lib/engine/partners";
@@ -18,7 +19,7 @@ export default async function PrintLetterPage({ params }: { params: Promise<{ id
         <PrintButton />
       </div>
       {partner.mailing_address ? <p className="mb-8 whitespace-pre-wrap text-sm">{partner.mailing_address}</p> : null}
-      <p className="mb-6 text-sm">{new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}</p>
+      <p className="mb-6 text-sm">{new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: APP_TIME_ZONE })}</p>
       <div className="whitespace-pre-wrap font-serif text-[15px] leading-7">{letter.body}</div>
     </div>
   );
