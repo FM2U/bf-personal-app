@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { buildSampleData, SAMPLE_NAME_FIELDS, SAMPLE_SOFTWARE, SAMPLE_TABLES, type SampleSetup } from "./sample-data";
 
@@ -13,6 +13,7 @@ const setup: SampleSetup = {
   budgetedCategoryIds: ["cat-Housing"],
   acquisitions: { pipelineId: "p-acq", stages: { Sourced: "s1", Screened: "s2", "NDA signed": "s3" } },
   consulting: { pipelineId: "p-con", stages: { Active: "c7", Signed: "c6" } },
+  initiatives: { "Acquisition Search": "i-acq", Consulting: "i-con" },
 };
 let n = 0;
 const { batches, counts } = buildSampleData(setup, () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`);
@@ -35,7 +36,10 @@ describe("sample data: marking and fake names", () => {
   });
 
   it("writes only to tables that insert_record_batch allows, in the order of SAMPLE_TABLES", () => {
-    const sql = readFileSync(path.join(__dirname, "../../supabase/migrations/0014_initiative_builder_reset.sql"), "utf8");
+    // The latest migration that defines insert_record_batch (0014 first; 0019 added daily_outcomes).
+    const dir = path.join(__dirname, "../../supabase/migrations");
+    const file = readdirSync(dir).filter((f) => readFileSync(path.join(dir, f), "utf8").includes("create or replace function public.insert_record_batch")).sort().pop()!;
+    const sql = readFileSync(path.join(dir, file), "utf8");
     const allowed = sql.match(/allowed text\[\] := array\[([\s\S]*?)\];/)![1].match(/'([a-z_]+)'/g)!.map((s) => s.slice(1, -1));
     for (const b of batches) expect(allowed).toContain(b.table);
     const order = batches.map((b) => b.table);
@@ -90,5 +94,21 @@ describe("sample data: realistic amounts", () => {
     expect(withDaily.batches.find((b) => b.table === "partners")!.rows[0].report_frequency).toBe("both");
     expect(rows("budget_lines").some((l) => l.category_id === "cat-Housing")).toBe(false); // an existing line is not replaced
     expect(counts.transactions).toBe(tx.length);
+  });
+});
+
+describe("sample data: today's outcomes (database update 0019)", () => {
+  it("has three outcomes for today, one complete, linked to the sample deal and engagement", () => {
+    const out = rows("daily_outcomes");
+    expect(out.map((o) => o.position)).toEqual([1, 2, 3]);
+    expect(out.every((o) => o.plan_date === "2026-10-27")).toBe(true);
+    expect(out.filter((o) => o.status === "complete")).toHaveLength(1);
+    expect(out[0].pipeline_item_id).toBe(rows("pipeline_items").find((i) => i.name === "Sample Bakery Group")?.id);
+    expect(out[2].initiative_id).toBe("i-con");
+  });
+
+  it("adds no outcomes before the update", () => {
+    const r = buildSampleData({ ...setup, initiatives: null }, () => "00000000-0000-4000-8000-000000000001");
+    expect(r.batches.some((b) => b.table === "daily_outcomes")).toBe(false);
   });
 });

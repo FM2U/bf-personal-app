@@ -1,6 +1,6 @@
 /**
  * "Reset all data" (Settings, Sample data and reset). The database function public.reset_all_data('RESET')
- * (supabase/migrations/0017_partner_report_templates.sql; first written in 0014) deletes the tables in RESET_DELETE_TABLES, in this order,
+ * (supabase/migrations/0019_focused_today.sql; first written in 0014, daily outcomes added in 0019) deletes the tables in RESET_DELETE_TABLES, in this order,
  * in one transaction, and keeps RESET_KEEP_TABLES. src/lib/reset.test.ts checks that these lists match the SQL
  * function and that every table in the app is in exactly one list.
  */
@@ -9,7 +9,7 @@
 export const RESET_DELETE_TABLES = [
   "ai_messages", "ai_proposals", "ai_conversations", "initiative_drafts", "savings_ideas",
   "checklist_items", "checklists", "plan_documents", "sample_records",
-  "record_links", "notes", "documents", "alerts", "calendar_events", "daily_plans",
+  "record_links", "notes", "documents", "alerts", "calendar_events", "daily_outcomes", "daily_plans",
   "missed_commitments", "commitments", "reviews", "target_entries", "target_misses",
   "partner_links", "partner_reports", "partners", "tasks",
   "raw_import_rows", "import_batches", "repayment_schedules", "funding_sources", "debt_payments", "debts",
@@ -103,6 +103,7 @@ export const RESET_TABLE_LABELS: Record<string, string> = {
   initiatives: "Initiatives you created",
   partner_report_templates: "Partner report templates you added",
   calendar_events: "Calendar time blocks",
+  daily_outcomes: "Daily outcomes",
   daily_plans: "Morning plans",
   sample_records: "Sample data markers",
 };

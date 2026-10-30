@@ -1,4 +1,5 @@
 import { format, parseISO } from "date-fns";
+import { initiativeLine, OUTCOME_STATUS_LABEL, type DayDetail, type DayInitiative, type DayOutcome } from "@/lib/calc/today";
 
 /**
  * Partner report templates: which measures a report shows, the period, and an optional note. The numbers are saved in
@@ -418,6 +419,8 @@ export function summaryLines(summary: string | null | undefined): string[] {
 
 export function reportEmailText(input: ReportInput): { subject: string; body: string } {
   const sections = reportSections(input);
+  const day = dayDetailOf(input);
+  if (day) return dailyEmailText(input, sections, day);
   const overall = combinedOverall(sections);
   const lines: string[] = [`Hello ${input.partnerName},`, "", `Here is my accountability report for ${sections[0]?.period ?? ""}. Overall: ${overall.text}.`];
   for (const s of sections) {
@@ -505,6 +508,8 @@ function pillHtml(o: Overall): string {
  */
 export function reportEmailHtml(input: ReportInput): string {
   const sections = reportSections(input);
+  const day = dayDetailOf(input);
+  if (day) return dailyEmailHtml(input, sections, day);
   const overall = combinedOverall(sections);
   const period = sections[0]?.period ?? "";
   const misses = [...new Set(sections.flatMap((s) => s.misses))];
@@ -553,6 +558,175 @@ export function reportEmailHtml(input: ReportInput): string {
     );
   closing.push(p("Thank you,<br>Bram", ";margin-bottom:0"));
   parts.push(`<tr><td style="padding:12px 20px 18px 20px">${closing.join("")}</td></tr>`);
+  return (
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;background-color:#f8fafc"><tr><td align="center" style="padding:12px 6px">` +
+    `<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;border-collapse:separate;background-color:#ffffff;border:1px solid ${EMAIL_COLORS.border};border-radius:10px">` +
+    parts.join("") +
+    `</table></td></tr></table>`
+  );
+}
+
+// ---------- The daily report (the focused version, batch 1) ----------
+
+/**
+ * The content of a daily report, saved with the report when the daily close drafts it (snapshot.day, built by
+ * src/lib/engine/day-detail.ts). Daily reports made before it have none and show the tiles as before.
+ */
+export function dayDetailOf(input: ReportInput): DayDetail | null {
+  if (!isDailyReport(input.report)) return null;
+  const d = input.report.snapshot?.day as DayDetail | undefined;
+  return d && Array.isArray(d.outcomes) && Array.isArray(d.initiatives) ? d : null;
+}
+
+/**
+ * How much of the day a template shows. Summary: the planned outcomes and tomorrow's priority only. Standard (and a
+ * template the owner made): outcomes, progress by initiative, changes in plan, tomorrow's priority. Detailed: the same
+ * plus the template's measures as tiles (today's numbers).
+ */
+export type DailyLevel = "summary" | "standard" | "detailed";
+export function dailyLevel(t: ReportTemplate | undefined): DailyLevel {
+  if (t?.starter_key === "summary") return "summary";
+  if (t?.starter_key === "detailed") return "detailed";
+  return "standard";
+}
+
+/** The overall pill of a daily report: outcomes complete out of those planned (a partial one counts half). */
+export function outcomesOverall(outcomes: DayOutcome[]): Overall {
+  const total = outcomes.length;
+  if (!total) return { onTrack: 0, total: 0, status: "neutral", text: "No outcomes planned" };
+  const complete = outcomes.filter((o) => o.status === "complete").length;
+  const partial = outcomes.filter((o) => o.status === "partial").length;
+  const share = (complete + partial / 2) / total;
+  return { onTrack: complete, total, status: share >= 0.8 ? "met" : share >= 0.5 ? "soon" : "missed", text: `${complete} of ${total} ${total === 1 ? "outcome" : "outcomes"} complete` };
+}
+
+const OUTCOME_TILE_STATUS: Record<DayOutcome["status"], TileStatus> = { planned: "neutral", complete: "met", partial: "soon", incomplete: "missed" };
+
+/** "Complete: Review the CIM (90 min). Read it; the asking price is high." */
+export function outcomeLine(o: DayOutcome): string {
+  const status = o.status === "planned" ? "Not marked" : OUTCOME_STATUS_LABEL[o.status];
+  const block = o.actual !== null && o.actual !== undefined ? `${o.actual} min` : o.block ? `${o.block} min planned` : "";
+  return `${status}: ${o.title}${block ? ` (${block})` : ""}${o.initiative ? `, ${o.initiative}` : ""}${o.result ? `. ${o.result}` : ""}`;
+}
+
+/** The tiles for one initiative in "Progress by initiative": each target, tasks done, stage moves, outreach. */
+export function initiativeTiles(g: DayInitiative): Tile[] {
+  const out: Tile[] = [];
+  for (const t of g.targets) {
+    out.push({
+      key: `target:${g.name}:${t.name}`,
+      label: t.name,
+      value: String(t.count),
+      pct: t.required > 0 ? clampPct((t.count / t.required) * 100) : null,
+      status: t.required > 0 ? ratioStatus(t.count, t.required) : "neutral",
+      note: t.required > 0 ? `of ${t.required}${t.period === "week" ? " this week" : " today"}` : "No minimum set",
+    });
+  }
+  if (g.tasksDone) out.push({ key: `tasks:${g.name}`, label: "Tasks done", value: String(g.tasksDone), pct: null, status: "neutral", note: "Marked done today" });
+  if (g.moved.length) out.push({ key: `moved:${g.name}`, label: "Moved stage", value: String(g.moved.length), pct: null, status: "neutral", note: g.moved.length === 1 ? g.moved[0].item : "Pipeline items moved today" });
+  if (g.passes.length) out.push({ key: `passes:${g.name}`, label: "Passed", value: String(g.passes.length), pct: null, status: "neutral", note: "Screened out with a reason" });
+  // An outreach target already shows the count; the plain tile is for initiatives without one.
+  if (g.outreach && !g.targets.some((t) => /outreach/i.test(t.name))) out.push({ key: `outreach:${g.name}`, label: "Outreach sent", value: String(g.outreach), pct: null, status: "neutral", note: "Messages logged as outreach" });
+  return out;
+}
+
+function dailyEmailText(input: ReportInput, sections: ReportSection[], day: DayDetail): { subject: string; body: string } {
+  const level = dailyLevel(input.templates[0]);
+  const period = periodText(day.date, day.date);
+  const overall = outcomesOverall(day.outcomes);
+  const lines: string[] = [`Hello ${input.partnerName},`, "", `Here is my daily report for ${period}. ${overall.text}.`];
+  lines.push("", "PLANNED OUTCOMES");
+  if (day.outcomes.length) for (const o of day.outcomes) lines.push(`- ${outcomeLine(o)}`);
+  else lines.push("No outcomes were planned.");
+  if (level !== "summary") {
+    lines.push("", "PROGRESS BY INITIATIVE");
+    if (day.initiatives.length) for (const g of day.initiatives) lines.push(`- ${initiativeLine(g)}`);
+    else lines.push("No activity was recorded today.");
+    if (level === "detailed") {
+      const s = sections[0];
+      if (s?.tiles.length) {
+        lines.push("", "TODAY'S NUMBERS");
+        for (const t of s.tiles) lines.push(`- ${t.label}: ${t.value} (${t.note})`);
+      }
+    }
+    lines.push("", "CHANGES IN PLAN", day.changes ?? "No changes.");
+  }
+  lines.push("", "TOMORROW'S TOP PRIORITY", day.tomorrow ?? "Not set.");
+  const summary = summaryLines(input.report.summary);
+  if (summary.length) lines.push("", "SUMMARY", ...summary);
+  if (input.link) lines.push("", `The full report is here (no login needed): ${input.link}`, "Nothing is required from you. You can press Reviewed, leave a comment, or request a call on that page.");
+  lines.push("", "Thank you,", "Bram");
+  return { subject: `Daily accountability report: ${period}`, body: lines.join("\n") };
+}
+
+function dailyEmailHtml(input: ReportInput, sections: ReportSection[], day: DayDetail): string {
+  const level = dailyLevel(input.templates[0]);
+  const period = periodText(day.date, day.date);
+  const overall = outcomesOverall(day.outcomes);
+  const summary = summaryLines(input.report.summary);
+  const p = (html: string, extra = "") => `<p style="margin:0 0 10px 0;font-size:14px;line-height:20px;color:${EMAIL_COLORS.ink};${FONT}${extra}">${html}</p>`;
+  const heading = (text: string) => `<div style="padding:0 0 6px 0;font-size:13px;line-height:18px;font-weight:bold;color:${EMAIL_COLORS.ink};${FONT}">${escapeHtml(text)}</div>`;
+  const muted = (text: string) => `<div style="font-size:13px;line-height:18px;color:${EMAIL_COLORS.muted};${FONT}">${escapeHtml(text)}</div>`;
+  const section = (inner: string) => `<tr><td style="padding:10px 20px 4px 20px">${inner}</td></tr>`;
+  const parts: string[] = [];
+  parts.push(
+    `<tr><td style="padding:16px 20px 12px 20px">` +
+      `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse"><tr>` +
+      `<td valign="middle" style="${FONT}"><div style="font-size:12px;line-height:16px;color:${EMAIL_COLORS.muted}">Daily accountability report</div>` +
+      `<div style="font-size:18px;line-height:24px;font-weight:bold;color:${EMAIL_COLORS.ink}">${escapeHtml(period)}</div></td>` +
+      `<td valign="middle" align="right" style="${FONT}">${pillHtml(overall)}</td>` +
+      `</tr></table></td></tr>`,
+  );
+  parts.push(`<tr><td style="padding:0 20px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="height:1px;line-height:1px;font-size:0;background-color:${EMAIL_COLORS.gold}">&nbsp;</td></tr></table></td></tr>`);
+  parts.push(`<tr><td style="padding:14px 20px 0 20px">${p(`Hello ${escapeHtml(input.partnerName)},`)}${p(`Here is my daily report for ${escapeHtml(period)}.${day.focusedHours !== null && day.focusedHours !== undefined ? ` Focused hours: ${escapeHtml(String(day.focusedHours))}.` : ""}`)}</td></tr>`);
+  // Planned outcomes: a colored dot, the status word, the title, the block, and the result line.
+  const outcomeRows = day.outcomes
+    .map((o) => {
+      const st = OUTCOME_TILE_STATUS[o.status];
+      const block = o.actual !== null && o.actual !== undefined ? `${o.actual} min` : o.block ? `${o.block} min planned` : "";
+      return (
+        `<tr><td valign="top" width="14" style="width:14px;padding:3px 0;color:${EMAIL_COLORS.bar[st]};font-size:13px;line-height:18px;${FONT}">&#9679;</td>` +
+        `<td style="padding:3px 0 5px 0;font-size:13px;line-height:18px;color:${EMAIL_COLORS.ink};${FONT}">` +
+        `<span style="font-weight:bold;color:${st === "neutral" ? EMAIL_COLORS.muted : EMAIL_COLORS.text[st]}">${escapeHtml(o.status === "planned" ? "Not marked" : OUTCOME_STATUS_LABEL[o.status])}</span>` +
+        `&nbsp; ${escapeHtml(o.title)}` +
+        (block || o.initiative ? `<span style="color:${EMAIL_COLORS.muted}"> (${escapeHtml([o.initiative, block].filter(Boolean).join(", "))})</span>` : "") +
+        (o.result ? `<div style="font-size:13px;line-height:18px;color:${EMAIL_COLORS.muted}">${escapeHtml(o.result)}</div>` : "") +
+        `</td></tr>`
+      );
+    })
+    .join("");
+  parts.push(section(heading("Planned outcomes") + (day.outcomes.length ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse">${outcomeRows}</table>` : muted("No outcomes were planned."))));
+  if (level !== "summary") {
+    const groups = day.initiatives
+      .map((g) => {
+        const lines = [...g.moved.map((m) => `Moved: ${m.item} to ${m.stage}`), ...g.passes.map((x) => `Passed: ${x.item}${x.reason ? ` (${x.reason})` : ""}`)];
+        return (
+          `<div style="padding:6px 0 2px 0;font-size:13px;line-height:18px;font-weight:bold;color:${EMAIL_COLORS.cobalt};${FONT}">${escapeHtml(g.name)}</div>` +
+          `<div style="margin:0 -4px">${tilesGridHtml(initiativeTiles(g))}</div>` +
+          (lines.length ? `<div style="padding:2px 0 4px 0;font-size:12px;line-height:17px;color:${EMAIL_COLORS.muted};${FONT}">${lines.map(escapeHtml).join("<br>")}</div>` : "")
+        );
+      })
+      .join("");
+    parts.push(section(heading("Progress by initiative") + (day.initiatives.length ? groups : muted("No activity was recorded today."))));
+    if (level === "detailed") {
+      const s = sections[0];
+      if (s?.tiles.length) parts.push(section(heading("Today's numbers") + `<div style="margin:0 -4px">${tilesGridHtml(s.tiles)}</div>`));
+    }
+    parts.push(section(heading("Changes in plan") + (day.changes ? `<div style="font-size:13px;line-height:19px;color:${EMAIL_COLORS.ink};white-space:pre-wrap;${FONT}">${escapeHtml(day.changes)}</div>` : muted("No changes."))));
+  }
+  parts.push(section(heading("Tomorrow's top priority") + (day.tomorrow ? `<div style="font-size:14px;line-height:20px;font-weight:bold;color:${EMAIL_COLORS.ink};${FONT}">${escapeHtml(day.tomorrow)}</div>` : muted("Not set."))));
+  if (summary.length) {
+    const items = summary.map((l) => (l.startsWith("- ") ? `<li style="margin:0 0 4px 0">${escapeHtml(l.slice(2))}</li>` : `<li style="margin:0 0 4px 0;list-style:none;margin-left:-18px">${escapeHtml(l)}</li>`)).join("");
+    parts.push(section(heading("Summary") + `<ul style="margin:0;padding-left:18px;font-size:13px;line-height:19px;color:${EMAIL_COLORS.ink};${FONT}">${items}</ul>`));
+  }
+  const closing: string[] = [];
+  if (input.link)
+    closing.push(
+      p(`<a href="${escapeHtml(input.link)}" style="color:${EMAIL_COLORS.link};font-weight:bold;text-decoration:underline">Open the full report</a> (no login needed).`),
+      p("Nothing is required from you. You can press Reviewed, leave a comment, or request a call on that page.", `;color:${EMAIL_COLORS.muted};font-size:13px`),
+    );
+  closing.push(p("Thank you,<br>Bram", ";margin-bottom:0"));
+  parts.push(`<tr><td style="padding:14px 20px 18px 20px">${closing.join("")}</td></tr>`);
   return (
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;background-color:#f8fafc"><tr><td align="center" style="padding:12px 6px">` +
     `<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;border-collapse:separate;background-color:#ffffff;border:1px solid ${EMAIL_COLORS.border};border-radius:10px">` +

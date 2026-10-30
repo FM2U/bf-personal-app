@@ -7,6 +7,7 @@ import { redirect } from "next/navigation";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireOwner } from "@/lib/auth";
 import { hasUpdate0018 } from "@/lib/update-0018";
+import { hasUpdate0019 } from "@/lib/update-0019";
 import { loadCtx } from "@/lib/engine/helpers";
 import { applyCategoryRules, detectAndSaveRecurring } from "@/lib/engine/finance-jobs";
 import { evaluateConditions } from "@/lib/engine/rules";
@@ -44,13 +45,15 @@ export async function loadSampleData(fd: FormData) {
   if (real.total > 0 && fd.get("confirm_real") !== "on") back(`You have ${real.total} real records. Check "Load sample data next to my real records" to continue.`);
 
   const ctx = await loadCtx(supabase, ownerId);
-  const [{ data: entities }, { data: cats }, { data: budgets }, { data: lines }, { data: pipes }, { data: stages }] = await Promise.all([
+  const [{ data: entities }, { data: cats }, { data: budgets }, { data: lines }, { data: pipes }, { data: stages }, { data: inits }, has0019] = await Promise.all([
     supabase.from("entities").select("id,kind,is_default"),
     supabase.from("categories").select("id,name"),
     supabase.from("budgets").select("id").eq("is_active", true).order("created_at").limit(1),
     supabase.from("budget_lines").select("budget_id,category_id"),
     supabase.from("pipelines").select("id,kind"),
     supabase.from("pipeline_stages").select("id,pipeline_id,name"),
+    supabase.from("initiatives").select("id,name"),
+    hasUpdate0019(supabase),
   ]);
   const ent = (entities ?? []) as Row[];
   // The starter Detailed report template (database update 0017; empty before it).
@@ -73,6 +76,7 @@ export async function loadSampleData(fd: FormData) {
       consulting: pipeOf("consulting"),
       reportTemplateId: ((detailedTemplate as Row | null)?.id as string | undefined) ?? null,
       dailyReports: await hasUpdate0018(supabase),
+      initiatives: has0019 ? Object.fromEntries(((inits ?? []) as Row[]).map((i) => [String(i.name), String(i.id)])) : null,
     },
     () => randomUUID(),
   );

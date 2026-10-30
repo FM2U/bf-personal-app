@@ -5,6 +5,8 @@ const path = require("node:path");
 const fs = require("node:fs");
 
 const BASE = "http://localhost:3000";
+// The focused version (2026-10-30): "/" is Today; the previous home page with its tiles and cards is at /more/old-home.
+const OLD_HOME = `${BASE}/more/old-home`;
 const OUT = path.join(__dirname, "..", "docs", "screenshots");
 const OWNER = "00000000-0000-0000-0000-000000000001";
 const b = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
@@ -223,8 +225,8 @@ const expectText = async (page, text) => {
     await expectText(page, "Chosen");
   });
 
-  await step("Home: grouped alerts open the filtered pipeline list", async () => {
-    await page.goto(`${BASE}/`);
+  await step("Old Home: grouped alerts open the filtered pipeline list", async () => {
+    await page.goto(OLD_HOME);
     await expectText(page, "pipeline item");
     if (await page.locator("#alerts a", { hasText: /^Stalled:|^Set the next action/ }).count()) throw new Error("per-item pipeline alerts still shown");
     await page.locator("#alerts a", { hasText: /need(s)? a next action/ }).first().click();
@@ -451,8 +453,8 @@ const expectText = async (page, text) => {
     await expectText(page, "Owner");
   });
 
-  await step("Home after jobs (plan written, alerts)", async () => {
-    await page.goto(`${BASE}/`);
+  await step("Old Home after jobs (plan written, alerts)", async () => {
+    await page.goto(OLD_HOME);
     await page.screenshot({ path: path.join(OUT, "flow-home-after-jobs.png"), fullPage: true });
   });
 
@@ -511,7 +513,7 @@ const expectText = async (page, text) => {
   });
 
   let itemEdit = null;
-  const homeLink = () => page.locator("aside a[href='/']").filter({ hasText: "Home" });
+  const homeLink = () => page.locator("aside a[href='/']").filter({ hasText: "Today" });
   await step("Unsaved changes: Stay keeps the typed value; a value changed back does not ask", async () => {
     await page.goto(`${BASE}/opportunities`);
     await page.getByRole("link", { name: "Open pipeline" }).first().click();
@@ -668,7 +670,7 @@ const expectText = async (page, text) => {
   });
 
   await step("Runway: counting signed consulting income changes runway and its explanation", async () => {
-    await page.goto(`${BASE}/`);
+    await page.goto(OLD_HOME);
     await expectText(page, "Signed consulting income is not counted");
     const before = await page.evaluate(() => [...document.querySelectorAll("p")].find((e) => e.textContent.trim() === "Runway")?.nextElementSibling?.textContent ?? "");
     await page.goto(`${BASE}/plan/inputs`);
@@ -676,7 +678,7 @@ const expectText = async (page, text) => {
     await form.locator("input[name='value']").fill("1");
     await form.getByRole("button", { name: "Save" }).click();
     await page.waitForLoadState("networkidle");
-    await page.goto(`${BASE}/`);
+    await page.goto(OLD_HOME);
     await expectText(page, "Signed consulting income is counted");
     // Only the signed engagement without a payment yet (Demo Dental Group, $2,500) is added; the paid retainer is not.
     await expectText(page, "$2,500 per month expected from Signed and Active consulting work with no payment received yet");
@@ -1095,6 +1097,226 @@ const expectText = async (page, text) => {
   const EVIEWS = [["desktop", page], ["desktop1280", e1280], ["phone", ph]];
   const composeTo = (pg_) => pg_.getByTestId("compose-to").inputValue();
   const commByGmail = (id) => one("select * from communications where gmail_message_id = $1", [id]);
+
+  // ---------- The focused version, batch 1: Today, Close the day (dev-tools/check-flows.cjs runs these on the demo data) ----------
+
+  await step("Morning plan: three outcomes incl. one picked from next actions", async () => {
+    await pg.query("delete from daily_outcomes where plan_date = $1", [nyDate(0)]);
+    // The day is open again when an earlier step completed the old daily close.
+    await pg.query("update reviews set status = 'draft', completed_at = null, answers = '{}'::jsonb where kind = 'daily' and period_start = $1", [nyDate(0)]);
+    await page.goto(`${BASE}/`);
+    await page.getByTestId("today").waitFor();
+    await page.getByTestId("close-day").first().waitFor();
+    // The menu: Today, Pipelines, Commitments, Reports, More. No tiles, no tabs on Today.
+    const menu = await page.locator("aside nav[aria-label='Main menu'] a").evaluateAll((els) => els.map((e) => e.textContent.trim()));
+    if (menu.join(",") !== "Today,Pipelines,Commitments,Reports,More") throw new Error(`menu: ${menu.join(",")}`);
+    if (await page.locator("main").getByTestId("home-next-review").count()) throw new Error("tiles on Today");
+    // Focused hours.
+    await page.getByTestId("focused-hours-input").fill("4");
+    await page.getByTestId("focused-hours-input").press("Enter");
+    await page.waitForFunction(() => true);
+    // Outcome 1 typed; blur saves it.
+    const rows = page.getByTestId("outcome-row");
+    await rows.nth(0).getByTestId("outcome-title").fill("Review the Dalton CIM");
+    await rows.nth(0).getByTestId("outcome-block").fill("90");
+    await rows.nth(0).getByTestId("outcome-block").press("Tab");
+    await page.getByTestId("outcomes-note").filter({ hasText: "Saved" }).waitFor({ timeout: 15000 });
+    // Outcome 2 picked from next actions: fills the next empty row with the title and the link, and leaves the list.
+    const firstPick = page.getByTestId("pick-row").first();
+    const pickTitle = (await firstPick.locator("span").first().innerText()).split(" (")[0].trim();
+    await firstPick.getByTestId("pick-add").click();
+    await page.waitForFunction((t) => document.querySelectorAll("[data-testid=outcome-title]")[1]?.value.startsWith(t), pickTitle, { timeout: 15000 }).catch(async () => {
+      throw new Error(`pick "${pickTitle}" not in row 2: ${JSON.stringify(await page.getByTestId("outcome-title").evaluateAll((els) => els.map((e) => e.value)))}`);
+    });
+    await page.waitForFunction((t) => ![...document.querySelectorAll("[data-testid=pick-row]")].some((r) => r.querySelector("span").innerText.split(" (")[0].trim() === t), pickTitle, { timeout: 15000 }).catch(() => {
+      throw new Error(`pick "${pickTitle}" still listed`);
+    });
+    // Outcome 3 typed with an initiative.
+    await rows.nth(2).getByTestId("outcome-title").fill("Call two brokers about new listings");
+    const init = rows.nth(2).getByTestId("outcome-initiative");
+    await init.selectOption({ label: "Acquisition Search" });
+    await rows.nth(2).getByTestId("outcome-title").press("Enter");
+    await page.waitForFunction(() => document.querySelectorAll("[data-testid=pick-list]").length === 0, null, { timeout: 15000 }).catch(() => {
+      throw new Error("the pick list is still shown with three outcomes");
+    });
+    // Saved in the database with the links.
+    await page.waitForFunction(() => true);
+    const saved = await new Promise((r) => setTimeout(r, 1500)).then(() => pg.query("select position, title, block_minutes, initiative_id, task_id, pipeline_item_id from daily_outcomes where plan_date = $1 order by position", [nyDate(0)]));
+    if (saved.rows.length !== 3) throw new Error(`outcomes saved: ${saved.rows.length}`);
+    if (saved.rows[0].title !== "Review the Dalton CIM" || saved.rows[0].block_minutes !== 90) throw new Error(`row 1: ${JSON.stringify(saved.rows[0])}`);
+    if (!saved.rows[1].task_id && !saved.rows[1].pipeline_item_id) throw new Error("picked outcome has no link");
+    if (!saved.rows[2].initiative_id) throw new Error("row 3 has no initiative");
+    const hours = await one("select focused_hours from daily_plans where plan_date = $1", [nyDate(0)]);
+    if (Number(hours?.focused_hours) !== 4) throw new Error(`focused hours: ${JSON.stringify(hours)}`);
+    // A reload shows the same three outcomes and no pick list.
+    await page.reload();
+    await page.getByTestId("today").waitFor();
+    if ((await page.getByTestId("outcome-title").nth(0).inputValue()) !== "Review the Dalton CIM") throw new Error("outcome lost on reload");
+    if ((await page.getByTestId("focused-hours-input").inputValue()) !== "4") throw new Error("focused hours lost on reload");
+    // Today's activity: +1 on a target counted by hand.
+    const row = page.getByTestId("activity-row").filter({ hasText: "Listings screened" });
+    const before = Number((await row.getByTestId("activity-count").innerText()).match(/(\d+) of/)[1]);
+    await row.getByTestId("activity-plus").click();
+    await page.waitForFunction(([n]) => {
+      const r = [...document.querySelectorAll("[data-testid=activity-row]")].find((e) => e.innerText.includes("Listings screened"));
+      return r && r.querySelector("[data-testid=activity-count]").innerText.startsWith(`${n + 1} of`);
+    }, [before], { timeout: 15000 });
+    await page.screenshot({ path: path.join(OUT, "flow-today-morning.png"), fullPage: true });
+  });
+
+  await step("Close the day: three steps, resolve a miss in step 2, send the report through the Google stand-in in step 3, Today then shows Day closed", async () => {
+    // A commitment missed yesterday with a pending reason (resolved in step 2), partners set to Daily and Both.
+    await pg.query("update reviews set status = 'draft', completed_at = null, answers = '{}'::jsonb where kind = 'daily' and period_start = $1", [nyDate(0)]);
+    // Only drafts can be deleted (a report sent by an earlier step stays and shows as Sent); the two partners of this step get fresh drafts.
+    await pg.query("delete from partner_reports where report_kind = 'daily' and period_end = $1 and status = 'draft' and sent_at is null", [nyDate(0)]);
+    await pg.query("update daily_plans set changes_note = null, tomorrow_priority = null where plan_date = $1", [nyDate(0)]);
+    await pg.query("delete from missed_commitments where commitment_id in (select id from commitments where title = 'Send the model to the lender')");
+    await pg.query("delete from commitments where title = 'Send the model to the lender'");
+    await pg.query("delete from tasks where title = 'Send the model to the lender'");
+    const t = await one("insert into tasks (owner_id, title, due_date, priority) values ($1, 'Send the model to the lender', $2, 2) returning id", [OWNER, nyDate(-1)]);
+    const c0 = await one("insert into commitments (owner_id, title, record_type, record_id, due_date, original_due_date, status, miss_count) values ($1, 'Send the model to the lender', 'tasks', $2, $3, $3, 'missed', 1) returning id", [OWNER, t.id, nyDate(-1)]);
+    await pg.query("insert into missed_commitments (owner_id, commitment_id, missed_on) values ($1, $2, $3)", [OWNER, c0.id, nyDate(-1)]);
+    for (const [name, email] of [["Partner Three (pseudonym)", "partner-three@example.com"], ["Partner Four (pseudonym)", "partner-four@example.com"]]) {
+      if (!(await one("select 1 x from partners where name = $1", [name]))) await pg.query("insert into partners (owner_id, name, is_pseudonym, email) values ($1, $2, true, $3)", [OWNER, name, email]);
+    }
+    await pg.query("update partners set report_frequency = 'weekly' where report_frequency <> 'weekly'");
+    await pg.query("update partners set report_frequency = 'both' where name = 'Partner Three (pseudonym)'");
+    await pg.query("update partners set report_frequency = 'daily' where name = 'Partner Four (pseudonym)'");
+    const partners = (await pg.query("select id, name, report_frequency from partners where is_active and email is not null and report_frequency in ('daily', 'both') order by name")).rows;
+    if (partners.length !== 2) throw new Error("need two partners set to daily reports");
+    await page.goto(`${BASE}/`);
+    await page.getByTestId("close-day").first().click();
+    await page.waitForURL(/\/today\/close\?step=1/);
+    // Step 1: outcomes with Complete, Partial, Incomplete and a result line.
+    if ((await page.getByTestId("close-step-1").getAttribute("data-active")) !== "true") throw new Error("step 1 not active");
+    const items = page.getByTestId("close-outcome");
+    if ((await items.count()) !== 3) throw new Error(`outcomes in step 1: ${await items.count()}`);
+    await items.nth(0).getByTestId("close-status-complete").click();
+    await items.nth(0).getByTestId("close-result").fill("Read it. The asking price is high for the earnings.");
+    await items.nth(0).getByTestId("close-result").press("Tab");
+    await items.nth(1).getByTestId("close-status-partial").click();
+    await items.nth(2).getByTestId("close-status-incomplete").click();
+    const addActual = items.nth(0).getByTestId("close-add-actual");
+    if (await addActual.count()) await addActual.click();
+    await items.nth(0).getByTestId("close-actual").fill("75");
+    await items.nth(0).getByTestId("close-actual").press("Tab");
+    await page.waitForFunction(() => [...document.querySelectorAll("[data-testid=close-outcome]")].map((e) => e.getAttribute("data-status")).join() === "complete,partial,incomplete");
+    await page.screenshot({ path: path.join(OUT, "flow-close-step-1.png"), fullPage: true });
+    await page.getByTestId("close-next").click().catch((e) => {
+      throw new Error(`step 1 Next: ${e.message.split("\n").slice(0, 8).join(" | ")}`);
+    });
+    await page.waitForURL(/\/today\/close\?step=2/);
+    await page.waitForLoadState("networkidle");
+    const st = (await pg.query("select status, result_note, actual_minutes from daily_outcomes where plan_date = $1 order by position", [nyDate(0)])).rows;
+    if (st.map((r) => r.status).join() !== "complete,partial,incomplete" || st[0].actual_minutes !== 75 || !st[0].result_note.startsWith("Read it")) throw new Error(`step 1 saved: ${JSON.stringify(st)}`);
+    // Step 2: changes, tomorrow's priority (required), and the miss resolved right here.
+    if ((await page.getByTestId("close-step-2").getAttribute("data-active")) !== "true") throw new Error("step 2 not active");
+    const miss = page.getByTestId("close-miss").filter({ hasText: "Send the model to the lender" });
+    await miss.waitFor();
+    if ((await miss.getAttribute("data-resolution")) !== "pending") throw new Error("miss not pending");
+    await page.getByTestId("close-next").click();
+    await page.getByTestId("close-error").filter({ hasText: "tomorrow's top priority" }).waitFor();
+    if (!/step=2/.test(page.url())) throw new Error("moved on without tomorrow's priority");
+    await page.getByTestId("close-changes-text").fill("The broker call moved to Monday.");
+    await page.getByTestId("close-tomorrow").fill("Finish the Dalton model");
+    await page.getByTestId("close-tomorrow").press("Tab");
+    if (!(await miss.getByTestId("resolve-form").isVisible())) await miss.getByTestId("close-miss-resolve").click();
+    await miss.getByTestId("resolve-new-date").check();
+    await miss.getByLabel(/Why was it missed/).fill("Waited for the lender's numbers.");
+    await page.screenshot({ path: path.join(OUT, "flow-close-step-2.png"), fullPage: true });
+    await miss.getByTestId("resolve-save").click();
+    await page.getByTestId("close-miss").filter({ hasText: "Send the model to the lender" }).and(page.locator("[data-resolution=new_date]")).waitFor({ timeout: 20000 });
+    await page.getByTestId("close-next").click();
+    await page.waitForURL(/\/today\/close\?step=3/);
+    await page.waitForLoadState("networkidle");
+    const plan = await one("select changes_note, tomorrow_priority from daily_plans where plan_date = $1", [nyDate(0)]);
+    if (plan.tomorrow_priority !== "Finish the Dalton model" || !plan.changes_note.includes("Monday")) throw new Error(`step 2 saved: ${JSON.stringify(plan)}`);
+    // Step 3: the daily report for each partner set to Daily or Both, with the day's content; Approve and send one.
+    if ((await page.getByTestId("close-step-3").getAttribute("data-active")) !== "true") throw new Error("step 3 not active");
+    if (!weekday) {
+      if (await page.getByTestId("daily-report").count()) throw new Error("daily reports drafted on a weekend");
+      await page.getByTestId("close-report-note").waitFor();
+    } else {
+      await page.getByTestId("daily-reports-panel").waitFor({ timeout: 20000 });
+      for (const p of partners) if (!(await page.getByTestId("daily-report").filter({ hasText: p.name }).count())) throw new Error(`no preview for ${p.name}`);
+      const frame = page.getByTestId("daily-report").filter({ hasText: partners[0].name }).getByTestId("daily-preview").contentFrame();
+      await frame.getByText("Planned outcomes").first().waitFor();
+      const text = await frame.locator("body").innerText();
+      for (const want of ["Review the Dalton CIM", "Read it. The asking price is high", "Tomorrow's top priority", "Finish the Dalton model"]) if (!text.includes(want)) throw new Error(`report preview is missing "${want}"`);
+      await page.screenshot({ path: path.join(OUT, "flow-close-step-3.png"), fullPage: true });
+      const r = await one("select snapshot from partner_reports where report_kind = 'daily' and partner_id = $1 and period_end = $2", [partners[0].id, nyDate(0)]);
+      if (!r.snapshot.day || r.snapshot.day.outcomes.length !== 3 || r.snapshot.day.tomorrow !== "Finish the Dalton model") throw new Error(`saved day content: ${JSON.stringify(r.snapshot.day).slice(0, 200)}`);
+      const first = page.getByTestId("daily-report").filter({ hasText: partners[0].name });
+      // Sending needs the Google stand-in connected (the Send email steps above connect it); on its own this step skips the send.
+      if (await first.getByTestId("daily-send").isEnabled()) {
+        const sentBefore = (await gsent()).length;
+        await first.getByTestId("daily-send").click();
+        await page.getByTestId("daily-report").filter({ hasText: partners[0].name }).and(page.locator("[data-state=sent]")).waitFor({ timeout: 20000 });
+        const sent = await gsent();
+        if (sent.length !== sentBefore + 1) throw new Error(`expected 1 email, Gmail got ${sent.length - sentBefore}`);
+        const last = sent[sent.length - 1];
+        if (!/Daily accountability report/.test(JSON.stringify(last))) throw new Error("the sent email is not the daily report");
+        if (!/Planned outcomes/.test(JSON.stringify(last))) throw new Error("the sent email has no Planned outcomes section");
+      } else {
+        process.stderr.write("     (Google not connected in this run: the send was skipped)\n");
+        await first.getByTestId("daily-skip").click();
+        await page.getByTestId("daily-report").filter({ hasText: partners[0].name }).and(page.locator("[data-state=skipped]")).waitFor({ timeout: 20000 });
+      }
+      const second = page.getByTestId("daily-report").filter({ hasText: partners[1].name });
+      await second.getByTestId("daily-skip").click();
+      await page.getByTestId("daily-report").filter({ hasText: partners[1].name }).and(page.locator("[data-state=skipped]")).waitFor({ timeout: 20000 });
+    }
+    await page.getByTestId("close-finish").click();
+    await page.waitForURL(/\/\?closed=1/);
+    await page.getByTestId("day-closed").first().waitFor();
+    if (await page.getByTestId("close-day").count()) throw new Error("Close the day still shown");
+    const rev = await one("select status, answers from reviews where kind = 'daily' and period_start = $1", [nyDate(0)]);
+    if (rev.status !== "completed" || rev.answers.close_version !== "focused") throw new Error(`review: ${JSON.stringify(rev)}`);
+    const tomorrowTask = await one("select id from tasks where title = 'Finish the Dalton model' and due_date = $1 and status = 'todo'", [nyDate(1)]);
+    if (!tomorrowTask) throw new Error("tomorrow's priority is not a task due tomorrow");
+    // The outcomes are read-only with their status; Reopen brings the button back.
+    const statuses = await page.getByTestId("outcome-status").evaluateAll((els) => els.map((e) => e.textContent.trim()));
+    if (statuses.join() !== "Complete,Partial,Incomplete") throw new Error(`statuses: ${statuses.join()}`);
+    await page.screenshot({ path: path.join(OUT, "flow-today-closed.png"), fullPage: true });
+    await page.getByTestId("day-reopen").first().click();
+    await page.getByTestId("close-day").first().waitFor({ timeout: 20000 });
+    if ((await one("select status from reviews where kind = 'daily' and period_start = $1", [nyDate(0)])).status !== "draft") throw new Error("reopen did not reopen the review");
+    // Leaving and returning resumes at the saved step (step 1 after Reopen).
+    await page.getByTestId("close-day").first().click();
+    await page.waitForURL(/step=1/);
+  });
+
+  await step("Waiting on: set in task window, appears on Today", async () => {
+    const t =
+      (await one("select id, title from tasks where status = 'todo' and title = 'Send the model to the lender'")) ??
+      (await one("insert into tasks (owner_id, title, due_date, priority) values ($1, 'Send the model to the lender', $2, 2) returning id, title", [OWNER, nyDate(0)]));
+    await page.goto(`${BASE}/?w=r/tasks/${t.id}`);
+    const win = page.locator("[data-url-window]");
+    await win.getByTestId("task-waiting").waitFor({ timeout: 20000 });
+    await win.getByTestId("task-waiting-who").fill("Lender Pat");
+    await win.getByTestId("task-waiting-since").fill(nyDate(-3));
+    await win.getByTestId("task-waiting-save").click();
+    await win.getByText("Saved. It is on Today under Waiting on someone.").waitFor({ timeout: 20000 });
+    const row = await one("select waiting_on, waiting_since::text as since from tasks where id = $1", [t.id]);
+    if (row.waiting_on !== "Lender Pat" || row.since !== nyDate(-3)) throw new Error(`saved: ${JSON.stringify(row)}`);
+    await page.keyboard.press("Escape");
+    await win.waitFor({ state: "detached" });
+    await page.goto(`${BASE}/`);
+    const wrow = page.getByTestId("waiting-row").filter({ hasText: "Lender Pat" });
+    await wrow.waitFor();
+    if (!(await wrow.innerText()).includes(t.title)) throw new Error("waiting row without the task title");
+    await page.screenshot({ path: path.join(OUT, "flow-today-waiting.png"), fullPage: true });
+    // Clearing the name removes it from Today.
+    await wrow.locator("a").click();
+    await win.getByTestId("task-waiting").waitFor({ timeout: 20000 });
+    await win.getByTestId("task-waiting-who").fill("");
+    await win.getByTestId("task-waiting-save").click();
+    await win.getByText("Cleared.").waitFor({ timeout: 20000 });
+    await page.keyboard.press("Escape");
+    await page.goto(`${BASE}/`);
+    await page.getByTestId("today-waiting").waitFor();
+    if (await page.getByTestId("waiting-row").filter({ hasText: "Lender Pat" }).count()) throw new Error("still listed after clearing");
+  });
 
   await step("Email button: contact page, Write with AI, Send now, confirm, sent, logged as outreach, target +1", async () => {
     await page.goto(`${BASE}/people/outreach`);
@@ -1684,8 +1906,8 @@ const expectText = async (page, text) => {
       (select count(*)::int from tasks where title like 'Sample %') tasks`);
   let sampleBefore = null;
 
-  await step("Start an initiative: box with a microphone on Plan, a button on Home; speech fills the box and never submits", async () => {
-    await page.goto(`${BASE}/`);
+  await step("Start an initiative: box with a microphone on Plan, a button on the old Home; speech fills the box and never submits", async () => {
+    await page.goto(OLD_HOME);
     await page.getByRole("link", { name: "Start an initiative" }).first().click();
     await page.getByTestId("setup-window").waitFor();
     await page.waitForURL(/[?&]w=setup$/);
@@ -2010,11 +2232,11 @@ const expectText = async (page, text) => {
   });
 
   await step("Quick view: a task link opens the window; record links inside open in the same window (Back); Open full page; never two windows", async () => {
-    await page.goto(`${BASE}/`);
+    await page.goto(OLD_HOME);
     await page.locator("main a[href^='/records/tasks/']").first().click();
     await page.getByTestId("quick-view-body").waitFor();
     if (!/next required action/i.test(await page.getByTestId("quick-view-body").innerText())) throw new Error("no Next required action card");
-    if (new URL(page.url()).pathname !== "/") throw new Error("left Home");
+    if (new URL(page.url()).pathname !== "/more/old-home") throw new Error("left Home");
     await page.screenshot({ path: path.join(OUT, "desktop-quick-view.png") });
     const inner = page.locator("[data-window-host] dd a[href^='/records/']").first();
     if (await inner.count()) {
@@ -2036,8 +2258,8 @@ const expectText = async (page, text) => {
     if (await dialogs(page)) throw new Error("Ctrl-click opened the window");
   });
 
-  await step("Daily close opens in the large window from Home and from the evening task; the full page stays at its address; links inside go to the full page (no window on a window)", async () => {
-    await page.goto(`${BASE}/`);
+  await step("Old daily close opens in the large window from the old Home and from the evening task; the full page stays at its address; links inside go to the full page (no window on a window)", async () => {
+    await page.goto(OLD_HOME);
     await page.locator("main").getByRole("button", { name: "Daily close", exact: true }).click();
     const win = page.getByTestId("work-window");
     await win.waitFor({ timeout: 20000 });
@@ -2049,7 +2271,7 @@ const expectText = async (page, text) => {
     await page.screenshot({ path: path.join(OUT, "desktop-daily-close-window.png") });
     await page.keyboard.press("Escape");
     await win.waitFor({ state: "detached" });
-    await page.waitForURL(`${BASE}/`);
+    await page.waitForURL(OLD_HOME);
     const task = page.locator("main").getByRole("button", { name: "Complete the daily close" });
     if (await task.count()) {
       await task.first().click();
@@ -2235,10 +2457,10 @@ const expectText = async (page, text) => {
   });
 
   await step("Work through tasks: today's tasks one at a time (3 of 12), Done, Move to tomorrow, Skip, linked record, end summary", async () => {
-    await page.goto(`${BASE}/`);
+    await page.goto(OLD_HOME);
     await page.getByTestId("work-through-tasks").first().click();
     await page.getByTestId("work-task").waitFor();
-    if (!/\/\?w=work/.test(page.url())) throw new Error(`address: ${page.url()}`);
+    if (!/\/more\/old-home\?w=work/.test(page.url())) throw new Error(`address: ${page.url()}`);
     const progress = async () => (await page.getByTestId("work-progress").innerText()).match(/(\d+) of (\d+)/);
     const [, first, total] = await progress();
     if (first !== "1" || Number(total) < 3) throw new Error(`progress ${first} of ${total}`);
@@ -2332,8 +2554,8 @@ const expectText = async (page, text) => {
     if (!page.url().endsWith("/productivity/pipeline-actions")) throw new Error(`closed to ${page.url()}`);
   });
 
-  await step("Home: the morning plan shows only Top 3 and Watch (Show all for the rest); the runway card has the runway trend chart", async () => {
-    await page.goto(`${BASE}/`);
+  await step("Old Home: the morning plan shows only Top 3 and Watch (Show all for the rest); the runway card has the runway trend chart", async () => {
+    await page.goto(OLD_HOME);
     await page.getByRole("button", { name: /Rewrite plan|Write today's plan/ }).click();
     await page.waitForLoadState("networkidle");
     await page.getByTestId("morning-plan").waitFor();
@@ -2349,7 +2571,7 @@ const expectText = async (page, text) => {
     const chart = page.getByTestId("runway-chart");
     await chart.waitFor();
     if (!(await chart.locator("svg path.recharts-curve").count())) throw new Error("no runway line");
-    await shoot3(`${BASE}/`, "home");
+    await shoot3(OLD_HOME, "old-home");
   });
 
   // ---------- Build B: AI visibility, suggestion lines, progressive disclosure, task filter, time blocks, scenario summary ----------
@@ -2399,7 +2621,7 @@ const expectText = async (page, text) => {
     await page.keyboard.press("Escape");
     await page.keyboard.press("Escape");
     // Dismiss: hidden at once and after a reload; other pages keep their own line.
-    await page.goto(`${BASE}/`);
+    await page.goto(OLD_HOME);
     const home = page.getByTestId("suggestion-line");
     await home.waitFor();
     const key = await home.getAttribute("data-key");
@@ -2486,7 +2708,7 @@ const expectText = async (page, text) => {
     if (rows.rows.some((r) => r.google_event_id)) throw new Error("a suggestion has a Google event");
     const evNow = await (await fetch(`${GMOCK}/__events`)).json();
     if (evNow.slice(eventsBefore).some((e) => /^Focus:/.test(e.summary))) throw new Error("the morning job sent a time block to Google");
-    await page.goto(`${BASE}/`);
+    await page.goto(OLD_HOME);
     await page.getByTestId("home-time-blocks").waitFor();
     if (!/\d+ time blocks? suggested/.test(await page.getByTestId("home-time-blocks").innerText())) throw new Error("Home notice");
     await page.getByTestId("home-time-blocks").click();
@@ -2646,8 +2868,8 @@ const expectText = async (page, text) => {
     await header.getByRole("button", { name: /^Undo last entry/ }).click();
     await waitFor(headerCount, start + 6, "header after Undo last");
 
-    // Home tile
-    await page.goto(`${BASE}/`);
+    // Old Home tile
+    await page.goto(OLD_HOME);
     const tile = page.getByTestId("home-listings");
     const tileCount = async () => Number((await tile.innerText()).match(/(\d+) of 20/)[1]);
     if ((await tileCount()) !== start + 6) throw new Error(`Home shows ${await tileCount()}`);
@@ -2788,10 +3010,11 @@ const expectText = async (page, text) => {
 
   await step("Windows open on every address change: away and back to Home, then Work through tasks (also while the page underneath is still reloading)", async () => {
     await page.goto(`${BASE}/`);
-    for (const href of ["/plan", "/productivity", "/accountability", "/"]) {
+    for (const href of ["/opportunities", "/accountability", "/more", "/"]) {
       await page.locator(`nav a[href='${href}']`).first().click();
       await page.waitForURL((u) => u.pathname === href);
     }
+    await page.goto(OLD_HOME);
     await page.getByTestId("work-through-tasks").first().click();
     await page.waitForURL(/\?w=work/);
     await page.getByTestId("tasks-window").waitFor({ timeout: 3000 });
@@ -3194,7 +3417,7 @@ const expectText = async (page, text) => {
       await pg_.getByTestId("savings-idea").first().waitFor();
       await pg_.locator("#savings-ideas").screenshot({ path: path.join(OUT, `${vp}-savings-ideas.png`) });
     }
-    await page.goto(`${BASE}/`);
+    await page.goto(OLD_HOME);
     await expectText(page, "Savings ideas");
     if ((await page.getByTestId("home-savings-ideas").locator("li").count()) !== 3) throw new Error("Home lists the ideas");
     // Edit the storage idea's savings

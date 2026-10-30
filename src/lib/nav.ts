@@ -2,6 +2,48 @@ import { getResource } from "@/lib/resources";
 export type NavTab = { href: string; label: string };
 export type NavModule = { key: string; label: string; href: string; icon: string; tabs: NavTab[] };
 
+/**
+ * The main menu (the focused version, 2026-10-30): five items. Today is the home screen. Pipelines opens the existing
+ * pipelines area, Commitments and Reports open their existing pages, and More lists every other page.
+ */
+export const MAIN_NAV: NavModule[] = [
+  { key: "today", label: "Today", href: "/", icon: "today", tabs: [] },
+  { key: "pipelines", label: "Pipelines", href: "/opportunities", icon: "pipelines", tabs: [] },
+  { key: "commitments", label: "Commitments", href: "/accountability", icon: "commitments", tabs: [] },
+  { key: "reports", label: "Reports", href: "/accountability/reports", icon: "reports", tabs: [] },
+  { key: "more", label: "More", href: "/more", icon: "more", tabs: [] },
+];
+
+/** The main menu item a path belongs to (for the active state in the menu). */
+export function mainFor(path: string): NavModule {
+  if (path === "/" || path.startsWith("/today")) return MAIN_NAV[0];
+  if (path.startsWith("/accountability/reports") || path.startsWith("/records/partner_reports")) return MAIN_NAV[3];
+  if (path === "/accountability" || path.startsWith("/accountability?") || path.startsWith("/records/commitments")) return MAIN_NAV[2];
+  if (path.startsWith("/opportunities") || path.startsWith("/records/pipeline_items")) return MAIN_NAV[1];
+  return MAIN_NAV[4];
+}
+
+/** Every page that is not on the main menu, listed on the More page (nothing was deleted; every old address still works). Ask AI is a button on that page. */
+export const MORE_LINKS: { href: string; label: string; note: string }[] = [
+  { href: "/finance", label: "Finance", note: "Accounts, balance sheet, expenses, budget, debt, funding, income, savings" },
+  { href: "/plan/goals", label: "Goals and milestones", note: "Goals, milestones, decision conditions" },
+  { href: "/plan/decisions", label: "Decisions", note: "The decisions log" },
+  { href: "/plan", label: "Documents", note: "Plan documents and checklists are on each initiative; files are on each record" },
+  { href: "/plan", label: "Plan", note: "Initiatives, inputs and assumptions, scenarios" },
+  { href: "/productivity", label: "Productivity", note: "Tasks, calendar time blocks, recurring tasks, pipeline next actions" },
+  { href: "/people/communications", label: "Communications", note: "Communication history and the Outreach Queue" },
+  { href: "/people", label: "People", note: "Contacts and organizations" },
+  { href: "/proposals", label: "Proposals", note: "AI proposals waiting for your approval" },
+  { href: "/accountability/reviews", label: "Reviews (old)", note: "The old daily close, weekly, monthly, and quarterly reviews" },
+  { href: "/accountability/targets", label: "Targets", note: "Daily and weekly targets" },
+  { href: "/accountability/scores", label: "Scores", note: "Completion scores" },
+  { href: "/accountability/partners", label: "Partners", note: "Accountability partners" },
+  { href: "/accountability/report-templates", label: "Report templates", note: "Which measures a partner report shows" },
+  { href: "/settings", label: "Settings", note: "Connections, email signature, AI, imports, sample data and reset, profile" },
+  { href: "/more/old-home", label: "Old Home", note: "The previous home page with its tiles and cards" },
+];
+
+/** The old modules, kept for the sub-tabs of each old area (ModuleTabs). */
 export const NAV: NavModule[] = [
   { key: "home", label: "Home", href: "/", icon: "home", tabs: [] },
   {
@@ -109,5 +151,6 @@ export function moduleFor(path: string): NavModule {
   if (path.startsWith("/proposals")) return NAV[NAV.length - 1];
   const hit = NAV.slice(1).find((m) => path === m.href || path.startsWith(`${m.href}/`));
   if (hit) return hit;
+  if (path.startsWith("/more") || path.startsWith("/today")) return { key: "more", label: "More", href: "/more", icon: "more", tabs: [] };
   return NAV[0];
 }

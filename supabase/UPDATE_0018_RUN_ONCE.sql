@@ -1,5 +1,5 @@
 -- BF Personal App: database update 0018 (resolve a miss as Done late; daily partner reports).
--- For the live database, which has 0001 to 0017. Paste this whole file into the Supabase SQL Editor and press Run.
+-- For a database that has 0001 to 0017 (the live database with 0001 to 0018 uses UPDATE_0019_RUN_ONCE.sql). Paste this whole file into the Supabase SQL Editor and press Run.
 -- Expected result: "Success. No rows returned". Safe to run more than once: nothing is duplicated, and no existing
 -- record is changed or deleted (existing partners get the report frequency Weekly). What it adds:
 --   Done late: a missed commitment can be resolved with the date it was done. It still counts as a miss in the score.

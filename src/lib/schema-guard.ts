@@ -158,3 +158,18 @@ export const COLUMNS_0018: Record<string, string[]> = {
   missed_commitments: ["done_on"],
   partner_reports: ["report_kind", "template_id", "skipped_at"],
 };
+
+/**
+ * Database update 0019 (the focused version, batch 1): the daily_outcomes table, daily_plans.focused_hours,
+ * changes_note, and tomorrow_priority, tasks.waiting_on and waiting_since, and schema_has_0019(). Before it, Today
+ * and Close the day show DB_UPDATE_NOTICE_0019 instead of their content, the task window leaves out Waiting on, and
+ * every other screen and both scheduled jobs keep working.
+ */
+export const DB_UPDATE_FILE_0019 = "supabase/UPDATE_0019_RUN_ONCE.sql";
+export const DB_UPDATE_NOTICE_0019 = `Database update needed: paste ${DB_UPDATE_FILE_0019} into the Supabase SQL Editor and run it.`;
+export const PROBE_0019 = "schema_has_0019";
+export const TABLES_0019 = ["daily_outcomes"];
+export const COLUMNS_0019: Record<string, string[]> = {
+  daily_plans: ["focused_hours", "changes_note", "tomorrow_priority"],
+  tasks: ["waiting_on", "waiting_since"],
+};

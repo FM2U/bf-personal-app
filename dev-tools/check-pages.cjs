@@ -28,7 +28,7 @@ const session = {
 const cookieValue = `base64-${Buffer.from(JSON.stringify(session)).toString("base64url")}`;
 
 const PAGES = (process.env.PAGES || [
-  "/", "/plan", "/plan/goals", "/plan/milestones", "/plan/conditions", "/plan/inputs", "/plan/scenarios", "/plan/decisions",
+  "/", "/today/close", "/today/close?step=2", "/today/close?step=3", "/more", "/more/old-home", "/plan", "/plan/goals", "/plan/milestones", "/plan/conditions", "/plan/inputs", "/plan/scenarios", "/plan/decisions",
   "/finance", "/finance/balance-sheet", "/finance/expenses", "/finance/import", "/finance/budget", "/finance/debt", "/finance/funding", "/finance/income", "/finance/savings",
   "/opportunities", "/people", "/people/organizations", "/people/communications", "/people/outreach",
   "/productivity", "/productivity/tasks", "/productivity/recurring", "/productivity/calendar", "/productivity/pipeline-actions",
@@ -84,6 +84,9 @@ async function keyPages() {
   const failures = [];
   const KEY = process.env.KEY_PAGES === "0" ? [] : await keyPages();
   const named = (p) => {
+    if (p === "/today/close") return "close-step-1";
+    if (p === "/today/close?step=2") return "close-step-2";
+    if (p === "/today/close?step=3") return "close-step-3";
     if (p.startsWith("/opportunities/") && p.includes("view=list")) return "consulting-list";
     if (p.startsWith("/opportunities/") && p.includes("view=board")) return "board-closed-stages";
     if (p.startsWith("/opportunities/") && p.endsWith("#funnel")) return "acquisitions-funnel";
@@ -104,7 +107,7 @@ async function keyPages() {
     page.on("console", (m) => {
       if (m.type() === "error") errors.push(m.text());
     });
-    const base = vpName === "desktop" ? PAGES : vpName === "phone" ? (process.env.PHONE_PAGES || "/,/finance/expenses,/finance/balance-sheet,/accountability/report-templates,/opportunities,/plan/inputs,/accountability/targets,/people/outreach,/productivity").split(",") : [];
+    const base = vpName === "desktop" ? PAGES : vpName === "phone" ? (process.env.PHONE_PAGES || "/,/today/close,/more,/finance/expenses,/finance/balance-sheet,/accountability/report-templates,/opportunities,/plan/inputs,/accountability/targets,/people/outreach,/productivity").split(",") : [];
     const list = [...new Set([...base, ...KEY])];
     for (const p of list) {
       errors.length = 0;

@@ -3,7 +3,24 @@
 Do these in order. Each line says where to copy a value from and where to paste it.
 Vercel variables go in: Vercel, project bf-personal-app, Settings, Environment Variables (Production).
 
-## 00000. Done late and daily partner reports (the live database has 0001 to 0017; about 4 minutes)
+## 000000. The focused version, batch 1: Today and Close the day (the live database has 0001 to 0018; about 5 minutes)
+
+One database update. Until it is run, Today and Close the day show "Database update needed" and everything else keeps working (the old pages are under More).
+
+**Step 1: database update 0019 (about 1 minute)**
+- [ ] Open the file `supabase/UPDATE_0019_RUN_ONCE.sql` in the GitHub repository (bf-personal-app), press "Copy raw file"
+- [ ] Supabase, project bf-personal-app, SQL Editor, New query: paste, press **Run**. Expected result: "Success. No rows returned"
+- [ ] Running it a second time is safe. No existing record is changed; it adds the daily outcomes table, three fields on the daily plan, and two on tasks
+
+**Step 2: check it (about 4 minutes)**
+- [ ] The menu has five items: Today, Pipelines, Commitments, Reports, More. Today opens on the date with "Focused hours today" under it
+- [ ] Today, Outcomes: type one outcome, press Enter. "Saved" shows under the rows. Press "+ Add" on a line in "Pick from next actions": it fills the next row
+- [ ] Today's activity: press +1 on Listings screened. The count goes up
+- [ ] Open a task from Next actions: the task window has "Waiting on" with a name and a date. Type a name, Save. Today lists it under "Waiting on someone"
+- [ ] In the evening, press Close the day: step 1 (Complete, Partial, Incomplete and one result line per outcome), step 2 (what changed, tomorrow's top priority, any missed commitment resolved right there), step 3 (the daily report with Approve and send, or Not today). Press Finish. Today shows "Day closed" with Reopen
+- [ ] More lists every old page (Finance, Plan, People, Reviews (old), Settings, Old Home, and the rest). Each still opens
+
+## 00000. Done late and daily partner reports (a database with 0001 to 0017; already done on the live database; about 4 minutes)
 
 One database update. Until it is run, Resolve shows Done late with "Database update needed" (the other choices work), partners stay Weekly, no daily report is drafted, and everything else keeps working.
 

@@ -22,12 +22,14 @@ export type SampleSetup = {
   reportTemplateId?: string | null;
   /** Database update 0018 is applied: the sample partner gets daily and weekly reports (Both). */
   dailyReports?: boolean;
+  /** Database update 0019 is applied: three outcomes for today (one complete), by initiative name. */
+  initiatives?: Record<string, string> | null;
 };
 
 /** Tables sample data writes to, in insert order. Removal deletes in the reverse dependency order (SQL). */
 export const SAMPLE_TABLES = [
   "accounts", "account_balances", "organizations", "contacts", "income_sources", "pipeline_items", "deal_financials",
-  "consulting_details", "transactions", "debts", "partners", "communications", "budget_lines",
+  "consulting_details", "transactions", "debts", "partners", "communications", "budget_lines", "daily_outcomes",
 ] as const;
 
 /** Software subscriptions in the sample: the last two are never confirmed as used (unused-subscription flags). */
@@ -204,6 +206,19 @@ export function buildSampleData(s: SampleSetup, newId: () => string): { batches:
     }
   }
 
+  // Today's outcomes (database update 0019): three for today, the first one complete.
+  const outcomes: Record<string, unknown>[] = [];
+  if (s.initiatives) {
+    const acq = s.initiatives["Acquisition Search"] ?? null;
+    const con = s.initiatives["Consulting"] ?? null;
+    const bakery = items.find((i) => i.name === "Sample Bakery Group")?.id ?? null;
+    outcomes.push(
+      { id: newId(), plan_date: today, position: 1, title: "Sample CIM review: Sample Bakery Group", initiative_id: acq, pipeline_item_id: bakery, block_minutes: 90, status: "complete", result_note: "Read it. The asking price is high for the earnings." },
+      { id: newId(), plan_date: today, position: 2, title: "Sample broker call: new listings in home services", initiative_id: acq, block_minutes: 30, status: "planned" },
+      { id: newId(), plan_date: today, position: 3, title: "Sample operations report for the retail client", initiative_id: con, pipeline_item_id: consultingItem, block_minutes: 60, status: "planned" },
+    );
+  }
+
   const batches: Batch[] = [
     { table: "accounts", rows: accounts },
     { table: "account_balances", rows: balances },
@@ -218,6 +233,7 @@ export function buildSampleData(s: SampleSetup, newId: () => string): { batches:
     { table: "partners", rows: partners },
     { table: "communications", rows: comms },
     { table: "budget_lines", rows: budgetLines },
+    { table: "daily_outcomes", rows: outcomes },
   ].filter((b) => b.rows.length);
   const counts = Object.fromEntries(batches.map((b) => [b.table, b.rows.length]));
   return { batches, counts };
@@ -234,4 +250,5 @@ export const SAMPLE_NAME_FIELDS: Record<string, string> = {
   partners: "name",
   transactions: "merchant_name",
   communications: "subject",
+  daily_outcomes: "title",
 };

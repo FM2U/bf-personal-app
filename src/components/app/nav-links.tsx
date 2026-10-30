@@ -1,16 +1,17 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { NAV, moduleFor } from "@/lib/nav";
+import { MAIN_NAV, mainFor, moduleFor } from "@/lib/nav";
 import { cn } from "@/lib/utils";
 import { ModuleIcon } from "@/components/app/module-icon";
 
+/** The main menu: Today, Pipelines, Commitments, Reports, More. */
 export function SidebarLinks() {
   const path = usePathname();
-  const active = moduleFor(path).key;
+  const active = mainFor(path).key;
   return (
-    <nav className="flex flex-col gap-0.5">
-      {NAV.map((m) => {
+    <nav className="flex flex-col gap-0.5" aria-label="Main menu">
+      {MAIN_NAV.map((m) => {
         return (
           <Link
             key={m.key}
@@ -31,10 +32,10 @@ export function SidebarLinks() {
 
 export function MobileModuleBar() {
   const path = usePathname();
-  const active = moduleFor(path).key;
+  const active = mainFor(path).key;
   return (
-    <nav className="flex gap-1 overflow-x-auto px-4 pb-2 lg:hidden" aria-label="Modules">
-      {NAV.map((m) => (
+    <nav className="flex gap-1 overflow-x-auto px-4 pb-2 lg:hidden" aria-label="Main menu">
+      {MAIN_NAV.map((m) => (
         <Link
           key={m.key}
           href={m.href}

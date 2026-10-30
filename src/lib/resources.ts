@@ -1422,7 +1422,7 @@ export const EXPORT_TABLES = [
   "scenarios", "scenario_input_changes",
   "pipelines", "pipeline_stages", "pipeline_items", "stage_history", "deal_financials", "diligence_items", "job_details", "investor_details", "consulting_details",
   "stage_tasks", "pipeline_item_stage_extensions",
-  "task_templates", "tasks", "calendar_events", "daily_plans",
+  "task_templates", "tasks", "calendar_events", "daily_plans", "daily_outcomes",
   "commitments", "missed_commitments", "reviews", "partners", "partner_links", "partner_reports",
   "targets", "target_entries", "target_misses",
   "ai_conversations", "ai_messages", "ai_proposals", "ai_usage",

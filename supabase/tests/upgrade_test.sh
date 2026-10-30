@@ -15,6 +15,7 @@
 #   (n) 0001 to 0015 (the live database on 2026-10-28, evening) plus an owner and data, then UPDATE_0016_RUN_ONCE.sql twice
 #   (o) 0001 to 0016 (the live database on 2026-10-29) plus an owner, partners, and a report, then UPDATE_0017_RUN_ONCE.sql twice
 #   (p) 0001 to 0017 (the live database on 2026-10-30) plus partners, a finalized report, and a pending miss, then UPDATE_0018_RUN_ONCE.sql twice
+#   (q) 0001 to 0018 (the live database on 2026-10-30, evening) plus a daily plan and a task, then UPDATE_0019_RUN_ONCE.sql twice
 # Paths b, c, d (UPDATE_RUN_ONCE.sql) and j, k, l also check 0014: tables, policies, functions, sample removal, and reset.
 # Every UPDATE_RUN_ONCE.sql path also checks 0012 and 0013.
 # Usage: bash supabase/tests/upgrade_test.sh
@@ -513,8 +514,74 @@ select '0018 checks passed' as result;
 SQL
 for f in UPDATE_RUN_ONCE ALL_MIGRATIONS_RUN_ONCE; do grep -q "schema_has_0018" "$DIR/$f.sql" || { echo "$f.sql is missing 0018"; exit 1; }; done
 
+# (q) Live state on 2026-10-30 (evening): 0001 to 0018 applied, an owner with a daily plan, a task, and a pipeline item, then
+# UPDATE_0019_RUN_ONCE.sql twice. Existing rows are unchanged; daily outcomes, the new plan fields, and Waiting on work
+# after the update; sample data, sample removal, and reset cover daily outcomes; no object is duplicated.
+setup bf_upgrade_q 0018
+su postgres -c "$PSQL -d bf_upgrade_q" <<'SQL'
+\set ON_ERROR_STOP 1
+insert into public.daily_plans (owner_id, plan_date, content) values ('00000000-0000-0000-0000-000000000001', current_date, 'Kept plan');
+SQL
+for run in 1 2; do
+  echo "[bf_upgrade_q] Applying UPDATE_0019_RUN_ONCE.sql (run $run)"
+  su postgres -c "$PSQL -d bf_upgrade_q -f $DIR/UPDATE_0019_RUN_ONCE.sql"
+  if [ "$run" = 1 ]; then
+    su postgres -c "$PSQL -d bf_upgrade_q -c \"update public.daily_plans set focused_hours = 4, tomorrow_priority = 'Finish the model'\""
+  fi
+done
+su postgres -c "$PSQL -d bf_upgrade_q" <<'SQL'
+\set ON_ERROR_STOP 1
+do $$ begin
+  assert (select content from public.daily_plans) = 'Kept plan', 'existing plan unchanged';
+  assert (select focused_hours from public.daily_plans) = 4, 'value set between runs kept';
+  assert (select tomorrow_priority from public.daily_plans) = 'Finish the model', 'priority set between runs kept';
+  assert to_regclass('public.daily_outcomes') is not null, 'daily_outcomes table';
+  assert to_regprocedure('public.schema_has_0019()') is not null, '0019 check function';
+  assert (select count(*) from pg_policies where tablename = 'daily_outcomes' and policyname = 'owner_only') = 1, 'one owner_only policy';
+  assert (select count(*) from pg_trigger where tgrelid = 'public.daily_outcomes'::regclass and not tgisinternal) = 2, 'updated_at and change log triggers once';
+  assert (select count(*) from pg_constraint where conname = 'daily_plans_focused_hours_check') = 1, 'one focused hours check';
+  assert (select count(*) from pg_indexes where tablename = 'daily_outcomes') = 3, 'primary key, unique position, owner and date index';
+  assert exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'tasks' and column_name = 'waiting_on'), 'tasks.waiting_on';
+  assert exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'tasks' and column_name = 'waiting_since'), 'tasks.waiting_since';
+  assert position('daily_outcomes' in pg_get_functiondef('public.reset_all_data(text)'::regprocedure)) > 0, 'reset deletes daily outcomes';
+  assert position('daily_outcomes' in pg_get_functiondef('public.remove_sample_data()'::regprocedure)) > 0, 'sample removal deletes daily outcomes';
+  assert position('daily_outcomes' in pg_get_functiondef('public.insert_record_batch(jsonb, text, uuid)'::regprocedure)) > 0, 'sample data may insert daily outcomes';
+end $$;
+-- Three outcomes for today; a fourth position and a wrong status are refused; one row per position.
+insert into public.daily_outcomes (owner_id, plan_date, position, title, block_minutes)
+values ('00000000-0000-0000-0000-000000000001', current_date, 1, 'Review the CIM', 90),
+       ('00000000-0000-0000-0000-000000000001', current_date, 2, 'Call the broker', 30),
+       ('00000000-0000-0000-0000-000000000001', current_date, 3, 'Send the report', 60);
+update public.daily_outcomes set status = 'complete', result_note = 'Done', actual_minutes = 75 where position = 1;
+do $$ begin
+  begin
+    insert into public.daily_outcomes (owner_id, plan_date, position, title) values ('00000000-0000-0000-0000-000000000001', current_date, 4, 'Too many');
+    raise exception 'a fourth outcome was allowed';
+  exception when check_violation then null;
+  end;
+  begin
+    update public.daily_outcomes set status = 'done' where position = 1;
+    raise exception 'an unknown status was allowed';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into public.daily_outcomes (owner_id, plan_date, position, title) values ('00000000-0000-0000-0000-000000000001', current_date, 1, 'Twice');
+    raise exception 'two outcomes in one position were allowed';
+  exception when unique_violation then null;
+  end;
+  assert (select count(*) from public.change_log where table_name = 'daily_outcomes') >= 3, 'daily outcomes are in the change log';
+end $$;
+-- Waiting on
+update public.tasks set waiting_on = 'Broker Dan', waiting_since = current_date - 3 where title = 'Hand-marked task';
+do $$ begin
+  assert (select waiting_on from public.tasks where title = 'Hand-marked task') = 'Broker Dan', 'waiting on saved';
+end $$;
+select '0019 checks passed' as result;
+SQL
+for f in UPDATE_RUN_ONCE ALL_MIGRATIONS_RUN_ONCE; do grep -q "schema_has_0019" "$DIR/$f.sql" || { echo "$f.sql is missing 0019"; exit 1; }; done
+
 echo "Upgrade paths passed: 0001-0007 + update twice, 0001-0008 + update, 0001-0009 + update twice, 0001-0010 + 0011 update twice,"
 echo "0001-0010 + 0011_0012 update twice, 0001-0011 + 0011_0012 update twice, 0001-0011 + 0012 update twice (edited text kept),"
 echo "0001-0012 + 0013 update twice, 0001-0012 + 0013_0014 update twice, 0001-0013 + 0013_0014 update twice, 0001-0013 + 0014 update twice,"
 echo "0001-0014 + 0015 update twice, 0001-0015 + 0016 update twice (future owner too), 0001-0016 + 0017 update twice (future owner too),"
-echo "0001-0017 + 0018 update twice."
+echo "0001-0017 + 0018 update twice, 0001-0018 + 0019 update twice."

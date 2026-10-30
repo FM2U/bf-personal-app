@@ -1,6 +1,6 @@
 import "server-only";
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
-import { combinedOverall, EMAIL_COLORS, reportSections, summaryLines, type ReportInput, type Tile } from "@/lib/calc/partner-report";
+import { combinedOverall, dailyLevel, dayDetailOf, EMAIL_COLORS, initiativeTiles, outcomeLine, outcomesOverall, periodText, reportSections, summaryLines, type ReportInput, type Tile } from "@/lib/calc/partner-report";
 
 /**
  * The partner report as a PDF (the optional "Attach a PDF" choice when sending): the same header, gold line, tiles,
@@ -58,7 +58,9 @@ export async function reportPdf(input: ReportInput): Promise<Uint8Array> {
   const regular = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const sections = reportSections(input);
-  const overall = combinedOverall(sections);
+  // A daily report with its day content (the focused version): outcomes, progress by initiative, changes, tomorrow.
+  const day = dayDetailOf(input);
+  const overall = day ? outcomesOverall(day.outcomes) : combinedOverall(sections);
   let page: PDFPage = doc.addPage([W, H]);
   let y = H - M;
   const ensure = (needed: number) => {
@@ -71,9 +73,9 @@ export async function reportPdf(input: ReportInput): Promise<Uint8Array> {
     page.drawText(pdfSafe(s), { x, y, size, font: opts.font ?? regular, color: hex(opts.color ?? EMAIL_COLORS.ink) });
 
   // Header: label, period, overall result on the right, then the thin gold line.
-  text("Accountability report", M, 10, { color: EMAIL_COLORS.muted });
+  text(day ? "Daily accountability report" : "Accountability report", M, 10, { color: EMAIL_COLORS.muted });
   y -= 20;
-  text(sections[0]?.period ?? "", M, 18, { font: bold });
+  text(day ? periodText(day.date, day.date) : sections[0]?.period ?? "", M, 18, { font: bold });
   const pill = pdfSafe(overall.text);
   const pw = bold.widthOfTextAtSize(pill, 11) + 30;
   page.drawRectangle({ x: W - M - pw, y: y - 6, width: pw, height: 22, color: hex(EMAIL_COLORS.tint[overall.status]), borderColor: hex(EMAIL_COLORS.bar[overall.status]), borderWidth: 1 });
@@ -99,7 +101,59 @@ export async function reportPdf(input: ReportInput): Promise<Uint8Array> {
     page.drawText(fit(t.note, regular, 8, tileW - 16), { x: x + 8, y: top - 57, size: 8, font: regular, color: hex(EMAIL_COLORS.muted) });
   };
 
-  for (const s of sections) {
+  const lines = (items: string[], bullet = true) => {
+    for (const raw of items) {
+      for (const [i, l] of wrap(raw, regular, 10, W - 2 * M - 14).entries()) {
+        ensure(14);
+        if (bullet && i === 0) text("-", M + 2, 10);
+        text(l, bullet ? M + 12 : M, 10);
+        y -= 14;
+      }
+    }
+  };
+  const title = (s: string) => {
+    ensure(30);
+    text(s, M, 12, { font: bold });
+    y -= 16;
+  };
+  const tileRows = (tiles: Tile[]) => {
+    for (let i = 0; i < tiles.length; i += 3) {
+      ensure(tileH + gap);
+      tiles.slice(i, i + 3).forEach((t, j) => drawTile(t, M + j * (tileW + gap), y));
+      y -= tileH + gap;
+    }
+  };
+  if (day) {
+    const level = dailyLevel(input.templates[0]);
+    title("Planned outcomes");
+    lines(day.outcomes.length ? day.outcomes.map(outcomeLine) : ["No outcomes were planned."], day.outcomes.length > 0);
+    y -= 8;
+    if (level !== "summary") {
+      title("Progress by initiative");
+      if (!day.initiatives.length) lines(["No activity was recorded today."], false);
+      for (const g of day.initiatives) {
+        ensure(16 + tileH);
+        text(g.name, M, 11, { font: bold, color: EMAIL_COLORS.cobalt });
+        y -= 16;
+        tileRows(initiativeTiles(g));
+        lines([...g.moved.map((m) => `Moved: ${m.item} to ${m.stage}`), ...g.passes.map((x) => `Passed: ${x.item}${x.reason ? ` (${x.reason})` : ""}`)]);
+      }
+      y -= 8;
+      if (level === "detailed" && sections[0]?.tiles.length) {
+        title("Today's numbers");
+        tileRows(sections[0].tiles);
+        y -= 8;
+      }
+      title("Changes in plan");
+      lines([day.changes ?? "No changes."], false);
+      y -= 8;
+    }
+    title("Tomorrow's top priority");
+    lines([day.tomorrow ?? "Not set."], false);
+    y -= 8;
+  }
+
+  for (const s of day ? [] : sections) {
     ensure(40 + tileH);
     text(s.template.name, M, 12, { font: bold });
     page.drawText(pdfSafe(s.period), { x: M + bold.widthOfTextAtSize(pdfSafe(s.template.name), 12) + 8, y, size: 10, font: regular, color: hex(EMAIL_COLORS.muted) });
@@ -125,7 +179,7 @@ export async function reportPdf(input: ReportInput): Promise<Uint8Array> {
     y -= 10;
   }
 
-  const misses = [...new Set(sections.flatMap((s) => s.misses))];
+  const misses = day ? [] : [...new Set(sections.flatMap((s) => s.misses))];
   if (misses.length) {
     ensure(30);
     text("Misses", M, 12, { font: bold });

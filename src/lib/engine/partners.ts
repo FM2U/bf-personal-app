@@ -15,6 +15,9 @@ import { buildReportMeasures } from "./report-measures";
 import { reportEmailHtml, reportEmailText, sendsDaily, sendsScheduled, type ReportTemplate } from "@/lib/calc/partner-report";
 import { isWeekday } from "@/lib/calc/dates";
 import { hasUpdate0018 } from "@/lib/update-0018";
+import { buildDayDetailFor } from "./day-detail";
+import { defaultTemplateFor } from "@/lib/calc/partner-report";
+import { loadReportTemplates } from "@/lib/report-templates";
 
 export function nextReportDate(schedule: string, from: string): string {
   if (schedule === "monthly") return addMonthsISO(from, 1);
@@ -253,9 +256,11 @@ export async function draftDailyPartnerReports(ctx: Ctx, day: string): Promise<{
     const { data: existing } = await ctx.sb.from("partner_reports").select("partner_id").eq("owner_id", ctx.ownerId).eq("report_kind", "daily").eq("period_end", day);
     const have = new Set(((existing ?? []) as Row[]).map((r) => String(r.partner_id)));
     let created = 0;
+    // The day content (planned outcomes, progress by initiative, changes, tomorrow's priority; database update 0019).
+    const dayDetail = await buildDayDetailFor(ctx, day).catch(() => null);
     for (const p of partners) {
       if (have.has(String(p.id))) continue;
-      const snapshot = { ...(await buildPartnerSnapshot(ctx, p, day, day)), report_kind: "daily" };
+      const snapshot = { ...(await buildPartnerSnapshot(ctx, p, day, day)), report_kind: "daily", ...(dayDetail ? { day: dayDetail } : {}) };
       const { error } = await ctx.sb.from("partner_reports").insert({
         owner_id: ctx.ownerId,
         partner_id: p.id,
@@ -274,6 +279,49 @@ export async function draftDailyPartnerReports(ctx: Ctx, day: string): Promise<{
   } catch {
     return { created: 0 };
   }
+}
+
+/**
+ * Today's daily reports that are still drafts (not sent, not approved) get today's numbers and the day content again,
+ * so what the owner changed in the close (an outcome's status, the result line, tomorrow's priority) is in the preview
+ * shown in step 3. Reports already sent, approved, or set to Not today are never changed. Never throws.
+ */
+export async function refreshDailyPartnerReports(ctx: Ctx, day: string): Promise<{ refreshed: number }> {
+  try {
+    if (!(await hasUpdate0018(ctx.sb))) return { refreshed: 0 };
+    const { data } = await ctx.sb.from("partner_reports").select("*").eq("owner_id", ctx.ownerId).eq("report_kind", "daily").eq("period_end", day).eq("status", "draft").is("sent_at", null).is("skipped_at", null);
+    const reports = (data ?? []) as Row[];
+    if (!reports.length) return { refreshed: 0 };
+    const { data: partners } = await ctx.sb.from("partners").select("*").in("id", reports.map((r) => r.partner_id));
+    const byId = new Map(((partners ?? []) as Row[]).map((p) => [String(p.id), p]));
+    const dayDetail = await buildDayDetailFor(ctx, day).catch(() => null);
+    let refreshed = 0;
+    for (const r of reports) {
+      const p = byId.get(String(r.partner_id));
+      if (!p) continue;
+      const snapshot = { ...(await buildPartnerSnapshot(ctx, p, day, day)), report_kind: "daily", ...(dayDetail ? { day: dayDetail } : {}) };
+      const { error } = await ctx.sb.from("partner_reports").update({ snapshot }).eq("id", r.id);
+      if (!error) refreshed++;
+    }
+    return { refreshed };
+  } catch {
+    return { refreshed: 0 };
+  }
+}
+
+/**
+ * The daily report as it would be sent, for a day with no partner set to Daily or Both (step 3 of the close shows it
+ * with a note; nothing is saved or sent). Uses the Standard template and a stand-in partner name.
+ */
+export async function previewDailyReport(ctx: Ctx, day: string): Promise<{ subject: string; html: string }> {
+  const { templates } = await loadReportTemplates(ctx.sb, ctx.ownerId);
+  const template = defaultTemplateFor(templates, null);
+  const partner: Row = { id: "preview", name: "Accountability partner", sections: ["commitments", "targets"] };
+  const dayDetail = await buildDayDetailFor(ctx, day).catch(() => null);
+  const snapshot = { ...(await buildPartnerSnapshot(ctx, partner, day, day)), report_kind: "daily", ...(dayDetail ? { day: dayDetail } : {}) };
+  const report: Row = { period_start: day, period_end: day, summary: null, snapshot, report_kind: "daily" };
+  const email = templateReportEmail(partner, report, null, [template]);
+  return { subject: email.subject, html: email.html };
 }
 
 /** Text of the report for email, call script, or letter. */

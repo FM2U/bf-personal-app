@@ -33,6 +33,7 @@ import { addDaysISO } from "@/lib/calc/dates";
 import { date as fmtDate, money, months as fmtMonths, num } from "@/lib/format";
 import { hasUpdate0014 } from "@/lib/update-0014";
 import { hasUpdate0018 } from "@/lib/update-0018";
+import { hasUpdate0019 } from "@/lib/update-0019";
 import { loadSentReport, type SentReport } from "@/lib/sent-report";
 import { DB_UPDATE_NOTICE_0014 } from "@/lib/schema-guard";
 import { AIInvalidReply, AIUnavailable } from "@/lib/ai/claude";
@@ -435,7 +436,9 @@ export type TaskWindowData =
       today: string;
       /** Database update 0018 is applied (Done late can be saved). */
       has0018: boolean;
-      task: { done: boolean; due: string | null; timesMoved: number } | null;
+      /** Database update 0019 is applied (Waiting on can be saved). */
+      has0019: boolean;
+      task: { done: boolean; due: string | null; timesMoved: number; waitingOn: string | null; waitingSince: string | null } | null;
       commitment: {
         id: string;
         due: string;
@@ -487,7 +490,7 @@ export async function loadTaskWindow(table: string, id: string): Promise<TaskWin
     commitmentRow = ((data ?? []) as Row[])[0] ?? null;
   }
   const ctx = await loadCtx(sb, ownerId);
-  const [missRes, context, linked, documents, notes, history, lists, suggestion, has0018] = await Promise.all([
+  const [missRes, context, linked, documents, notes, history, lists, suggestion, has0018, has0019] = await Promise.all([
     commitmentRow ? sb.from("missed_commitments").select("*").eq("commitment_id", commitmentRow.id).order("missed_on", { ascending: false }) : Promise.resolve({ data: [] }),
     subject === "tasks" ? taskContext(sb, row, ctx.today) : Promise.resolve(null),
     loadLinked(sb, subject, subjectId),
@@ -497,6 +500,7 @@ export async function loadTaskWindow(table: string, id: string): Promise<TaskWin
     subject === "tasks" && row.template_id ? loadChecklists(sb, { templateId: row.template_id }).catch(() => null) : Promise.resolve(null),
     subject === "tasks" ? firstSuggestion([taskSuggestion(row as { id: string; status: string; times_moved?: number | null })]) : Promise.resolve(null),
     commitmentRow ? hasUpdate0018(sb) : Promise.resolve(false),
+    subject === "tasks" ? hasUpdate0019(sb) : Promise.resolve(false),
   ]);
   return {
     ok: true,
@@ -505,7 +509,8 @@ export async function loadTaskWindow(table: string, id: string): Promise<TaskWin
     tomorrow: addDaysISO(ctx.today, 1),
     today: ctx.today,
     has0018,
-    task: subject === "tasks" ? { done: row.status === "done", due: row.due_date ?? null, timesMoved: Number(row.times_moved ?? 0) } : null,
+    has0019,
+    task: subject === "tasks" ? { done: row.status === "done", due: row.due_date ?? null, timesMoved: Number(row.times_moved ?? 0), waitingOn: (row.waiting_on as string | null) ?? null, waitingSince: (row.waiting_since as string | null) ?? null } : null,
     commitment: commitmentRow
       ? {
           id: String(commitmentRow.id),

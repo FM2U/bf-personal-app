@@ -12,12 +12,15 @@
  *   and Open full page.
  * - Resolve: every Resolve button (Commitments, alerts, Home, the misses below, Next required action) opens this window
  *   at r/commitments/<id>/resolve[/<miss id>]: "Resolve this miss" is open at the top and every other section is
- *   closed (this choice is not remembered). Choices: Done late, New date, Open a decision, No longer a commitment.
+ *   closed (this choice is not remembered). Choices: Done late, New date, Open a decision, No longer a commitment
+ *   (the form itself is src/components/app/resolve-miss-form.tsx, shared with step 2 of Close the day).
+ * - Waiting on someone: two small fields on a task (who, since when; database update 0019). Tasks with a name here
+ *   are listed on Today under "Waiting on someone".
  */
 import { useState, useTransition } from "react";
 import { AlertTriangle } from "lucide-react";
 import Link from "next/link";
-import { CalendarClock, CheckCircle2, Circle, ListChecks, Pencil, ShieldCheck } from "lucide-react";
+import { CalendarClock, CheckCircle2, Circle, Hourglass, ListChecks, Pencil, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge, StatusBadge, dueClass } from "@/components/ui/badge";
@@ -30,12 +33,11 @@ import { GuardedForm } from "@/components/app/unsaved-changes";
 import { flashMessage, useWindowNav } from "@/components/app/window-host";
 import { ActionError, clearWindowCache, ErrorView, FullPageButton, LoadingView, useLoad, ViewLayout } from "@/components/app/windows/views";
 import { loadTaskWindow, moveTaskToTomorrow, type TaskWindowData } from "@/app/actions/window";
-import { markCommitment, resolveMiss, setTaskStatus } from "@/app/actions/records";
+import { markCommitment, setTaskStatus } from "@/app/actions/records";
+import { setTaskWaiting } from "@/app/actions/today";
 import { movedNote } from "@/lib/calc/commitment-rule";
-import { commitmentStatusWord, defaultDoneOn, RESOLVE_CHOICES, resolutionLabel, type MissResolution } from "@/lib/calc/resolve-miss";
-import { DB_UPDATE_NOTICE_0018 } from "@/lib/schema-guard";
-import { FormField } from "@/components/ui/form-field";
-import { Textarea } from "@/components/ui/input";
+import { commitmentStatusWord, resolutionLabel } from "@/lib/calc/resolve-miss";
+import { ResolveMissForm, type ResolveResult } from "@/components/app/resolve-miss-form";
 import { date as fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -97,6 +99,7 @@ function TaskDetailsBody({ d, reload, hideContextNext, resolve }: { d: Ok; reloa
           </button>
         ) : null}
       </div>
+      {d.task && d.table === "tasks" && !resolve && !d.task.done ? <WaitingOnRow taskId={b.id} who={d.task.waitingOn} since={d.task.waitingSince} today={d.today} available={d.has0019} onSaved={changed} /> : null}
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
         <div className="flex min-w-0 flex-col gap-4">
           <CollapsibleCard id="details" storageKey={storageKey} title="Details" meta={b.fields.length || undefined} summary={b.fields.slice(0, 3).map((f) => `${f.label}: ${f.text}`).join(", ")} testId="task-window-details">
@@ -340,12 +343,9 @@ export function TaskWindow({ table, id, resolve = null }: { table: string; id: s
 function ResolveSection({ d, miss }: { d: Ok; miss: NonNullable<Ok["commitment"]>["misses"][number] | null }) {
   const nav = useWindowNav();
   const c = d.commitment;
-  const [mode, setMode] = useState<MissResolution>("done_late");
-  const [error, setError] = useState<string | null>(null);
   const due = miss?.missedOn ?? c?.due ?? d.today;
-  const done = (r: Awaited<ReturnType<typeof resolveMiss>>) => {
-    if (!r.ok) return setError(r.error);
-    setError(null);
+  const done = (r: ResolveResult) => {
+    if (!r.ok) return;
     clearWindowCache();
     nav.refreshPage();
     if (r.resolution === "decision" && r.decisionId) {
@@ -375,20 +375,8 @@ function ResolveSection({ d, miss }: { d: Ok; miss: NonNullable<Ok["commitment"]
           This miss is already resolved: {resolutionLabel({ resolution: miss.resolution, done_on: miss.doneOn, new_due_date: miss.newDue })}.{miss.reason ? ` Reason: ${miss.reason}` : ""}
         </p>
       ) : (
-        <GuardedForm
-          action={async (fd) => {
-            try {
-              return await resolveMiss(fd);
-            } catch {
-              return { ok: false as const, error: "Not saved. Try again." };
-            }
-          }}
-          onResult={(r) => done(r as Awaited<ReturnType<typeof resolveMiss>>)}
-          className="flex flex-col gap-4"
-          data-testid="resolve-form"
-        >
-          <input type="hidden" name="miss_id" value={miss.id} />
-          <dl className="grid grid-cols-2 gap-x-6 gap-y-3 rounded-lg border border-slate-200 bg-white p-3 sm:grid-cols-3">
+        <>
+          <dl className="mb-4 grid grid-cols-2 gap-x-6 gap-y-3 rounded-lg border border-slate-200 bg-white p-3 sm:grid-cols-3">
             <div className="min-w-0">
               <dt className="clamp-1 text-xs font-medium text-slate-500">Was due</dt>
               <dd className="tabular mt-0.5 text-sm">{fmtDate(miss.missedOn)}</dd>
@@ -404,54 +392,51 @@ function ResolveSection({ d, miss }: { d: Ok; miss: NonNullable<Ok["commitment"]
               </dd>
             </div>
           </dl>
-          <FormField label="Why was it missed?" htmlFor="resolve-reason" required hint="One line. It is shown in reviews and partner reports.">
-            <Input id="resolve-reason" name="reason" defaultValue={miss.reason ?? ""} placeholder="Example: the broker moved the call to next week" required maxLength={200} autoFocus />
-          </FormField>
-          <fieldset className="flex flex-col gap-2">
-            <legend className="mb-1 text-sm font-medium text-slate-800">What happens next</legend>
-            {RESOLVE_CHOICES.map((choice) => {
-              const on = mode === choice.value;
-              const blocked = choice.value === "done_late" && !d.has0018;
-              return (
-                <label key={choice.value} className={cn("grid grid-cols-[1rem_minmax(0,1fr)] items-start gap-x-2.5 gap-y-2 rounded-lg border p-3 text-sm", on ? "border-primary-border bg-primary-soft" : "border-slate-200")}>
-                  <input type="radio" name="resolution" value={choice.value} checked={on} onChange={() => setMode(choice.value)} className="mt-0.5 accent-primary" data-testid={`resolve-${choice.value.replace("_", "-")}`} />
-                  <span className="min-w-0">
-                    <span className="font-medium">{choice.label}</span>
-                    <span className="block text-xs text-muted-foreground">{choice.help}</span>
-                  </span>
-                  {on && choice.value === "done_late" ? (
-                    <span className="col-start-2 flex flex-col gap-2">
-                      {blocked ? (
-                        <span className="text-xs font-medium text-status-soon">{DB_UPDATE_NOTICE_0018}</span>
-                      ) : (
-                        <>
-                          <span className="flex flex-wrap items-center gap-2">
-                            <span className="text-xs font-medium text-slate-700">Date it was done</span>
-                            <Input name="done_on" type="date" className="w-44" aria-label="Date it was done" defaultValue={defaultDoneOn(due, d.today)} min={due} max={d.today} required data-testid="resolve-done-on" />
-                          </span>
-                          <Textarea name="note" rows={2} maxLength={500} placeholder="Note (optional). Example: sent the LOI a day late, after the broker's call" aria-label="Note (optional)" data-testid="resolve-note" />
-                        </>
-                      )}
-                    </span>
-                  ) : null}
-                  {on && choice.value === "new_date" ? (
-                    <span className="col-start-2 flex flex-wrap items-center gap-2">
-                      <span className="text-xs font-medium text-slate-700">New due date</span>
-                      <Input name="new_due_date" type="date" className="w-44" aria-label="New due date" defaultValue={d.today} min={d.today} required />
-                    </span>
-                  ) : null}
-                </label>
-              );
-            })}
-          </fieldset>
-          <ActionError error={error} />
-          <div>
-            <SubmitButton size="sm" data-testid="resolve-save" disabled={mode === "done_late" && !d.has0018}>
-              Save
-            </SubmitButton>
-          </div>
-        </GuardedForm>
+          <ResolveMissForm missId={miss.id} due={due} today={d.today} has0018={d.has0018} reason={miss.reason} onDone={done} />
+        </>
       )}
     </CollapsibleCard>
+  );
+}
+
+// ---------- Waiting on someone ----------
+
+/**
+ * "Waiting on": who the task waits on and since when (today by default), saved with Save. Clearing the name clears
+ * the wait. Tasks with a name here are listed on Today under "Waiting on someone".
+ */
+function WaitingOnRow({ taskId, who, since, today, available, onSaved }: { taskId: string; who: string | null; since: string | null; today: string; available: boolean; onSaved: () => void }) {
+  const [name, setName] = useState(who ?? "");
+  const [date, setDate] = useState(since ?? today);
+  const [pending, start] = useTransition();
+  const [message, setMessage] = useState<string | null>(null);
+  const dirty = name.trim() !== (who ?? "") || (name.trim() ? date !== (since ?? today) : false);
+  if (!available) return null;
+  return (
+    <form
+      className="grid grid-cols-1 items-end gap-x-3 gap-y-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 sm:grid-cols-[auto_minmax(0,1fr)_auto_auto]"
+      data-testid="task-waiting"
+      onSubmit={(e) => {
+        e.preventDefault();
+        start(async () => {
+          const r = await setTaskWaiting(taskId, name, date);
+          setMessage(r.ok ? (name.trim() ? "Saved. It is on Today under Waiting on someone." : "Cleared.") : r.error);
+          if (r.ok) onSaved();
+        });
+      }}
+    >
+      <span className="flex items-center gap-1.5 pb-2 text-xs font-medium text-slate-700 sm:pb-2.5">
+        <Hourglass aria-hidden className="h-3.5 w-3.5 text-slate-500" /> Waiting on
+      </span>
+      <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Who (empty when no one)" maxLength={120} aria-label="Waiting on" className="h-8" data-testid="task-waiting-who" />
+      <label className="flex items-center gap-2 text-xs text-slate-700">
+        since
+        <Input type="date" value={date} max={today} onChange={(e) => setDate(e.target.value)} aria-label="Waiting since" className="h-8 w-40" data-testid="task-waiting-since" />
+      </label>
+      <Button type="submit" size="sm" variant="outline" disabled={pending || !dirty} data-testid="task-waiting-save">
+        {pending ? "Saving..." : "Save"}
+      </Button>
+      {message ? <p className="text-xs text-muted-foreground sm:col-span-4">{message}</p> : null}
+    </form>
   );
 }

@@ -1,4 +1,4 @@
-import { Briefcase, CheckSquare, Home, Scale, Settings, Target, Users, Wallet, type LucideIcon } from "lucide-react";
+import { Briefcase, CheckSquare, Home, Mail, MoreHorizontal, Scale, Settings, Sun, Target, Users, Wallet, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ACCENT_TEXT, MODULE_ACCENT } from "@/lib/status";
 
@@ -12,6 +12,12 @@ export const MODULE_ICONS: Record<string, LucideIcon> = {
   productivity: CheckSquare,
   accountability: Scale,
   settings: Settings,
+  // The main menu (the focused version).
+  today: Sun,
+  pipelines: Briefcase,
+  commitments: Scale,
+  reports: Mail,
+  more: MoreHorizontal,
 };
 
 export type ModuleKey = keyof typeof MODULE_ICONS;

@@ -32,7 +32,7 @@ export default async function AppLayout({ children, modal }: { children: React.R
             </span>
             {pending ? <span className="rounded-full bg-status-soon-bg px-2 text-xs font-medium text-status-soon">{pending}</span> : null}
           </Link>
-          <Link href="/#alerts" className="flex items-center justify-between rounded-md px-3 py-2 text-slate-600 hover:bg-slate-100">
+          <Link href="/more/old-home#alerts" className="flex items-center justify-between rounded-md px-3 py-2 text-slate-600 hover:bg-slate-100">
             <span>Alerts</span>
             {alerts ? <span className="rounded-full bg-status-missed-bg px-2 text-xs font-medium text-status-missed">{alerts}</span> : null}
           </Link>
@@ -51,7 +51,7 @@ export default async function AppLayout({ children, modal }: { children: React.R
             <Link href="/proposals" className="rounded-full border border-border px-2 py-1">
               Proposals{pending ? ` (${pending})` : ""}
             </Link>
-            <Link href="/#alerts" className="rounded-full border border-border px-2 py-1">
+            <Link href="/more/old-home#alerts" className="rounded-full border border-border px-2 py-1">
               Alerts{alerts ? ` (${alerts})` : ""}
             </Link>
           </div>

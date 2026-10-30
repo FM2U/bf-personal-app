@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   combinedOverall,
   defaultTemplateFor,
+  EMAIL_COLORS,
+  outcomesOverall,
   legacyPeriodData,
   MEASURE_KEYS,
   missesFor,
@@ -17,6 +19,7 @@ import {
   type PeriodData,
   type ReportTemplate,
 } from "./partner-report";
+import type { DayDetail } from "./today";
 
 const week: PeriodData = {
   start: "2026-10-23",
@@ -207,5 +210,100 @@ describe("daily partner reports (the day period)", () => {
     expect(s.template.period).toBe("week");
     expect(toTemplate({ id: "d", name: "Today", measures: ["tasks_done"], period: "day" }).period).toBe("day");
     expect(templateProblems({ name: "Today", measures: ["tasks_done"], period: "day" })).toEqual([]);
+  });
+});
+
+describe("daily report content (the focused version: outcomes, progress by initiative, changes, tomorrow)", () => {
+  const day: PeriodData = { start: "2026-10-30", end: "2026-10-30", commitments: { met: 2, missed: 1, pct: 67, missedTitles: ["Send the LOI"] }, tasks: { done: 5, overdue: 1 } };
+  const detail: DayDetail = {
+    date: "2026-10-30",
+    focusedHours: 4,
+    outcomes: [
+      { title: "Review the Dalton CIM", status: "complete", result: "Read it. The asking price is high.", initiative: "Acquisition Search", block: 90, actual: 75 },
+      { title: "Call two brokers", status: "partial", result: "One call made.", initiative: "Acquisition Search", block: 30, actual: null },
+      { title: "Send the operations report", status: "incomplete", result: null, initiative: "Consulting", block: 60, actual: null },
+    ],
+    initiatives: [
+      { name: "Acquisition Search", targets: [{ name: "Listings screened", count: 12, required: 20, met: false, period: "day" }, { name: "Broker or owner calls", count: 2, required: 2, met: true, period: "week" }], tasksDone: 2, moved: [{ item: "Demo HVAC Services Co", stage: "CIM review" }], passes: [{ item: "Demo Car Wash Co", reason: "too small" }], outreach: 3 },
+      { name: "Consulting", targets: [], tasksDone: 1, moved: [], passes: [], outreach: 0 },
+    ],
+    changes: "The broker call moved to Monday.",
+    tomorrow: "Finish the Dalton model",
+  };
+  const report = { period_start: "2026-10-30", period_end: "2026-10-30", snapshot: { measures: { day, week }, report_kind: "daily", day: detail } };
+  const input = (t: ReportTemplate) => ({ partnerName: "Pat", report, templates: [t], link: "https://example.com/r/abc" });
+
+  it("the Standard template has the four sections in order: outcomes, progress by initiative, changes, tomorrow", () => {
+    const { body, subject } = reportEmailText(input(STARTER_TEMPLATES[1]));
+    expect(subject).toBe("Daily accountability report: Fri, Oct 30, 2026");
+    const order = ["PLANNED OUTCOMES", "PROGRESS BY INITIATIVE", "CHANGES IN PLAN", "TOMORROW'S TOP PRIORITY"].map((h) => body.indexOf(h));
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(body).toContain("- Complete: Review the Dalton CIM (75 min), Acquisition Search. Read it. The asking price is high.");
+    expect(body).toContain("- Partial: Call two brokers (30 min planned), Acquisition Search. One call made.");
+    expect(body).toContain("- Incomplete: Send the operations report (60 min planned), Consulting");
+    expect(body).toContain("- Acquisition Search: Listings screened 12 of 20; Broker or owner calls 2 of 2 this week; 2 tasks done; moved: Demo HVAC Services Co to CIM review; passed: Demo Car Wash Co (too small); 3 outreach messages sent");
+    expect(body).toContain("- Consulting: 1 task done");
+    expect(body).toContain("The broker call moved to Monday.");
+    expect(body).toContain("Finish the Dalton model");
+    expect(body).not.toContain("TODAY'S NUMBERS");
+    expect(body).toContain("1 of 3 outcomes complete");
+  });
+
+  it("the Summary template shows the outcomes and tomorrow's priority only", () => {
+    const { body } = reportEmailText(input(STARTER_TEMPLATES[0]));
+    expect(body).toContain("PLANNED OUTCOMES");
+    expect(body).toContain("TOMORROW'S TOP PRIORITY");
+    expect(body).not.toContain("PROGRESS BY INITIATIVE");
+    expect(body).not.toContain("CHANGES IN PLAN");
+    const html = reportEmailHtml(input(STARTER_TEMPLATES[0]));
+    expect(html).toContain("Planned outcomes");
+    expect(html).not.toContain("Progress by initiative");
+  });
+
+  it("the Detailed template adds today's numbers as tiles after the progress", () => {
+    const { body } = reportEmailText(input(STARTER_TEMPLATES[2]));
+    const a = body.indexOf("PROGRESS BY INITIATIVE");
+    const b = body.indexOf("TODAY'S NUMBERS");
+    const c = body.indexOf("CHANGES IN PLAN");
+    expect(a).toBeGreaterThan(-1);
+    expect(b).toBeGreaterThan(a);
+    expect(c).toBeGreaterThan(b);
+    expect(body).toContain("- Commitments met: 2 (of 3 due)");
+  });
+
+  it("the HTML keeps the tile styling, the gold line, colored outcome dots, and stays email-safe", () => {
+    const html = reportEmailHtml(input(STARTER_TEMPLATES[1]));
+    expect(html).toContain("Daily accountability report");
+    expect(html).toContain(`background-color:${EMAIL_COLORS.gold}`);
+    expect(html).toContain("Planned outcomes");
+    expect(html).toContain("Progress by initiative");
+    expect(html).toContain("Changes in plan");
+    expect(html).toContain("Tomorrow&#39;s top priority");
+    // One tile per target, tasks done, moved stage, passed, outreach (Acquisition Search), one for Consulting.
+    expect(html.match(/max-width:140px/g)?.length).toBe(7);
+    expect(html).toContain(`color:${EMAIL_COLORS.bar.met}`);
+    expect(html).toContain(`color:${EMAIL_COLORS.bar.missed}`);
+    expect(html).toContain("Moved: Demo HVAC Services Co to CIM review<br>Passed: Demo Car Wash Co (too small)");
+    expect(html).toContain("Focused hours: 4.");
+    expect(html).not.toMatch(/<style|<script|<img|class=/);
+    expect(html).toContain("Open the full report");
+  });
+
+  it("without outcomes or activity it says so, and the overall pill says no outcomes planned", () => {
+    const empty: DayDetail = { ...detail, outcomes: [], initiatives: [], changes: null, tomorrow: null };
+    const { body } = reportEmailText({ partnerName: "Pat", report: { ...report, snapshot: { ...report.snapshot, day: empty } }, templates: [STARTER_TEMPLATES[1]], link: null });
+    expect(body).toContain("No outcomes were planned.");
+    expect(body).toContain("No activity was recorded today.");
+    expect(body).toContain("No changes.");
+    expect(body).toContain("Not set.");
+    expect(outcomesOverall([]).text).toBe("No outcomes planned");
+    expect(outcomesOverall(detail.outcomes).status).toBe("soon");
+  });
+
+  it("a daily report without the day content (made before this batch) keeps the tiles", () => {
+    const { body } = reportEmailText({ partnerName: "Pat", report: { period_start: "2026-10-30", period_end: "2026-10-30", snapshot: { measures: { day, week }, report_kind: "daily" } }, templates: [STARTER_TEMPLATES[1]], link: null });
+    expect(body).not.toContain("PLANNED OUTCOMES");
+    expect(body).toContain("STANDARD (Fri, Oct 30, 2026)");
   });
 });

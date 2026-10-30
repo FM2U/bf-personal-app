@@ -149,6 +149,11 @@ export const MODULE_ACCENT: Record<string, Accent> = {
   productivity: "cobalt",
   accountability: "violet",
   settings: "gray",
+  today: "cobalt",
+  pipelines: "coral",
+  commitments: "violet",
+  reports: "violet",
+  more: "gray",
 };
 
 /** Text color class for a module icon. */
