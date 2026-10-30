@@ -10,7 +10,7 @@ import { applyCategoryRules, detectAndSaveRecurring } from "@/lib/engine/finance
 import { buildMorningPlan } from "@/lib/engine/run";
 import { dailyCloseCommitments, dailyCloseTargets, ensureReview, type ReviewKind } from "@/lib/engine/reviews";
 import { resolveCloseReasons, type CloseMiss } from "@/lib/calc/commitment-rule";
-import { createPartnerReport, activeLinkFor, ensureReportMeasures, templateReportEmail } from "@/lib/engine/partners";
+import { createPartnerReport, activeLinkFor, draftDailyPartnerReports, ensureReportMeasures, templateReportEmail } from "@/lib/engine/partners";
 import { chooseTemplates, loadReportTemplates } from "@/lib/report-templates";
 import { repaymentSchedule } from "@/lib/calc/savings";
 import { encrypt, randomToken, sha256 } from "@/lib/crypto";
@@ -227,7 +227,10 @@ export async function saveReview(fd: FormData) {
   if (complete) {
     const kindTitle: Record<string, string> = { daily: "Complete the daily close", weekly: "Complete the weekly review", monthly: "Complete the monthly review", quarterly: "Complete the quarterly review" };
     await supabase.from("tasks").update({ status: "done" }).eq("title", kindTitle[review.kind]).eq("status", "todo").lte("due_date", review.period_end > review.period_start ? new Date().toISOString().slice(0, 10) : review.period_end);
-    await checkCommitments(await loadCtx(supabase, ownerId), false);
+    const after = await loadCtx(supabase, ownerId);
+    await checkCommitments(after, false);
+    // Daily partner reports (Daily or Both): drafted now for the daily close screen. Nothing is sent.
+    if (review.kind === "daily") await draftDailyPartnerReports(after, String(review.period_start));
   }
   done();
 }

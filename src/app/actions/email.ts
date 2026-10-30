@@ -5,7 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
 import { evaluateConditions } from "@/lib/engine/rules";
-import { activeLinkFor, templateReportEmail } from "@/lib/engine/partners";
+import { activeLinkFor, reportForEmail, templateReportEmail } from "@/lib/engine/partners";
 import { chooseTemplates, loadReportTemplates } from "@/lib/report-templates";
 import { reportPdf, reportPdfName } from "@/lib/report-pdf";
 import type { MimeAttachment } from "@/lib/gmail-mime";
@@ -316,11 +316,12 @@ export type ReportSendOptions = { templateIds?: string[] | null; attachPdf?: boo
 async function buildReportEmail(sb: SupabaseClient, ownerId: string, report: Row, partner: Row, opts: ReportSendOptions) {
   const link = await activeLinkFor({ sb }, String(partner.id));
   const { templates: all } = await loadReportTemplates(sb, ownerId);
-  const templates = chooseTemplates(all, opts.templateIds ?? null, partner);
+  // A daily report uses the template saved with its draft unless another one is chosen.
+  const templates = chooseTemplates(all, opts.templateIds?.length ? opts.templateIds : report.template_id ? [String(report.template_id)] : null, partner);
   const email = templateReportEmail(partner, report, link, templates);
   let attachments: MimeAttachment[] | null = null;
   if (opts.attachPdf) {
-    const bytes = await reportPdf({ partnerName: String(partner.name), report: { period_start: report.period_start, period_end: report.period_end, summary: report.summary ?? null, snapshot: report.snapshot ?? null }, templates, link });
+    const bytes = await reportPdf({ partnerName: String(partner.name), report: reportForEmail(report), templates, link });
     attachments = [{ filename: reportPdfName(String(report.period_start), String(report.period_end)), contentType: "application/pdf", data: bytes }];
   }
   return { ...email, templates, attachments };
@@ -353,7 +354,13 @@ export async function sendPartnerReportEmail(input: { reportId: string; requestI
   let contact: Row | null = null;
   if (partner.contact_id) contact = ((await supabase.from("contacts").select("*").eq("id", partner.contact_id).maybeSingle()).data as Row | null) ?? null;
   const commId = await saveCommunication(supabase, { kind: "partner_report", ownerId, to: String(partner.email), subject: email.subject, body: email.body, sentAt, contact }, sent);
-  if (commId) await supabase.from("record_links").insert({ owner_id: ownerId, from_type: "communications", from_id: commId, to_type: "partners", to_id: partner.id, relation: "partner report" });
+  if (commId) {
+    await supabase.from("record_links").insert([
+      { owner_id: ownerId, from_type: "communications", from_id: commId, to_type: "partners", to_id: partner.id, relation: "partner report" },
+      // The report itself: Communication history opens the report as sent (src/lib/sent-report.ts).
+      { owner_id: ownerId, from_type: "communications", from_id: commId, to_type: "partner_reports", to_id: report.id, relation: "report sent" },
+    ]);
+  }
 
   const delivered = [...new Set([...((report.delivered_via as string[] | null) ?? []), "gmail_sent"])];
   let { error } = await supabase.from("partner_reports").update({ delivered_via: delivered, sent_at: sentAt, gmail_message_id: sent.id }).eq("id", report.id);
@@ -369,6 +376,8 @@ export async function sendPartnerReportEmail(input: { reportId: string; requestI
       subject: email.subject,
       partner_id: partner.id,
       templates: email.templates.map((t) => t.name),
+      // The templates exactly as sent (measures and period), so the report can be shown again as sent.
+      template_defs: email.templates,
       pdf_attached: !!email.attachments,
       communication_id: commId,
       gmail_message_id: sent.id,

@@ -3,7 +3,22 @@
 Do these in order. Each line says where to copy a value from and where to paste it.
 Vercel variables go in: Vercel, project bf-personal-app, Settings, Environment Variables (Production).
 
-## 0000. Partner report templates (the live database has 0001 to 0016; about 3 minutes)
+## 00000. Done late and daily partner reports (the live database has 0001 to 0017; about 4 minutes)
+
+One database update. Until it is run, Resolve shows Done late with "Database update needed" (the other choices work), partners stay Weekly, no daily report is drafted, and everything else keeps working.
+
+**Step 1: database update 0018 (about 1 minute)**
+- [ ] Open the file `supabase/UPDATE_0018_RUN_ONCE.sql` in the GitHub repository (bf-personal-app), press "Copy raw file"
+- [ ] Supabase, project bf-personal-app, SQL Editor, New query: paste, press **Run**. Expected result: "Success. No rows returned"
+- [ ] Running it a second time is safe. Every existing partner gets the report frequency Weekly; no report or commitment is changed
+
+**Step 2: check it (about 3 minutes)**
+- [ ] Accountability, Report templates: on the right, each partner has Template and Reports (Daily, Weekly, Both). Set one partner to Both
+- [ ] Commitments: press Resolve on a missed commitment. The task window opens with "Resolve this miss" at the top. Choose Done late, type the reason, Save. The Resolved misses table shows "Done late" with the date
+- [ ] On a weekday evening, complete the daily close: "Today's partner reports" shows the report for that partner. Press Approve and send (or Not today). Nothing is sent before you press it
+- [ ] People, Communication history: open the sent report. The report shows as it was sent, with Open the PDF and Open the report record
+
+## 0000. Partner report templates (a database with 0001 to 0016; already done on the live database; about 3 minutes)
 
 One database update. Until it is run, report emails use the three starter templates (Standard by default), Accountability, Report templates shows "Database update needed" (naming the file), and everything else keeps working. The balance sheet and the deal scorecard need no update.
 

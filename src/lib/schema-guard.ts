@@ -142,3 +142,19 @@ export const DB_UPDATE_NOTICE_0017 = `Database update needed: paste ${DB_UPDATE_
 export const PROBE_0017 = "schema_has_0017";
 export const TABLES_0017 = ["partner_report_templates"];
 export const COLUMNS_0017: Record<string, string[]> = { partners: ["report_template_id"] };
+
+/**
+ * Database update 0018 (Done late and daily partner reports): missed_commitments.done_on and the resolution and
+ * commitment status "done_late", the template period "day", partners.report_frequency, partner_reports.report_kind,
+ * template_id, and skipped_at, and schema_has_0018(). Before it, Resolve offers Done late with DB_UPDATE_NOTICE_0018
+ * (the other choices work), the partner form leaves out Report frequency, no daily report is drafted after the daily
+ * close, and every other screen and both scheduled jobs keep working.
+ */
+export const DB_UPDATE_FILE_0018 = "supabase/UPDATE_0018_RUN_ONCE.sql";
+export const DB_UPDATE_NOTICE_0018 = `Database update needed: paste ${DB_UPDATE_FILE_0018} into the Supabase SQL Editor and run it.`;
+export const PROBE_0018 = "schema_has_0018";
+export const COLUMNS_0018: Record<string, string[]> = {
+  partners: ["report_frequency"],
+  missed_commitments: ["done_on"],
+  partner_reports: ["report_kind", "template_id", "skipped_at"],
+};

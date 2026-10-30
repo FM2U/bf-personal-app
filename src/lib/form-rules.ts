@@ -4,8 +4,9 @@ import { addDaysISO } from "@/lib/calc/dates";
 import { hasPipelineUpdate } from "@/lib/pipeline";
 import { hasConsultingUpdate } from "@/lib/consulting";
 import { fieldTextForKind, hiddenForKind, type FieldText } from "@/lib/pipeline-labels";
-import { COLUMNS_0009, COLUMNS_0011, COLUMNS_0014, OPTIONS_0012, PROBE_0012 } from "@/lib/schema-guard";
+import { COLUMNS_0009, COLUMNS_0011, COLUMNS_0014, COLUMNS_0018, OPTIONS_0012, PROBE_0012 } from "@/lib/schema-guard";
 import { hasUpdate0014 } from "@/lib/update-0014";
+import { hasUpdate0018 } from "@/lib/update-0018";
 import type { Row } from "@/lib/types";
 
 /**
@@ -22,6 +23,11 @@ export async function formRules(
   const watched9 = COLUMNS_0009[table];
   const watched11 = COLUMNS_0011[table];
   const watched14 = COLUMNS_0014[table];
+  const watched18 = COLUMNS_0018[table];
+  // Columns from update 0018 (partner report frequency) are left out until it is applied.
+  if (watched18 && !watched9 && !watched11 && !watched14) {
+    return { hide: (await hasUpdate0018(sb)) ? [] : watched18, require: [], updateNeeded: false, kind: null, text: {} };
+  }
   // Columns from update 0014 (parent initiative, goal measured number details) are left out until it is applied.
   if (watched14 && !watched9 && !watched11) {
     return { hide: (await hasUpdate0014(sb)) ? [] : watched14, require: [], updateNeeded: false, kind: null, text: {} };

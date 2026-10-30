@@ -19,7 +19,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const { data: partner } = await sb.from("partners").select("*").eq("id", report.partner_id).maybeSingle();
   const ids = (new URL(req.url).searchParams.get("t") ?? "").split(",").filter(Boolean);
   const { templates } = await loadReportTemplates(sb, owner.ownerId);
-  const chosen = chooseTemplates(templates, ids, (partner as Row | null) ?? null);
+  // A daily report uses the template saved with its draft when no template is named.
+  const chosen = chooseTemplates(templates, ids.length ? ids : report.template_id ? [String(report.template_id)] : [], (partner as Row | null) ?? null);
   const link = partner ? await activeLinkFor({ sb }, String(partner.id)) : null;
   const bytes = await reportPdf({ partnerName: String(partner?.name ?? "Accountability partner"), report: { period_start: report.period_start, period_end: report.period_end, summary: report.summary ?? null, snapshot: report.snapshot ?? null }, templates: chosen, link });
   return new NextResponse(Buffer.from(bytes), {

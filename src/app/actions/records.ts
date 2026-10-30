@@ -17,6 +17,9 @@ import { ORG_PEOPLE_FIELD, parseOrgPeople, planOrgPeople, type OrgPeoplePlan } f
 import { applyOrgPeople, linkedContactIds } from "@/lib/org-people-server";
 import { DETAIL_TABLE, hasPipelineUpdate, missingForStage } from "@/lib/pipeline";
 import type { Row } from "@/lib/types";
+import { completedAtFor, doneLateProblem, isResolution, type MissResolution } from "@/lib/calc/resolve-miss";
+import { hasUpdate0018 } from "@/lib/update-0018";
+import { DB_UPDATE_NOTICE_0018 } from "@/lib/schema-guard";
 import { canQuickCreate, quickCreateFields } from "@/lib/quick-create";
 import { safeLeaveTarget } from "@/lib/form-dirty";
 import { titleOf } from "@/lib/data";
@@ -471,17 +474,20 @@ export async function markCommitment(fd: FormData): Promise<PanelResult> {
 }
 
 /**
- * Missed commitment flow: one-line reason, then a new date or a decision record. Used by the resolve window
- * (`?w=resolve/<miss id>`), so it never revalidates (see src/app/actions/window.ts); the window reloads the page
- * underneath when it closes.
+ * Missed commitment flow: a one-line reason ("Why was it missed?"), then one of: Done late (the date it was done and an
+ * optional note; the task is marked done on that date and the miss still counts in the score), New date, Open a
+ * decision, or No longer a commitment (the task stays a task). Used by the "Resolve this miss" section of the task
+ * window, so it never revalidates (see src/app/actions/window.ts); the window reloads the page underneath.
  */
-export async function resolveMiss(fd: FormData): Promise<{ ok: true; resolution: "new_date" | "decision"; decisionId: string | null } | { ok: false; error: string }> {
+export async function resolveMiss(fd: FormData): Promise<{ ok: true; resolution: MissResolution; decisionId: string | null } | { ok: false; error: string }> {
   const missId = String(fd.get("miss_id") ?? "");
-  const reason = String(fd.get("reason") ?? "").trim();
+  const reason = String(fd.get("reason") ?? "").replace(/\s+/g, " ").trim();
   const resolution = String(fd.get("resolution") ?? "");
   const newDate = String(fd.get("new_due_date") ?? "");
-  if (!reason) return { ok: false, error: "A one-line reason is required." };
-  if (resolution !== "new_date" && resolution !== "decision") return { ok: false, error: "Choose New date or Open a decision." };
+  const doneOn = String(fd.get("done_on") ?? "");
+  const note = String(fd.get("note") ?? "").trim().slice(0, 500);
+  if (!reason) return { ok: false, error: "Say in one line why it was missed." };
+  if (!isResolution(resolution)) return { ok: false, error: "Choose what happens next: Done late, New date, Open a decision, or No longer a commitment." };
   if (resolution === "new_date" && !/^\d{4}-\d{2}-\d{2}$/.test(newDate)) return { ok: false, error: "Choose a new date." };
   const { supabase, ownerId } = await requireOwner();
   const { data: miss } = await supabase.from("missed_commitments").select("*").eq("id", missId).maybeSingle();
@@ -490,12 +496,29 @@ export async function resolveMiss(fd: FormData): Promise<{ ok: true; resolution:
   const { data: c } = await supabase.from("commitments").select("*").eq("id", miss.commitment_id).maybeSingle();
   if (!c) return { ok: false, error: "The commitment for this miss was not found." };
   let decisionId: string | null = null;
-  if (resolution === "new_date") {
+  if (resolution === "done_late") {
+    if (!(await hasUpdate0018(supabase))) return { ok: false, error: DB_UPDATE_NOTICE_0018 };
+    const ctx = await loadCtx(supabase, ownerId);
+    const problem = doneLateProblem(doneOn, String(miss.missed_on), ctx.today);
+    if (problem) return { ok: false, error: problem };
+    const { error } = await supabase.from("missed_commitments").update({ reason, resolution: "done_late", done_on: doneOn }).eq("id", missId);
+    if (error) return { ok: false, error: `Not saved: ${error.message}` };
+    // The record is done on that date. The commitment is closed as done late (it still counts as a miss).
+    if (c.record_type === "tasks") await supabase.from("tasks").update({ status: "done", completed_at: completedAtFor(doneOn, ctx.today) }).eq("id", c.record_id);
+    if (c.record_type === "milestones") await supabase.from("milestones").update({ status: "met", met_on: doneOn }).eq("id", c.record_id);
+    if (c.record_type === "goals") await supabase.from("goals").update({ status: "met" }).eq("id", c.record_id);
+    await supabase.from("commitments").update({ status: "done_late", met_on: doneOn }).eq("id", c.id);
+    if (note) await supabase.from("notes").insert({ owner_id: ownerId, record_type: c.record_type, record_id: c.record_id, body: `Done late on ${doneOn}. ${note}` });
+  } else if (resolution === "new_date") {
     await supabase.from("missed_commitments").update({ reason, resolution: "new_date", new_due_date: newDate }).eq("id", missId);
     await supabase.from("commitments").update({ status: "open", due_date: newDate }).eq("id", c.id);
     if (c.record_type === "tasks") await supabase.from("tasks").update({ due_date: newDate, status: "todo" }).eq("id", c.record_id);
     if (c.record_type === "milestones") await supabase.from("milestones").update({ due_date: newDate, status: "active" }).eq("id", c.record_id);
     if (c.record_type === "goals") await supabase.from("goals").update({ deadline: newDate, status: "active" }).eq("id", c.record_id);
+  } else if (resolution === "released") {
+    // No longer a commitment: the task (or milestone, goal) stays as it is; only the commitment is released.
+    await supabase.from("missed_commitments").update({ reason, resolution: "released" }).eq("id", missId);
+    await supabase.from("commitments").update({ status: "released" }).eq("id", c.id);
   } else {
     const { data: d, error } = await supabase
       .from("decisions")

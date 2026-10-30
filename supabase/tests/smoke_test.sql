@@ -701,4 +701,13 @@ begin
 end $$;
 reset role;
 
+-- 0018: Done late, the day period, report frequency, daily reports
+do $$ begin
+  assert public.schema_has_0018(), '0018 check function';
+  assert exists (select 1 from information_schema.columns where table_name = 'partners' and column_name = 'report_frequency'), 'report frequency';
+  assert exists (select 1 from information_schema.columns where table_name = 'missed_commitments' and column_name = 'done_on'), 'done_on';
+  assert exists (select 1 from information_schema.columns where table_name = 'partner_reports' and column_name = 'report_kind'), 'report_kind';
+  assert exists (select 1 from pg_indexes where indexname = 'partner_reports_daily_idx'), 'one daily report per partner per day';
+end $$;
+
 select 'smoke test passed' as result;

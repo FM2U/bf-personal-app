@@ -20,6 +20,8 @@ export type SampleSetup = {
   consulting: { pipelineId: string; stages: Record<string, string> } | null;
   /** The starter "Detailed" partner report template (database update 0017), given to the sample partner. */
   reportTemplateId?: string | null;
+  /** Database update 0018 is applied: the sample partner gets daily and weekly reports (Both). */
+  dailyReports?: boolean;
 };
 
 /** Tables sample data writes to, in insert order. Removal deletes in the reverse dependency order (SQL). */
@@ -185,7 +187,7 @@ export function buildSampleData(s: SampleSetup, newId: () => string): { batches:
     { id: newId(), entity_id: s.personalEntityId, name: "Sample Travel Card", kind: "credit_card", account_id: acc.card2, current_balance: 2890, balance_as_of: today, apr: 21.49, minimum_payment: 90, due_day: 22 },
   ];
 
-  const partners = [{ id: newId(), name: "Sample Partner A", is_pseudonym: true, contact_id: c.partner, email: "partner-a@example.com", schedule: "weekly", delivery_methods: ["email"], next_report_on: addDaysISO(today, 7), is_active: true, notes: "Sample accountability partner for testing.", ...(s.reportTemplateId ? { report_template_id: s.reportTemplateId } : {}) }];
+  const partners = [{ id: newId(), name: "Sample Partner A", is_pseudonym: true, contact_id: c.partner, email: "partner-a@example.com", schedule: "weekly", delivery_methods: ["email"], next_report_on: addDaysISO(today, 7), is_active: true, notes: "Sample accountability partner for testing.", ...(s.reportTemplateId ? { report_template_id: s.reportTemplateId } : {}), ...(s.dailyReports ? { report_frequency: "both" } : {}) }];
 
   const comms = [
     { id: newId(), occurred_at: `${addDaysISO(today, -12)}T15:00:00Z`, method: "call", direction: "outgoing", contact_id: c.friendA, subject: "Sample call: off-market deals", summary: "Asked about owners thinking of selling.", is_outreach: true, outcome: "referral", purpose: "deal_sourcing" },

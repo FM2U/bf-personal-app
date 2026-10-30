@@ -40,8 +40,10 @@ async function step(name, fn) {
   try {
     await fn();
     results.push(["ok  ", name]);
+    process.stderr.write(`ok   ${name}\n`);
   } catch (e) {
     results.push(["FAIL", `${name}: ${e.message.split("\n")[0]}`]);
+    process.stderr.write(`FAIL ${name}: ${e.message.split("\n")[0]}\n`);
     if (process.env.FAIL_SHOTS && global.__page) await global.__page.screenshot({ path: `/tmp/fail-${results.length}.png`, fullPage: true }).catch(() => {});
   }
 }
@@ -115,8 +117,12 @@ const expectText = async (page, text) => {
   await pg.connect();
   const one = async (sql, params = []) => (await pg.query(sql, params)).rows[0];
 
-  await step("Resolve a missed commitment with a reason and new date (count bar, Resolve opens the resolve window)", async () => {
+  await step("Resolve a missed commitment with a reason and new date (count bar, Resolve opens the task window with Resolve open)", async () => {
     await page.goto(`${BASE}/accountability`);
+    // Three tiles: To resolve, Open (with "N due this week"), Met. No "Due this week" tile.
+    const tiles = await page.getByTestId("commitment-counts").locator("a").count();
+    if (tiles !== 3 || (await page.getByTestId("count-week").count())) throw new Error(`expected 3 tiles, found ${tiles}`);
+    if (!/\d+ due this week/.test(await page.getByTestId("count-open").innerText())) throw new Error("Open tile note");
     const tile = Number((await page.getByTestId("count-resolve").locator("p").nth(1).innerText()).trim());
     const before = await page.getByTestId("commitment-resolve").count();
     if (!before) throw new Error("no missed commitments to resolve");
@@ -126,9 +132,10 @@ const expectText = async (page, text) => {
     const firstOther = statuses.findIndex((x) => x !== "missed");
     if (firstOther >= 0 && statuses.slice(firstOther).includes("missed")) throw new Error(`order: ${statuses.join(",")}`);
     await page.getByTestId("commitment-resolve").first().click();
-    await page.waitForURL(/w=resolve%2F|w=resolve\//);
+    await page.waitForURL(/w=r(%2F|\/)commitments(%2F|\/)[0-9a-f-]{36}(%2F|\/)resolve/);
     const win = page.locator("[data-url-window]");
-    await win.getByTestId("resolve-window").waitFor({ timeout: 20000 });
+    await win.getByTestId("resolve-form").waitFor({ timeout: 20000 });
+    await win.getByTestId("resolve-new-date").check();
     await win.getByLabel(/Why was it missed/).fill("Spent the afternoon on the broker call.");
     await win.getByTestId("resolve-save").click();
     await win.waitFor({ state: "detached", timeout: 20000 });
@@ -143,13 +150,68 @@ const expectText = async (page, text) => {
     const shown = await page.getByTestId("commitment-row").count();
     const want = (await one("select count(*)::int n from commitments where status = 'open'")).n;
     if (shown !== want) throw new Error(`open rows ${shown}, want ${want}`);
-    // An older alert link (?miss=<id>) opens the resolve window.
+    // Open rows due soon have a small label (Due today or This week).
+    const soon = (await one("select count(*)::int n from commitments where status = 'open' and due_date between $1 and $2", [nyDate(0), nyDate(7)])).n;
+    const labels = await page.getByTestId("commitment-when").count();
+    if (labels !== soon) throw new Error(`due-soon labels ${labels}, want ${soon}`);
+    // Older links (?miss=<id> and ?w=resolve/<id>) open the task window with Resolve open.
     const m = await one("select id from missed_commitments where resolution = 'pending' limit 1");
     if (m) {
       await page.goto(`${BASE}/accountability?miss=${m.id}`);
-      await page.locator("[data-url-window] [data-testid=resolve-window]").waitFor({ timeout: 20000 });
-      await page.screenshot({ path: path.join(OUT, "flow-resolve-window.png") });
+      await page.locator("[data-url-window] [data-testid=task-window-resolve-section]").waitFor({ timeout: 20000 });
+      await page.waitForURL(/w=r(%2F|\/)commitments/);
+      await page.goto(`${BASE}/accountability?w=resolve/${m.id}`);
+      await page.locator("[data-url-window] [data-testid=resolve-form]").waitFor({ timeout: 20000 });
     }
+  });
+
+  await step("Resolve via Done late from the Commitments list: task window with Resolve open, other sections closed; task done on that date; still a miss", async () => {
+    // A task commitment missed yesterday, with a miss that needs a reason.
+    const t = await one("insert into tasks (owner_id, title, due_date, priority) values ($1, 'Send the LOI draft to the broker', $2, 2) returning id", [OWNER, nyDate(-1)]);
+    const c0 = await one("insert into commitments (owner_id, title, record_type, record_id, due_date, original_due_date, status, miss_count) values ($1, 'Send the LOI draft to the broker', 'tasks', $2, $3, $3, 'missed', 1) returning id", [OWNER, t.id, nyDate(-1)]);
+    await pg.query("insert into missed_commitments (owner_id, commitment_id, missed_on) values ($1, $2, $3)", [OWNER, c0.id, nyDate(-1)]);
+    await page.goto(`${BASE}/accountability`);
+    const row = page.locator("[data-testid=commitment-row]", { hasText: "Send the LOI draft to the broker" });
+    const href = await row.getByTestId("commitment-resolve").getAttribute("href");
+    const missId = href.match(/resolve\/([0-9a-f-]{36})/)[1];
+    const before = await one("select c.id, c.record_type, c.record_id, m.missed_on::text missed_on from missed_commitments m join commitments c on c.id = m.commitment_id where m.id = $1", [missId]);
+    await row.getByTestId("commitment-resolve").click();
+    const win = page.locator("[data-url-window]");
+    await win.getByTestId("resolve-form").waitFor({ timeout: 20000 });
+    // Resolve this miss is open at the top; every other section is closed.
+    const sections = await win.locator("section[data-testid]").evaluateAll((els) => els.filter((e) => e.querySelector("[data-testid=collapsible-toggle]")).map((e) => [e.getAttribute("data-testid"), e.hasAttribute("data-open")]));
+    if (!sections.length || sections[0][0] !== "task-window-resolve-section" || !sections[0][1]) throw new Error(`first section: ${JSON.stringify(sections[0])}`);
+    const openOthers = sections.slice(1).filter(([, o]) => o);
+    if (openOthers.length) throw new Error(`open sections: ${JSON.stringify(openOthers)}`);
+    // Done late is the first choice; the date defaults to today and cannot be in the future.
+    if (!(await win.getByTestId("resolve-done-late").isChecked())) throw new Error("Done late not chosen first");
+    if ((await win.getByTestId("resolve-done-on").inputValue()) !== nyDate(0)) throw new Error("done date default");
+    if ((await win.getByTestId("resolve-done-on").getAttribute("max")) !== nyDate(0)) throw new Error("done date max");
+    if ((await win.getByTestId("resolve-done-on").getAttribute("min")) !== before.missed_on) throw new Error("done date min");
+    await page.screenshot({ path: path.join(OUT, "flow-resolve-done-late.png") });
+    // A reason is required.
+    await win.getByTestId("resolve-save").click();
+    if (!(await win.getByTestId("resolve-form").isVisible())) throw new Error("saved without a reason");
+    await win.getByLabel(/Why was it missed/).fill("Sent it the next morning.");
+    await win.getByTestId("resolve-done-on").fill(nyDate(0));
+    await win.getByTestId("resolve-note").fill("The broker asked for one more day.");
+    await win.getByTestId("resolve-save").click();
+    await win.waitFor({ state: "detached", timeout: 20000 });
+    await expectText(page, "Marked done late");
+    const m = await one("select resolution, done_on::text done_on, reason from missed_commitments where id = $1", [missId]);
+    if (m.resolution !== "done_late" || m.done_on !== nyDate(0) || m.reason !== "Sent it the next morning.") throw new Error(`miss: ${JSON.stringify(m)}`);
+    const c = await one("select status from commitments where id = $1", [before.id]);
+    if (c.status !== "done_late") throw new Error(`commitment: ${c.status}`);
+    if (before.record_type === "tasks") {
+      const t = await one("select status, (completed_at at time zone 'America/New_York')::date::text d from tasks where id = $1", [before.record_id]);
+      if (t.status !== "done" || t.d !== nyDate(0)) throw new Error(`task: ${JSON.stringify(t)}`);
+    }
+    // The Misses table shows the label; the Done late filter value lists it.
+    await page.goto(`${BASE}/accountability?status=done_late`);
+    await page.locator("[data-testid=commitment-row][data-status=done_late]").first().waitFor();
+    const label = (await page.getByTestId("miss-resolution").allInnerTexts()).find((x) => x.startsWith("Done late, "));
+    if (!label) throw new Error("Misses table label");
+    await page.screenshot({ path: path.join(OUT, "flow-commitments-done-late.png"), fullPage: true });
   });
 
   await step("Open the decision created by the missed milestone and choose an option", async () => {
@@ -204,7 +266,7 @@ const expectText = async (page, text) => {
     const pend = await one("select id, reason from missed_commitments where resolution = 'pending' and reason like '%broker call ran all afternoon%' limit 1");
     if (!pend) throw new Error("no pending miss with the shared reason");
     await page.goto(`${BASE}/accountability`);
-    await page.locator(`[data-testid=commitment-resolve][data-window="resolve/${pend.id}"]`).click();
+    await page.locator(`[data-testid=commitment-resolve][data-window$="/resolve/${pend.id}"]`).click();
     const v = await page.locator("[data-url-window]").getByLabel(/Why was it missed/).inputValue();
     if (!v.includes("broker call ran all afternoon")) throw new Error(`reason: ${v}`);
   });
@@ -904,7 +966,7 @@ const expectText = async (page, text) => {
 
   await step("Partner report: Send now marks the report sent with the date and logs the communication", async () => {
     await page.goto(`${BASE}/accountability/reports`);
-    const id = (await one("select id from partner_reports where status = 'finalized' order by finalized_at desc limit 1")).id;
+    const id = (await one("select id from partner_reports where status = 'finalized' and report_kind = 'regular' order by finalized_at desc limit 1")).id;
     await page.goto(`${BASE}/accountability/reports/${id}`);
     await page.getByTestId("send-now").click();
     const dlg = page.getByRole("dialog", { name: "Send this email?" });
@@ -928,6 +990,102 @@ const expectText = async (page, text) => {
     await page.goto(`${BASE}/settings/change-log`);
     await expectText(page, "Email sent from the app");
   });
+
+  // ---------- Daily partner reports (database update 0018) ----------
+  const weekday = ![0, 6].includes(new Date(`${nyDate(0)}T12:00:00Z`).getUTCDay());
+  let dailyCommId = null;
+  await step("Daily close then approve and send the daily report (Google stand-in); Not today for the other partner", async () => {
+    // Two partners get daily reports (Both and Daily); today's close is opened again and completed.
+    for (const [name, email] of [["Partner One (pseudonym)", "partner-one@example.com"], ["Partner Two (pseudonym)", "partner-two@example.com"]]) {
+      if (!(await one("select 1 x from partners where name = $1", [name]))) await pg.query("insert into partners (owner_id, name, is_pseudonym, email) values ($1, $2, true, $3)", [OWNER, name, email]);
+    }
+    const partners = (await pg.query("select id, name from partners where is_active and email is not null order by name limit 2")).rows;
+    if (partners.length < 2) throw new Error("need two partners with an email address");
+    await pg.query("update partners set report_frequency = 'both' where id = $1", [partners[0].id]);
+    await pg.query("update partners set report_frequency = 'daily' where id = $1", [partners[1].id]);
+    await pg.query("delete from partner_reports where report_kind = 'daily'");
+    await pg.query("update reviews set status = 'draft', completed_at = null where kind = 'daily' and period_start = $1", [nyDate(0)]);
+    // The frequency shows on Report templates.
+    await page.goto(`${BASE}/accountability/report-templates`);
+    if ((await page.getByTestId("partner-frequency").first().inputValue()) !== "both") throw new Error("frequency select");
+    await page.goto(`${BASE}/accountability/reviews`);
+    await page.getByRole("button", { name: "Open today's daily close" }).click();
+    await page.waitForURL(/\/accountability\/reviews\/.+/);
+    await page.getByRole("button", { name: "Complete review" }).waitFor();
+    if (await page.locator('input[name="a_shared_reason"]').count()) {
+      await page.fill('input[name="a_shared_reason"]', "The broker call ran all afternoon.");
+      for (const box of await page.locator('input[name^="a_use_shared_"]').all()) await box.check();
+    }
+    await page.getByRole("button", { name: "Complete review" }).click();
+    await expectText(page, "Completed");
+    if (!weekday) {
+      if (await page.getByTestId("daily-reports-card").count()) throw new Error("daily reports drafted on a weekend");
+      return;
+    }
+    await page.getByTestId("daily-reports-card").waitFor({ timeout: 20000 });
+    const drafts = (await one("select count(*)::int n from partner_reports where report_kind = 'daily' and period_end = $1 and status = 'draft'", [nyDate(0)])).n;
+    if (drafts !== 2) throw new Error(`expected 2 daily drafts, found ${drafts}`);
+    if ((await page.getByTestId("daily-report").count()) !== 2) throw new Error("two previews");
+    const frame = page.getByTestId("daily-preview").first().contentFrame();
+    await frame.getByText("Daily accountability report").first().waitFor();
+    await page.screenshot({ path: path.join(OUT, "flow-daily-close-reports.png"), fullPage: true });
+    // Nothing was sent yet.
+    const sentBefore = (await gsent()).length;
+    // Edit note on the first, then Approve and send; Not today on the second.
+    const first = page.getByTestId("daily-report").filter({ hasText: partners[0].name });
+    await first.getByTestId("daily-edit-note").click();
+    await first.getByTestId("daily-note").fill("- Two broker calls moved to Monday.");
+    await first.getByTestId("daily-note-save").click();
+    await first.getByTestId("daily-message").filter({ hasText: "Note saved" }).waitFor();
+    await first.getByTestId("daily-preview").contentFrame().getByText("Two broker calls moved to Monday.").waitFor();
+    await first.getByTestId("daily-send").click();
+    await page.getByTestId("daily-report").filter({ hasText: partners[0].name }).and(page.locator("[data-state=sent]")).waitFor({ timeout: 20000 });
+    const second = page.getByTestId("daily-report").filter({ hasText: partners[1].name });
+    await second.getByTestId("daily-skip").click();
+    await page.getByTestId("daily-report").filter({ hasText: partners[1].name }).and(page.locator("[data-state=skipped]")).waitFor({ timeout: 20000 });
+    const sent = await gsent();
+    if (sent.length !== sentBefore + 1) throw new Error(`expected 1 email, Gmail got ${sent.length - sentBefore}`);
+    const r = await one("select id, status, sent_at, gmail_message_id, summary from partner_reports where report_kind = 'daily' and partner_id = $1 and period_end = $2", [partners[0].id, nyDate(0)]);
+    if (r.status !== "finalized" || !r.sent_at || !r.summary.includes("Two broker calls")) throw new Error(`report: ${JSON.stringify(r)}`);
+    const skipped = await one("select status, skipped_at from partner_reports where report_kind = 'daily' and partner_id = $1", [partners[1].id]);
+    if (skipped.status !== "draft" || !skipped.skipped_at) throw new Error(`skipped: ${JSON.stringify(skipped)}`);
+    const comm = await one("select id, subject from communications where gmail_message_id = $1", [r.gmail_message_id]);
+    if (!comm || !comm.subject.startsWith("Daily accountability report")) throw new Error(`communication: ${JSON.stringify(comm)}`);
+    if (!(await one("select 1 x from record_links where from_type = 'communications' and from_id = $1 and to_type = 'partner_reports' and to_id = $2", [comm.id, r.id]))) throw new Error("not linked to the report");
+    dailyCommId = comm.id;
+    await page.screenshot({ path: path.join(OUT, "flow-daily-close-reports-sent.png"), fullPage: true });
+    // The close again on the same day drafts nothing new.
+    if ((await one("select count(*)::int n from partner_reports where report_kind = 'daily'")).n !== 2) throw new Error("duplicate daily reports");
+  });
+
+  await step("A sent partner report opens from Communications as the report, in the full page and in the window", async () => {
+    const commId = dailyCommId ?? (await one("select from_id from record_links where from_type = 'communications' and to_type = 'partners' order by created_at desc limit 1"))?.from_id;
+    if (!commId) throw new Error("no sent report communication");
+    const subject = (await one("select subject from communications where id = $1", [commId])).subject;
+    await page.goto(`${BASE}/people/communications`);
+    await page.locator("main tr", { hasText: subject }).locator("a").first().click();
+    await page.waitForURL(new RegExp(`/records/communications/${commId}`));
+    await page.getByTestId("sent-report-card").waitFor();
+    await page.getByTestId("sent-report-frame").contentFrame().getByText(/accountability report/i).first().waitFor();
+    if (await page.getByTestId("sent-report-details").getAttribute("data-open") !== null) throw new Error("details should start closed");
+    for (const t of ["panel-linked", "panel-notes", "panel-history"]) if ((await page.getByTestId(t).getAttribute("data-open")) !== null) throw new Error(`${t} should start closed`);
+    const pdf = await page.getByTestId("sent-report-pdf").getAttribute("href");
+    const res = await page.request.get(`${BASE}${pdf}`);
+    if (res.status() !== 200 || !(res.headers()["content-type"] ?? "").includes("pdf")) throw new Error("PDF link");
+    await page.screenshot({ path: path.join(OUT, "flow-communication-report.png"), fullPage: true });
+    await page.getByTestId("sent-report-record").click();
+    await page.waitForURL(/\/accountability\/reports\/[0-9a-f-]{36}/);
+    // The window (a communication opened inside a window).
+    await page.goto(`${BASE}/people/communications?w=r/communications/${commId}`);
+    const win = page.locator("[data-url-window]");
+    await win.getByTestId("sent-report-view").waitFor({ timeout: 20000 });
+    await win.getByTestId("sent-report-frame").contentFrame().getByText(/accountability report/i).first().waitFor();
+    await page.screenshot({ path: path.join(OUT, "flow-communication-report-window.png") });
+    await ph.goto(`${BASE}/records/communications/${commId}`);
+    await ph.getByTestId("sent-report-card").waitFor();
+    await ph.screenshot({ path: path.join(OUT, "phone-communication-report.png"), fullPage: true });
+  });
+
 
   // ---------- Email button (contacts, organizations, pipeline items) and "Email them" (Outreach Queue) ----------
   const e1280ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
@@ -1297,7 +1455,7 @@ const expectText = async (page, text) => {
   });
 
   await step("Partner report: the send dialog has Include signature and the sent report has the signature", async () => {
-    const id = (await one("select id from partner_reports where status = 'finalized' order by finalized_at desc limit 1")).id;
+    const id = (await one("select id from partner_reports where status = 'finalized' and report_kind = 'regular' order by finalized_at desc limit 1")).id;
     await page.goto(`${BASE}/accountability/reports/${id}`);
     if (!(await page.getByTestId("include-signature").isChecked())) throw new Error("Include signature not checked on the report");
     await page.getByTestId("send-now").click();
@@ -2927,7 +3085,7 @@ const expectText = async (page, text) => {
   });
 
   await step("Partner report: two templates in one email with the PDF attached; preview first; Gmail gets HTML tiles, text, and the PDF (Google stand-in)", async () => {
-    const id = (await one("select id from partner_reports where status = 'finalized' order by finalized_at desc limit 1")).id;
+    const id = (await one("select id from partner_reports where status = 'finalized' and report_kind = 'regular' order by finalized_at desc limit 1")).id;
     const partner = await one("select p.* from partners p join partner_reports r on r.partner_id = p.id where r.id = $1", [id]);
     await page.goto(`${BASE}/accountability/reports/${id}`);
     await page.getByTestId("report-email-panel").waitFor();

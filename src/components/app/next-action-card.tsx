@@ -33,7 +33,8 @@ export function NextActionCard({ action, today, compact = false }: { action: Nex
       {action.href ? (
         <CardContent className={cn(compact && "px-4 pb-4")}>
           <Button asChild size="sm" variant={action.tone === "overdue" || status === "missed" ? "default" : "outline"} className={cn(action.tone !== "overdue" && status !== "missed" && "bg-white")}>
-            <Link href={action.href}>
+            {/* An address with a window (for example Resolve: ?w=r/commitments/<id>/resolve) opens that window over the current page. */}
+            <Link href={action.href} data-window={windowOf(action.href)} data-testid="next-action-link">
               {action.linkText ?? "Open"} <ArrowRight />
             </Link>
           </Button>
@@ -43,3 +44,12 @@ export function NextActionCard({ action, today, compact = false }: { action: Nex
   );
 }
 
+/** The `w` value of an in-app address, if it names a window. */
+function windowOf(href: string): string | undefined {
+  if (!href.startsWith("/")) return undefined;
+  try {
+    return new URL(href, "http://localhost").searchParams.get("w") ?? undefined;
+  } catch {
+    return undefined;
+  }
+}

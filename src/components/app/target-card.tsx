@@ -38,9 +38,23 @@ export function Tile({ label, value, note, bar, valueClass, testId }: { label: s
 }
 
 /** A row of equal tiles with thin dividers between them. 4 across on a wide card, 2 across on the phone. */
-export function TileRow({ children, cols = 4, testId, grow = false }: { children: React.ReactNode; cols?: 2 | 3 | 4; testId?: string; /** Fills the rest of the column's height (each tile's content is centered, so tiles in a row stay aligned). */ grow?: boolean }) {
+export function TileRow({
+  children,
+  cols = 4,
+  testId,
+  grow = false,
+  phoneOneRow = false,
+}: {
+  children: React.ReactNode;
+  cols?: 2 | 3 | 4;
+  testId?: string;
+  /** Fills the rest of the column's height (each tile's content is centered, so tiles in a row stay aligned). */
+  grow?: boolean;
+  /** Three short tiles stay in one row on the phone too (instead of two, then one alone). */
+  phoneOneRow?: boolean;
+}) {
   // Phone (and cols 2): two across, a line left of the second tile and above the second row. Wider: one row.
-  const two = "grid-cols-2 [&>*:nth-child(2n)]:border-l [&>*:nth-child(n+3)]:border-t";
+  const two = phoneOneRow && cols === 3 ? "grid-cols-3 [&>*:not(:first-child)]:border-l" : "grid-cols-2 [&>*:nth-child(2n)]:border-l [&>*:nth-child(n+3)]:border-t";
   const wide =
     cols === 4
       ? "sm:grid-cols-4 sm:[&>*:nth-child(n+3)]:border-t-0 sm:[&>*:not(:first-child)]:border-l"

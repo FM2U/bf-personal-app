@@ -7,13 +7,14 @@ import { Badge, StatusBadge, StatusDot, dueClass } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { EmptyState, PageHeader } from "@/components/app/page-header";
-import { StatusBadge as RecordStatusBadge } from "@/components/app/field-value";
 import { OpenReviewButton } from "@/components/app/open-review-button";
 import { Tile, TileRow } from "@/components/app/target-card";
 import { recordHref } from "@/lib/resources";
 import { date as fmtDate } from "@/lib/format";
 import { dueStatus, type Status } from "@/lib/status";
-import { resolveHref } from "@/lib/window-route";
+import { resolveHref, resolveParam } from "@/lib/window-route";
+import { addDaysISO } from "@/lib/calc/dates";
+import { resolutionLabel } from "@/lib/calc/resolve-miss";
 import type { Row } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { ListFilter } from "@/components/app/filter-panel";
@@ -35,6 +36,7 @@ const COMMITMENT_FILTERS: FilterSpec[] = [
         { value: "open", label: "Open" },
         { value: "met", label: "Met" },
         { value: "closed_by_decision", label: "Closed by a decision" },
+        { value: "done_late", label: "Done late" },
         { value: "released", label: "No longer a commitment" },
       ],
     },
@@ -56,9 +58,11 @@ function rowStatus(c: Row, pendingMiss: boolean, today: string): { status: Statu
   if (c.status === "missed") return { status: "missed", label: pendingMiss ? "Reason needed" : "Missed" };
   if (c.status === "met") return { status: "met", label: "Met" };
   if (c.status === "closed_by_decision") return { status: "neutral", label: "Closed by a decision" };
+  if (c.status === "done_late") return { status: "soon", label: "Done late" };
   if (c.status === "released") return { status: "neutral", label: "No longer a commitment" };
   const s = dueStatus(c.due_date, today);
-  return { status: s === "missed" ? "missed" : s === "soon" ? "soon" : "neutral", label: s === "missed" ? "Overdue" : c.due_date === today ? "Due today" : "Open" };
+  // Due today and due this week are shown as a small label next to the badge.
+  return { status: s === "missed" ? "missed" : "neutral", label: s === "missed" ? "Overdue" : "Open" };
 }
 
 /** Missed (needs a reason) first, then open by soonest due date, then the rest (most recent first). */
@@ -74,8 +78,8 @@ export const metadata = { title: "Commitments" };
 
 export default async function CommitmentsPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const sp = await searchParams;
-  // Older links (Home alerts made before the resolve window) open the resolve window over this page.
-  if (sp.miss && !sp.w && /^[0-9a-f-]{36}$/i.test(sp.miss)) redirect(resolveHref(sp.miss));
+  // Older links (Home alerts made before the resolve section) open the task window with "Resolve this miss" over this page.
+  if (sp.miss && !sp.w && /^[0-9a-f-]{36}$/i.test(sp.miss)) redirect(`/accountability?w=resolve/${sp.miss}`);
   const { supabase, ownerId } = await requireOwner();
   const ctx = await loadCtx(supabase, ownerId);
   const today = ctx.today;
@@ -100,10 +104,11 @@ export default async function CommitmentsPage({ searchParams }: { searchParams: 
 
   // Count bar: each tile applies its filter in the address (the same address the Filter panel writes).
   const empty: FilterState = Object.fromEntries(filterCols.map((c) => [c.key, []]));
+  const weekEnd = addDaysISO(today, 7);
+  const dueThisWeek = list.filter((c) => c.status === "open" && c.due_date >= today && c.due_date <= weekEnd).length;
   const tiles = [
     { key: "resolve", label: "To resolve", note: "Missed, reason needed", state: { ...empty, status: ["missed"] }, count: list.filter((c) => c.status === "missed").length, bad: true },
-    { key: "week", label: "Due this week", note: "Open, next 7 days", state: { ...empty, status: ["open"], due: ["week"] }, count: list.filter((c) => c.status === "open" && dateMatches(c.due_date, ["week"], "due", today)).length },
-    { key: "open", label: "Open", note: "Not met or missed yet", state: { ...empty, status: ["open"] }, count: list.filter((c) => c.status === "open").length },
+    { key: "open", label: "Open", note: `${dueThisWeek} due this week`, state: { ...empty, status: ["open"] }, count: list.filter((c) => c.status === "open").length },
     { key: "met", label: "Met", note: "Last 30 days", state: { ...empty, status: ["met"], met: ["30"] }, count: list.filter((c) => c.status === "met" && !!c.met_on && dateMatches(c.met_on, ["30"], "past", today)).length },
   ];
   const sameState = (a: FilterState, b: FilterState) => filterCols.every((c) => {
@@ -129,8 +134,8 @@ export default async function CommitmentsPage({ searchParams }: { searchParams: 
         }
       />
       <div className="flex flex-col gap-4">
-        <nav aria-label="Commitment counts" className="max-w-4xl">
-          <TileRow testId="commitment-counts">
+        <nav aria-label="Commitment counts" className="max-w-2xl">
+          <TileRow cols={3} phoneOneRow testId="commitment-counts">
             {tiles.map((t) => {
               const active = sameState(filterState, t.state);
               return (
@@ -172,6 +177,8 @@ export default async function CommitmentsPage({ searchParams }: { searchParams: 
                   const missId = pendingByCommitment[c.id];
                   const needsReason = c.status === "missed";
                   const st = rowStatus(c, !!missId, today);
+                  // Open rows: a small label for what is due soon (amber today, gray within the next 7 days).
+                  const when = c.status !== "open" ? null : c.due_date === today ? "Due today" : c.due_date > today && c.due_date <= weekEnd ? "This week" : null;
                   const href = recordHref(c.record_type, c.record_id);
                   return (
                     <div
@@ -196,9 +203,16 @@ export default async function CommitmentsPage({ searchParams }: { searchParams: 
                           {fmtDate(c.due_date)}
                         </span>
                         <span role="cell" className="min-w-0">
-                          <StatusBadge status={st.status} className="max-w-full truncate">
-                            {st.label}
-                          </StatusBadge>
+                          <span className="flex min-w-0 flex-wrap items-center gap-1">
+                            <StatusBadge status={st.status} className="max-w-full truncate">
+                              {st.label}
+                            </StatusBadge>
+                            {when ? (
+                              <span className={cn("whitespace-nowrap text-xs font-medium", when === "Due today" ? "text-status-soon" : "text-slate-500")} data-testid="commitment-when">
+                                {when}
+                              </span>
+                            ) : null}
+                          </span>
                         </span>
                         <span role="cell" className={cn("tabular whitespace-nowrap", Number(c.miss_count) > 0 ? "font-medium text-status-missed" : "max-md:hidden")}>
                           <span className="md:hidden">Missed </span>
@@ -209,7 +223,7 @@ export default async function CommitmentsPage({ searchParams }: { searchParams: 
                       <div role="cell" className="col-span-2 md:col-span-1 md:justify-self-end">
                         {missId ? (
                           <Button asChild size="sm" className="w-full md:w-[5.5rem]">
-                            <Link href={resolveHref(missId)} data-window={`resolve/${missId}`} data-testid="commitment-resolve">
+                            <Link href={resolveHref(c.id, missId)} data-window={resolveParam(c.id, missId)} data-testid="commitment-resolve">
                               Resolve
                             </Link>
                           </Button>
@@ -259,16 +273,14 @@ export default async function CommitmentsPage({ searchParams }: { searchParams: 
                         <TD>{byId[m.commitment_id]?.title}</TD>
                         <TD className="max-w-sm">{m.reason}</TD>
                         <TD>
-                          {m.resolution === "released" ? (
-                            "No longer a commitment"
-                          ) : m.resolution === "new_date" ? (
-                            `New date ${fmtDate(m.new_due_date)}`
-                          ) : m.decision_id ? (
+                          {m.resolution === "decision" && m.decision_id ? (
                             <Link href={`/records/decisions/${m.decision_id}`} className="underline">
                               Decision opened
                             </Link>
                           ) : (
-                            <RecordStatusBadge status={m.resolution} />
+                            <span className="whitespace-nowrap" data-testid="miss-resolution">
+                              {resolutionLabel(m as { resolution: string; done_on?: string | null; new_due_date?: string | null })}
+                            </span>
                           )}
                         </TD>
                       </TR>

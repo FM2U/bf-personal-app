@@ -10,8 +10,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardNote, CardTitle } f
 import { Notice } from "@/components/app/page-header";
 import { PanelClose } from "@/components/app/outreach-actions";
 import { useUnsavedWork } from "@/components/app/unsaved-changes";
-import { deleteReportTemplate, saveReportTemplate, setPartnerTemplate } from "@/app/actions/report-templates";
-import { MEASURES, NOTE_MAX, PERIOD_LABEL, TEMPLATE_PERIODS, type MeasureKey, type ReportTemplate, type TemplatePeriod } from "@/lib/calc/partner-report";
+import { DB_UPDATE_FILE_0018 } from "@/lib/schema-guard";
+import { deleteReportTemplate, saveReportTemplate, setPartnerFrequency, setPartnerTemplate } from "@/app/actions/report-templates";
+import { MEASURES, NOTE_MAX, PERIOD_LABEL, REPORT_FREQUENCIES, TEMPLATE_PERIODS, type MeasureKey, type ReportTemplate, type TemplatePeriod } from "@/lib/calc/partner-report";
 import { cn } from "@/lib/utils";
 
 type Draft = { id: string | null; name: string; measures: MeasureKey[]; period: TemplatePeriod; note: string };
@@ -27,7 +28,18 @@ const label = (k: string) => MEASURES.find((m) => m.key === k)?.label ?? k;
  * Accountability, Report templates: the list of templates (Summary, Standard, Detailed, and any added), the editor
  * (name, period, note, and the measures in two groups), and each partner's default template.
  */
-export function ReportTemplatesEditor({ templates, partners, editable }: { templates: ReportTemplate[]; partners: { id: string; name: string; templateId: string | null }[]; editable: boolean }) {
+export function ReportTemplatesEditor({
+  templates,
+  partners,
+  editable,
+  frequencyEditable = false,
+}: {
+  templates: ReportTemplate[];
+  partners: { id: string; name: string; templateId: string | null; frequency?: string }[];
+  editable: boolean;
+  /** Database update 0018 is applied (report frequency Daily, Weekly, or Both). */
+  frequencyEditable?: boolean;
+}) {
   const router = useRouter();
   const [draft, setDraft] = useState<Draft | null>(null);
   const [initial, setInitial] = useState<string>("");
@@ -68,6 +80,13 @@ export function ReportTemplatesEditor({ templates, partners, editable }: { templ
       setConfirmDelete(null);
       if (!r.ok) return setError(r.error);
       setMessage(r.message);
+      router.refresh();
+    });
+  const chooseFrequency = (partnerId: string, frequency: string) =>
+    start(async () => {
+      const r = await setPartnerFrequency(partnerId, frequency);
+      if (!r.ok) return setError(r.error);
+      setSaved((s) => ({ ...s, [partnerId]: "Saved" }));
       router.refresh();
     });
   const choose = (partnerId: string, templateId: string) =>
@@ -219,8 +238,10 @@ export function ReportTemplatesEditor({ templates, partners, editable }: { templ
       </Card>
       <Card>
         <CardHeader>
-          <CardTitle>Default template for each partner</CardTitle>
-          <CardDescription>Used for the report email and the partner&apos;s report page. You can pick another template, or two, when you send.</CardDescription>
+          <CardTitle>Each partner&apos;s template and reports</CardTitle>
+          <CardDescription>
+            Template: used for the report email and the partner&apos;s report page (you can pick another, or two, when you send). Reports: Daily is drafted after the weekday daily close for you to approve; Weekly follows the report schedule; Both sends both.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {partners.length ? (
@@ -231,19 +252,35 @@ export function ReportTemplatesEditor({ templates, partners, editable }: { templ
                     <span className="clamp-1">{p.name}</span>
                     {saved[p.id] ? <span className="text-xs font-normal text-status-met">{saved[p.id]}</span> : null}
                   </span>
-                  <NativeSelect value={p.templateId ?? standardId} onChange={(e) => choose(p.id, e.target.value)} disabled={!editable || pending} aria-label={`Default template for ${p.name}`} data-testid="partner-template">
-                    {templates.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name}
-                      </option>
-                    ))}
-                  </NativeSelect>
+                  <span className="grid grid-cols-2 gap-2">
+                    <label className="flex min-w-0 flex-col gap-1 text-xs font-medium text-slate-600">
+                      Template
+                      <NativeSelect value={p.templateId ?? standardId} onChange={(e) => choose(p.id, e.target.value)} disabled={!editable || pending} aria-label={`Default template for ${p.name}`} data-testid="partner-template">
+                        {templates.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name}
+                          </option>
+                        ))}
+                      </NativeSelect>
+                    </label>
+                    <label className="flex min-w-0 flex-col gap-1 text-xs font-medium text-slate-600">
+                      Reports
+                      <NativeSelect value={p.frequency ?? "weekly"} onChange={(e) => chooseFrequency(p.id, e.target.value)} disabled={!frequencyEditable || pending} aria-label={`Report frequency for ${p.name}`} data-testid="partner-frequency">
+                        {REPORT_FREQUENCIES.map((f) => (
+                          <option key={f.value} value={f.value}>
+                            {f.label}
+                          </option>
+                        ))}
+                      </NativeSelect>
+                    </label>
+                  </span>
                 </li>
               ))}
             </ul>
           ) : (
             <p className="text-sm text-muted-foreground">No accountability partners yet. Add one on Accountability partners.</p>
           )}
+          {partners.length && !frequencyEditable ? <p className="mt-3 text-xs text-status-soon">Reports stay Weekly until the database update is run: {DB_UPDATE_FILE_0018}.</p> : null}
         </CardContent>
       </Card>
     </div>

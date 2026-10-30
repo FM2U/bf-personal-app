@@ -1,6 +1,6 @@
 import "server-only";
 import { addDaysISO, todayInTz } from "@/lib/calc/dates";
-import { completionScore } from "@/lib/calc/scores";
+import { completionScore, MISSED_STATUSES } from "@/lib/calc/scores";
 import { PERIOD_DAYS, TEMPLATE_PERIODS, type PeriodData, type SavedMeasures, type TemplatePeriod } from "@/lib/calc/partner-report";
 import { fetchAll } from "@/lib/data";
 import { scoped } from "@/lib/finance";
@@ -61,7 +61,7 @@ export async function buildReportMeasures(ctx: Pick<Ctx, "sb" | "ownerId" | "tz"
         met: score.met,
         missed: score.missed,
         pct: score.pct,
-        missedTitles: commitments.filter((c) => inRange(c.due_date) && (c.status === "missed" || c.status === "closed_by_decision")).map((c) => String(c.title)).slice(0, 10),
+        missedTitles: commitments.filter((c) => inRange(c.due_date) && MISSED_STATUSES.includes(String(c.status))).map((c) => String(c.title)).slice(0, 10),
       };
     }
     if (doneTasks && overdue !== undefined) d.tasks = { done: doneTasks.filter((t) => inRange(localDate(t.completed_at))).length, overdue };

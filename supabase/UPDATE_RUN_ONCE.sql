@@ -1,4 +1,4 @@
--- BF Personal App: database update (0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, and 0017).
+-- BF Personal App: database update (0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, and 0018).
 --   0008: Daily Targets and Outreach Queue.
 --   0009: Stage task lists, stage time limits, required details, stalled items, deal source (proprietary or brokered),
 --         deal-source contacts, and the Deals sourced and Deals advanced targets.
@@ -11,7 +11,8 @@
 --   0015: Gmail signature on emails sent or drafted from the app (four columns on owner_profile).
 --   0016: Deal funnel: Listings screened, CIMs reviewed, and Broker or owner calls targets; search hours and minutes per step.
 --   0017: Partner report templates (Summary, Standard, Detailed, and your own) and a default template per partner.
--- For a database that already has 0001 to 0007 (or 0001 to 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, or 0016). Paste this whole file into the
+--   0018: Resolve a miss as Done late; daily partner reports (report frequency Daily, Weekly, or Both; the day period).
+-- For a database that already has 0001 to 0007 (or 0001 to 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, or 0017). Paste this whole file into the
 -- Supabase SQL Editor and press Run. Safe to run more than once: nothing is duplicated.
 -- Generated from supabase/migrations by supabase/build_combined.py.
 
@@ -2048,3 +2049,73 @@ as $$ select true $$;
 
 revoke execute on function public.schema_has_0017() from public, anon;
 grant execute on function public.schema_has_0017() to authenticated, service_role;
+
+-- ===== supabase/migrations/0018_resolve_daily_reports.sql =====
+-- 0018: Resolve a miss as "Done late", and daily partner reports (approved 2026-10-30). Depends on 0005 (commitments,
+-- partners, partner reports), 0010 (released commitments), and 0017 (partner report templates).
+-- Safe to run more than once: every statement checks first, and no existing record is changed except that existing
+-- partners get the report frequency Weekly (the column default).
+--
+-- What it adds:
+--   1. "Done late": a missed commitment can be resolved as done late, with the date it was done
+--      (missed_commitments.resolution 'done_late' and missed_commitments.done_on). The commitment gets the status
+--      'done_late': it is closed, and it still counts as a miss in the commitment score.
+--   2. Report templates can use the period "day" (today's numbers), as well as week, two weeks, and month.
+--   3. partners.report_frequency: Daily, Weekly, or Both (Weekly for existing partners). Daily and Both partners get
+--      a report drafted after the weekday daily close; Weekly and Both keep the scheduled report.
+--   4. partner_reports: report_kind ('regular' or 'daily'), template_id (the template the daily draft uses), and
+--      skipped_at ("Not today" on the daily close). One daily report per partner per day.
+--   5. public.schema_has_0018(): the app calls it to check that this update is applied.
+
+-- 1. Done late
+alter table public.missed_commitments add column if not exists done_on date;
+alter table public.missed_commitments drop constraint if exists missed_commitments_resolution_check;
+alter table public.missed_commitments add constraint missed_commitments_resolution_check
+  check (resolution in ('pending', 'new_date', 'decision', 'released', 'done_late'));
+alter table public.commitments drop constraint if exists commitments_status_check;
+alter table public.commitments add constraint commitments_status_check
+  check (status in ('open', 'met', 'missed', 'closed_by_decision', 'released', 'done_late'));
+
+-- 2. The "day" period for report templates
+do $$
+begin
+  if to_regclass('public.partner_report_templates') is not null then
+    alter table public.partner_report_templates drop constraint if exists partner_report_templates_period_check;
+    alter table public.partner_report_templates add constraint partner_report_templates_period_check
+      check (period in ('day', 'week', 'two_weeks', 'month'));
+  end if;
+end $$;
+
+-- 3. Report frequency per partner
+alter table public.partners add column if not exists report_frequency text not null default 'weekly';
+alter table public.partners drop constraint if exists partners_report_frequency_check;
+alter table public.partners add constraint partners_report_frequency_check
+  check (report_frequency in ('daily', 'weekly', 'both'));
+
+-- 4. Daily partner reports
+alter table public.partner_reports add column if not exists report_kind text not null default 'regular';
+alter table public.partner_reports drop constraint if exists partner_reports_report_kind_check;
+alter table public.partner_reports add constraint partner_reports_report_kind_check
+  check (report_kind in ('regular', 'daily'));
+alter table public.partner_reports add column if not exists skipped_at timestamptz;
+do $$
+begin
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'partner_reports' and column_name = 'template_id') then
+    if to_regclass('public.partner_report_templates') is not null then
+      alter table public.partner_reports add column template_id uuid references public.partner_report_templates (id) on delete set null;
+    else
+      alter table public.partner_reports add column template_id uuid;
+    end if;
+  end if;
+end $$;
+create unique index if not exists partner_reports_daily_idx on public.partner_reports (partner_id, period_end) where report_kind = 'daily';
+
+-- 5. Check function
+create or replace function public.schema_has_0018()
+returns boolean
+language sql
+stable
+as $$ select true $$;
+
+revoke execute on function public.schema_has_0018() from public, anon;
+grant execute on function public.schema_has_0018() to authenticated, service_role;

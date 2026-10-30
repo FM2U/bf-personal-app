@@ -32,6 +32,9 @@ import { loadScorecard } from "@/lib/deal-scorecard";
 import type { Scorecard } from "@/lib/calc/deal-scorecard";
 import { DealScorecard } from "@/components/app/deal-scorecard";
 import type { Row } from "@/lib/types";
+import { loadSentReport } from "@/lib/sent-report";
+import { SentReportView } from "@/components/app/sent-report-view";
+import { CollapsibleCard } from "@/components/app/collapsible";
 
 const COMMS_TABLES = new Set(["contacts", "organizations", "pipeline_items", "funding_sources", "debts", "partners", "decisions", "goals", "milestones"]);
 
@@ -99,6 +102,11 @@ export default async function RecordPage({ params, searchParams }: { params: Pro
       }),
     ]);
   } else if (!editing && table === "tasks") suggestion = await firstSuggestion([taskSuggestion(row as { id: string; status: string; times_moved?: number | null })]);
+  // A sent partner report (Communication history): the report as sent first; the communication's details and panels
+  // stay below in closed sections.
+  const sentReport = !editing && table === "communications" ? await loadSentReport(supabase, ownerId, id).catch(() => null) : null;
+  const panelKey = sentReport ? "record:communications-report" : undefined;
+  const panelOpen = sentReport ? false : undefined;
 
   return (
     <div>
@@ -135,7 +143,24 @@ export default async function RecordPage({ params, searchParams }: { params: Pro
       ) : null}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="flex min-w-0 flex-col gap-4 lg:col-span-2">
-          <NextActionCard action={next} today={ctx.today} />
+          {sentReport ? (
+            <Card data-testid="sent-report-card">
+              <CardHeader>
+                <CardTitle>Partner report as sent</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <SentReportView r={sentReport} />
+              </CardContent>
+            </Card>
+          ) : (
+            <NextActionCard action={next} today={ctx.today} />
+          )}
+          {sentReport ? (
+            <CollapsibleCard id="details" storageKey="record:communications-report" title="Communication details" defaultOpen={false} summary={`${String(row.method ?? "email")}, ${String(row.subject ?? "")}`} testId="sent-report-details">
+              <DetailGrid cols={2} items={detailFields.map((f) => ({ label: f.label, wide: f.type === "textarea", value: <FieldValue field={f} value={row[f.name]} labels={labels} /> }))} />
+            </CollapsibleCard>
+          ) : null}
+          {sentReport ? null : (
           <Card id="details">
             <CardHeader>
               <CardTitle>{editing ? `Edit ${r.singular.toLowerCase()}` : "Details"}</CardTitle>
@@ -167,6 +192,7 @@ export default async function RecordPage({ params, searchParams }: { params: Pro
               )}
             </CardContent>
           </Card>
+          )}
           <ExtraPanels sb={supabase} ownerId={ownerId} table={table} row={row} today={ctx.today} labels={labels} refOptions={refOptions} sp={sp} />
           <ChildrenSections sb={supabase} table={table} id={id} labels={labels} />
           {editing && !r.noDelete ? (
@@ -182,11 +208,11 @@ export default async function RecordPage({ params, searchParams }: { params: Pro
         <div className="flex min-w-0 flex-col gap-4">
           {scorecard ? <DealScorecard card={scorecard} /> : null}
           <ExtraSidePanels sb={supabase} ownerId={ownerId} table={table} row={row} today={ctx.today} labels={labels} refOptions={refOptions} />
-          <LinkedRecordsPanel sb={supabase} table={table} id={id} />
+          <LinkedRecordsPanel sb={supabase} table={table} id={id} storageKey={panelKey} defaultOpen={panelOpen} />
           {COMMS_TABLES.has(table) ? <CommunicationsPanel sb={supabase} table={table} id={id} /> : null}
-          <DocumentsPanel sb={supabase} table={table} id={id} />
-          <NotesPanel sb={supabase} table={table} id={id} />
-          <HistoryPanel sb={supabase} table={table} id={id} labels={labels} />
+          <DocumentsPanel sb={supabase} table={table} id={id} storageKey={panelKey} defaultOpen={panelOpen} />
+          <NotesPanel sb={supabase} table={table} id={id} storageKey={panelKey} defaultOpen={panelOpen} />
+          <HistoryPanel sb={supabase} table={table} id={id} labels={labels} storageKey={panelKey} defaultOpen={panelOpen} />
         </div>
       </div>
     </div>

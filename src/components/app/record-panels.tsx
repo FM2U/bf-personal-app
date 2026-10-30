@@ -13,17 +13,17 @@ import { loadDocuments, loadHistory, loadLinked, loadNotes } from "@/lib/record-
 export { NextActionCard } from "@/components/app/next-action-card";
 
 /** Linked records in both directions, with one-click navigation, plus a form to add a link. */
-export async function LinkedRecordsPanel({ sb, table, id }: { sb: SupabaseClient; table: string; id: string }) {
-  return <LinkedRecordsCard table={table} id={id} data={await loadLinked(sb, table, id)} />;
+export async function LinkedRecordsPanel({ sb, table, id, storageKey, defaultOpen }: { sb: SupabaseClient; table: string; id: string; storageKey?: string; defaultOpen?: boolean }) {
+  return <LinkedRecordsCard table={table} id={id} data={await loadLinked(sb, table, id)} storageKey={storageKey} defaultOpen={defaultOpen} />;
 }
 
 /** Uploaded documents, with an upload form (the file goes straight to storage from the browser). */
-export async function DocumentsPanel({ sb, table, id }: { sb: SupabaseClient; table: string; id: string }) {
-  return <DocumentsCard table={table} id={id} docs={await loadDocuments(sb, table, id)} />;
+export async function DocumentsPanel({ sb, table, id, storageKey, defaultOpen }: { sb: SupabaseClient; table: string; id: string; storageKey?: string; defaultOpen?: boolean }) {
+  return <DocumentsCard table={table} id={id} docs={await loadDocuments(sb, table, id)} storageKey={storageKey} defaultOpen={defaultOpen} />;
 }
 
-export async function NotesPanel({ sb, table, id }: { sb: SupabaseClient; table: string; id: string }) {
-  return <NotesCard table={table} id={id} notes={await loadNotes(sb, table, id)} />;
+export async function NotesPanel({ sb, table, id, storageKey, defaultOpen }: { sb: SupabaseClient; table: string; id: string; storageKey?: string; defaultOpen?: boolean }) {
+  return <NotesCard table={table} id={id} notes={await loadNotes(sb, table, id)} storageKey={storageKey} defaultOpen={defaultOpen} />;
 }
 
 export async function CommunicationsPanel({ sb, table, id }: { sb: SupabaseClient; table: string; id: string }) {
@@ -68,8 +68,8 @@ export async function CommunicationsPanel({ sb, table, id }: { sb: SupabaseClien
   );
 }
 
-export async function HistoryPanel({ sb, table, id, labels = {} }: { sb: SupabaseClient; table: string; id: string; labels?: Record<string, Record<string, string>> }) {
-  return <HistoryCard table={table} history={await loadHistory(sb, table, id, labels)} />;
+export async function HistoryPanel({ sb, table, id, labels = {}, storageKey, defaultOpen }: { sb: SupabaseClient; table: string; id: string; labels?: Record<string, Record<string, string>>; storageKey?: string; defaultOpen?: boolean }) {
+  return <HistoryCard table={table} history={await loadHistory(sb, table, id, labels)} storageKey={storageKey} defaultOpen={defaultOpen} />;
 }
 
 /** Shorter column sets for child lists that sit in the narrower main column of a record page. */

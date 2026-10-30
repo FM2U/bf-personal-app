@@ -19,7 +19,7 @@ import { dismissAlert } from "@/app/actions/records";
 import { regeneratePlan } from "@/app/actions/domain";
 import { OpenReviewButton } from "@/components/app/open-review-button";
 import { date as fmtDate, money, months as fmtMonths } from "@/lib/format";
-import { addDaysISO } from "@/lib/calc/dates";
+import { addDaysISO, isWeekday } from "@/lib/calc/dates";
 import { runwayExplanation } from "@/lib/calc/runway";
 import { consecutiveCompleteDays, nextScheduledReview } from "@/lib/calc/scores";
 import { scoreText } from "@/lib/calc/commitment-rule";
@@ -65,6 +65,7 @@ export default async function HomePage() {
       supabase.from("tasks").select("due_date,status").gte("due_date", addDaysISO(today, -400)).lte("due_date", today).limit(5000),
       supabase.from("missed_commitments").select("id", { count: "exact", head: true }).eq("resolution", "pending"),
       supabase.from("reviews").select("id,kind,period_end").eq("status", "draft").neq("kind", "daily").order("period_end").limit(1),
+      supabase.from("reviews").select("id,status").eq("kind", "daily").eq("period_start", today).order("created_at", { ascending: false }).limit(1),
     ]),
   ]);
   const snap = metrics.snapshot;
@@ -108,7 +109,10 @@ export default async function HomePage() {
   ]);
 
   // KPI tiles
-  const [pipeRes, streakRes, missRes, draftRes] = kpiExtra;
+  const [pipeRes, streakRes, missRes, draftRes, closeRes] = kpiExtra;
+  // Weekdays: the daily close comes first until it is completed today.
+  const todaysClose = ((closeRes.data ?? []) as Row[])[0];
+  const closeDue = isWeekday(today) && todaysClose?.status !== "completed";
   const pipeDue = (pipeRes.data ?? []) as Row[];
   const pipeOverdue = pipeDue.filter((p) => p.next_action_due < today).length;
   const streak = consecutiveCompleteDays((streakRes.data ?? []) as { due_date: string; status: string }[], today);
@@ -156,9 +160,11 @@ export default async function HomePage() {
     { label: "Commitment score this week", value: scoreText(score), href: "/accountability/scores", tone: score !== null && score !== undefined && score < 70 ? "bad" : undefined, hint: score === null || score === undefined ? "None due yet this week" : "Includes targets" },
     { label: "Days in a row with every task done", value: streak, href: "/accountability/scores", tone: streak ? "good" : undefined },
     { label: "Open missed commitments", value: missRes.count ?? 0, href: "/accountability?status=missed", tone: missRes.count ? "bad" : undefined, hint: missRes.count ? "Reason needed" : undefined },
-    draftReview
-      ? { label: "Next review due", value: REVIEW_NAME[draftReview.kind] ?? "Review", href: `/accountability/reviews/${draftReview.id}`, tone: "warn", hint: `Due now, draft ready` }
-      : { label: "Next review due", value: REVIEW_NAME[scheduled.kind], href: "/accountability/reviews", hint: scheduled.date === today ? "Today" : fmtDate(scheduled.date, "EEE, MMM d") },
+    closeDue
+      ? { label: "Next review due", value: "Daily close", href: todaysClose ? `/accountability/reviews/${todaysClose.id}` : "/accountability/reviews/today", hint: "Today", testId: "home-next-review" }
+      : draftReview
+      ? { label: "Next review due", value: REVIEW_NAME[draftReview.kind] ?? "Review", href: `/accountability/reviews/${draftReview.id}`, tone: "warn", hint: `Due now, draft ready`, testId: "home-next-review" }
+      : { label: "Next review due", value: REVIEW_NAME[scheduled.kind], href: "/accountability/reviews", hint: scheduled.date === today ? "Today" : fmtDate(scheduled.date, "EEE, MMM d"), testId: "home-next-review" },
   ];
 
   return (

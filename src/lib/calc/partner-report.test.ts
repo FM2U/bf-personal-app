@@ -186,3 +186,26 @@ describe("partner report email", () => {
     expect(t.body).toContain("https://app.example.com/report/abc");
   });
 });
+
+describe("daily partner reports (the day period)", () => {
+  const day: PeriodData = { start: "2026-10-30", end: "2026-10-30", commitments: { met: 2, missed: 1, pct: 67, missedTitles: ["Send the LOI"] }, tasks: { done: 5, overdue: 1 } };
+  const dailySnapshot = { measures: { day, week }, report_kind: "daily" };
+  it("a daily report shows today's numbers whichever period the template has", () => {
+    const [s] = reportSections({ partnerName: "Pat", report: { period_start: "2026-10-30", period_end: "2026-10-30", snapshot: dailySnapshot }, templates: [STARTER_TEMPLATES[1]], link: null });
+    expect(s.template.period).toBe("day");
+    expect(s.period).toBe("Fri, Oct 30, 2026");
+    expect(s.tiles.find((t) => t.key === "commitments_met")?.value).toBe("2");
+    expect(s.tiles.find((t) => t.key === "tasks_done")?.value).toBe("5");
+  });
+  it("the subject and the header say daily", () => {
+    const input = { partnerName: "Pat", report: { period_start: "2026-10-30", period_end: "2026-10-30", snapshot: dailySnapshot }, templates: [STARTER_TEMPLATES[0]], link: null };
+    expect(reportEmailText(input).subject).toBe("Daily accountability report: Fri, Oct 30, 2026");
+    expect(reportEmailHtml(input)).toContain("Daily accountability report");
+  });
+  it("a regular report keeps the template's period; a day template saves", () => {
+    const [s] = reportSections({ partnerName: "Pat", report, templates: [STARTER_TEMPLATES[1]], link: null });
+    expect(s.template.period).toBe("week");
+    expect(toTemplate({ id: "d", name: "Today", measures: ["tasks_done"], period: "day" }).period).toBe("day");
+    expect(templateProblems({ name: "Today", measures: ["tasks_done"], period: "day" })).toEqual([]);
+  });
+});

@@ -30,8 +30,10 @@ import { SetupWindow } from "@/components/app/windows/setup-window";
 import { WorkWindow } from "@/components/app/windows/work-window";
 import { TaskWindow } from "@/components/app/windows/task-window";
 import { ScenarioSummaryWindow } from "@/components/app/windows/scenario-summary";
-import { ResolveWindow } from "@/components/app/windows/resolve-window";
-import { loadEditForm, loadPlanText, loadRecordOverview, loadSetup, logActivityInWindow, moveStageInWindow, moveTaskToTomorrow, type EditFormData, type LineItem, type OverviewData, type SetupData } from "@/app/actions/window";
+import { SentReportView } from "@/components/app/sent-report-view";
+import { CollapsibleCard } from "@/components/app/collapsible";
+import { DocumentsCard, HistoryCard, LinkedRecordsCard, NotesCard } from "@/components/app/record-side-panels";
+import { loadEditForm, loadMissCommitment, loadPlanText, loadRecordOverview, loadSetup, logActivityInWindow, moveStageInWindow, moveTaskToTomorrow, type EditFormData, type LineItem, type OverviewData, type SetupData } from "@/app/actions/window";
 import { setTaskStatus, updateRecordFields } from "@/app/actions/records";
 import type { QuickField } from "@/app/actions/quick-view";
 import { fullPageHref, stepForField, type WindowView as View } from "@/lib/window-route";
@@ -170,13 +172,13 @@ function LinesTile({ title, icon: Icon, items, today, empty, action, testId }: {
 }
 
 /** Key fields in a compact grid (label above value), long text after. */
-function FieldsTile({ fields, title = "Details", className }: { fields: QuickField[]; title?: string; className?: string }) {
+function FieldsTile({ fields, title = "Details", className, bare = false }: { fields: QuickField[]; title?: string; className?: string; /** Inside a section that has its own title and border. */ bare?: boolean }) {
   const short = fields.filter((f) => !f.wide);
   const wide = fields.filter((f) => f.wide);
   if (!short.length && !wide.length) return null;
   return (
-    <section className={cn("min-w-0 rounded-xl border border-border bg-white px-4 pb-4 pt-3.5", className)} data-testid="quick-view-fields">
-      <h3 className="mb-2 text-sm font-semibold text-slate-900">{title}</h3>
+    <section className={cn("min-w-0", !bare && "rounded-xl border border-border bg-white px-4 pb-4 pt-3.5", className)} data-testid="quick-view-fields">
+      {bare ? null : <h3 className="mb-2 text-sm font-semibold text-slate-900">{title}</h3>}
       {short.length ? (
         <dl className="grid grid-cols-2 gap-x-6 gap-y-3 lg:grid-cols-3">
           {short.map((f, i) => (
@@ -222,7 +224,7 @@ export function WindowView() {
   switch (view.kind) {
     case "record":
       // Tasks and commitments: the one task window (the same content from every place it is opened).
-      return view.table === "tasks" || view.table === "commitments" ? <TaskWindow table={view.table} id={view.id} /> : <RecordWindow table={view.table} id={view.id} />;
+      return view.table === "tasks" || view.table === "commitments" ? <TaskWindow table={view.table} id={view.id} resolve={view.resolve ?? null} /> : <RecordWindow table={view.table} id={view.id} />;
     case "edit":
       return <EditWindow table={view.table} id={view.id} prefill={{}} />;
     case "new":
@@ -238,8 +240,19 @@ export function WindowView() {
     case "scenario-summary":
       return <ScenarioSummaryWindow ids={view.ids} />;
     case "resolve":
-      return <ResolveWindow missId={view.missId} />;
+      return <OlderResolveAddress missId={view.missId} />;
   }
+}
+
+/** An older `?w=resolve/<miss id>` address: opens the task window of the miss's commitment with Resolve open. */
+function OlderResolveAddress({ missId }: { missId: string }) {
+  const nav = useWindowNav();
+  const { data } = useLoad(`miss-commitment:${missId}`, () => loadMissCommitment(missId));
+  useEffect(() => {
+    if (data?.ok) nav.replace({ kind: "record", table: "commitments", id: data.commitmentId, resolve: missId });
+  }, [data, missId, nav]);
+  if (data && !data.ok) return <ErrorView error={data.error} href="/accountability?status=missed" />;
+  return <LoadingView />;
 }
 
 function RecordWindow({ table, id }: { table: string; id: string }) {
@@ -256,9 +269,41 @@ function RecordWindow({ table, id }: { table: string; id: string }) {
       return <PipelineWindow d={data} reload={reload} />;
     case "scenario":
       return <ScenarioWindow d={data} />;
+    case "sent-report":
+      return <SentReportWindow d={data} reload={reload} />;
     default:
       return <QuickWindow d={data} reload={reload} />;
   }
+}
+
+// ---------- A sent partner report (a communication from Communication history) ----------
+
+function SentReportWindow({ d, reload }: { d: Extract<OverviewData, { kind: "sent-report" }>; reload: () => void }) {
+  const nav = useWindowNav();
+  const b = d.base;
+  const win = { onChanged: () => {
+    reload();
+    nav.refreshPage();
+  } };
+  const key = "window:communications-report";
+  return (
+    <ViewLayout title={b.title} subtitle="Partner report email" footer={<><span className="flex-1" /><FullPageButton href={b.href} variant="default" /></>}>
+      <div className="flex flex-col gap-4" data-testid="quick-view-body">
+        <section className="rounded-xl border border-border bg-white p-4">
+          <SentReportView r={d.report} />
+        </section>
+        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+          <CollapsibleCard id="details" storageKey={key} title="Communication details" defaultOpen={false} summary={b.fields.slice(0, 3).map((f) => `${f.label}: ${f.text}`).join(", ")} testId="sent-report-details">
+            <FieldsTile fields={b.fields} bare />
+          </CollapsibleCard>
+          <LinkedRecordsCard table="communications" id={b.id} data={d.linked} win={win} storageKey={key} defaultOpen={false} />
+          <DocumentsCard table="communications" id={b.id} docs={d.documents} win={win} storageKey={key} defaultOpen={false} />
+          <NotesCard table="communications" id={b.id} notes={d.notes} win={win} storageKey={key} defaultOpen={false} />
+          <HistoryCard table="communications" history={d.history} storageKey={key} defaultOpen={false} />
+        </div>
+      </div>
+    </ViewLayout>
+  );
 }
 
 // ---------- Quick view (tasks, contacts, organizations, milestones, other records) ----------

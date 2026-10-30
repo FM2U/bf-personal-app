@@ -65,3 +65,9 @@ export function quarterBounds(s: string): { start: string; end: string } {
   const start = new Date(d.getFullYear(), qMonth, 1);
   return { start: toISODate(start), end: toISODate(addDays(addMonths(start, 3), -1)) };
 }
+
+/** True for Monday to Friday (the date is read as a calendar date, no time zone). */
+export function isWeekday(s: string): boolean {
+  const d = new Date(`${s}T12:00:00Z`).getUTCDay();
+  return d >= 1 && d <= 5;
+}

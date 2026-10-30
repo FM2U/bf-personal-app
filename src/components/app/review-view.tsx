@@ -19,6 +19,8 @@ import { date as fmtDate, dateTime, money, months as fmtMonths } from "@/lib/for
 import type { Row } from "@/lib/types";
 import { AiText } from "@/components/app/ai-text";
 import { GuardedForm } from "@/components/app/unsaved-changes";
+import { DailyReportsPanel } from "@/components/app/daily-reports-panel";
+import { loadDailyReports } from "@/lib/daily-reports";
 
 export const REVIEW_TITLE: Record<string, string> = { daily: "Daily close", weekly: "Weekly review", monthly: "Monthly review", quarterly: "Quarterly review" };
 
@@ -58,6 +60,8 @@ export async function ReviewView({ id, sp, inWindow = false }: { id: string; sp:
   const metTargets = (closeTargets?.targets ?? []).filter((t) => t.status === "met");
   const closeSaved = a.close_saved === "1";
   const missingLabels = new Set((sp.missing ?? "").split("|").filter(Boolean));
+  // Daily close, completed: today's partner reports for partners set to Daily or Both (drafted when it was completed).
+  const dailyReports = review.kind === "daily" && done ? await loadDailyReports(supabase, ownerId, review.period_start).catch(() => null) : null;
   // Weekly review: regular tasks moved to the next day many times.
   const moved = review.kind === "weekly" && !done ? await movedTasksForReview(ctx) : null;
   const check = (name: string, label: string) => (
@@ -91,6 +95,17 @@ export async function ReviewView({ id, sp, inWindow = false }: { id: string; sp:
           />
         </>
       )}
+      {dailyReports?.items.length ? (
+        <Card className="mb-4 max-w-[52rem]" data-testid="daily-reports-card">
+          <CardHeader>
+            <CardTitle>Today&apos;s partner reports</CardTitle>
+            <CardDescription>The daily close is done. Check each report below, then approve and send it, or choose Not today.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <DailyReportsPanel items={dailyReports.items} permission={dailyReports.permission} />
+          </CardContent>
+        </Card>
+      ) : null}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
         <div className="flex flex-col gap-4 lg:col-span-2">
           <Card>

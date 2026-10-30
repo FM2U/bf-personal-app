@@ -12,7 +12,9 @@ import { loadTargets, targetTotals } from "@/lib/targets";
 import type { Row } from "@/lib/types";
 import { createAlert, createTask, type Ctx } from "./helpers";
 import { buildReportMeasures } from "./report-measures";
-import { reportEmailHtml, reportEmailText, type ReportTemplate } from "@/lib/calc/partner-report";
+import { reportEmailHtml, reportEmailText, sendsDaily, sendsScheduled, type ReportTemplate } from "@/lib/calc/partner-report";
+import { isWeekday } from "@/lib/calc/dates";
+import { hasUpdate0018 } from "@/lib/update-0018";
 
 export function nextReportDate(schedule: string, from: string): string {
   if (schedule === "monthly") return addMonthsISO(from, 1);
@@ -186,11 +188,15 @@ export async function createPartnerReport(ctx: Ctx, partner: Row): Promise<strin
   return data?.id ?? null;
 }
 
-/** Morning job: creates report drafts for partners whose report date has arrived. */
+/**
+ * Morning job: creates report drafts for partners whose report date has arrived. Partners set to Daily only (database
+ * update 0018) get no scheduled report; Weekly and Both do (before the update every partner is Weekly).
+ */
 export async function schedulePartnerReports(ctx: Ctx): Promise<{ created: number }> {
   const { data } = await ctx.sb.from("partners").select("*").eq("owner_id", ctx.ownerId).eq("is_active", true).lte("next_report_on", ctx.today);
   let created = 0;
   for (const p of (data ?? []) as Row[]) {
+    if (!sendsScheduled(p.report_frequency as string | undefined)) continue;
     const id = await createPartnerReport(ctx, p);
     if (id) created++;
     let next = nextReportDate(p.schedule, p.next_report_on);
@@ -222,9 +228,52 @@ export async function ensureReportMeasures(ctx: Ctx, report: Row): Promise<Row> 
  * the plain text part (src/lib/calc/partner-report.ts). Used by Send now, Save to Gmail drafts, finalize, and the preview.
  */
 export function templateReportEmail(partner: Row, report: Row, link: string | null, templates: ReportTemplate[]): { subject: string; body: string; html: string } {
-  const input = { partnerName: String(partner.name), report: { period_start: report.period_start, period_end: report.period_end, summary: report.summary ?? null, snapshot: report.snapshot ?? null }, templates, link };
+  const input = { partnerName: String(partner.name), report: reportForEmail(report), templates, link };
   const text = reportEmailText(input);
   return { subject: text.subject, body: text.body, html: reportEmailHtml(input) };
+}
+
+/** The report fields the email, the PDF, and the previews read (a daily report shows today's numbers). */
+export function reportForEmail(report: Row): { period_start: string; period_end: string; summary: string | null; snapshot: Row | null; report_kind: string | null } {
+  return { period_start: report.period_start, period_end: report.period_end, summary: report.summary ?? null, snapshot: report.snapshot ?? null, report_kind: (report.report_kind as string | undefined) ?? null };
+}
+
+/**
+ * Daily partner reports (database update 0018): after the owner finishes the daily close on a weekday, today's report
+ * is drafted for each active partner set to Daily or Both, with that partner's default template showing today's
+ * numbers. Nothing is sent: the daily close shows each draft with Approve and send, Edit note, and Not today.
+ * At most one daily report per partner per day (a second close on the same day adds nothing). Never throws.
+ */
+export async function draftDailyPartnerReports(ctx: Ctx, day: string): Promise<{ created: number }> {
+  try {
+    if (day !== ctx.today || !isWeekday(day) || !(await hasUpdate0018(ctx.sb))) return { created: 0 };
+    const { data } = await ctx.sb.from("partners").select("*").eq("owner_id", ctx.ownerId).eq("is_active", true).in("report_frequency", ["daily", "both"]);
+    const partners = ((data ?? []) as Row[]).filter((p) => sendsDaily(p.report_frequency));
+    if (!partners.length) return { created: 0 };
+    const { data: existing } = await ctx.sb.from("partner_reports").select("partner_id").eq("owner_id", ctx.ownerId).eq("report_kind", "daily").eq("period_end", day);
+    const have = new Set(((existing ?? []) as Row[]).map((r) => String(r.partner_id)));
+    let created = 0;
+    for (const p of partners) {
+      if (have.has(String(p.id))) continue;
+      const snapshot = { ...(await buildPartnerSnapshot(ctx, p, day, day)), report_kind: "daily" };
+      const { error } = await ctx.sb.from("partner_reports").insert({
+        owner_id: ctx.ownerId,
+        partner_id: p.id,
+        period_start: day,
+        period_end: day,
+        status: "draft",
+        report_kind: "daily",
+        template_id: p.report_template_id ?? null,
+        snapshot,
+        summary: null,
+        summary_source: "template",
+      });
+      if (!error) created++;
+    }
+    return { created };
+  } catch {
+    return { created: 0 };
+  }
 }
 
 /** Text of the report for email, call script, or letter. */

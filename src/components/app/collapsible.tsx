@@ -24,26 +24,37 @@ export function useSavedOpen(fullKey: string | null): Record<string, boolean> | 
 type GroupCtx = { isOpen: (id: string) => boolean; toggle: (id: string) => void; all: (open: boolean) => void };
 const Group = createContext<GroupCtx | null>(null);
 
-export function DisclosureGroup({ storageKey, defaults, children }: { storageKey: string; defaults: Record<string, boolean>; children: React.ReactNode }) {
-  const saved = useSavedOpen(DISCLOSURE_PREFIX + storageKey);
+export function DisclosureGroup({
+  storageKey,
+  defaults,
+  children,
+  remember = true,
+}: {
+  storageKey: string;
+  defaults: Record<string, boolean>;
+  children: React.ReactNode;
+  /** False: the defaults always apply and choices are not saved (for example the task window opened to resolve a miss). */
+  remember?: boolean;
+}) {
+  const saved = useSavedOpen(remember ? DISCLOSURE_PREFIX + storageKey : null);
   // Choices made on this page view (also saved, for the next visit).
   const [changed, setChanged] = useState<Record<string, boolean>>({});
   const open = useMemo(() => ({ ...resolveOpen(defaults, saved), ...changed }), [defaults, saved, changed]);
   const toggle = useCallback(
     (id: string) => {
       const next = !(open[id] ?? true);
-      writeSaved(storageKey, { [id]: next });
+      if (remember) writeSaved(storageKey, { [id]: next });
       setChanged((m) => ({ ...m, [id]: next }));
     },
-    [open, storageKey],
+    [open, storageKey, remember],
   );
   const all = useCallback(
     (o: boolean) => {
       const next = Object.fromEntries(Object.keys(open).map((k) => [k, o]));
-      writeSaved(storageKey, next);
+      if (remember) writeSaved(storageKey, next);
       setChanged(next);
     },
-    [open, storageKey],
+    [open, storageKey, remember],
   );
   const ctx = useMemo<GroupCtx>(() => ({ isOpen: (id) => open[id] ?? true, toggle, all }), [open, toggle, all]);
   return <Group.Provider value={ctx}>{children}</Group.Provider>;

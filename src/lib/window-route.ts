@@ -8,6 +8,8 @@
  *
  * `w` values:
  *   r/<table>/<id>         a record's overview (initiatives, goals, pipeline items, scenarios) or quick view (others)
+ *   r/<tasks|commitments>/<id>/resolve[/<miss id>]
+ *                          the task window with "Resolve this miss" open at the top (the newest pending miss, or that one)
  *   e/<table>/<id>         the record's editor
  *   n/<table>/<k=v&...>    a new record (fields filled from the query text)
  *   draft/<id>             an initiative draft's overview
@@ -17,7 +19,8 @@
  *   work, work/<task id>   Work through tasks (today's tasks one at a time)
  *   plan/<initiative id>   an initiative's plan document as text
  *   ss/<id>[,<id>...]      the scenario summary (one scenario, or the scenarios being compared)
- *   resolve/<miss id>      resolve a missed commitment: a one-line reason, then a new date or a decision
+ *   resolve/<miss id>      older address (before the task window had the resolve section): opens the task window of
+ *                          the miss's commitment with the resolve section open (src/components/app/windows/views.tsx)
  */
 import { getResource } from "@/lib/resources";
 
@@ -50,7 +53,7 @@ export const SETUP_STEP_HELP: Record<SetupStep, string> = {
 };
 
 export type WindowView =
-  | { kind: "record"; table: string; id: string }
+  | { kind: "record"; table: string; id: string; /** Tasks and commitments: open "Resolve this miss" ("pending" = the newest pending miss). */ resolve?: string }
   | { kind: "edit"; table: string; id: string }
   | { kind: "new"; table: string; prefill: Record<string, string> }
   | { kind: "draft"; id: string }
@@ -85,7 +88,11 @@ export function parseWindowParam(w: string | null | undefined): WindowView | nul
   switch (head) {
     case "r":
     case "e": {
-      const [table, id] = rest;
+      const [table, id, sub, missId] = rest;
+      if (head === "r" && (rest.length === 3 || rest.length === 4) && sub === "resolve" && (TASK_WINDOW_TABLES as readonly string[]).includes(table) && isId(id)) {
+        if (rest.length === 3) return { kind: "record", table, id, resolve: "pending" };
+        return isId(missId) ? { kind: "record", table, id, resolve: missId } : null;
+      }
       if (rest.length !== 2 || !isTable(table) || !isId(id)) return null;
       return head === "r" ? { kind: "record", table, id } : { kind: "edit", table, id };
     }
@@ -125,7 +132,7 @@ export function parseWindowParam(w: string | null | undefined): WindowView | nul
 export function windowParam(v: WindowView): string {
   switch (v.kind) {
     case "record":
-      return `r/${v.table}/${v.id}`;
+      return `r/${v.table}/${v.id}${v.resolve ? `/resolve${v.resolve === "pending" ? "" : `/${v.resolve}`}` : ""}`;
     case "edit":
       return `e/${v.table}/${v.id}`;
     case "new": {
@@ -156,16 +163,20 @@ export function withWindow(current: string, v: WindowView | null): string {
   return `${url.pathname}${q ? `?${q}` : ""}`;
 }
 
-/** Large windows: overviews, editors, the setup, Work through tasks. Medium: the quick view of other records, resolving a miss. */
+/** Large windows: overviews, editors, the setup, Work through tasks, the task window. Medium: the quick view of other records. */
 export function windowSize(v: WindowView): "large" | "medium" {
-  if (v.kind === "resolve") return "medium";
   if (v.kind === "record") return (OVERVIEW_TABLES as readonly string[]).includes(v.table) || (TASK_WINDOW_TABLES as readonly string[]).includes(v.table) ? "large" : "medium";
   return "large";
 }
 
-/** The address that opens the resolve window for a missed commitment, over the Commitments page. */
-export function resolveHref(missId: string): string {
-  return `/accountability?${WINDOW_PARAM}=resolve/${missId}`;
+/** The `w` value that opens the task window of a commitment with "Resolve this miss" open (that miss, or the newest pending one). */
+export function resolveParam(commitmentId: string, missId?: string | null): string {
+  return windowParam({ kind: "record", table: "commitments", id: commitmentId, resolve: missId || "pending" });
+}
+
+/** The address that opens the task window with "Resolve this miss" open, over the Commitments page. */
+export function resolveHref(commitmentId: string, missId?: string | null): string {
+  return `/accountability?${WINDOW_PARAM}=${resolveParam(commitmentId, missId)}`;
 }
 
 /** Where Back goes when the window was opened straight at this view (a refresh or a bookmarked link). */

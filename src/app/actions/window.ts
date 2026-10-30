@@ -32,6 +32,8 @@ import { baselineFromSnapshot, loadScenario, runScenario } from "@/lib/scenarios
 import { addDaysISO } from "@/lib/calc/dates";
 import { date as fmtDate, money, months as fmtMonths, num } from "@/lib/format";
 import { hasUpdate0014 } from "@/lib/update-0014";
+import { hasUpdate0018 } from "@/lib/update-0018";
+import { loadSentReport, type SentReport } from "@/lib/sent-report";
 import { DB_UPDATE_NOTICE_0014 } from "@/lib/schema-guard";
 import { AIInvalidReply, AIUnavailable } from "@/lib/ai/claude";
 import { isAIConfigured } from "@/lib/env";
@@ -76,7 +78,8 @@ export type OverviewData =
       suggestion: Suggestion | null;
       scorecard: Scorecard;
     }
-  | { ok: true; kind: "scenario"; id: string; title: string; description: string; results: { label: string; current: string; scenario: string }[]; changes: { label: string; value: string; table: string | null; id: string | null }[] };
+  | { ok: true; kind: "scenario"; id: string; title: string; description: string; results: { label: string; current: string; scenario: string }[]; changes: { label: string; value: string; table: string | null; id: string | null }[] }
+  | { ok: true; kind: "sent-report"; base: QuickOk; report: SentReport; linked: LinkedData; documents: DocumentItem[]; notes: NoteItem[]; history: HistoryItem[] };
 
 const fail = (error: string): Fail => ({ ok: false, error });
 
@@ -96,6 +99,14 @@ export async function loadRecordOverview(table: string, id: string): Promise<Ove
   if (!base.ok) return base;
   if (table === "goals") return goalOverview(sb, base);
   if (table === "pipeline_items") return pipelineOverview(sb, ownerId, base);
+  // A sent partner report (Communication history): the report as sent, with the communication below.
+  if (table === "communications") {
+    const report = await loadSentReport(sb, ownerId, id).catch(() => null);
+    if (report) {
+      const [linked, documents, notes, history] = await Promise.all([loadLinked(sb, table, id), loadDocuments(sb, table, id), loadNotes(sb, table, id), loadHistory(sb, table, id)]);
+      return { ok: true, kind: "sent-report", base, report, linked, documents, notes, history };
+    }
+  }
   const { data: row } = await sb.from(table).select("*").eq("id", id).maybeSingle();
   const compose = row ? await loadComposeSetup(sb, ownerId, table, row as Row) : null;
   let commitment = false;
@@ -421,8 +432,20 @@ export type TaskWindowData =
       table: "tasks" | "commitments";
       base: QuickOk;
       tomorrow: string;
+      today: string;
+      /** Database update 0018 is applied (Done late can be saved). */
+      has0018: boolean;
       task: { done: boolean; due: string | null; timesMoved: number } | null;
-      commitment: { id: string; due: string; originalDue: string | null; status: string; missCount: number; recordType: string; recordId: string; misses: { id: string; missedOn: string; reason: string | null; resolution: string; newDue: string | null }[] } | null;
+      commitment: {
+        id: string;
+        due: string;
+        originalDue: string | null;
+        status: string;
+        missCount: number;
+        recordType: string;
+        recordId: string;
+        misses: { id: string; missedOn: string; reason: string | null; resolution: string; newDue: string | null; doneOn: string | null }[];
+      } | null;
       /** Mark as commitment (tasks without one): the suggested due date. */
       markDue: string | null;
       context: Extract<OverviewData, { kind: "quick" }>["context"];
@@ -464,7 +487,7 @@ export async function loadTaskWindow(table: string, id: string): Promise<TaskWin
     commitmentRow = ((data ?? []) as Row[])[0] ?? null;
   }
   const ctx = await loadCtx(sb, ownerId);
-  const [missRes, context, linked, documents, notes, history, lists, suggestion] = await Promise.all([
+  const [missRes, context, linked, documents, notes, history, lists, suggestion, has0018] = await Promise.all([
     commitmentRow ? sb.from("missed_commitments").select("*").eq("commitment_id", commitmentRow.id).order("missed_on", { ascending: false }) : Promise.resolve({ data: [] }),
     subject === "tasks" ? taskContext(sb, row, ctx.today) : Promise.resolve(null),
     loadLinked(sb, subject, subjectId),
@@ -473,12 +496,15 @@ export async function loadTaskWindow(table: string, id: string): Promise<TaskWin
     loadHistory(sb, subject, subjectId),
     subject === "tasks" && row.template_id ? loadChecklists(sb, { templateId: row.template_id }).catch(() => null) : Promise.resolve(null),
     subject === "tasks" ? firstSuggestion([taskSuggestion(row as { id: string; status: string; times_moved?: number | null })]) : Promise.resolve(null),
+    commitmentRow ? hasUpdate0018(sb) : Promise.resolve(false),
   ]);
   return {
     ok: true,
     table: subject,
     base,
     tomorrow: addDaysISO(ctx.today, 1),
+    today: ctx.today,
+    has0018,
     task: subject === "tasks" ? { done: row.status === "done", due: row.due_date ?? null, timesMoved: Number(row.times_moved ?? 0) } : null,
     commitment: commitmentRow
       ? {
@@ -489,7 +515,7 @@ export async function loadTaskWindow(table: string, id: string): Promise<TaskWin
           missCount: Number(commitmentRow.miss_count ?? 0),
           recordType: String(commitmentRow.record_type),
           recordId: String(commitmentRow.record_id),
-          misses: ((missRes.data ?? []) as Row[]).map((m) => ({ id: String(m.id), missedOn: String(m.missed_on), reason: m.reason ?? null, resolution: String(m.resolution ?? "pending"), newDue: m.new_due_date ?? null })),
+          misses: ((missRes.data ?? []) as Row[]).map((m) => ({ id: String(m.id), missedOn: String(m.missed_on), reason: m.reason ?? null, resolution: String(m.resolution ?? "pending"), newDue: m.new_due_date ?? null, doneOn: m.done_on ?? null })),
         }
       : null,
     markDue: subject === "tasks" && !commitmentRow ? row.due_date ?? null : null,
@@ -688,30 +714,12 @@ export async function loadScenarioSummary(ids: string[]): Promise<({ ok: true } 
   return { ok: true, ...data };
 }
 
-// ---------- Resolve a missed commitment ----------
+// ---------- Older resolve addresses ----------
 
-export type ResolveWindowData =
-  | Fail
-  | {
-      ok: true;
-      today: string;
-      miss: { id: string; missedOn: string; reason: string | null; resolution: string; newDue: string | null; decisionId: string | null };
-      commitment: { id: string; title: string; recordType: string; recordId: string; type: string; due: string; missCount: number; status: string };
-    };
-
-/** The resolve window (`?w=resolve/<miss id>`): the miss and its commitment. */
-export async function loadResolveWindow(missId: string): Promise<ResolveWindowData> {
-  const { supabase, ownerId } = await requireOwner();
-  const ctx = await loadCtx(supabase, ownerId);
-  const { data: m } = await supabase.from("missed_commitments").select("*").eq("id", missId).maybeSingle();
+/** The commitment of a miss, for older `?w=resolve/<miss id>` addresses (they open the task window with Resolve open). */
+export async function loadMissCommitment(missId: string): Promise<Fail | { ok: true; commitmentId: string }> {
+  const { supabase } = await requireOwner();
+  const { data: m } = await supabase.from("missed_commitments").select("commitment_id").eq("id", missId).maybeSingle();
   if (!m) return { ok: false, error: "This miss was not found. It may have been removed." };
-  const { data: c } = await supabase.from("commitments").select("*").eq("id", m.commitment_id).maybeSingle();
-  if (!c) return { ok: false, error: "The commitment for this miss was not found." };
-  const type = c.record_type === "tasks" ? "Task" : c.record_type === "milestones" ? "Milestone" : "Goal";
-  return {
-    ok: true,
-    today: ctx.today,
-    miss: { id: m.id, missedOn: m.missed_on, reason: m.reason ?? null, resolution: m.resolution, newDue: m.new_due_date ?? null, decisionId: m.decision_id ?? null },
-    commitment: { id: c.id, title: c.title, recordType: c.record_type, recordId: c.record_id, type, due: c.due_date, missCount: Number(c.miss_count ?? 0), status: c.status },
-  };
+  return { ok: true, commitmentId: String(m.commitment_id) };
 }

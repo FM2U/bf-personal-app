@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireOwner } from "@/lib/auth";
+import { hasUpdate0018 } from "@/lib/update-0018";
 import { loadCtx } from "@/lib/engine/helpers";
 import { applyCategoryRules, detectAndSaveRecurring } from "@/lib/engine/finance-jobs";
 import { evaluateConditions } from "@/lib/engine/rules";
@@ -71,6 +72,7 @@ export async function loadSampleData(fd: FormData) {
       acquisitions: pipeOf("acquisition"),
       consulting: pipeOf("consulting"),
       reportTemplateId: ((detailedTemplate as Row | null)?.id as string | undefined) ?? null,
+      dailyReports: await hasUpdate0018(supabase),
     },
     () => randomUUID(),
   );

@@ -123,12 +123,12 @@ function DeleteForm({ action, id, label, win, onError, children }: { action: (fd
 
 // ---------- Linked records ----------
 
-export function LinkedRecordsCard({ table, id, data, win, storageKey }: { table: string; id: string; data: LinkedData; win?: PanelWindowMode; storageKey?: string }) {
+export function LinkedRecordsCard({ table, id, data, win, storageKey, defaultOpen: openOverride }: { table: string; id: string; data: LinkedData; win?: PanelWindowMode; storageKey?: string; /** Overrides the default open state (for example closed under a sent report). */ defaultOpen?: boolean }) {
   const { ref, filled } = useFilled();
   const [error, setError] = useState<string | null>(null);
   const links = data.links;
   return (
-    <CollapsibleCard id="linked" storageKey={storageKey ?? `record:${table}`} title="Linked records" icon={<Link2 className="h-4 w-4" />} meta={links.length || undefined} defaultOpen={links.length > 0} summary="None yet. Open to link a person, deal, goal, or document." testId="panel-linked">
+    <CollapsibleCard id="linked" storageKey={storageKey ?? `record:${table}`} title="Linked records" icon={<Link2 className="h-4 w-4" />} meta={links.length || undefined} defaultOpen={openOverride ?? links.length > 0} summary={links.length ? `${links.length} linked: open to see them or add another.` : "None yet. Open to link a person, deal, goal, or document."} testId="panel-linked">
       <div className="flex flex-col gap-3">
         {links.length ? (
           <ul className="flex flex-col divide-y divide-slate-100">
@@ -195,7 +195,7 @@ export function LinkedRecordsCard({ table, id, data, win, storageKey }: { table:
 
 // ---------- Documents ----------
 
-export function DocumentsCard({ table, id, docs, win, storageKey }: { table: string; id: string; docs: DocumentItem[]; win?: PanelWindowMode; storageKey?: string }) {
+export function DocumentsCard({ table, id, docs, win, storageKey, defaultOpen: openOverride }: { table: string; id: string; docs: DocumentItem[]; win?: PanelWindowMode; storageKey?: string; /** Overrides the default open state (for example closed under a sent report). */ defaultOpen?: boolean }) {
   const { ref, filled } = useFilled();
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
@@ -220,7 +220,7 @@ export function DocumentsCard({ table, id, docs, win, storageKey }: { table: str
   };
 
   return (
-    <CollapsibleCard id="documents" storageKey={storageKey ?? `record:${table}`} title="Documents" icon={<FileText className="h-4 w-4" />} meta={docs.length || undefined} defaultOpen={docs.length > 0} summary="None yet. Open to upload an agreement, statement, or proof." testId="panel-documents">
+    <CollapsibleCard id="documents" storageKey={storageKey ?? `record:${table}`} title="Documents" icon={<FileText className="h-4 w-4" />} meta={docs.length || undefined} defaultOpen={openOverride ?? docs.length > 0} summary="None yet. Open to upload an agreement, statement, or proof." testId="panel-documents">
       <div className="flex flex-col gap-3">
         {docs.length ? (
           <ul className="flex flex-col divide-y divide-slate-100">
@@ -287,11 +287,11 @@ export function DocumentsCard({ table, id, docs, win, storageKey }: { table: str
 
 // ---------- Notes ----------
 
-export function NotesCard({ table, id, notes, win, storageKey }: { table: string; id: string; notes: NoteItem[]; win?: PanelWindowMode; storageKey?: string }) {
+export function NotesCard({ table, id, notes, win, storageKey, defaultOpen: openOverride }: { table: string; id: string; notes: NoteItem[]; win?: PanelWindowMode; storageKey?: string; /** Overrides the default open state (for example closed under a sent report). */ defaultOpen?: boolean }) {
   const { ref, filled } = useFilled();
   const [error, setError] = useState<string | null>(null);
   return (
-    <CollapsibleCard id="notes" storageKey={storageKey ?? `record:${table}`} title="Notes" icon={<StickyNote className="h-4 w-4" />} meta={notes.length || undefined} defaultOpen summary={notes.length ? `Latest: ${notes[0].body.slice(0, 80)}` : "No notes yet."} testId="panel-notes">
+    <CollapsibleCard id="notes" storageKey={storageKey ?? `record:${table}`} title="Notes" icon={<StickyNote className="h-4 w-4" />} meta={notes.length || undefined} defaultOpen={openOverride ?? true} summary={notes.length ? `Latest: ${notes[0].body.slice(0, 80)}` : "No notes yet."} testId="panel-notes">
       <div className="flex flex-col gap-3">
         <GuardedForm
           ref={ref}
@@ -344,9 +344,9 @@ export function NotesCard({ table, id, notes, win, storageKey }: { table: string
 
 // ---------- Change history ----------
 
-export function HistoryCard({ table, history, storageKey }: { table: string; history: HistoryItem[]; storageKey?: string }) {
+export function HistoryCard({ table, history, storageKey, defaultOpen: openOverride }: { table: string; history: HistoryItem[]; storageKey?: string; /** Overrides the default open state (for example closed under a sent report). */ defaultOpen?: boolean }) {
   return (
-    <CollapsibleCard id="history" storageKey={storageKey ?? `record:${table}`} title="Change history" icon={<History className="h-4 w-4" />} meta={history.length || undefined} defaultOpen={false} summary={history.length ? `Last change ${history[0].when}` : "No changes recorded."} testId="panel-history">
+    <CollapsibleCard id="history" storageKey={storageKey ?? `record:${table}`} title="Change history" icon={<History className="h-4 w-4" />} meta={history.length || undefined} defaultOpen={openOverride ?? false} summary={history.length ? `Last change ${history[0].when}` : "No changes recorded."} testId="panel-history">
       <div>
         {history.length ? (
           <ul className="flex flex-col gap-2 text-sm">

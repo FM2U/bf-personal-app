@@ -37,11 +37,13 @@ describe("window addresses", () => {
       { kind: "scenario-summary", ids: [ID] },
       { kind: "scenario-summary", ids: [ID, ID2] },
       { kind: "resolve", missId: ID },
+      { kind: "record", table: "commitments", id: ID, resolve: ID2 },
+      { kind: "record", table: "tasks", id: ID, resolve: "pending" },
     ];
     for (const v of views) expect(parseWindowParam(windowParam(v))).toEqual(v);
   });
   it("anything else is no window", () => {
-    for (const w of [null, "", "r/initiatives", `r/not_a_table/${ID}`, "r/initiatives/not-an-id", `setup/${ID}/nowhere`, "work/abc", "x/y", `e/tasks/${ID}/more`]) expect(parseWindowParam(w)).toBeNull();
+    for (const w of [null, "", "r/initiatives", `r/not_a_table/${ID}`, "r/initiatives/not-an-id", `setup/${ID}/nowhere`, "work/abc", "x/y", `e/tasks/${ID}/more`, `r/goals/${ID}/resolve`, `r/commitments/${ID}/resolve/x`, `r/commitments/${ID}/other/${ID2}`]) expect(parseWindowParam(w)).toBeNull();
   });
   it("adds and removes the window on the page address, keeping the page's own parameters", () => {
     expect(withWindow("/opportunities/p1?view=list", { kind: "record", table: "pipeline_items", id: ID })).toBe(`/opportunities/p1?view=list&w=r%2Fpipeline_items%2F${ID}`);
@@ -139,14 +141,19 @@ describe("scenario summary window", () => {
   });
 });
 
-describe("resolve window", () => {
-  it("one missed commitment, medium, over the Commitments page", () => {
+describe("resolve inside the task window", () => {
+  it("opens the task window of the commitment with the resolve section, over the Commitments page", () => {
+    expect(parseWindowParam(`r/commitments/${ID}/resolve/${ID2}`)).toEqual({ kind: "record", table: "commitments", id: ID, resolve: ID2 });
+    expect(parseWindowParam(`r/commitments/${ID}/resolve`)).toEqual({ kind: "record", table: "commitments", id: ID, resolve: "pending" });
+    expect(windowSize({ kind: "record", table: "commitments", id: ID, resolve: ID2 })).toBe("large");
+    expect(resolveHref(ID, ID2)).toBe(`/accountability?w=r/commitments/${ID}/resolve/${ID2}`);
+    expect(resolveHref(ID)).toBe(`/accountability?w=r/commitments/${ID}/resolve`);
+    expect(parseWindowParam(new URL(`http://x${resolveHref(ID, ID2)}`).searchParams.get("w"))).toEqual({ kind: "record", table: "commitments", id: ID, resolve: ID2 });
+    expect(fullPageHref({ kind: "record", table: "commitments", id: ID, resolve: ID2 })).toBe(`/records/commitments/${ID}`);
+  });
+  it("older resolve addresses still parse (they open the task window with the resolve section)", () => {
     expect(parseWindowParam(`resolve/${ID}`)).toEqual({ kind: "resolve", missId: ID });
     expect(parseWindowParam("resolve/not-an-id")).toBeNull();
     expect(parseWindowParam("resolve")).toBeNull();
-    expect(windowSize({ kind: "resolve", missId: ID })).toBe("medium");
-    expect(resolveHref(ID)).toBe(`/accountability?w=resolve/${ID}`);
-    expect(fullPageHref({ kind: "resolve", missId: ID })).toBe(resolveHref(ID));
-    expect(parseWindowParam(new URL(`http://x${resolveHref(ID)}`).searchParams.get("w"))).toEqual({ kind: "resolve", missId: ID });
   });
 });

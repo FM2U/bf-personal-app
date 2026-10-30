@@ -10,8 +10,12 @@
  * - TaskDetails: the content (used by TaskWindow and by Work through tasks, which has its own buttons).
  * - TaskWindow: the window for /?w=r/tasks/<id> and r/commitments/<id>, with Mark as done, Move to tomorrow, Edit,
  *   and Open full page.
+ * - Resolve: every Resolve button (Commitments, alerts, Home, the misses below, Next required action) opens this window
+ *   at r/commitments/<id>/resolve[/<miss id>]: "Resolve this miss" is open at the top and every other section is
+ *   closed (this choice is not remembered). Choices: Done late, New date, Open a decision, No longer a commitment.
  */
 import { useState, useTransition } from "react";
+import { AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import { CalendarClock, CheckCircle2, Circle, ListChecks, Pencil, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -19,16 +23,19 @@ import { Input } from "@/components/ui/input";
 import { Badge, StatusBadge, dueClass } from "@/components/ui/badge";
 import { NextActionCard } from "@/components/app/next-action-card";
 import { SuggestionLine } from "@/components/app/suggestion-line";
-import { CollapsibleCard } from "@/components/app/collapsible";
+import { CollapsibleCard, DisclosureGroup } from "@/components/app/collapsible";
 import { DocumentsCard, HistoryCard, LinkedRecordsCard, NotesCard } from "@/components/app/record-side-panels";
 import { SubmitButton } from "@/components/app/submit-button";
 import { GuardedForm } from "@/components/app/unsaved-changes";
-import { useWindowNav } from "@/components/app/window-host";
-import { ActionError, ErrorView, FullPageButton, LoadingView, useLoad, ViewLayout } from "@/components/app/windows/views";
+import { flashMessage, useWindowNav } from "@/components/app/window-host";
+import { ActionError, clearWindowCache, ErrorView, FullPageButton, LoadingView, useLoad, ViewLayout } from "@/components/app/windows/views";
 import { loadTaskWindow, moveTaskToTomorrow, type TaskWindowData } from "@/app/actions/window";
-import { markCommitment, setTaskStatus } from "@/app/actions/records";
+import { markCommitment, resolveMiss, setTaskStatus } from "@/app/actions/records";
 import { movedNote } from "@/lib/calc/commitment-rule";
-import { resolveHref } from "@/lib/window-route";
+import { commitmentStatusWord, defaultDoneOn, RESOLVE_CHOICES, resolutionLabel, type MissResolution } from "@/lib/calc/resolve-miss";
+import { DB_UPDATE_NOTICE_0018 } from "@/lib/schema-guard";
+import { FormField } from "@/components/ui/form-field";
+import { Textarea } from "@/components/ui/input";
 import { date as fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -39,16 +46,23 @@ export function useTaskWindow(table: string, id: string) {
   return useLoad<TaskWindowData>(`task-window:${table}:${id}`, () => loadTaskWindow(table, id));
 }
 
-/** "closed_by_decision" as "Closed by a decision". */
-function statusWord(s: string) {
-  const w = s === "closed_by_decision" ? "closed by a decision" : s === "released" ? "no longer a commitment" : s.replace(/_/g, " ");
-  return w.charAt(0).toUpperCase() + w.slice(1);
-}
+const statusWord = commitmentStatusWord;
 
-const RESOLUTION: Record<string, string> = { pending: "Reason needed", new_date: "New date set", decision: "Decision opened", released: "No longer a commitment" };
+/** Resolve mode: "Resolve this miss" open, every other section closed. */
+const RESOLVE_DEFAULTS: Record<string, boolean> = { resolve: true, details: false, commitment: false, checklists: false, linked: false, documents: false, notes: false, history: false };
 
 /** The content of the task and commitment window. */
-export function TaskDetails({ d, reload, hideContextNext = false }: { d: Ok; reload: () => void; hideContextNext?: boolean }) {
+export function TaskDetails({ d, reload, hideContextNext = false, resolve = null }: { d: Ok; reload: () => void; hideContextNext?: boolean; /** Open "Resolve this miss" (a miss id, or "pending" for the newest pending miss). */ resolve?: string | null }) {
+  const body = <TaskDetailsBody d={d} reload={reload} hideContextNext={hideContextNext} resolve={resolve} />;
+  if (!resolve) return body;
+  return (
+    <DisclosureGroup storageKey={`window:${d.table}:resolve`} defaults={RESOLVE_DEFAULTS} remember={false}>
+      {body}
+    </DisclosureGroup>
+  );
+}
+
+function TaskDetailsBody({ d, reload, hideContextNext, resolve }: { d: Ok; reload: () => void; hideContextNext: boolean; resolve: string | null }) {
   const nav = useWindowNav();
   const b = d.base;
   const changed = () => {
@@ -60,12 +74,14 @@ export function TaskDetails({ d, reload, hideContextNext = false }: { d: Ok; rel
   const c = d.commitment;
   const pendingMisses = c?.misses.filter((m) => m.resolution === "pending").length ?? 0;
   const [markError, setMarkError] = useState<string | null>(null);
+  const resolveMiss = resolve && c ? (resolve === "pending" ? c.misses.find((m) => m.resolution === "pending") : c.misses.find((m) => m.id === resolve)) ?? null : null;
   return (
     <div className="flex flex-col gap-4" data-testid="task-window-body">
-      {d.suggestion ? <SuggestionLine s={d.suggestion} context={{ table: b.table, id: b.id, label: b.title }} /> : null}
-      {/* First: what to do next, and the record the task is for. */}
-      <div className={cn("grid grid-cols-1 gap-4", d.context && "lg:grid-cols-2")}>
-        {!hideContextNext || !d.context ? <NextActionCard action={b.next} today={b.today} compact /> : null}
+      {resolve ? <ResolveSection d={d} miss={resolveMiss} /> : null}
+      {d.suggestion && !resolve ? <SuggestionLine s={d.suggestion} context={{ table: b.table, id: b.id, label: b.title }} /> : null}
+      {/* First: what to do next, and the record the task is for (while resolving: only the record it is for). */}
+      <div className={cn("grid grid-cols-1 gap-4", d.context && !resolve && "lg:grid-cols-2")}>
+        {(!hideContextNext || !d.context) && !resolve ? <NextActionCard action={b.next} today={b.today} compact /> : null}
         {d.context ? (
           <button
             type="button"
@@ -141,7 +157,7 @@ export function TaskDetails({ d, reload, hideContextNext = false }: { d: Ok; rel
                   <div>
                     <dt className="text-xs font-medium text-slate-500">Status</dt>
                     <dd className="mt-0.5 text-sm">
-                      <StatusBadge status={c.status === "met" ? "met" : c.status === "missed" ? "missed" : "neutral"}>{statusWord(c.status)}</StatusBadge>
+                      <StatusBadge status={c.status === "met" ? "met" : c.status === "missed" ? "missed" : c.status === "done_late" ? "soon" : "neutral"}>{statusWord(c.status)}</StatusBadge>
                     </dd>
                   </div>
                   <div>
@@ -158,11 +174,18 @@ export function TaskDetails({ d, reload, hideContextNext = false }: { d: Ok; rel
                           <span className="tabular text-slate-600">{fmtDate(m.missedOn)}</span>
                           <span className={cn("clamp-2", !m.reason && "text-muted-foreground")}>{m.reason ?? "No reason given yet"}</span>
                           {m.resolution === "pending" ? (
-                            <Link href={resolveHref(m.id)} data-window={`resolve/${m.id}`} className="whitespace-nowrap text-xs font-medium text-primary-strong hover:underline" data-testid="task-window-resolve">
+                            <button
+                              type="button"
+                              onClick={() => nav.replace({ kind: "record", table: "commitments", id: c.id, resolve: m.id })}
+                              className="whitespace-nowrap text-xs font-medium text-primary-strong hover:underline"
+                              data-testid="task-window-resolve"
+                            >
                               Resolve
-                            </Link>
+                            </button>
                           ) : (
-                            <span className="whitespace-nowrap text-xs text-slate-600">{m.resolution === "new_date" && m.newDue ? `New date ${fmtDate(m.newDue)}` : RESOLUTION[m.resolution] ?? m.resolution}</span>
+                            <span className="whitespace-nowrap text-xs text-slate-600" data-testid="task-window-resolution">
+                              {resolutionLabel({ resolution: m.resolution, done_on: m.doneOn, new_due_date: m.newDue })}
+                            </span>
                           )}
                         </li>
                       ))}
@@ -228,7 +251,7 @@ export function TaskDetails({ d, reload, hideContextNext = false }: { d: Ok; rel
 }
 
 /** The window of a task or a commitment (r/tasks/<id>, r/commitments/<id>). */
-export function TaskWindow({ table, id }: { table: string; id: string }) {
+export function TaskWindow({ table, id, resolve = null }: { table: string; id: string; resolve?: string | null }) {
   const nav = useWindowNav();
   const { data, reload } = useTaskWindow(table, id);
   const [pending, start] = useTransition();
@@ -238,6 +261,7 @@ export function TaskWindow({ table, id }: { table: string; id: string }) {
   const b = data.base;
   const t = data.task;
   const isCommitment = !!data.commitment && ["open", "missed"].includes(data.commitment.status);
+  const resolving = !!resolve && !!data.commitment;
   const moved = t ? movedNote(t.timesMoved) : null;
   return (
     <ViewLayout
@@ -246,12 +270,13 @@ export function TaskWindow({ table, id }: { table: string; id: string }) {
         <span className="flex items-center gap-2">
           {b.singular}
           {isCommitment ? <Badge variant="default">Commitment</Badge> : null}
+          {resolving ? <Badge variant="danger">Missed</Badge> : null}
           {moved ? <span className="text-status-soon">{moved}</span> : null}
         </span>
       }
       footer={
         <>
-          {t ? (
+          {t && !resolving ? (
             <Button
               size="sm"
               variant={t.done ? "outline" : "default"}
@@ -298,8 +323,135 @@ export function TaskWindow({ table, id }: { table: string; id: string }) {
     >
       <div className="flex flex-col gap-4" data-testid="quick-view-body">
         <ActionError error={error} />
-        <TaskDetails d={data} reload={reload} />
+        <TaskDetails d={data} reload={reload} resolve={resolve} />
       </div>
     </ViewLayout>
+  );
+}
+
+// ---------- Resolve this miss ----------
+
+/**
+ * "Resolve this miss": the commitment and the miss, "Why was it missed?" (one line, required for every choice), then
+ * Done late (the date it was done, today by default, not before the due date, not in the future, and an optional
+ * note), New date, Open a decision, or No longer a commitment. Saving closes the window (Open a decision opens the
+ * new decision) and reloads the page underneath.
+ */
+function ResolveSection({ d, miss }: { d: Ok; miss: NonNullable<Ok["commitment"]>["misses"][number] | null }) {
+  const nav = useWindowNav();
+  const c = d.commitment;
+  const [mode, setMode] = useState<MissResolution>("done_late");
+  const [error, setError] = useState<string | null>(null);
+  const due = miss?.missedOn ?? c?.due ?? d.today;
+  const done = (r: Awaited<ReturnType<typeof resolveMiss>>) => {
+    if (!r.ok) return setError(r.error);
+    setError(null);
+    clearWindowCache();
+    nav.refreshPage();
+    if (r.resolution === "decision" && r.decisionId) {
+      flashMessage("Decision opened. Choose one of its options when you are ready.");
+      nav.replace({ kind: "record", table: "decisions", id: r.decisionId });
+      return;
+    }
+    flashMessage(
+      r.resolution === "done_late"
+        ? "Marked done late. It still counts as a miss in the commitment score."
+        : r.resolution === "released"
+          ? "No longer a commitment. The task stays in your task list."
+          : "Reason and new date saved.",
+    );
+    nav.close();
+  };
+  return (
+    <CollapsibleCard id="resolve" className="max-w-[48rem]" title="Resolve this miss" icon={<AlertTriangle className="h-4 w-4 text-status-missed" />} summary={miss ? `Missed ${fmtDate(miss.missedOn)}` : undefined} testId="task-window-resolve-section">
+      {!c ? (
+        <p className="text-sm text-muted-foreground">This is not a commitment, so there is nothing to resolve.</p>
+      ) : !miss ? (
+        <p className="text-sm text-slate-700" data-testid="resolve-nothing">
+          Nothing to resolve. Every miss of this commitment has a reason. Status: {statusWord(c.status)}.
+        </p>
+      ) : miss.resolution !== "pending" ? (
+        <p className="text-sm text-slate-700" data-testid="resolve-already">
+          This miss is already resolved: {resolutionLabel({ resolution: miss.resolution, done_on: miss.doneOn, new_due_date: miss.newDue })}.{miss.reason ? ` Reason: ${miss.reason}` : ""}
+        </p>
+      ) : (
+        <GuardedForm
+          action={async (fd) => {
+            try {
+              return await resolveMiss(fd);
+            } catch {
+              return { ok: false as const, error: "Not saved. Try again." };
+            }
+          }}
+          onResult={(r) => done(r as Awaited<ReturnType<typeof resolveMiss>>)}
+          className="flex flex-col gap-4"
+          data-testid="resolve-form"
+        >
+          <input type="hidden" name="miss_id" value={miss.id} />
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-3 rounded-lg border border-slate-200 bg-white p-3 sm:grid-cols-3">
+            <div className="min-w-0">
+              <dt className="clamp-1 text-xs font-medium text-slate-500">Was due</dt>
+              <dd className="tabular mt-0.5 text-sm">{fmtDate(miss.missedOn)}</dd>
+            </div>
+            <div className="min-w-0">
+              <dt className="clamp-1 text-xs font-medium text-slate-500">Times missed</dt>
+              <dd className={cn("tabular mt-0.5 text-sm", c.missCount ? "font-medium text-status-missed" : "")}>{c.missCount}</dd>
+            </div>
+            <div className="min-w-0">
+              <dt className="clamp-1 text-xs font-medium text-slate-500">Status</dt>
+              <dd className="mt-0.5 text-sm">
+                <StatusBadge status="missed">Reason needed</StatusBadge>
+              </dd>
+            </div>
+          </dl>
+          <FormField label="Why was it missed?" htmlFor="resolve-reason" required hint="One line. It is shown in reviews and partner reports.">
+            <Input id="resolve-reason" name="reason" defaultValue={miss.reason ?? ""} placeholder="Example: the broker moved the call to next week" required maxLength={200} autoFocus />
+          </FormField>
+          <fieldset className="flex flex-col gap-2">
+            <legend className="mb-1 text-sm font-medium text-slate-800">What happens next</legend>
+            {RESOLVE_CHOICES.map((choice) => {
+              const on = mode === choice.value;
+              const blocked = choice.value === "done_late" && !d.has0018;
+              return (
+                <label key={choice.value} className={cn("grid grid-cols-[1rem_minmax(0,1fr)] items-start gap-x-2.5 gap-y-2 rounded-lg border p-3 text-sm", on ? "border-primary-border bg-primary-soft" : "border-slate-200")}>
+                  <input type="radio" name="resolution" value={choice.value} checked={on} onChange={() => setMode(choice.value)} className="mt-0.5 accent-primary" data-testid={`resolve-${choice.value.replace("_", "-")}`} />
+                  <span className="min-w-0">
+                    <span className="font-medium">{choice.label}</span>
+                    <span className="block text-xs text-muted-foreground">{choice.help}</span>
+                  </span>
+                  {on && choice.value === "done_late" ? (
+                    <span className="col-start-2 flex flex-col gap-2">
+                      {blocked ? (
+                        <span className="text-xs font-medium text-status-soon">{DB_UPDATE_NOTICE_0018}</span>
+                      ) : (
+                        <>
+                          <span className="flex flex-wrap items-center gap-2">
+                            <span className="text-xs font-medium text-slate-700">Date it was done</span>
+                            <Input name="done_on" type="date" className="w-44" aria-label="Date it was done" defaultValue={defaultDoneOn(due, d.today)} min={due} max={d.today} required data-testid="resolve-done-on" />
+                          </span>
+                          <Textarea name="note" rows={2} maxLength={500} placeholder="Note (optional). Example: sent the LOI a day late, after the broker's call" aria-label="Note (optional)" data-testid="resolve-note" />
+                        </>
+                      )}
+                    </span>
+                  ) : null}
+                  {on && choice.value === "new_date" ? (
+                    <span className="col-start-2 flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-medium text-slate-700">New due date</span>
+                      <Input name="new_due_date" type="date" className="w-44" aria-label="New due date" defaultValue={d.today} min={d.today} required />
+                    </span>
+                  ) : null}
+                </label>
+              );
+            })}
+          </fieldset>
+          <ActionError error={error} />
+          <div>
+            <SubmitButton size="sm" data-testid="resolve-save" disabled={mode === "done_late" && !d.has0018}>
+              Save
+            </SubmitButton>
+          </div>
+        </GuardedForm>
+      )}
+    </CollapsibleCard>
   );
 }

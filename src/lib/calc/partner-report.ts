@@ -54,10 +54,26 @@ export const MEASURES: MeasureDef[] = [
 export const MEASURE_KEYS = MEASURES.map((m) => m.key);
 export const isMeasureKey = (k: string): k is MeasureKey => (MEASURE_KEYS as string[]).includes(k);
 
-export type TemplatePeriod = "week" | "two_weeks" | "month";
-export const TEMPLATE_PERIODS: TemplatePeriod[] = ["week", "two_weeks", "month"];
-export const PERIOD_DAYS: Record<TemplatePeriod, number> = { week: 7, two_weeks: 14, month: 30 };
-export const PERIOD_LABEL: Record<TemplatePeriod, string> = { week: "Week (7 days)", two_weeks: "Two weeks (14 days)", month: "Month (30 days)" };
+export type TemplatePeriod = "day" | "week" | "two_weeks" | "month";
+/** Every period a report saves numbers for. "day" (today's numbers) needs database update 0018 to be saved on a template. */
+export const TEMPLATE_PERIODS: TemplatePeriod[] = ["day", "week", "two_weeks", "month"];
+export const PERIOD_DAYS: Record<TemplatePeriod, number> = { day: 1, week: 7, two_weeks: 14, month: 30 };
+export const PERIOD_LABEL: Record<TemplatePeriod, string> = { day: "Day (today)", week: "Week (7 days)", two_weeks: "Two weeks (14 days)", month: "Month (30 days)" };
+
+/** Report frequency per accountability partner (database update 0018). Weekly before it. */
+export type ReportFrequency = "daily" | "weekly" | "both";
+export const REPORT_FREQUENCIES: { value: ReportFrequency; label: string }[] = [
+  { value: "daily", label: "Daily" },
+  { value: "weekly", label: "Weekly" },
+  { value: "both", label: "Both" },
+];
+export const sendsDaily = (f: string | null | undefined) => f === "daily" || f === "both";
+export const sendsScheduled = (f: string | null | undefined) => f !== "daily";
+
+/** A daily report (drafted after the daily close): every template shows today's numbers. */
+export function isDailyReport(report: { snapshot?: Record<string, unknown> | null; report_kind?: string | null } | null | undefined): boolean {
+  return report?.report_kind === "daily" || report?.snapshot?.report_kind === "daily";
+}
 export const NOTE_MAX = 300;
 
 export type ReportTemplate = { id: string; name: string; measures: MeasureKey[]; period: TemplatePeriod; note: string | null; starter_key: string | null };
@@ -95,7 +111,7 @@ export function templateProblems(t: { name: string; measures: string[]; period: 
   if (!t.name.trim()) out.push("Give the template a name.");
   if (t.name.trim().length > 60) out.push("Keep the name to 60 characters or fewer.");
   if (!t.measures.filter(isMeasureKey).length) out.push("Choose at least one measure.");
-  if (!TEMPLATE_PERIODS.includes(t.period as TemplatePeriod)) out.push("Choose a period: week, two weeks, or month.");
+  if (!TEMPLATE_PERIODS.includes(t.period as TemplatePeriod)) out.push("Choose a period: day, week, two weeks, or month.");
   if ((t.note ?? "").length > NOTE_MAX) out.push(`Keep the note to ${NOTE_MAX} characters or fewer.`);
   return out;
 }
@@ -351,6 +367,7 @@ export function periodText(start: string, end: string): string {
   try {
     const s = parseISO(start);
     const e = parseISO(end);
+    if (start === end) return format(e, "EEE, MMM d, yyyy");
     return s.getFullYear() === e.getFullYear() ? `${format(s, "MMM d")} to ${format(e, "MMM d, yyyy")}` : `${format(s, "MMM d, yyyy")} to ${format(e, "MMM d, yyyy")}`;
   } catch {
     return `${start} to ${end}`;
@@ -361,13 +378,16 @@ export type ReportSection = { template: ReportTemplate; period: string; start: s
 
 export type ReportInput = {
   partnerName: string;
-  report: { period_start: string; period_end: string; summary?: string | null; snapshot?: Record<string, unknown> | null };
+  report: { period_start: string; period_end: string; summary?: string | null; snapshot?: Record<string, unknown> | null; report_kind?: string | null };
   templates: ReportTemplate[];
   link: string | null;
 };
 
 export function reportSections(input: ReportInput): ReportSection[] {
-  return input.templates.slice(0, 2).map((template) => {
+  // A daily report shows today's numbers whichever template is chosen.
+  const daily = isDailyReport(input.report);
+  return input.templates.slice(0, 2).map((t) => {
+    const template = daily ? { ...t, period: "day" as const } : t;
     const { data, exact } = periodDataFor(input.report.snapshot, template.period, input.report);
     const tiles = tilesFor(template.measures, data);
     return { template, period: periodText(data.start, data.end), start: data.start, end: data.end, tiles, overall: overallOf(tiles), misses: missesFor(template.measures, data), exact };
@@ -382,7 +402,8 @@ export function combinedOverall(sections: ReportSection[]): Overall {
 }
 
 export function reportSubject(sections: ReportSection[]): string {
-  return `Accountability report: ${sections[0]?.period ?? ""}`.trim();
+  const daily = sections.length > 0 && sections.every((s) => s.start === s.end);
+  return `${daily ? "Daily accountability report" : "Accountability report"}: ${sections[0]?.period ?? ""}`.trim();
 }
 
 /** Summary text without markdown marks, as plain lines (the saved summary uses "- " bullets and **bold**). */
@@ -493,7 +514,7 @@ export function reportEmailHtml(input: ReportInput): string {
   parts.push(
     `<tr><td style="padding:16px 20px 12px 20px">` +
       `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse"><tr>` +
-      `<td valign="middle" style="${FONT}"><div style="font-size:12px;line-height:16px;color:${EMAIL_COLORS.muted}">Accountability report</div>` +
+      `<td valign="middle" style="${FONT}"><div style="font-size:12px;line-height:16px;color:${EMAIL_COLORS.muted}">${sections.length && sections.every((x) => x.start === x.end) ? "Daily accountability report" : "Accountability report"}</div>` +
       `<div style="font-size:18px;line-height:24px;font-weight:bold;color:${EMAIL_COLORS.ink}">${escapeHtml(period)}</div></td>` +
       `<td valign="middle" align="right" style="${FONT}">${pillHtml(overall)}</td>` +
       `</tr></table></td></tr>`,

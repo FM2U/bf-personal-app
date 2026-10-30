@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache";
 import { requireOwner } from "@/lib/auth";
 import { isMeasureKey, MEASURE_KEYS, NOTE_MAX, templateProblems } from "@/lib/calc/partner-report";
 import { hasUpdate0017 } from "@/lib/update-0017";
-import { DB_UPDATE_NOTICE_0017 } from "@/lib/schema-guard";
+import { DB_UPDATE_NOTICE_0017, DB_UPDATE_NOTICE_0018 } from "@/lib/schema-guard";
+import { hasUpdate0018 } from "@/lib/update-0018";
+import { REPORT_FREQUENCIES } from "@/lib/calc/partner-report";
 
 /**
  * Accountability, Report templates: add, edit (also rename), and delete partner report templates, and choose each
@@ -24,6 +26,8 @@ export async function saveReportTemplate(input: { id?: string | null; name: stri
   const measures = MEASURE_KEYS.filter((k) => wanted.has(k));
   const problems = templateProblems({ name, measures, period: String(input.period), note });
   if (problems.length) return { ok: false, error: problems.join(" ") };
+  // The day period needs database update 0018 (the check constraint allows it only after it).
+  if (input.period === "day" && !(await hasUpdate0018(supabase))) return { ok: false, error: `The Day period needs the database update. ${DB_UPDATE_NOTICE_0018}` };
   const row = { name, measures, period: input.period, note: note || null };
   if (input.id) {
     const { data, error } = await supabase.from("partner_report_templates").update(row).eq("id", input.id).select("id").maybeSingle();
@@ -55,6 +59,17 @@ export async function setPartnerTemplate(partnerId: string, templateId: string |
   const { supabase } = await requireOwner();
   if (!(await hasUpdate0017(supabase))) return { ok: false, error: DB_UPDATE_NOTICE_0017 };
   const { error } = await supabase.from("partners").update({ report_template_id: templateId || null }).eq("id", partnerId);
+  if (error) return { ok: false, error: `Not saved. ${error.message}` };
+  revalidatePath(PAGE);
+  return { ok: true, id: partnerId, message: "Saved." };
+}
+
+/** Report frequency for one partner: Daily, Weekly, or Both (database update 0018). */
+export async function setPartnerFrequency(partnerId: string, frequency: string): Promise<TemplateResult> {
+  const { supabase } = await requireOwner();
+  if (!(await hasUpdate0018(supabase))) return { ok: false, error: DB_UPDATE_NOTICE_0018 };
+  if (!REPORT_FREQUENCIES.some((f) => f.value === frequency)) return { ok: false, error: "Choose Daily, Weekly, or Both." };
+  const { error } = await supabase.from("partners").update({ report_frequency: frequency }).eq("id", partnerId);
   if (error) return { ok: false, error: `Not saved. ${error.message}` };
   revalidatePath(PAGE);
   return { ok: true, id: partnerId, message: "Saved." };

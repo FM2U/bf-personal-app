@@ -85,6 +85,9 @@ describe("sample data: realistic amounts", () => {
     expect(rows("partners")[0].report_template_id).toBeUndefined();
     const withTemplate = buildSampleData({ ...setup, reportTemplateId: "tpl-detailed" }, () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`);
     expect(withTemplate.batches.find((b) => b.table === "partners")!.rows[0].report_template_id).toBe("tpl-detailed");
+    expect(rows("partners")[0].report_frequency).toBeUndefined();
+    const withDaily = buildSampleData({ ...setup, dailyReports: true }, () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`);
+    expect(withDaily.batches.find((b) => b.table === "partners")!.rows[0].report_frequency).toBe("both");
     expect(rows("budget_lines").some((l) => l.category_id === "cat-Housing")).toBe(false); // an existing line is not replaced
     expect(counts.transactions).toBe(tx.length);
   });

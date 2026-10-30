@@ -263,7 +263,7 @@ export async function checkCommitments(ctx: Ctx, includeToday: boolean): Promise
     await createAlert(ctx, {
       kind: "missed_commitment",
       message: `Missed commitment: ${c.title}. Give a one-line reason and set a new date or open a decision.`,
-      href: missId ? resolveHref(missId) : "/accountability?status=missed",
+      href: resolveHref(c.id, missId),
       related_type: "commitments",
       related_id: c.id,
       dedupe_key: `miss:${c.id}:${c.due_date}`,

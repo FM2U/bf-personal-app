@@ -14,6 +14,7 @@
 #   (m) 0001 to 0014 (the live database on 2026-10-28) plus an owner and data, then UPDATE_0015_RUN_ONCE.sql twice
 #   (n) 0001 to 0015 (the live database on 2026-10-28, evening) plus an owner and data, then UPDATE_0016_RUN_ONCE.sql twice
 #   (o) 0001 to 0016 (the live database on 2026-10-29) plus an owner, partners, and a report, then UPDATE_0017_RUN_ONCE.sql twice
+#   (p) 0001 to 0017 (the live database on 2026-10-30) plus partners, a finalized report, and a pending miss, then UPDATE_0018_RUN_ONCE.sql twice
 # Paths b, c, d (UPDATE_RUN_ONCE.sql) and j, k, l also check 0014: tables, policies, functions, sample removal, and reset.
 # Every UPDATE_RUN_ONCE.sql path also checks 0012 and 0013.
 # Usage: bash supabase/tests/upgrade_test.sh
@@ -451,7 +452,69 @@ select '0017 checks passed' as result;
 SQL
 for f in UPDATE_RUN_ONCE ALL_MIGRATIONS_RUN_ONCE; do grep -q "seed_owner_report_templates" "$DIR/$f.sql" || { echo "$f.sql is missing 0017"; exit 1; }; done
 
+# (p) Live state on 2026-10-30: 0001 to 0017 applied, an owner with a partner, a finalized report, a template, and a
+# commitment with a pending miss, then UPDATE_0018_RUN_ONCE.sql twice. Existing rows are unchanged; the partner gets
+# Weekly; Done late, the day period, and one daily report per partner per day are allowed after the update.
+setup bf_upgrade_p 0017
+su postgres -c "$PSQL -d bf_upgrade_p" <<'SQL'
+\set ON_ERROR_STOP 1
+insert into public.partners (owner_id, name, email) values ('00000000-0000-0000-0000-000000000001', 'Partner one', 'one@example.com');
+insert into public.partner_reports (owner_id, partner_id, period_start, period_end, status, finalized_at, snapshot, summary)
+select owner_id, id, current_date - 6, current_date, 'finalized', now(), '{"sections":["commitments"]}', 'Kept summary' from public.partners;
+insert into public.tasks (owner_id, title, due_date) values ('00000000-0000-0000-0000-000000000001', 'Call the broker', current_date - 1);
+insert into public.commitments (owner_id, title, record_type, record_id, due_date, status, miss_count)
+select owner_id, title, 'tasks', id, due_date, 'missed', 1 from public.tasks where title = 'Call the broker';
+insert into public.missed_commitments (owner_id, commitment_id, missed_on) select owner_id, id, due_date from public.commitments where title = 'Call the broker';
+SQL
+for run in 1 2; do
+  echo "[bf_upgrade_p] Applying UPDATE_0018_RUN_ONCE.sql (run $run)"
+  su postgres -c "$PSQL -d bf_upgrade_p -f $DIR/UPDATE_0018_RUN_ONCE.sql"
+  if [ "$run" = 1 ]; then
+    su postgres -c "$PSQL -d bf_upgrade_p -c \"update public.partners set report_frequency = 'both'\""
+  fi
+done
+su postgres -c "$PSQL -d bf_upgrade_p" <<'SQL'
+\set ON_ERROR_STOP 1
+do $$ begin
+  assert (select report_frequency from public.partners) = 'both', 'frequency chosen between runs kept';
+  assert (select summary from public.partner_reports limit 1) = 'Kept summary', 'finalized report unchanged';
+  assert (select report_kind from public.partner_reports limit 1) = 'regular', 'existing report is regular';
+  assert (select m.resolution from public.missed_commitments m join public.commitments c on c.id = m.commitment_id where c.title = 'Call the broker') = 'pending', 'pending miss unchanged';
+  assert to_regprocedure('public.schema_has_0018()') is not null, '0018 check function';
+  assert (select count(*) from pg_constraint where conname = 'missed_commitments_resolution_check') = 1, 'one resolution check';
+end $$;
+-- Done late is allowed
+update public.missed_commitments set resolution = 'done_late', done_on = current_date, reason = 'Late reply' where commitment_id = (select id from public.commitments where title = 'Call the broker');
+update public.commitments set status = 'done_late' where title = 'Call the broker';
+-- The day period is allowed
+update public.partner_report_templates set period = 'day' where starter_key = 'summary';
+-- One daily report per partner per day
+insert into public.partner_reports (owner_id, partner_id, period_start, period_end, report_kind, template_id)
+select owner_id, id, current_date, current_date, 'daily', (select id from public.partner_report_templates where starter_key = 'standard') from public.partners;
+do $$ begin
+  begin
+    insert into public.partner_reports (owner_id, partner_id, period_start, period_end, report_kind)
+    select owner_id, id, current_date, current_date, 'daily' from public.partners;
+    raise exception 'second daily report was allowed';
+  exception when unique_violation then null;
+  end;
+  begin
+    update public.partners set report_frequency = 'hourly';
+    raise exception 'unknown frequency was allowed';
+  exception when check_violation then null;
+  end;
+end $$;
+-- A new partner gets Weekly.
+insert into public.partners (owner_id, name) values ('00000000-0000-0000-0000-000000000001', 'Partner two');
+do $$ begin
+  assert (select report_frequency from public.partners where name = 'Partner two') = 'weekly', 'default Weekly';
+end $$;
+select '0018 checks passed' as result;
+SQL
+for f in UPDATE_RUN_ONCE ALL_MIGRATIONS_RUN_ONCE; do grep -q "schema_has_0018" "$DIR/$f.sql" || { echo "$f.sql is missing 0018"; exit 1; }; done
+
 echo "Upgrade paths passed: 0001-0007 + update twice, 0001-0008 + update, 0001-0009 + update twice, 0001-0010 + 0011 update twice,"
 echo "0001-0010 + 0011_0012 update twice, 0001-0011 + 0011_0012 update twice, 0001-0011 + 0012 update twice (edited text kept),"
 echo "0001-0012 + 0013 update twice, 0001-0012 + 0013_0014 update twice, 0001-0013 + 0013_0014 update twice, 0001-0013 + 0014 update twice,"
-echo "0001-0014 + 0015 update twice, 0001-0015 + 0016 update twice (future owner too), 0001-0016 + 0017 update twice (future owner too)."
+echo "0001-0014 + 0015 update twice, 0001-0015 + 0016 update twice (future owner too), 0001-0016 + 0017 update twice (future owner too),"
+echo "0001-0017 + 0018 update twice."
