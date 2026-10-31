@@ -42,8 +42,10 @@ export async function syncGroupedAlert(ctx: Pick<Ctx, "sb" | "ownerId">, kind: G
 
 /** Recounts open pipeline items without a next action and updates the grouped Home alert. */
 export async function refreshNextActionAlert(ctx: Pick<Ctx, "sb" | "ownerId">) {
-  const { data } = await ctx.sb.from("pipeline_items").select("id,next_action").eq("owner_id", ctx.ownerId).eq("status", "open");
-  const count = ((data ?? []) as Row[]).filter((i) => !String(i.next_action ?? "").trim()).length;
+  // Listings waiting to be screened (screened = false, database update 0020) have no next action by design.
+  const withScreened = await ctx.sb.from("pipeline_items").select("id,next_action,screened").eq("owner_id", ctx.ownerId).eq("status", "open");
+  const rows: Row[] = withScreened.error ? (((await ctx.sb.from("pipeline_items").select("id,next_action").eq("owner_id", ctx.ownerId).eq("status", "open")).data ?? []) as Row[]) : ((withScreened.data ?? []) as Row[]);
+  const count = rows.filter((i) => i.screened !== false && !String(i.next_action ?? "").trim()).length;
   return syncGroupedAlert(ctx, "next_action", count);
 }
 

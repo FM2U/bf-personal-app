@@ -3,28 +3,41 @@ export type NavTab = { href: string; label: string };
 export type NavModule = { key: string; label: string; href: string; icon: string; tabs: NavTab[] };
 
 /**
- * The main menu (the focused version, 2026-10-30): five items. Today is the home screen. Pipelines opens the existing
- * pipelines area, Commitments and Reports open their existing pages, and More lists every other page.
+ * The main menu (the Work module, batch A, 2026-10-30): three items. Work opens on Work on now (the start page; "/"
+ * goes there). Accountability opens the existing Commitments page with its sub-tabs. More lists every other page.
  */
 export const MAIN_NAV: NavModule[] = [
-  { key: "today", label: "Today", href: "/", icon: "today", tabs: [] },
-  { key: "pipelines", label: "Pipelines", href: "/opportunities", icon: "pipelines", tabs: [] },
-  { key: "commitments", label: "Commitments", href: "/accountability", icon: "commitments", tabs: [] },
-  { key: "reports", label: "Reports", href: "/accountability/reports", icon: "reports", tabs: [] },
+  { key: "work", label: "Work", href: "/work", icon: "work", tabs: [] },
+  { key: "accountability", label: "Accountability", href: "/accountability", icon: "accountability", tabs: [] },
   { key: "more", label: "More", href: "/more", icon: "more", tabs: [] },
+];
+
+/** The Work tabs (Work on now, Screen listings, Deals). Outreach comes in batch B. */
+export const WORK_TABS: NavTab[] = [
+  { href: "/work", label: "Work on now" },
+  { href: "/work/listings", label: "Screen listings" },
+  { href: "/work/deals", label: "Deals" },
 ];
 
 /** The main menu item a path belongs to (for the active state in the menu). */
 export function mainFor(path: string): NavModule {
-  if (path === "/" || path.startsWith("/today")) return MAIN_NAV[0];
-  if (path.startsWith("/accountability/reports") || path.startsWith("/records/partner_reports")) return MAIN_NAV[3];
-  if (path === "/accountability" || path.startsWith("/accountability?") || path.startsWith("/records/commitments")) return MAIN_NAV[2];
-  if (path.startsWith("/opportunities") || path.startsWith("/records/pipeline_items")) return MAIN_NAV[1];
-  return MAIN_NAV[4];
+  if (path === "/" || path.startsWith("/work") || path.startsWith("/records/pipeline_items")) return MAIN_NAV[0];
+  if (path.startsWith("/accountability") || path.startsWith("/records/commitments") || path.startsWith("/records/partner_reports")) return MAIN_NAV[1];
+  return MAIN_NAV[2];
+}
+
+/** The Work tab a path belongs to (the deal page belongs to Deals). */
+export function workTabFor(path: string): NavTab | null {
+  if (!path.startsWith("/work")) return null;
+  return [...WORK_TABS].sort((a, b) => b.href.length - a.href.length).find((t) => path === t.href || path.startsWith(`${t.href}/`)) ?? WORK_TABS[0];
 }
 
 /** Every page that is not on the main menu, listed on the More page (nothing was deleted; every old address still works). Ask AI is a button on that page. */
 export const MORE_LINKS: { href: string; label: string; note: string }[] = [
+  { href: "/today", label: "Today", note: "The day's outcomes, activity, next actions, and who you are waiting on (batch 1)" },
+  { href: "/today/close", label: "Close the day", note: "The three-step close: outcomes, changes, the daily report" },
+  { href: "/opportunities", label: "Pipelines", note: "Every pipeline as a list or a board, with the deal funnel" },
+  { href: "/accountability/reports", label: "Partner reports", note: "Reports sent to accountability partners" },
   { href: "/finance", label: "Finance", note: "Accounts, balance sheet, expenses, budget, debt, funding, income, savings" },
   { href: "/plan/goals", label: "Goals and milestones", note: "Goals, milestones, decision conditions" },
   { href: "/plan/decisions", label: "Decisions", note: "The decisions log" },
@@ -46,6 +59,7 @@ export const MORE_LINKS: { href: string; label: string; note: string }[] = [
 /** The old modules, kept for the sub-tabs of each old area (ModuleTabs). */
 export const NAV: NavModule[] = [
   { key: "home", label: "Home", href: "/", icon: "home", tabs: [] },
+  { key: "work", label: "Work", href: "/work", icon: "work", tabs: WORK_TABS },
   {
     key: "plan",
     label: "Plan",

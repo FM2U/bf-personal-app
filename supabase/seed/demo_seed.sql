@@ -111,13 +111,14 @@ begin
   select id into p_acq from pipelines where owner_id = o and kind = 'acquisition';
   select id into p_jobs from pipelines where owner_id = o and kind = 'job';
   select id into p_inv from pipelines where owner_id = o and kind = 'investor';
-  select id into s from pipeline_stages where pipeline_id = p_acq and name = 'CIM reviewed';
+  -- Acquisition stages as database update 0020 names them (Interested, NDA signed, Broker call, CIM review, ...).
+  select id into s from pipeline_stages where pipeline_id = p_acq and name = 'CIM review';
   insert into pipeline_items (owner_id, pipeline_id, stage_id, name, organization_id, primary_contact_id, next_action, next_action_due)
   values (o, p_acq, s, 'Demo HVAC Services Co', org_broker, c_broker, 'Send IOI draft to broker', current_date + 1) returning id into item;
   insert into deal_financials (owner_id, item_id, asking_price, revenue, ebitda, sde, financing_structure, salary, equity_pct, vesting_terms)
   values (o, item, 3800000, 6200000, 950000, 1100000, 'SBA 7(a) loan plus seller note (example)', 130000, 25, '4 years, 1 year cliff (example)');
   insert into diligence_items (owner_id, item_id, title, is_done, sort_order) values (o, item, 'Quality of earnings review', false, 1), (o, item, 'Customer concentration check', true, 2), (o, item, 'Lease review', false, 3);
-  select id into s from pipeline_stages where pipeline_id = p_acq and name = 'Screened';
+  select id into s from pipeline_stages where pipeline_id = p_acq and name = 'Interested';
   insert into pipeline_items (owner_id, pipeline_id, stage_id, name, next_action, next_action_due) values (o, p_acq, s, 'Demo Landscaping LLC', 'Request financials', current_date - 1) returning id into item2;
   insert into deal_financials (owner_id, item_id, asking_price, ebitda) values (o, item2, 1500000, 400000);
   select id into s from pipeline_stages where pipeline_id = p_jobs and name = 'Interviewing';
@@ -139,7 +140,7 @@ begin
   insert into commitments (owner_id, title, record_type, record_id, due_date, original_due_date) values (o, 'Draft IOI template', 'tasks', t1, current_date, current_date);
 
   insert into decision_conditions (owner_id, initiative_id, name, metric_key, metric_params, operator, threshold, check_from, actions)
-  values (o, init_acq, 'No signed LOI by June 30, 2027', 'pipeline_items_at_or_past_stage', '{"pipeline":"Acquisitions","stage":"LOI signed"}', 'lt', 1, '2027-06-30',
+  values (o, init_acq, 'No signed LOI by June 30, 2027', 'pipeline_items_at_or_past_stage', '{"pipeline":"Acquisitions","stage":"IOI or LOI"}', 'lt', 1, '2027-06-30',
           '[{"type":"open_decision","title":"Continue the search or accept a job","options":["Continue the search","Accept a job"]}]');
 
   insert into partners (owner_id, name, is_pseudonym, contact_id, email, sections, schedule, delivery_methods, next_report_on, funding_source_ids)
@@ -268,12 +269,12 @@ begin
   -- New deals. Inserting an item creates its stage tasks and next action (database triggers).
   for st in
     select * from (values
-      ('Demo Plumbing Supply', 'Sourced', 'proprietary', 0, 'Owner referral from Quinn Demo.'),
-      ('Demo Bookkeeping Firm', 'Sourced', 'brokered', 0, 'Broker listing.'),
-      ('Demo Machine Shop', 'Screened', 'proprietary', 1, 'Direct letter to the owner.'),
+      ('Demo Plumbing Supply', 'Interested', 'proprietary', 0, 'Owner referral from Quinn Demo.'),
+      ('Demo Bookkeeping Firm', 'Interested', 'brokered', 0, 'Broker listing.'),
+      ('Demo Machine Shop', 'Interested', 'proprietary', 1, 'Direct letter to the owner.'),
       ('Demo Sign Shop', 'NDA signed', 'proprietary', 12, 'Owner referral from Pat Example, CPA.'),
-      ('Demo Pest Control', 'Screened', 'brokered', 20, 'Broker listing.'),
-      ('Demo Car Wash Co', 'Sourced', 'brokered', 3, 'Broker listing.')
+      ('Demo Pest Control', 'Interested', 'brokered', 20, 'Broker listing.'),
+      ('Demo Car Wash Co', 'Interested', 'brokered', 3, 'Broker listing.')
     ) as v (name, stage, source_type, days_ago, notes)
   loop
     insert into pipeline_items (owner_id, pipeline_id, stage_id, name, deal_source_type, source_contact_id, source_notes)

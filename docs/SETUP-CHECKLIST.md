@@ -3,6 +3,27 @@
 Do these in order. Each line says where to copy a value from and where to paste it.
 Vercel variables go in: Vercel, project bf-personal-app, Settings, Environment Variables (Production).
 
+## 0000000. The Work module, batch A: Work on now, Screen listings, Deals, the deal page (the live database has 0001 to 0019; about 6 minutes)
+
+One database update. Until it is run, the Work screens show "Database update needed" and everything else keeps working.
+
+**Step 1: database update 0020 (about 1 minute)**
+- [ ] Open the file `supabase/UPDATE_0020_RUN_ONCE.sql` in the GitHub repository (bf-personal-app), press "Copy raw file"
+- [ ] Supabase, project bf-personal-app, SQL Editor, New query: paste, press **Run**. Expected result: "Success. No rows returned"
+- [ ] Running it a second time is safe. No deal is deleted. The acquisition stages become Interested, NDA signed, Broker call, CIM review, Seller call, Model, Partner presentation, IOI or LOI, Diligence (plus Closed, Passed, Lost); deals that were in Sourced or Screened are now in Interested, deals in CIM reviewed are in CIM review, deals in IOI sent or LOI signed are in IOI or LOI
+
+**Step 2: check it (about 5 minutes)**
+- [ ] The menu has three items: Work, Accountability, More. The app opens on Work on now with the date and three counts
+- [ ] Settings, Sample data and reset: press Load sample data (tick the box about real records if it asks). Work on now now shows next actions and two long waits; Screen listings shows 7 listings
+- [ ] Screen listings: press Add a listing, paste a broker email into the top box, press Fill from text, check the fields, Save to the list. The new row shows a green Fits or an amber reason
+- [ ] On a listing, press Pass and choose a reason: the row leaves and the count drops. Open Passed at the bottom and search its name
+- [ ] On a listing, press Interested: it moves to Deals at Interested with "Sign the NDA and ask the broker for a call" due tomorrow
+- [ ] Work on now: press Done on a row whose action is the stage default. Answer Yes: the deal moves one stage. Press Later on another row: Tomorrow or a date
+- [ ] Waiting on someone: press Chase on a row. The email editor opens with the follow-up drafted. Send now sends it, logs it on the deal, and the days count starts again
+- [ ] Deals: the deals grouped by stage, with Passed and Lost collapsed at the bottom. Click a row: the deal page. Edit the key finding, the next action, and the facts, add a note, then press Advance
+- [ ] More still lists Today, Close the day, Pipelines, and every old page
+- [ ] When done testing: Settings, Sample data and reset, Remove sample data
+
 ## 000000. The focused version, batch 1: Today and Close the day (the live database has 0001 to 0018; about 5 minutes)
 
 One database update. Until it is run, Today and Close the day show "Database update needed" and everything else keeps working (the old pages are under More).

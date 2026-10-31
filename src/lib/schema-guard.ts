@@ -173,3 +173,18 @@ export const COLUMNS_0019: Record<string, string[]> = {
   daily_plans: ["focused_hours", "changes_note", "tomorrow_priority"],
   tasks: ["waiting_on", "waiting_since"],
 };
+
+/**
+ * Database update 0020 (the Work module, batch A): the listing and deal columns on pipeline_items (what it does,
+ * location, industry, link, broker, why selling, key finding, open questions, waiting on and since, pass reason,
+ * screened, buy box note, block minutes), the acquisition stages (Interested to Diligence, Passed, Lost), their default
+ * next actions, the waiting setting, and schema_has_0020(). Before it, Work on now, Screen listings, Deals, and the
+ * deal page show DB_UPDATE_NOTICE_0020 instead of their content, and every other screen and both scheduled jobs keep
+ * working.
+ */
+export const DB_UPDATE_FILE_0020 = "supabase/UPDATE_0020_RUN_ONCE.sql";
+export const DB_UPDATE_NOTICE_0020 = `Database update needed: paste ${DB_UPDATE_FILE_0020} into the Supabase SQL Editor and run it.`;
+export const PROBE_0020 = "schema_has_0020";
+export const COLUMNS_0020: Record<string, string[]> = {
+  pipeline_items: ["what_it_does", "location", "industry", "listing_url", "broker_name", "why_selling", "key_finding", "open_questions", "waiting_on", "waiting_since", "pass_reason", "screened", "buy_box_note", "next_action_minutes"],
+};

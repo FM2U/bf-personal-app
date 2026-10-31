@@ -5,7 +5,8 @@ const path = require("node:path");
 const fs = require("node:fs");
 
 const BASE = "http://localhost:3000";
-// The focused version (2026-10-30): "/" is Today; the previous home page with its tiles and cards is at /more/old-home.
+// The Work module (2026-10-30): "/" opens Work on now (/work); Today is at /today; the previous home page with its tiles
+// and cards is at /more/old-home.
 const OLD_HOME = `${BASE}/more/old-home`;
 const OUT = path.join(__dirname, "..", "docs", "screenshots");
 const OWNER = "00000000-0000-0000-0000-000000000001";
@@ -366,9 +367,9 @@ const expectText = async (page, text) => {
     await page.getByRole("link", { name: "Open pipeline" }).first().click();
     await openFull(page, page.getByRole("link", { name: "Demo Sign Shop" }).first());
     await expectText(page, "Accountability");
-    await page.locator('select[name="stage_id"]').selectOption({ label: "5. IOI sent" });
+    await page.locator('select[name="stage_id"]').selectOption({ label: "8. IOI or LOI" });
     await page.getByRole("button", { name: "Move to stage" }).click();
-    await expectText(page, "Not moved to IOI sent");
+    await expectText(page, "Not moved to IOI or LOI");
     await expectText(page, "Asking price");
     await page.screenshot({ path: path.join(OUT, "flow-stage-blocked.png"), fullPage: true });
   });
@@ -380,7 +381,7 @@ const expectText = async (page, text) => {
 
   await step("Stage time limit decision: Extend adds days for the item", async () => {
     await page.goto(`${BASE}/plan/decisions`);
-    await page.getByRole("link", { name: /Demo Pest Control: \d+ days in Screened/ }).first().click();
+    await page.getByRole("link", { name: /Demo Pest Control: \d+ days in Interested/ }).first().click();
     await expectText(page, "Advance to next stage");
     await page.screenshot({ path: path.join(OUT, "flow-stage-limit-decision.png"), fullPage: true });
     await page.locator("form:has(button:text('Choose this option'))").filter({ hasText: "" }).nth(2).getByRole("button", { name: "Choose this option" }).click();
@@ -474,7 +475,10 @@ const expectText = async (page, text) => {
 
   await step("Chat panel opens and answers (local AI stand-in)", async () => {
     await page.goto(`${BASE}/`);
-    await page.getByRole("button", { name: "Open AI chat" }).click();
+    // "/" goes to Work on now; wait for the page to settle so the click lands after hydration.
+    await page.waitForURL(/\/work$/);
+    await page.waitForLoadState("networkidle");
+    await page.locator("aside").getByRole("button", { name: "Open AI chat" }).click();
     await page.fill("textarea[aria-label='Message']", "What is my runway?");
     await page.getByRole("button", { name: "Send", exact: true }).click();
     await expectText(page, "this is the local test AI");
@@ -513,7 +517,7 @@ const expectText = async (page, text) => {
   });
 
   let itemEdit = null;
-  const homeLink = () => page.locator("aside a[href='/']").filter({ hasText: "Today" });
+  const homeLink = () => page.locator("aside a[href='/work']").filter({ hasText: "Work" }).first();
   await step("Unsaved changes: Stay keeps the typed value; a value changed back does not ask", async () => {
     await page.goto(`${BASE}/opportunities`);
     await page.getByRole("link", { name: "Open pipeline" }).first().click();
@@ -538,7 +542,7 @@ const expectText = async (page, text) => {
     // Changed back to the original: no question.
     await page.fill('textarea[name="notes"]', original);
     await homeLink().click();
-    await page.waitForURL(`${BASE}/`);
+    await page.waitForURL(/\/work$/);
   });
 
   await step("Unsaved changes: Leave without saving goes and keeps the old value", async () => {
@@ -547,7 +551,7 @@ const expectText = async (page, text) => {
     await page.fill('textarea[name="notes"]', "Not saved value");
     await homeLink().click();
     await page.getByTestId("unsaved-leave").click();
-    await page.waitForURL(`${BASE}/`);
+    await page.waitForURL(/\/work$/);
     await page.goto(itemEdit);
     if ((await page.inputValue('textarea[name="notes"]')) !== original) throw new Error("value was saved");
   });
@@ -557,7 +561,7 @@ const expectText = async (page, text) => {
     await page.fill('textarea[name="notes"]', "Saved by Save and leave");
     await homeLink().click();
     await page.getByTestId("unsaved-save").click();
-    await page.waitForURL(`${BASE}/`);
+    await page.waitForURL(/\/work$/);
     await page.goto(itemEdit);
     if ((await page.inputValue('textarea[name="notes"]')) !== "Saved by Save and leave") throw new Error("value not saved");
   });
@@ -701,8 +705,10 @@ const expectText = async (page, text) => {
     if (!(await board.locator("section[aria-label='Passed']").count())) throw new Error("closed stage Passed not shown by default");
     const sw = await p.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     if (sw > 0) throw new Error(`page scrolls sideways by ${sw}px at 1280`);
+    // Up to nine stages fit at 1280; the acquisition board has twelve since database update 0020 and may scroll inside its box.
     const inner = await board.evaluate((e) => e.scrollWidth - e.clientWidth);
-    if (inner > 0) throw new Error(`board scrolls inside its box by ${inner}px at 1280 (all stages should fit)`);
+    const stageCount = await board.locator("section[aria-label]").count();
+    if (inner > 0 && stageCount <= 9) throw new Error(`board scrolls inside its box by ${inner}px at 1280 (all stages should fit)`);
     await p.screenshot({ path: path.join(OUT, "flow-board-closed-1280.png"), fullPage: true });
     await p.getByRole("link", { name: "Hide closed stages" }).click();
     await p.waitForURL(/closed=0/);
@@ -811,7 +817,7 @@ const expectText = async (page, text) => {
     await expectText(page, "Choose a column for: Date.");
     await homeLink().click();
     await page.getByTestId("unsaved-leave").click();
-    await page.waitForURL(`${BASE}/`);
+    await page.waitForURL(/\/work$/);
     // A restarted import fills the column choices made last time for this account.
     await page.goto(`${BASE}/finance/import`);
     await page.setInputFiles("#csv_file", csv);
@@ -823,7 +829,7 @@ const expectText = async (page, text) => {
     await expectText(page, "Imported");
     // Nothing left to lose: leaving does not ask.
     await homeLink().click();
-    await page.waitForURL(`${BASE}/`);
+    await page.waitForURL(/\/work$/);
   });
 
 
@@ -1104,12 +1110,12 @@ const expectText = async (page, text) => {
     await pg.query("delete from daily_outcomes where plan_date = $1", [nyDate(0)]);
     // The day is open again when an earlier step completed the old daily close.
     await pg.query("update reviews set status = 'draft', completed_at = null, answers = '{}'::jsonb where kind = 'daily' and period_start = $1", [nyDate(0)]);
-    await page.goto(`${BASE}/`);
+    await page.goto(`${BASE}/today`);
     await page.getByTestId("today").waitFor();
     await page.getByTestId("close-day").first().waitFor();
-    // The menu: Today, Pipelines, Commitments, Reports, More. No tiles, no tabs on Today.
-    const menu = await page.locator("aside nav[aria-label='Main menu'] a").evaluateAll((els) => els.map((e) => e.textContent.trim()));
-    if (menu.join(",") !== "Today,Pipelines,Commitments,Reports,More") throw new Error(`menu: ${menu.join(",")}`);
+    // The menu: Work, Accountability, More (Today is under More). No tiles, no tabs on Today.
+    const menu = await page.locator("aside nav[aria-label='Main menu'] > div > a").evaluateAll((els) => els.map((e) => e.textContent.trim()));
+    if (menu.join(",") !== "Work,Accountability,More") throw new Error(`menu: ${menu.join(",")}`);
     if (await page.locator("main").getByTestId("home-next-review").count()) throw new Error("tiles on Today");
     // Focused hours.
     await page.getByTestId("focused-hours-input").fill("4");
@@ -1184,7 +1190,7 @@ const expectText = async (page, text) => {
     await pg.query("update partners set report_frequency = 'daily' where name = 'Partner Four (pseudonym)'");
     const partners = (await pg.query("select id, name, report_frequency from partners where is_active and email is not null and report_frequency in ('daily', 'both') order by name")).rows;
     if (partners.length !== 2) throw new Error("need two partners set to daily reports");
-    await page.goto(`${BASE}/`);
+    await page.goto(`${BASE}/today`);
     await page.getByTestId("close-day").first().click();
     await page.waitForURL(/\/today\/close\?step=1/);
     // Step 1: outcomes with Complete, Partial, Incomplete and a result line.
@@ -1267,7 +1273,7 @@ const expectText = async (page, text) => {
       await page.getByTestId("daily-report").filter({ hasText: partners[1].name }).and(page.locator("[data-state=skipped]")).waitFor({ timeout: 20000 });
     }
     await page.getByTestId("close-finish").click();
-    await page.waitForURL(/\/\?closed=1/);
+    await page.waitForURL(/\/today\?closed=1/);
     await page.getByTestId("day-closed").first().waitFor();
     if (await page.getByTestId("close-day").count()) throw new Error("Close the day still shown");
     const rev = await one("select status, answers from reviews where kind = 'daily' and period_start = $1", [nyDate(0)]);
@@ -1301,7 +1307,7 @@ const expectText = async (page, text) => {
     if (row.waiting_on !== "Lender Pat" || row.since !== nyDate(-3)) throw new Error(`saved: ${JSON.stringify(row)}`);
     await page.keyboard.press("Escape");
     await win.waitFor({ state: "detached" });
-    await page.goto(`${BASE}/`);
+    await page.goto(`${BASE}/today`);
     const wrow = page.getByTestId("waiting-row").filter({ hasText: "Lender Pat" });
     await wrow.waitFor();
     if (!(await wrow.innerText()).includes(t.title)) throw new Error("waiting row without the task title");
@@ -1313,7 +1319,7 @@ const expectText = async (page, text) => {
     await win.getByTestId("task-waiting-save").click();
     await win.getByText("Cleared.").waitFor({ timeout: 20000 });
     await page.keyboard.press("Escape");
-    await page.goto(`${BASE}/`);
+    await page.goto(`${BASE}/today`);
     await page.getByTestId("today-waiting").waitFor();
     if (await page.getByTestId("waiting-row").filter({ hasText: "Lender Pat" }).count()) throw new Error("still listed after clearing");
   });
@@ -1837,7 +1843,7 @@ const expectText = async (page, text) => {
     await box.click();
     await page.keyboard.press("ControlOrMeta+End");
     await page.keyboard.type(" Edited.");
-    await page.locator("nav a[href='/']").first().click();
+    await page.locator("nav a[href='/work']").first().click();
     await page.getByRole("dialog").filter({ hasText: "Leaving discards it" }).waitFor({ timeout: 5000 });
     await page.getByRole("button", { name: "Stay on this page" }).click();
     if (!/\/people\/outreach/.test(page.url())) throw new Error("left the page with an edited draft");
@@ -2887,19 +2893,19 @@ const expectText = async (page, text) => {
     await waitFor(listingsTotal, start + 6, "Productivity after Undo last");
   });
 
-  await step("CIMs reviewed: a deal moved past CIM reviewed counts today, once (moving back and forward again does not count twice)", async () => {
+  await step("CIMs reviewed: a deal moved past CIM review counts today, once (moving back and forward again does not count twice)", async () => {
     await page.goto(`${BASE}/accountability/targets`);
     const before = await cardCount("CIMs reviewed");
-    // Demo Machine Shop is in Screened: moving it straight to CIM reviewed skips NDA signed and still counts.
-    await moveTo("Demo Machine Shop", "CIM reviewed");
+    // Demo Machine Shop is in Interested: moving it straight to CIM review skips NDA signed and still counts.
+    await moveTo("Demo Machine Shop", "CIM review");
     await page.goto(`${BASE}/accountability/targets`);
     if ((await cardCount("CIMs reviewed")) !== before + 1) throw new Error(`after the move: ${await cardCount("CIMs reviewed")}, expected ${before + 1}`);
     await moveTo("Demo Machine Shop", "NDA signed");
-    await moveTo("Demo Machine Shop", "CIM reviewed");
+    await moveTo("Demo Machine Shop", "CIM review");
     await page.goto(`${BASE}/accountability/targets`);
     if ((await cardCount("CIMs reviewed")) !== before + 1) throw new Error(`counted twice: ${await cardCount("CIMs reviewed")}`);
-    // A new deal added at CIM reviewed is not a move: it does not count.
-    await page.goto(`${BASE}/records/pipeline_items/new?pipeline_id=${acqPipe}&stage_id=${(await one("select id from pipeline_stages where pipeline_id = $1 and name = 'CIM reviewed'", [acqPipe])).id}`);
+    // A new deal added at CIM review is not a move: it does not count.
+    await page.goto(`${BASE}/records/pipeline_items/new?pipeline_id=${acqPipe}&stage_id=${(await one("select id from pipeline_stages where pipeline_id = $1 and name = 'CIM review'", [acqPipe])).id}`);
     await page.locator('input[name="name"]').fill("Demo Added At CIM Co");
     await page.locator('input[name="next_action"]').fill("Enter revenue, EBITDA, asking price");
     if (await page.locator('input[name="next_action_due"]').count()) await page.locator('input[name="next_action_due"]').fill(nyDate(2));
@@ -2907,7 +2913,7 @@ const expectText = async (page, text) => {
     await page.locator("form button[type=submit]").filter({ hasText: /^(Save|Create|Add)/ }).first().click();
     await page.waitForURL(/\/records\/pipeline_items\/[0-9a-f-]{36}/);
     await page.goto(`${BASE}/accountability/targets`);
-    if ((await cardCount("CIMs reviewed")) !== before + 1) throw new Error(`a deal added at CIM reviewed was counted: ${await cardCount("CIMs reviewed")}`);
+    if ((await cardCount("CIMs reviewed")) !== before + 1) throw new Error(`a deal added at CIM review was counted: ${await cardCount("CIMs reviewed")}`);
   });
 
   await step("Broker or owner calls: a call logged on an acquisition deal counts this week; a second call on the same deal the same day and an email do not", async () => {
@@ -2952,13 +2958,13 @@ const expectText = async (page, text) => {
         listings: (await one(`select coalesce(sum(e.count), 0)::int n from target_entries e join targets t on t.id = e.target_id where t.name = 'Listings screened' and e.entry_date >= ${from}`)).n,
         sourced: (await one(`select count(*)::int n from pipeline_items where pipeline_id = $1 and (created_at at time zone 'America/New_York')::date >= ${from}`, [acqPipe])).n,
         ndas: await reached("NDA signed"),
-        cims: await reached("CIM reviewed"),
+        cims: await reached("CIM review"),
         calls: (await one(
           `select count(distinct (c.pipeline_item_id, (c.occurred_at at time zone 'America/New_York')::date))::int n from communications c join pipeline_items i on i.id = c.pipeline_item_id
            where i.pipeline_id = $1 and c.method in ('call', 'meeting', 'video') and (c.occurred_at at time zone 'America/New_York')::date >= ${from}`,
           [acqPipe],
         )).n,
-        lois: await reached("LOI signed"),
+        lois: await reached("IOI or LOI"),
       };
     };
     for (const days of [30, 90]) {
@@ -3009,8 +3015,8 @@ const expectText = async (page, text) => {
   // ---------- Build C1: windows, uploads, add steps, task window, filters, Ask AI in a window ----------
 
   await step("Windows open on every address change: away and back to Home, then Work through tasks (also while the page underneath is still reloading)", async () => {
-    await page.goto(`${BASE}/`);
-    for (const href of ["/opportunities", "/accountability", "/more", "/"]) {
+    await page.goto(`${BASE}/work`);
+    for (const href of ["/work/deals", "/accountability", "/more", "/work"]) {
       await page.locator(`nav a[href='${href}']`).first().click();
       await page.waitForURL((u) => u.pathname === href);
     }
@@ -3295,7 +3301,8 @@ const expectText = async (page, text) => {
     await expectText(page, "Deleted To delete.");
     if (await one("select 1 x from partner_report_templates where name = 'To delete'")) throw new Error("not deleted");
     // Partner default
-    const partner = await one("select id, name from partners order by name limit 1");
+    // The partner whose finalized report the next step opens (not the first by name: the close-the-day step adds partners).
+    const partner = await one("select p.id, p.name from partners p join partner_reports r on r.partner_id = p.id where r.status = 'finalized' and r.report_kind = 'regular' order by r.finalized_at desc limit 1");
     await page.getByLabel(`Default template for ${partner.name}`).selectOption({ label: "Deal search focus" });
     await expectText(page, "Saved");
     const chosen = await one("select t.name from partners p join partner_report_templates t on t.id = p.report_template_id where p.id = $1", [partner.id]);
@@ -3405,6 +3412,252 @@ const expectText = async (page, text) => {
     await expectText(page, "Sample data is loaded");
   });
 
+  // ---------- The Work module (batch A, database update 0020): the sample listings and deals are loaded above ----------
+  const dealByName = (name) => one("select i.id, i.next_action, i.next_action_due::text, i.waiting_on, i.waiting_since::text, i.screened, i.pass_reason, s.name as stage from pipeline_items i left join pipeline_stages s on s.id = i.stage_id where i.name = $1", [name]);
+
+  await step("Work: the start page is Work on now; the menu is Work, Accountability, More; counts match the sample data", async () => {
+    await page.goto(`${BASE}/`);
+    await page.waitForURL(/\/work$/);
+    await page.getByTestId("work-now").waitFor();
+    const menu = await page.locator("aside nav[aria-label='Main menu'] > div > a").allInnerTexts();
+    if (menu.map((m) => m.trim()).join("|") !== "Work|Accountability|More") throw new Error(`menu: ${menu.join("|")}`);
+    const toScreen = (await one("select count(*)::int n from pipeline_items where screened = false and status = 'open'")).n;
+    if (toScreen < 7) throw new Error(`expected the 7 sample listings, found ${toScreen}`);
+    for (const t of ["subnav-to-screen", "tab-to-screen"]) if ((await page.getByTestId(t).innerText()).trim() !== String(toScreen)) throw new Error(`${t} badge`);
+    if (!(await page.getByTestId("chip-screen").innerText()).includes(String(toScreen))) throw new Error("listings chip");
+    if (!(await page.getByTestId("chip-waiting").innerText()).includes("2")) throw new Error("waiting chip should count the two long waits");
+    if ((await page.getByTestId("next-action-row").count()) < 5) throw new Error("next action rows");
+    const pills = await page.getByTestId("waiting-days").evaluateAll((els) => els.map((e) => `${e.innerText}:${e.dataset.tone}`));
+    if (!pills.includes("11 days:red") || !pills.includes("6 days:amber")) throw new Error(`wait pills: ${pills.join(",")}`);
+    if (!(await page.getByTestId("work-date").innerText()).match(/^[A-Z][a-z]+day, [A-Z][a-z]{2} \d/)) throw new Error("date");
+    // Today and Close the day are under More.
+    await page.goto(`${BASE}/more`);
+    const more = await page.getByTestId("more-links").innerText();
+    for (const t of ["Today", "Close the day", "Pipelines", "Partner reports", "Old Home"]) if (!more.includes(t)) throw new Error(`More is missing ${t}`);
+    await page.goto(`${BASE}/today`);
+    await page.getByTestId("today").waitFor();
+  });
+
+  await step("Screen listings: Add a listing by pasting text (the AI stand-in fills the fields), save, the buy box says Fits", async () => {
+    await page.goto(`${BASE}/work/listings?add=1`);
+    await page.getByTestId("add-listing-card").waitFor();
+    await page.getByTestId("listing-text").fill(["For sale: Riverbend Commercial Cleaning (broker newsletter)", "Janitorial for office parks and medical buildings, 60 recurring contracts", "Revenue: $4.1M. SDE: $1.2M. Asking price: $3.9M", "Location: Macon, GA", "Industry: Commercial services", "Broker: Sunbelt, Dana Whitfield", "https://www.example.com/listings/riverbend"].join("\n"));
+    await page.getByTestId("listing-fill").click();
+    await page.waitForFunction(() => document.querySelector("[data-testid=listing-name]")?.value === "Riverbend Commercial Cleaning", null, { timeout: 15000 });
+    const got = {};
+    for (const k of ["earnings", "revenue", "asking", "location", "broker", "link", "industry"]) got[k] = await page.getByTestId(`listing-${k}`).inputValue();
+    if (got.earnings !== "$1.2M SDE" || got.revenue !== "$4.1M" || got.asking !== "$3.9M" || got.location !== "Macon, GA" || !got.broker.includes("Sunbelt") || !got.link.includes("riverbend")) throw new Error(`filled: ${JSON.stringify(got)}`);
+    // A typed value is kept when Fill from text runs again.
+    await page.getByTestId("listing-what").fill("Janitorial for office parks and medical buildings");
+    await page.getByTestId("listing-save").click();
+    await page.waitForURL(/\/work\/listings\?saved=/);
+    await expectText(page, "Saved Riverbend Commercial Cleaning to the list.");
+    const row = page.getByTestId("listing-row").filter({ hasText: "Riverbend Commercial Cleaning" });
+    await row.waitFor();
+    if ((await row.getByTestId("buy-box-pill").innerText()).trim() !== "Fits") throw new Error(`buy box: ${await row.getByTestId("buy-box-pill").innerText()}`);
+    if (!(await row.getByTestId("listing-earnings-stat").innerText()).includes("SDE")) throw new Error("earnings stat should say SDE");
+    const d = await dealByName("Riverbend Commercial Cleaning");
+    const fin = await one("select revenue, ebitda, sde, asking_price from deal_financials where item_id = $1", [d.id]);
+    if (d.screened !== false || d.stage !== null || Number(fin.sde) !== 1200000 || fin.ebitda !== null || Number(fin.revenue) !== 4100000 || Number(fin.asking_price) !== 3900000) throw new Error(JSON.stringify({ d, fin }));
+    await page.screenshot({ path: path.join(OUT, "flow-work-listings.png"), fullPage: true });
+  });
+
+  await step("Screen listings: Pass with a reason removes the row, keeps it in the Passed list, and the search finds it", async () => {
+    await page.goto(`${BASE}/work/listings`);
+    const before = Number((await page.getByTestId("tab-to-screen").innerText()).trim());
+    const row = page.getByTestId("listing-row").filter({ hasText: "Titan Steel Fabrication" });
+    if ((await row.getByTestId("buy-box-pill").innerText()).trim() !== "Too big") throw new Error("Titan should be too big");
+    await row.getByTestId("pass-button").click();
+    await page.getByTestId("pass-menu").waitFor();
+    await page.getByTestId("pass-reason-too_big").click();
+    await row.getByTestId("listing-result").waitFor();
+    await page.waitForFunction(() => !document.body.innerText.includes("Titan Steel Fabrication") || document.querySelector("[data-testid=tab-to-screen]")?.innerText.trim() !== undefined, null, { timeout: 15000 });
+    await page.waitForFunction((n) => document.querySelector("[data-testid=tab-to-screen]")?.innerText.trim() === String(n - 1), before, { timeout: 15000 });
+    const d = await dealByName("Titan Steel Fabrication");
+    if (d.stage !== "Passed" || d.pass_reason !== "too_big" || d.screened !== true) throw new Error(JSON.stringify(d));
+    await page.getByTestId("passed-toggle").click();
+    await page.getByTestId("passed-search").fill("titan");
+    const prow = page.getByTestId("passed-row");
+    if ((await prow.count()) !== 1 || (await prow.first().getByTestId("passed-reason").innerText()).trim() !== "Too big") throw new Error("passed list search");
+    await page.getByTestId("passed-search").fill("zzzz");
+    await page.getByTestId("passed-empty").waitFor();
+  });
+
+  await step("Interested, then Done twice from Work on now moves the deal through two stages (Yes); Not yet clears the action", async () => {
+    await page.goto(`${BASE}/work/listings`);
+    const row = page.getByTestId("listing-row").filter({ hasText: "Riverbend Commercial Cleaning" });
+    await row.getByTestId("interested-button").click();
+    await row.getByTestId("listing-result").waitFor();
+    if (!(await row.getByTestId("listing-result").innerText()).includes("now a deal at Interested")) throw new Error("interested confirmation");
+    let d = await dealByName("Riverbend Commercial Cleaning");
+    if (d.stage !== "Interested" || d.next_action !== "Sign the NDA and ask the broker for a call" || d.next_action_due !== nyDate(1)) throw new Error(JSON.stringify(d));
+    if (!(await one("select 1 x from tasks where pipeline_item_id = $1 and status = 'todo' and title = $2", [d.id, `Riverbend Commercial Cleaning: ${d.next_action}`]))) throw new Error("no task for the next action");
+    // Due today, so it shows on Work on now.
+    await pg.query("update pipeline_items set next_action_due = $2 where id = $1", [d.id, nyDate(0)]);
+    for (const expectStage of ["NDA signed", "Broker call"]) {
+      await page.goto(`${BASE}/work`);
+      const r = page.locator(`[data-testid=next-action-row][data-deal="${d.id}"]`);
+      await r.waitFor();
+      await r.getByTestId("next-action-done").click();
+      await r.getByTestId("next-action-ask").waitFor();
+      if (!(await r.getByTestId("next-action-ask").innerText()).includes(`to ${expectStage}?`)) throw new Error(`ask text: ${await r.getByTestId("next-action-ask").innerText()}`);
+      await r.getByTestId("next-action-yes").click();
+      await r.getByTestId("next-action-result").waitFor();
+      if (!(await r.getByTestId("next-action-result").innerText()).includes(`moved to ${expectStage}`)) throw new Error("result text");
+      for (let i = 0; i < 40 && (await dealByName("Riverbend Commercial Cleaning")).stage !== expectStage; i++) await page.waitForTimeout(250);
+      d = await dealByName("Riverbend Commercial Cleaning");
+      if (d.stage !== expectStage) throw new Error(`stage ${d.stage}`);
+      await pg.query("update pipeline_items set next_action_due = $2 where id = $1", [d.id, nyDate(0)]);
+    }
+    if (d.next_action !== "Ask for the seller call") throw new Error(`next action after two moves: ${d.next_action}`);
+    const done = (await one("select count(*)::int n from tasks where pipeline_item_id = $1 and status = 'done'", [d.id])).n;
+    if (done < 2) throw new Error(`done tasks: ${done}`);
+    // Not yet: the deal stays and needs a next action.
+    await page.goto(`${BASE}/work`);
+    const r = page.locator(`[data-testid=next-action-row][data-deal="${d.id}"]`);
+    await r.getByTestId("next-action-done").click();
+    await r.getByTestId("next-action-not-yet").click();
+    await r.getByTestId("next-action-result").waitFor();
+    for (let i = 0; i < 40 && (await dealByName("Riverbend Commercial Cleaning")).next_action !== null; i++) await page.waitForTimeout(250);
+    d = await dealByName("Riverbend Commercial Cleaning");
+    if (d.stage !== "Broker call" || d.next_action !== null) throw new Error(JSON.stringify(d));
+    await page.goto(`${BASE}/work/deals`);
+    const dr = page.locator(`[data-testid=deal-row][data-deal="${d.id}"]`);
+    await dr.getByTestId("needs-action").waitFor();
+    await page.screenshot({ path: path.join(OUT, "flow-work-deals.png"), fullPage: true });
+  });
+
+  await step("Later moves a next action to tomorrow (the deal and its task); Done on a typed action only clears it", async () => {
+    const dalton = await dealByName("Dalton Services");
+    await page.goto(`${BASE}/work`);
+    const r = page.locator(`[data-testid=next-action-row][data-deal="${dalton.id}"]`);
+    await r.waitFor();
+    await r.getByTestId("next-action-later").click();
+    await r.getByTestId("later-tomorrow").click();
+    await r.getByTestId("next-action-result").waitFor();
+    for (let i = 0; i < 40 && (await dealByName("Dalton Services")).next_action_due !== nyDate(1); i++) await page.waitForTimeout(250);
+    const after = await dealByName("Dalton Services");
+    if (after.next_action_due !== nyDate(1)) throw new Error(`due ${after.next_action_due}`);
+    const task = await one("select due_date::text from tasks where pipeline_item_id = $1 and status = 'todo' and title = $2", [dalton.id, `Dalton Services: ${dalton.next_action}`]);
+    if (task && task.due_date !== nyDate(1)) throw new Error(`task due ${task.due_date}`);
+    await pg.query("update pipeline_items set next_action_due = $2 where id = $1", [dalton.id, nyDate(0)]);
+    // Coastal Fleet's action is the stage default; Hilltop's too. Meridian's is typed: Done clears without asking.
+    const meridian = await dealByName("Meridian Industrial Coatings");
+    await page.goto(`${BASE}/work`);
+    const m = page.locator(`[data-testid=next-action-row][data-deal="${meridian.id}"]`);
+    await m.getByTestId("next-action-done").click();
+    await m.getByTestId("next-action-result").waitFor();
+    if (await m.getByTestId("next-action-ask").count()) throw new Error("a typed action should not ask about the next stage");
+    for (let i = 0; i < 40 && (await dealByName("Meridian Industrial Coatings")).next_action !== null; i++) await page.waitForTimeout(250);
+    if ((await dealByName("Meridian Industrial Coatings")).stage !== "Model") throw new Error("Meridian moved");
+  });
+
+  await step("Chase opens the email editor with a drafted follow-up; sending through the Google stand-in logs it on the deal and resets the wait", async () => {
+    const summit = await dealByName("Summit Logistics Group");
+    const sentBefore = (await gsent()).length;
+    await page.goto(`${BASE}/work`);
+    const r = page.locator(`[data-testid=waiting-row][data-deal="${summit.id}"]`);
+    await r.waitFor();
+    if ((await r.getByTestId("waiting-days").getAttribute("data-tone")) !== "red") throw new Error("Summit should be red");
+    await r.getByTestId("chase-button").click();
+    const dlg = page.getByTestId("compose-dialog");
+    await dlg.waitFor();
+    if ((await composeTo(page)) !== "mark.reed@example.com") throw new Error(`To is ${await composeTo(page)}`);
+    if ((await page.getByTestId("compose-subject").inputValue()) !== "Following up on Summit Logistics Group") throw new Error("subject");
+    const body = await shownText(page.getByTestId("compose-body"));
+    if (!body.includes("Hi Mark,") || !body.includes("a seller call to be scheduled") || !body.includes("11 days")) throw new Error(`body: ${body.slice(0, 120)}`);
+    await page.screenshot({ path: path.join(OUT, "flow-work-chase.png") });
+    await page.getByTestId("send-now").click();
+    const confirm = page.getByRole("dialog", { name: "Send this email?" });
+    await confirm.waitFor();
+    await page.getByTestId("send-confirm").click();
+    await dlg.getByTestId("send-success").waitFor();
+    if ((await gsent()).length !== sentBefore + 1) throw new Error("Gmail did not get the chase");
+    await page.getByTestId("compose-close").click();
+    await r.getByTestId("chase-sent").waitFor();
+    for (let i = 0; i < 40 && (await dealByName("Summit Logistics Group")).waiting_since !== nyDate(0); i++) await page.waitForTimeout(250);
+    const after = await dealByName("Summit Logistics Group");
+    if (after.waiting_since !== nyDate(0) || after.waiting_on !== summit.waiting_on) throw new Error(JSON.stringify(after));
+    const comm = await one("select id, subject from communications where pipeline_item_id = $1 and subject = 'Following up on Summit Logistics Group'", [summit.id]);
+    if (!comm) throw new Error("the chase was not logged on the deal");
+    await page.goto(`${BASE}/work/deals/${summit.id}`);
+    await page.getByTestId("timeline-event").filter({ hasText: "Following up on Summit Logistics Group" }).waitFor();
+    if (!(await page.getByTestId("deal-wait-pill").innerText()).includes("Today")) throw new Error("the deal page should show the wait reset to today");
+  });
+
+  await step("Deal page: next action, findings, and facts save; a note joins the timeline; Advance moves the stage; Pass with a reason", async () => {
+    const dalton = await dealByName("Dalton Services");
+    await page.goto(`${BASE}/work/deals/${dalton.id}`);
+    await page.getByTestId("work-deal").waitFor();
+    const status = await page.getByTestId("deal-status-line").innerText();
+    if (!status.includes("CIM review · day 4") || !status.includes("Not waiting on anyone")) throw new Error(`status line: ${status}`);
+    if ((await page.getByTestId("timeline-event").count()) < 6 || (await page.getByTestId("panel-documents").innerText()).includes("No documents")) throw new Error("timeline or documents");
+    if (!(await page.getByTestId("fact-asking").innerText()).includes("(3.5x)")) throw new Error("multiple");
+    // Findings
+    await page.getByTestId("key-finding").fill("70% recurring; the service side is the growth question");
+    await page.getByTestId("findings-save").click();
+    await page.getByTestId("deal-findings").getByTestId("save-ok").waitFor();
+    // Next action: block minutes and waiting on
+    await page.getByTestId("na-minutes").fill("75");
+    await page.getByTestId("na-waiting").fill("Rachel Kim");
+    await page.getByTestId("na-save").click();
+    await page.getByTestId("deal-next-action").getByTestId("save-ok").waitFor();
+    // Facts
+    await page.getByTestId("facts-edit").click();
+    await page.getByTestId("fact-revenue").fill("$5.9M");
+    await page.getByTestId("fact-whySelling").fill("Retiring at 58, no successor");
+    await page.getByTestId("facts-save").click();
+    await page.getByTestId("facts-grid").waitFor();
+    await page.waitForFunction(() => document.querySelector("[data-testid=fact-revenue]")?.innerText.includes("$5.9M"), null, { timeout: 15000 });
+    // A note
+    await page.getByTestId("deal-note").fill("Flow note: technician tenure averages 6 years.");
+    await page.getByTestId("note-save").click();
+    await page.getByTestId("timeline-event").filter({ hasText: "Flow note: technician tenure" }).waitFor();
+    await page.reload();
+    if ((await page.getByTestId("key-finding").inputValue()) !== "70% recurring; the service side is the growth question") throw new Error("key finding not kept");
+    if ((await page.getByTestId("na-minutes").inputValue()) !== "75" || (await page.getByTestId("na-waiting").inputValue()) !== "Rachel Kim") throw new Error("next action not kept");
+    if (!(await page.getByTestId("deal-wait-pill").innerText()).includes("Waiting on Rachel Kim")) throw new Error("wait pill");
+    const saved = await one("select f.revenue, i.why_selling, i.next_action_minutes, i.waiting_on from pipeline_items i join deal_financials f on f.item_id = i.id where i.id = $1", [dalton.id]);
+    if (Number(saved.revenue) !== 5900000 || saved.why_selling !== "Retiring at 58, no successor" || saved.next_action_minutes !== 75) throw new Error(JSON.stringify(saved));
+    await page.screenshot({ path: path.join(OUT, "flow-work-deal.png"), fullPage: true });
+    // Advance
+    await page.getByTestId("decision-advance").click();
+    await page.waitForFunction(() => document.querySelector("[data-testid=deal-stage-pill]")?.innerText.includes("Seller call"), null, { timeout: 15000 });
+    // A typed next action is kept on a stage move (the approved rule); only a stage default is replaced.
+    const moved = await dealByName("Dalton Services");
+    if (moved.stage !== "Seller call" || moved.next_action !== "Review the CIM and write the key finding" || moved.waiting_on !== null) throw new Error(JSON.stringify(moved));
+    await page.getByTestId("timeline-event").filter({ hasText: "Moved to Seller call" }).waitFor();
+    // Pass with a reason (header button) on another deal
+    const oakline = await dealByName("Oakline Dental Lab");
+    await page.goto(`${BASE}/work/deals/${oakline.id}`);
+    await page.getByTestId("deal-pass").click();
+    await page.getByTestId("pass-reason-no_growth_path").click();
+    await page.waitForFunction(() => document.querySelector("[data-testid=decision-closed]")?.innerText.includes("No growth path"), null, { timeout: 15000 });
+    const passed = await dealByName("Oakline Dental Lab");
+    if (passed.stage !== "Passed" || passed.pass_reason !== "no_growth_path") throw new Error(JSON.stringify(passed));
+    if (await page.getByTestId("deal-advance").count()) throw new Error("a passed deal still offers Advance");
+    // Deals: grouped by stage, the stepper counts match, a row opens the deal page, Passed and Lost collapsed with counts
+    await page.goto(`${BASE}/work/deals`);
+    const counts = await page.getByTestId("stepper-stage").evaluateAll((els) => els.map((e) => [e.innerText.replace(/\d+$/, "").trim(), Number(e.dataset.count)]));
+    for (const [name, n] of counts) {
+      const inDb = (await one("select count(*)::int n from pipeline_items i join pipeline_stages s on s.id = i.stage_id join pipelines p on p.id = i.pipeline_id where p.kind = 'acquisition' and s.name = $1 and i.screened and i.status = 'open'", [name])).n;
+      if (inDb !== n) throw new Error(`${name}: shown ${n}, records ${inDb}`);
+    }
+    if (!(await page.getByTestId("closed-label").innerText()).match(/Passed \d+ · Lost \d+/)) throw new Error("closed label");
+    await page.getByTestId("closed-toggle").click();
+    await page.locator("[data-testid=stage-group][data-stage=Passed]").waitFor();
+    await page.locator(`[data-testid=deal-row][data-deal="${moved.id}"]`).click();
+    await page.waitForURL(new RegExp(`/work/deals/${moved.id}$`));
+  });
+
+  await step("Work screens at 1280 and on the phone", async () => {
+    const dalton = await dealByName("Dalton Services");
+    await shoot3(`${BASE}/work`, "work-now");
+    await shoot3(`${BASE}/work/listings?add=1`, "work-listings");
+    await shoot3(`${BASE}/work/deals`, "work-deals");
+    await shoot3(`${BASE}/work/deals/${dalton.id}`, "work-deal");
+  });
+
   await step("Savings ideas: propose now, shown on Home with a count, Edit, Later, Decline (not proposed again), Approve as a reduction action", async () => {
     await aipost("/__reset");
     await page.goto(`${BASE}/finance/expenses`);
@@ -3488,12 +3741,13 @@ const expectText = async (page, text) => {
   });
 
   await step("Remove sample data deletes only sample rows", async () => {
-    const demo = await one("select (select count(*)::int from accounts where name not like 'Sample %') a, (select count(*)::int from contacts where name not like 'Sample %') c, (select count(*)::int from transactions t where not exists (select 1 from sample_records r where r.record_id = t.id)) t");
+    // Contacts are counted by the sample marker, not the name: the Work module's sample brokers carry the mockup's names.
+    const demo = await one("select (select count(*)::int from accounts where name not like 'Sample %') a, (select count(*)::int from contacts c where not exists (select 1 from sample_records r where r.record_id = c.id)) c, (select count(*)::int from transactions t where not exists (select 1 from sample_records r where r.record_id = t.id)) t");
     await page.goto(`${BASE}/settings/data`);
     await page.getByTestId("sample-remove").click();
     await expectText(page, "Sample data removed:");
     const after = await one(`select (select count(*)::int from sample_records) marked,
-      (select count(*)::int from accounts where name not like 'Sample %') a, (select count(*)::int from contacts where name not like 'Sample %') c, (select count(*)::int from transactions) t`);
+      (select count(*)::int from accounts where name not like 'Sample %') a, (select count(*)::int from contacts) c, (select count(*)::int from transactions) t`);
     // Rows named "Sample ..." that were there before loading (the demo data has a few) stay; every other one is gone.
     const left = await sampleLike();
     if (after.marked || JSON.stringify(left) !== JSON.stringify(sampleBefore)) throw new Error(`sample rows left: ${JSON.stringify({ left, sampleBefore })}`);

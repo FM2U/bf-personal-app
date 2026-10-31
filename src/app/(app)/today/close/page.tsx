@@ -64,7 +64,7 @@ export default async function ClosePage({ searchParams }: { searchParams: Promis
   return (
     <div className="mx-auto flex w-full max-w-[880px] flex-col gap-6" data-testid="close-page" data-step={step}>
       <div>
-        <Link href="/" className="mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-slate-900" data-testid="close-back-today">
+        <Link href="/today" className="mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-slate-900" data-testid="close-back-today">
           <ChevronLeft className="h-4 w-4" /> Today
         </Link>
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Close the day</h1>

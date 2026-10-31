@@ -1,5 +1,5 @@
 -- BF Personal App: database update 0019 (the focused version, batch 1: Today and Close the day).
--- For the live database, which has 0001 to 0018. Paste this whole file into the Supabase SQL Editor and press Run.
+-- For a database that has 0001 to 0018 (the live database with 0001 to 0019 uses UPDATE_0020_RUN_ONCE.sql). Paste this whole file into the Supabase SQL Editor and press Run.
 -- Expected result: "Success. No rows returned". Safe to run more than once: nothing is duplicated, and no existing
 -- record is changed or deleted. What it adds:
 --   A table of daily outcomes: up to 3 planned outcomes per day, each with an initiative, a planned block in minutes,

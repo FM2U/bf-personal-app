@@ -16,7 +16,9 @@
 #   (o) 0001 to 0016 (the live database on 2026-10-29) plus an owner, partners, and a report, then UPDATE_0017_RUN_ONCE.sql twice
 #   (p) 0001 to 0017 (the live database on 2026-10-30) plus partners, a finalized report, and a pending miss, then UPDATE_0018_RUN_ONCE.sql twice
 #   (q) 0001 to 0018 (the live database on 2026-10-30, evening) plus a daily plan and a task, then UPDATE_0019_RUN_ONCE.sql twice
+#   (r) 0001 to 0019 (the live database on 2026-10-31) plus deals in the old acquisition stages, then UPDATE_0020_RUN_ONCE.sql twice
 # Paths b, c, d (UPDATE_RUN_ONCE.sql) and j, k, l also check 0014: tables, policies, functions, sample removal, and reset.
+# UPDATE_RUN_ONCE.sql now ends with 0020, so on paths b, c, d the acquisition stages are the new ones (the checks allow both).
 # Every UPDATE_RUN_ONCE.sql path also checks 0012 and 0013.
 # Usage: bash supabase/tests/upgrade_test.sh
 set -euo pipefail
@@ -85,7 +87,7 @@ do $$ begin
   assert (select count(*) from public.targets where name = 'Deals sourced' and count_source = 'deals_sourced' and minimum_count = 5) = 1, 'Deals sourced seeded once';
   assert (select count(*) from public.targets where name = 'Deals advanced' and count_source = 'deals_advanced' and minimum_count = 1) = 1, 'Deals advanced seeded once';
   assert (select start_date from public.targets where name = 'Deals advanced') = (now() at time zone 'America/New_York')::date, 'counting starts today (New York)';
-  assert (select count(*) from public.stage_tasks) = 60, 'stage tasks seeded once (46 plus 14 consulting)';
+  assert (select count(*) from public.stage_tasks) = (case when to_regprocedure('public.schema_has_0020()') is null then 60 else 59 end), 'stage tasks seeded once (46 plus 14 consulting; 59 after 0020)';
   assert (select count(*) from public.inputs where key in ('pipeline_stall_days', 'stage_extension_days')) = 2, 'inputs seeded once';
   assert (select max_days_in_stage from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.name = 'Acquisitions' and s.name = 'Diligence') = 60, 'Diligence limit';
   assert (select purpose from public.communications where subject = 'Existing call') = 'general', 'existing communications get purpose general';
@@ -99,13 +101,15 @@ do $$ begin
   assert (select count(*) from pg_trigger where tgname in ('pipeline_items_stage_tasks', 'pipeline_items_stage_defaults', 'communications_default_purpose')) = 3, 'one of each new trigger';
   assert (select count(*) from pg_constraint where conname in ('targets_count_source_check', 'decisions_source_check', 'communications_purpose_check', 'pipeline_items_deal_source_type_check', 'pipeline_stages_max_days_check')) = 5, 'one of each check';
 end $$;
--- The existing item gets stage tasks when it moves to the next stage.
+-- The existing item gets stage tasks when it moves to the next stage (the NDA signed default; 0020 renames it).
 update public.pipeline_items set stage_id = (
   select s.id from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.name = 'Acquisitions' and s.name = 'NDA signed'
 ) where name = 'Existing deal';
-do $$ begin
-  assert (select count(*) from public.tasks where title = 'Existing deal: Request CIM and financials') = 1, 'stage task created on move';
-  assert (select next_action from public.pipeline_items where name = 'Existing deal') = 'Request CIM and financials', 'next action set on move';
+do $$
+declare v_title text := case when to_regprocedure('public.schema_has_0020()') is null then 'Request CIM and financials' else 'Chase the broker for the CIM and the call' end;
+begin
+  assert (select count(*) from public.tasks where title = 'Existing deal: ' || v_title) = 1, 'stage task created on move';
+  assert (select next_action from public.pipeline_items where name = 'Existing deal') = v_title, 'next action set on move';
 end $$;
 do $$ begin
   -- 0010
@@ -114,7 +118,7 @@ do $$ begin
   assert (select count(*) from public.task_templates where is_commitment) = 4, 'only review templates are commitments';
   assert (select count(*) from public.task_templates where is_commitment and not public.is_review_template_title(title)) = 0, 'no other template is a commitment';
   assert (select count(*) from public.stage_tasks where is_commitment <> is_next_action_default) = 0, 'only next-action stage tasks are commitments';
-  assert (select count(*) from public.stage_tasks) = 60, 'stage tasks not duplicated';
+  assert (select count(*) from public.stage_tasks) = (case when to_regprocedure('public.schema_has_0020()') is null then 60 else 59 end), 'stage tasks not duplicated';
   assert (select status from public.commitments where title like 'Download%') = 'released', 'export commitment released';
   assert (select resolution from public.missed_commitments m join public.commitments c on c.id = m.commitment_id where c.title like 'Download%') = 'released', 'pending miss released';
   assert (select count(*) from public.alerts a join public.commitments c on c.id = a.related_id where c.title like 'Download%' and a.status = 'open') = 0, 'miss alert dismissed';
@@ -122,7 +126,7 @@ do $$ begin
   assert (select status from public.commitments where title = 'Complete the daily close') = 'open', 'daily close commitment kept';
   assert (select status from public.commitments where title = 'Hand-marked task') = 'open', 'hand-marked commitment kept';
   assert (select count(*) from public.commitments c where c.title like 'Existing deal: %' and c.status not in ('open', 'released')) = 0, 'no deal commitment missed';
-  assert (select count(*) from public.commitments where title = 'Existing deal: Request CIM and financials' and status = 'open') = 1, 'next-action commitment for NDA signed';
+  assert (select count(*) from public.commitments where title in ('Existing deal: Request CIM and financials', 'Existing deal: Chase the broker for the CIM and the call') and status = 'open') = 1, 'next-action commitment for NDA signed';
   assert (select count(*) from public.commitments c join public.tasks t on t.id = c.record_id join public.stage_tasks st on st.id::text = split_part(t.source_key, ':', 3)
           where t.title like 'Existing deal: %' and c.status = 'open' and not st.is_next_action_default) = 0, 'no open commitment on a task that is not the next action';
   assert (select count(*) from public.commitments where title = 'Existing deal: Request CIM' and status = 'open') = 0, 'non next-action stage task is not an open commitment';
@@ -142,7 +146,7 @@ do $$ begin
   assert (select count(*) from public.pipelines) = 6, 'six pipelines';
   assert (select count(*) from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.name = 'Consulting') = 9, 'nine consulting stages';
   assert (select count(*) from public.stage_tasks st join public.pipeline_stages s on s.id = st.pipeline_stage_id join public.pipelines p on p.id = s.pipeline_id where p.name = 'Consulting') = 14, 'consulting stage tasks once';
-  assert (select count(*) from public.stage_tasks) = 60, 'all stage tasks once';
+  assert (select count(*) from public.stage_tasks) = (case when to_regprocedure('public.schema_has_0020()') is null then 60 else 59 end), 'all stage tasks once';
   assert (select count(*) from public.inputs where key in ('runway_include_signed_consulting', 'consulting_monthly_income', 'consulting_months')) = 3, 'consulting inputs once';
   assert (select count(*) from public.pipeline_stages where counts_as_signed) = 2, 'two signed-work stages';
   assert (select count(*) from pg_policies where schemaname = 'public' and tablename = 'consulting_details' and policyname = 'owner_only') = 1, 'consulting policy';
@@ -580,8 +584,94 @@ select '0019 checks passed' as result;
 SQL
 for f in UPDATE_RUN_ONCE ALL_MIGRATIONS_RUN_ONCE; do grep -q "schema_has_0019" "$DIR/$f.sql" || { echo "$f.sql is missing 0019"; exit 1; }; done
 
+# (r) Live state on 2026-10-31: 0001 to 0019 applied, deals in Sourced, Screened, LOI signed, and CIM reviewed (one with a typed
+# next action), the CIMs reviewed target pointing at CIM reviewed, then UPDATE_0020_RUN_ONCE.sql twice. No deal is deleted,
+# renamed stages keep their ids, moved deals keep their next action and days in stage, the nine defaults are in place,
+# the setting exists once, a listing (screened false, no stage) can be saved and becomes a deal at Interested with the
+# default next action due tomorrow, and a future owner gets the new stages.
+setup bf_upgrade_r 0019
+su postgres -c "$PSQL -d bf_upgrade_r" <<'SQL'
+\set ON_ERROR_STOP 1
+insert into public.pipeline_items (owner_id, pipeline_id, stage_id, name, next_action, next_action_due)
+select p.owner_id, p.id, s.id, 'Deal in ' || s.name, 'Typed action for ' || s.name, current_date + 3
+  from public.pipelines p join public.pipeline_stages s on s.pipeline_id = p.id
+ where p.kind = 'acquisition' and s.name in ('Sourced', 'Screened', 'LOI signed', 'CIM reviewed');
+update public.pipeline_items set stage_entered_at = now() - interval '9 days' where name = 'Deal in Sourced';
+-- What the checks compare against after the update (the stage id of CIM reviewed, the number of deals).
+create table public.upgrade_r_before as
+  select (select s.id from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.kind = 'acquisition' and s.name = 'CIM reviewed') as cim,
+         (select count(*) from public.pipeline_items) as items;
+SQL
+for run in 1 2; do
+  echo "[bf_upgrade_r] Applying UPDATE_0020_RUN_ONCE.sql (run $run)"
+  su postgres -c "$PSQL -d bf_upgrade_r -f $DIR/UPDATE_0020_RUN_ONCE.sql"
+  if [ "$run" = 1 ]; then
+    su postgres -c "$PSQL -d bf_upgrade_r -c \"update public.inputs set value_number = 7 where key = 'waiting_threshold_days'\""
+  fi
+done
+su postgres -c "$PSQL -d bf_upgrade_r" <<'SQL'
+\set ON_ERROR_STOP 1
+do $$
+declare v_acq uuid; v_cim uuid; v_items int;
+begin
+  select id into v_acq from public.pipelines where kind = 'acquisition' limit 1;
+  select cim, items into v_cim, v_items from public.upgrade_r_before;
+  assert to_regprocedure('public.schema_has_0020()') is not null, '0020 check function';
+  assert (select count(*) from public.pipeline_items) = v_items, 'no deal deleted';
+  assert (select string_agg(name, ',' order by position) from public.pipeline_stages where pipeline_id = v_acq)
+         = 'Interested,NDA signed,Broker call,CIM review,Seller call,Model,Partner presentation,IOI or LOI,Diligence,Closed,Passed,Lost', 'the stages in order';
+  assert (select count(*) from public.pipeline_stages where pipeline_id = v_acq) = 12, 'twelve stages, none duplicated';
+  assert (select id from public.pipeline_stages where pipeline_id = v_acq and name = 'CIM review') = v_cim, 'CIM reviewed renamed in place (id kept)';
+  assert (select stage_id from public.targets where count_source = 'cims_reviewed') = v_cim, 'the CIMs reviewed target still points at the stage';
+  assert (select s.name from public.pipeline_items i join public.pipeline_stages s on s.id = i.stage_id where i.name = 'Deal in Sourced') = 'Interested', 'Sourced deal moved to Interested';
+  assert (select s.name from public.pipeline_items i join public.pipeline_stages s on s.id = i.stage_id where i.name = 'Deal in Screened') = 'Interested', 'Screened is Interested';
+  assert (select s.name from public.pipeline_items i join public.pipeline_stages s on s.id = i.stage_id where i.name = 'Deal in LOI signed') = 'IOI or LOI', 'LOI signed deal moved to IOI or LOI';
+  assert (select s.name from public.pipeline_items i join public.pipeline_stages s on s.id = i.stage_id where i.name = 'Deal in CIM reviewed') = 'CIM review', 'CIM reviewed is CIM review';
+  assert (select next_action from public.pipeline_items where name = 'Deal in Sourced') = 'Typed action for Sourced', 'a moved deal keeps its typed next action';
+  assert (select stage_entered_at < now() - interval '8 days' from public.pipeline_items where name = 'Deal in Sourced'), 'a moved deal keeps its days in stage';
+  assert (select count(*) from public.tasks where title like 'Deal in Sourced: Sign the NDA%') = 0, 'the remap created no Interested tasks';
+  assert (select count(*) from public.stage_tasks st join public.pipeline_stages s on s.id = st.pipeline_stage_id where s.pipeline_id = v_acq and st.is_next_action_default) = 9, 'nine default next actions';
+  assert (select st.title from public.stage_tasks st join public.pipeline_stages s on s.id = st.pipeline_stage_id where s.pipeline_id = v_acq and s.name = 'Interested') = 'Sign the NDA and ask the broker for a call', 'Interested default';
+  assert (select st.due_in_days from public.stage_tasks st join public.pipeline_stages s on s.id = st.pipeline_stage_id where s.pipeline_id = v_acq and s.name = 'Diligence') = 14, 'Diligence due in 14 days';
+  assert (select count(*) from public.inputs where key = 'waiting_threshold_days') = 1, 'the waiting setting once';
+  assert (select value_number from public.inputs where key = 'waiting_threshold_days') = 7, 'the value set between runs is kept';
+  assert (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'pipeline_items'
+          and column_name in ('what_it_does', 'location', 'industry', 'listing_url', 'broker_name', 'why_selling', 'key_finding', 'open_questions', 'waiting_on', 'waiting_since', 'pass_reason', 'screened', 'buy_box_note', 'next_action_minutes')) = 14, 'the 0020 columns';
+  assert (select bool_and(screened) from public.pipeline_items), 'existing deals count as screened';
+  assert (select count(*) from pg_constraint where conname = 'pipeline_items_pass_reason_check') = 1, 'one pass reason check';
+  assert (select prosrc from pg_proc where proname = 'handle_new_owner') like '%seed_owner_work_module%', 'owner setup seeds 0020';
+end $$;
+-- A listing: screened false, no stage. Interested: the stage default is set, due tomorrow (the stage trigger).
+insert into public.pipeline_items (owner_id, pipeline_id, stage_id, name, screened, what_it_does, location)
+select owner_id, id, null, 'Upgrade listing', false, 'Janitorial for office parks', 'Macon, GA' from public.pipelines where kind = 'acquisition';
+update public.pipeline_items set stage_id = (select s.id from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.kind = 'acquisition' and s.name = 'Interested'), screened = true
+ where name = 'Upgrade listing';
+do $$ begin
+  assert (select next_action from public.pipeline_items where name = 'Upgrade listing') = 'Sign the NDA and ask the broker for a call', 'Interested sets the default next action';
+  assert (select next_action_due from public.pipeline_items where name = 'Upgrade listing') = (now() at time zone 'America/New_York')::date + 1, 'due tomorrow';
+  assert (select count(*) from public.tasks where title = 'Upgrade listing: Sign the NDA and ask the broker for a call') = 1, 'the next action task';
+  begin
+    update public.pipeline_items set pass_reason = 'bad' where name = 'Upgrade listing';
+    raise exception 'an unknown pass reason was allowed';
+  exception when check_violation then null;
+  end;
+end $$;
+update public.pipeline_items set pass_reason = 'too_small' where name = 'Upgrade listing';
+-- A future owner gets the new stages and the setting.
+delete from auth.users where id = '00000000-0000-0000-0000-000000000001';
+insert into auth.users (id, email) values ('00000000-0000-0000-0000-000000000002', 'next@example.com');
+do $$ begin
+  assert (select string_agg(s.name, ',' order by s.position) from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.owner_id = '00000000-0000-0000-0000-000000000002' and p.kind = 'acquisition')
+         = 'Interested,NDA signed,Broker call,CIM review,Seller call,Model,Partner presentation,IOI or LOI,Diligence,Closed,Passed,Lost', 'future owner gets the stages';
+  assert (select count(*) from public.inputs where owner_id = '00000000-0000-0000-0000-000000000002' and key = 'waiting_threshold_days') = 1, 'future owner gets the setting';
+end $$;
+drop table public.upgrade_r_before;
+select '0020 checks passed' as result;
+SQL
+for f in UPDATE_RUN_ONCE ALL_MIGRATIONS_RUN_ONCE; do grep -q "schema_has_0020" "$DIR/$f.sql" || { echo "$f.sql is missing 0020"; exit 1; }; done
+
 echo "Upgrade paths passed: 0001-0007 + update twice, 0001-0008 + update, 0001-0009 + update twice, 0001-0010 + 0011 update twice,"
 echo "0001-0010 + 0011_0012 update twice, 0001-0011 + 0011_0012 update twice, 0001-0011 + 0012 update twice (edited text kept),"
 echo "0001-0012 + 0013 update twice, 0001-0012 + 0013_0014 update twice, 0001-0013 + 0013_0014 update twice, 0001-0013 + 0014 update twice,"
 echo "0001-0014 + 0015 update twice, 0001-0015 + 0016 update twice (future owner too), 0001-0016 + 0017 update twice (future owner too),"
-echo "0001-0017 + 0018 update twice, 0001-0018 + 0019 update twice."
+echo "0001-0017 + 0018 update twice, 0001-0018 + 0019 update twice, 0001-0019 + 0020 update twice (future owner too)."

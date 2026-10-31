@@ -12,7 +12,8 @@ export const MODULE_ICONS: Record<string, LucideIcon> = {
   productivity: CheckSquare,
   accountability: Scale,
   settings: Settings,
-  // The main menu (the focused version).
+  // The main menu (the focused version and the Work module).
+  work: Briefcase,
   today: Sun,
   pipelines: Briefcase,
   commitments: Scale,

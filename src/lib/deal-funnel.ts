@@ -124,7 +124,7 @@ export async function loadDealFunnel(
   const items = Object.fromEntries(itemRows.map((i) => [i.id, { pipeline_id: i.pipeline_id as string, created_at: i.created_at as string }]));
   const typeById = Object.fromEntries(itemRows.map((i) => [i.id, (i.deal_source_type as string | null) ?? null]));
   const inWin = (d: string) => d >= from && d <= today;
-  const reached = (name: string, fallback: number) => {
+  const reached = (name: string | string[], fallback: number) => {
     const entries = toStageEntries(history as never, stages as never, items, (pid) => stagePosition(stages as never, pid, name, fallback), local);
     return Object.entries(firstReachDates(entries))
       .filter(([, d]) => inWin(d))
@@ -141,10 +141,11 @@ export async function loadDealFunnel(
   const steps = buildFunnel({
     listings: listingCount,
     sourced,
-    ndas: reached("NDA signed", 3),
-    cims: reached("CIM reviewed", 4),
+    // Stage names after database update 0020 first, the older names after them.
+    ndas: reached(["NDA signed"], 2),
+    cims: reached(["CIM review", "CIM reviewed"], 4),
     calls,
-    lois: reached("LOI signed", 6),
+    lois: reached(["IOI or LOI", "LOI signed"], 8),
     typeOf: (id) => typeById[id],
   });
 

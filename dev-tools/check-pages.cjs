@@ -28,7 +28,7 @@ const session = {
 const cookieValue = `base64-${Buffer.from(JSON.stringify(session)).toString("base64url")}`;
 
 const PAGES = (process.env.PAGES || [
-  "/", "/today/close", "/today/close?step=2", "/today/close?step=3", "/more", "/more/old-home", "/plan", "/plan/goals", "/plan/milestones", "/plan/conditions", "/plan/inputs", "/plan/scenarios", "/plan/decisions",
+  "/", "/work", "/work/listings", "/work/listings?add=1", "/work/deals", "/today", "/today/close", "/today/close?step=2", "/today/close?step=3", "/more", "/more/old-home", "/plan", "/plan/goals", "/plan/milestones", "/plan/conditions", "/plan/inputs", "/plan/scenarios", "/plan/decisions",
   "/finance", "/finance/balance-sheet", "/finance/expenses", "/finance/import", "/finance/budget", "/finance/debt", "/finance/funding", "/finance/income", "/finance/savings",
   "/opportunities", "/people", "/people/organizations", "/people/communications", "/people/outreach",
   "/productivity", "/productivity/tasks", "/productivity/recurring", "/productivity/calendar", "/productivity/pipeline-actions",
@@ -70,6 +70,9 @@ async function keyPages() {
     if (org) out.push(`/records/organizations/${org}`);
     const acqPipe = await one("select id from pipelines where kind = 'acquisition' limit 1").catch(() => null);
     if (acqPipe) out.push(`/opportunities/${acqPipe}?view=board&closed=1`, `/opportunities/${acqPipe}#funnel`);
+    // The deal page of the Work module (Dalton Services from the sample data, otherwise any open deal).
+    const deal = (await one("select id from pipeline_items where name = 'Dalton Services' limit 1").catch(() => null)) ?? (await one("select i.id from pipeline_items i join pipelines p on p.id = i.pipeline_id where p.kind = 'acquisition' and i.screened and i.stage_id is not null order by i.created_at limit 1").catch(() => null));
+    if (deal) out.push(`/work/deals/${deal}`);
     return [...out, "/accountability/targets", "/people/outreach", "/finance/income", "/records/contacts/new", "/records/organizations/new", "/finance/import"];
   } catch {
     return [];
@@ -95,6 +98,8 @@ async function keyPages() {
     if (p.startsWith("/records/pipeline_items/") && p.endsWith("#due-today")) return "pipeline-item-due-today";
     if (p.startsWith("/records/pipeline_items/") && p.endsWith("#overdue")) return "pipeline-item-overdue";
     if (p.startsWith("/records/pipeline_items/")) return "consulting-item";
+    if (p.startsWith("/work/deals/")) return "work-deal";
+    if (p === "/work/listings?add=1") return "work-listings-add";
     if (p.startsWith("/records/contacts/")) return "contact-deal-credit";
     return null;
   };
@@ -107,7 +112,7 @@ async function keyPages() {
     page.on("console", (m) => {
       if (m.type() === "error") errors.push(m.text());
     });
-    const base = vpName === "desktop" ? PAGES : vpName === "phone" ? (process.env.PHONE_PAGES || "/,/today/close,/more,/finance/expenses,/finance/balance-sheet,/accountability/report-templates,/opportunities,/plan/inputs,/accountability/targets,/people/outreach,/productivity").split(",") : [];
+    const base = vpName === "desktop" ? PAGES : vpName === "phone" ? (process.env.PHONE_PAGES || "/work,/work/listings,/work/deals,/today,/today/close,/more,/finance/expenses,/finance/balance-sheet,/accountability/report-templates,/opportunities,/plan/inputs,/accountability/targets,/people/outreach,/productivity").split(",") : [];
     const list = [...new Set([...base, ...KEY])];
     for (const p of list) {
       errors.length = 0;

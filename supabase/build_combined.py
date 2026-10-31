@@ -1,7 +1,8 @@
 # Regenerates the combined SQL files from supabase/migrations:
 #   supabase/ALL_MIGRATIONS_RUN_ONCE.sql  every migration (new, empty project)
-#   supabase/UPDATE_RUN_ONCE.sql          0008 to 0019 (full catch-up for an existing project with 0001 to 0007 or later)
-#   supabase/UPDATE_0019_RUN_ONCE.sql     0019 only (the live database: 0001 to 0018)
+#   supabase/UPDATE_RUN_ONCE.sql          0008 to 0020 (full catch-up for an existing project with 0001 to 0007 or later)
+#   supabase/UPDATE_0020_RUN_ONCE.sql     0020 only (the live database: 0001 to 0019)
+#   supabase/UPDATE_0019_RUN_ONCE.sql     0019 only (a database with 0001 to 0018)
 #   supabase/UPDATE_0018_RUN_ONCE.sql     0018 only (a database with 0001 to 0017)
 #   supabase/UPDATE_0017_RUN_ONCE.sql     0017 only (a database with 0001 to 0016)
 #   supabase/UPDATE_0016_RUN_ONCE.sql     0016 only (a database with 0001 to 0015)
@@ -27,7 +28,7 @@ open("supabase/ALL_MIGRATIONS_RUN_ONCE.sql", "w").write(header + "\n".join(parts
 
 update_files = [f for f in files if f.split("/")[-1][:4] >= "0008"]
 update = (
-    "-- BF Personal App: database update (0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, and 0019).\n"
+    "-- BF Personal App: database update (0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019, and 0020).\n"
     "--   0008: Daily Targets and Outreach Queue.\n"
     "--   0009: Stage task lists, stage time limits, required details, stalled items, deal source (proprietary or brokered),\n"
     "--         deal-source contacts, and the Deals sourced and Deals advanced targets.\n"
@@ -43,7 +44,9 @@ update = (
     "--   0018: Resolve a miss as Done late; daily partner reports (report frequency Daily, Weekly, or Both; the day period).\n"
     "--   0019: The focused version, batch 1: daily outcomes (Today and Close the day), focused hours, changes and tomorrow's priority,\n"
     "--         waiting on someone (tasks), and sample data and reset for daily outcomes.\n"
-    "-- For a database that already has 0001 to 0007 (or 0001 to 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, or 0018). Paste this whole file into the\n"
+    "--   0020: The Work module, batch A: listing and deal facts on pipeline items, the acquisition stages Interested to Diligence\n"
+    "--         (plus Closed, Passed, Lost) with their default next actions, the waiting setting, and a check function.\n"
+    "-- For a database that already has 0001 to 0007 (or 0001 to 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, or 0019). Paste this whole file into the\n"
     "-- Supabase SQL Editor and press Run. Safe to run more than once: nothing is duplicated.\n"
     "-- Generated from supabase/migrations by supabase/build_combined.py.\n\n"
 )
@@ -177,7 +180,7 @@ open("supabase/UPDATE_0018_RUN_ONCE.sql", "w").write(u18 + open("supabase/migrat
 
 u19 = (
     "-- BF Personal App: database update 0019 (the focused version, batch 1: Today and Close the day).\n"
-    "-- For the live database, which has 0001 to 0018. Paste this whole file into the Supabase SQL Editor and press Run.\n"
+    "-- For a database that has 0001 to 0018 (the live database with 0001 to 0019 uses UPDATE_0020_RUN_ONCE.sql). Paste this whole file into the Supabase SQL Editor and press Run.\n"
     "-- Expected result: \"Success. No rows returned\". Safe to run more than once: nothing is duplicated, and no existing\n"
     "-- record is changed or deleted. What it adds:\n"
     "--   A table of daily outcomes: up to 3 planned outcomes per day, each with an initiative, a planned block in minutes,\n"
@@ -189,8 +192,25 @@ u19 = (
 )
 open("supabase/UPDATE_0019_RUN_ONCE.sql", "w").write(u19 + open("supabase/migrations/0019_focused_today.sql").read())
 
+u20 = (
+    "-- BF Personal App: database update 0020 (the Work module, batch A: Work on now, Screen listings, Deals, the deal page).\n"
+    "-- For the live database, which has 0001 to 0019. Paste this whole file into the Supabase SQL Editor and press Run.\n"
+    "-- Expected result: \"Success. No rows returned\". Safe to run more than once: nothing is duplicated and no deal is deleted.\n"
+    "-- What it changes:\n"
+    "--   On pipeline items (deals): what it does, location, industry, link, broker, why selling, key finding, open questions,\n"
+    "--   waiting on and since when, pass reason, screened (a listing is a deal not yet screened), buy box note, block minutes.\n"
+    "--   The acquisition pipeline's stages become Interested, NDA signed, Broker call, CIM review, Seller call, Model,\n"
+    "--   Partner presentation, IOI or LOI, Diligence, then Closed, Passed, Lost. Screened is renamed Interested, CIM reviewed\n"
+    "--   is renamed CIM review, IOI sent is renamed IOI or LOI; deals in Sourced move to Interested and deals in LOI signed move\n"
+    "--   to IOI or LOI (those two stages are removed). Each stage gets its approved default next action.\n"
+    "--   The setting \"Days waiting on someone before it is marked amber\" (5; red at double) under Plan, Inputs, Acquisition.\n"
+    "--   Future owners get the same. And a check function.\n"
+    "-- Generated from supabase/migrations/0020_work_module.sql by supabase/build_combined.py.\n\n"
+)
+open("supabase/UPDATE_0020_RUN_ONCE.sql", "w").write(u20 + open("supabase/migrations/0020_work_module.sql").read())
+
 old = (
-    "-- USE supabase/UPDATE_RUN_ONCE.sql INSTEAD. That file includes this update (0008) and the next ones (0009 to 0019).\n"
+    "-- USE supabase/UPDATE_RUN_ONCE.sql INSTEAD. That file includes this update (0008) and the next ones (0009 to 0020).\n"
     "-- This file is kept for reference only.\n"
     "--\n"
     "-- BF Personal App: database update 0008 (Daily Targets and Outreach Queue).\n"
@@ -200,5 +220,5 @@ old = (
 open("supabase/UPDATE_0008_RUN_ONCE.sql", "w").write(old + open("supabase/migrations/0008_targets_outreach.sql").read())
 print(
     f"Wrote ALL_MIGRATIONS_RUN_ONCE.sql ({len(files)} files), UPDATE_RUN_ONCE.sql ({len(update_files)} files), "
-    "UPDATE_0019_RUN_ONCE.sql, UPDATE_0018_RUN_ONCE.sql, UPDATE_0017_RUN_ONCE.sql, UPDATE_0016_RUN_ONCE.sql, UPDATE_0015_RUN_ONCE.sql, UPDATE_0013_0014_RUN_ONCE.sql, UPDATE_0014_RUN_ONCE.sql, UPDATE_0011_0012_RUN_ONCE.sql, UPDATE_0012_RUN_ONCE.sql, UPDATE_0013_RUN_ONCE.sql, UPDATE_0011_RUN_ONCE.sql, UPDATE_0008_RUN_ONCE.sql"
+    "UPDATE_0020_RUN_ONCE.sql, UPDATE_0019_RUN_ONCE.sql, UPDATE_0018_RUN_ONCE.sql, UPDATE_0017_RUN_ONCE.sql, UPDATE_0016_RUN_ONCE.sql, UPDATE_0015_RUN_ONCE.sql, UPDATE_0013_0014_RUN_ONCE.sql, UPDATE_0014_RUN_ONCE.sql, UPDATE_0011_0012_RUN_ONCE.sql, UPDATE_0012_RUN_ONCE.sql, UPDATE_0013_RUN_ONCE.sql, UPDATE_0011_RUN_ONCE.sql, UPDATE_0008_RUN_ONCE.sql"
 )

@@ -149,6 +149,7 @@ export const MODULE_ACCENT: Record<string, Accent> = {
   productivity: "cobalt",
   accountability: "violet",
   settings: "gray",
+  work: "cobalt",
   today: "cobalt",
   pipelines: "coral",
   commitments: "violet",

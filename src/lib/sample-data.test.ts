@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { buildSampleData, SAMPLE_NAME_FIELDS, SAMPLE_SOFTWARE, SAMPLE_TABLES, type SampleSetup } from "./sample-data";
+import { WORK_SAMPLE_NAMES } from "./work/sample";
+import { WORK_STAGES } from "./work/stages";
 
 const CATS = ["Housing", "Utilities", "Phone and Internet", "Groceries", "Dining", "Transportation", "Insurance", "Health", "Storage", "Software and Subscriptions", "Shopping", "Consulting Income", "Other Income"];
 const setup: SampleSetup = {
@@ -28,7 +30,8 @@ describe("sample data: marking and fake names", () => {
 
   it("uses only obviously fake names and example.com emails", () => {
     for (const [table, field] of Object.entries(SAMPLE_NAME_FIELDS)) {
-      for (const r of rows(table)) expect(String(r[field])).toMatch(/^Sample /);
+      // The Work module's rows carry the approved mockup's names (listed in WORK_SAMPLE_NAMES) instead of "Sample ...".
+      for (const r of rows(table)) if (!WORK_SAMPLE_NAMES.includes(String(r.name))) expect(String(r[field])).toMatch(/^Sample /);
     }
     const emails = batches.flatMap((b) => b.rows.map((r) => r.email).filter(Boolean));
     expect(emails.length).toBeGreaterThan(5);
@@ -110,5 +113,31 @@ describe("sample data: today's outcomes (database update 0019)", () => {
   it("adds no outcomes before the update", () => {
     const r = buildSampleData({ ...setup, initiatives: null }, () => "00000000-0000-4000-8000-000000000001");
     expect(r.batches.some((b) => b.table === "daily_outcomes")).toBe(false);
+  });
+});
+
+describe("sample data: the Work module (database update 0020)", () => {
+  it("adds nothing of the Work module before the update, and the old acquisition items keep their old stages", () => {
+    expect(rows("pipeline_items").some((i) => WORK_SAMPLE_NAMES.includes(String(i.name)))).toBe(false);
+    expect(rows("notes")).toHaveLength(0);
+    expect(rows("pipeline_items").find((i) => i.name === "Sample Landscaping LLC")!.stage_id).toBe("s1");
+  });
+
+  it("with the update: listings, deals, brokers, notes, and the stage dates and documents to finish", () => {
+    const stages = Object.fromEntries([...WORK_STAGES, "Closed", "Passed", "Lost"].map((name, i) => [name, `w-${i}`]));
+    let k = 0;
+    const r = buildSampleData({ ...setup, acquisitions: { pipelineId: "p-acq", stages }, work: { pipelineId: "p-acq", stages } }, () => `00000000-0000-4000-8000-${String(++k).padStart(12, "0")}`);
+    const items = r.batches.find((b) => b.table === "pipeline_items")!.rows;
+    expect(items.filter((i) => i.screened === false)).toHaveLength(7);
+    expect(items.filter((i) => WORK_SAMPLE_NAMES.includes(String(i.name)))).toHaveLength(20);
+    expect(items.find((i) => i.name === "Sample HVAC Services Co.")!.stage_id).toBe(stages.Interested);
+    expect(items.find((i) => i.name === "Sample Landscaping LLC")).toMatchObject({ stage_id: stages.Passed, pass_reason: "no_growth_path" });
+    expect(r.batches.find((b) => b.table === "notes")!.rows.length).toBeGreaterThan(0);
+    expect(r.batches.find((b) => b.table === "contacts")!.rows.filter((c) => c.name === "Rachel Kim")).toHaveLength(1);
+    expect(r.work!.documents).toHaveLength(2);
+    expect(r.work!.stageDates.length).toBeGreaterThan(9);
+    expect(r.counts.pipeline_items).toBe(items.length);
+    const order = r.batches.map((b) => b.table);
+    expect(order).toEqual(SAMPLE_TABLES.filter((t) => order.includes(t)));
   });
 });

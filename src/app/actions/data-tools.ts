@@ -8,6 +8,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireOwner } from "@/lib/auth";
 import { hasUpdate0018 } from "@/lib/update-0018";
 import { hasUpdate0019 } from "@/lib/update-0019";
+import { hasUpdate0020 } from "@/lib/update-0020";
+import { addDaysISO } from "@/lib/calc/dates";
+import { documentPath } from "@/lib/documents";
+import { loadWorkPipeline } from "@/lib/work/data";
+import type { WorkSample } from "@/lib/work/sample";
 import { loadCtx } from "@/lib/engine/helpers";
 import { applyCategoryRules, detectAndSaveRecurring } from "@/lib/engine/finance-jobs";
 import { evaluateConditions } from "@/lib/engine/rules";
@@ -45,7 +50,7 @@ export async function loadSampleData(fd: FormData) {
   if (real.total > 0 && fd.get("confirm_real") !== "on") back(`You have ${real.total} real records. Check "Load sample data next to my real records" to continue.`);
 
   const ctx = await loadCtx(supabase, ownerId);
-  const [{ data: entities }, { data: cats }, { data: budgets }, { data: lines }, { data: pipes }, { data: stages }, { data: inits }, has0019] = await Promise.all([
+  const [{ data: entities }, { data: cats }, { data: budgets }, { data: lines }, { data: pipes }, { data: stages }, { data: inits }, has0019, has0020] = await Promise.all([
     supabase.from("entities").select("id,kind,is_default"),
     supabase.from("categories").select("id,name"),
     supabase.from("budgets").select("id").eq("is_active", true).order("created_at").limit(1),
@@ -54,8 +59,10 @@ export async function loadSampleData(fd: FormData) {
     supabase.from("pipeline_stages").select("id,pipeline_id,name"),
     supabase.from("initiatives").select("id,name"),
     hasUpdate0019(supabase),
+    hasUpdate0020(supabase),
   ]);
   const ent = (entities ?? []) as Row[];
+  const workPipe = has0020 ? await loadWorkPipeline(supabase, ownerId) : null;
   // The starter Detailed report template (database update 0017; empty before it).
   const { data: detailedTemplate } = await supabase.from("partner_report_templates").select("id").eq("starter_key", "detailed").maybeSingle();
   const budgetId = ((budgets ?? []) as Row[])[0]?.id ?? null;
@@ -64,7 +71,7 @@ export async function loadSampleData(fd: FormData) {
     if (!p) return null;
     return { pipelineId: p.id as string, stages: Object.fromEntries(((stages ?? []) as Row[]).filter((s) => s.pipeline_id === p.id).map((s) => [s.name, s.id])) };
   };
-  const { batches, counts } = buildSampleData(
+  const { batches, counts, work } = buildSampleData(
     {
       today: ctx.today,
       personalEntityId: (ent.find((e) => e.kind === "personal" && e.is_default) ?? ent.find((e) => e.kind === "personal"))?.id ?? null,
@@ -77,9 +84,19 @@ export async function loadSampleData(fd: FormData) {
       reportTemplateId: ((detailedTemplate as Row | null)?.id as string | undefined) ?? null,
       dailyReports: await hasUpdate0018(supabase),
       initiatives: has0019 ? Object.fromEntries(((inits ?? []) as Row[]).map((i) => [String(i.name), String(i.id)])) : null,
+      work: workPipe ? { pipelineId: workPipe.id, stages: Object.fromEntries(workPipe.stages.map((st) => [st.name, st.id])) } : null,
     },
     () => randomUUID(),
   );
+  // Today's outcomes the owner already has keep their positions: the sample fills only the empty ones.
+  const { data: taken } = await supabase.from("daily_outcomes").select("position").eq("owner_id", ownerId).eq("plan_date", ctx.today);
+  const takenPositions = new Set(((taken ?? []) as Row[]).map((o) => Number(o.position)));
+  const outcomesBatch = batches.find((b) => b.table === "daily_outcomes");
+  if (outcomesBatch && takenPositions.size) {
+    outcomesBatch.rows = outcomesBatch.rows.filter((o) => !takenPositions.has(Number(o.position)));
+    counts.daily_outcomes = outcomesBatch.rows.length;
+    if (!outcomesBatch.rows.length) batches.splice(batches.indexOf(outcomesBatch), 1);
+  }
   const batchId = randomUUID();
   const started = new Date(Date.now() - 1000).toISOString();
   const { error } = await supabase.rpc("insert_record_batch", { p_batches: batches, p_actor: "owner", p_sample_batch: batchId });
@@ -98,10 +115,59 @@ export async function loadSampleData(fd: FormData) {
     const usedIds = seriesRows.filter((s) => !unused.includes(s.merchant_name)).map((s) => s.id);
     if (usedIds.length) await supabase.from("recurring_series").update({ review_status: "in_use" }).in("id", usedIds);
   }
+  if (work && workPipe) await finishWorkSample(supabase, ownerId, ctx.today, work, Object.fromEntries(workPipe.stages.map((st) => [st.name, st.id])));
   await evaluateConditions(ctx).catch(() => null);
   revalidatePath("/", "layout");
   const total = Object.values(counts).reduce((s, n) => s + n, 0);
   back(`Sample data loaded: ${total} records (${counts.transactions ?? 0} transactions over 12 months, ${counts.accounts ?? 0} accounts, ${counts.contacts ?? 0} contacts, ${counts.pipeline_items ?? 0} pipeline items) and ${seriesRows.length} recurring charges. Every name starts with "Sample".`);
+}
+
+/**
+ * The Work module's sample deals (database update 0020): stage entry dates in the past (the insert stamps "now"),
+ * the earlier stages in stage_history, and Dalton Services' two small documents in storage. Sample removal deletes
+ * stage history and documents of sample items, so nothing here needs its own marker.
+ */
+async function finishWorkSample(sb: SupabaseClient, ownerId: string, today: string, work: Pick<WorkSample, "stageDates" | "documents">, stageIds: Record<string, string>) {
+  const at = (daysAgo: number, hour: number) => `${addDaysISO(today, -daysAgo)}T${String(hour).padStart(2, "0")}:00:00.000Z`;
+  for (const d of work.stageDates) {
+    await sb.from("pipeline_items").update({ stage_entered_at: at(d.enteredDaysAgo, 14) }).eq("id", d.itemId);
+    await sb.from("stage_history").update({ entered_at: at(d.enteredDaysAgo, 14) }).eq("item_id", d.itemId).is("exited_at", null);
+    if (d.history.length) {
+      await sb.from("stage_history").insert(
+        d.history.map((h, i) => ({ owner_id: ownerId, item_id: d.itemId, stage_id: stageIds[h.stageName] ?? null, entered_at: at(h.daysAgo, 13), exited_at: at(i + 1 < d.history.length ? d.history[i + 1].daysAgo : d.enteredDaysAgo, 14) })),
+      );
+    }
+  }
+  for (const doc of work.documents) {
+    const path = documentPath(ownerId, "pipeline_items", doc.itemId, doc.fileName, Date.now());
+    const bytes = doc.mimeType === "application/pdf" ? await samplePdf(doc.text) : Buffer.from(doc.text, "utf8");
+    // The same two steps as the Documents card (a signed upload address, then the file), which every storage setup allows.
+    const { data: signed, error: signErr } = await sb.storage.from("documents").createSignedUploadUrl(path);
+    if (signErr || !signed?.token) continue;
+    const { error } = await sb.storage.from("documents").uploadToSignedUrl(path, signed.token, bytes, { contentType: doc.mimeType });
+    if (error) continue;
+    await sb.from("documents").insert({ owner_id: ownerId, record_type: "pipeline_items", record_id: doc.itemId, storage_path: path, file_name: doc.fileName, mime_type: doc.mimeType, size_bytes: bytes.length, kind: doc.kind, description: "Sample document" });
+  }
+}
+
+/** A one-page PDF with the given text (pdf-lib, already a dependency for the report PDF). */
+async function samplePdf(text: string): Promise<Buffer> {
+  const { PDFDocument, StandardFonts } = await import("pdf-lib");
+  const pdf = await PDFDocument.create();
+  const page = pdf.addPage([612, 792]);
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const words = text.split(" ");
+  const lines: string[] = [];
+  let line = "";
+  for (const w of words) {
+    if ((line + " " + w).trim().length > 80) {
+      lines.push(line.trim());
+      line = w;
+    } else line = `${line} ${w}`;
+  }
+  if (line.trim()) lines.push(line.trim());
+  lines.forEach((l, i) => page.drawText(l, { x: 54, y: 740 - i * 16, size: 11, font }));
+  return Buffer.from(await pdf.save());
 }
 
 /** Deletes only the sample rows and the rows the app made from them (one transaction). */

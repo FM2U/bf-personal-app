@@ -538,6 +538,7 @@ google.listen(GOOGLE_PORT, () => console.log(`Mock Google listening on http://lo
 //   "TASK: initiative_proposal" -> the weekly meal plan proposal (dev-tools/fixtures/meal-plan.cjs)
 //   "TASK: savings_ideas"       -> up to 3 ideas built from the expense keys in the request
 //   "TASK: compose_email"       -> a short email built from the one-line instruction (Email button, Write with AI)
+//   "TASK: listing_fields"      -> the listing fields read from the pasted text with simple patterns (Fill from text)
 //   chat (a request with tools) -> a short bulleted answer
 //   anything else               -> HTTP 400, so morning plans, review drafts, and message drafts use their templates
 // Test controls: POST /__mode {"initiative": "valid" | "invalid_once" | "invalid"}; GET /__calls; GET /__last_chat (the
@@ -610,6 +611,26 @@ const ai = http.createServer(async (req, res) => {
         const line = (text.match(/What Bram wants the email to do: "([^"]*)"/) || [])[1] || "check in";
         const first = (text.match(/using the first name ([^.\s]+)/) || [])[1] || "there";
         const reply = { subject: `Quick question: ${line}`.slice(0, 80), body: `Hi ${first},\n\nI hope things are going well. I wanted to reach out to ${line}.\n\n- What you are seeing right now\n- Anyone I should talk to\n\nWould you have 15 minutes this week?\n\nThanks,\nBram` };
+        return send(res, 200, aiMessage(JSON.stringify(reply)));
+      }
+      if (text.includes("TASK: listing_fields")) {
+        aiCalls.push("listing_fields");
+        const listing = (text.split('"""')[1] || "").trim();
+        const pick = (re) => (listing.match(re) || [])[1] || "";
+        const money = (label) => pick(new RegExp(`${label}[^$\\d]{0,12}(\\$?\\d[\\d,.]*\\s*[MmKk]?)`));
+        const sde = money("SDE");
+        const reply = {
+          name: pick(/^(?:Business|Listing|Name)?:?\s*([^\n]{3,80})/m).replace(/^(For sale|Listing|Name):\s*/i, "").replace(/\s*\([^)]*\)\s*$/, "").trim(),
+          source: /newsletter/i.test(listing) ? "Broker newsletter" : /network|intro/i.test(listing) ? "Network" : "Broker outreach",
+          what_it_does: pick(/(?:What it does|Description|Overview)[:\s]+([^\n]{5,160})/i) || (listing.split("\n").find((l) => /\b(for|serving|provides|offers)\b/i.test(l)) || "").trim().slice(0, 160),
+          broker_name: pick(/(?:Broker|Listed by|Contact):\s*([^\n]{3,60})/i),
+          revenue: money("Revenue"),
+          earnings: money("EBITDA") || (sde ? `${sde} SDE` : ""),
+          asking_price: money("Asking(?: price)?"),
+          location: pick(/(?:Location|Based in|Located in)[:\s]+([^\n]{3,60})/i),
+          industry: pick(/Industry[:\s]+([^\n]{3,60})/i),
+          listing_url: pick(/(https?:\/\/\S+|\b[a-z0-9.-]+\.(?:com|net|org)\/\S*)/i),
+        };
         return send(res, 200, aiMessage(JSON.stringify(reply)));
       }
       if (Array.isArray(body.tools) && body.tools.length) {

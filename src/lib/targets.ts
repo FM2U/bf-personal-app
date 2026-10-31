@@ -256,7 +256,7 @@ function cimsReviewedCounts(t: Row, f: FunnelSources, tz: string, inRange: (date
     f.history as { item_id: string; stage_id: string | null; entered_at: string }[],
     f.stages as never,
     funnelItems(t, f),
-    (pid) => stagePosition(f.stages as never, pid, "CIM reviewed", 4, t.stage_id),
+    (pid) => stagePosition(f.stages as never, pid, ["CIM review", "CIM reviewed"], 4, t.stage_id),
     (ts) => localDate(ts, tz),
   );
   return Object.fromEntries(Object.entries(countFirstReach(entries)).filter(([d]) => inRange(d)));

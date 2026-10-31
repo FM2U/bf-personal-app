@@ -1104,7 +1104,7 @@ const R: Resource[] = [
       { name: "active_weekdays", label: "Days it applies (per-day targets only)", type: "multiselect", options: WEEKDAY_OPTIONS, default: "1,2,3,4,5" },
       { name: "count_source", label: "What is counted", type: "select", options: COUNT_SOURCE_OPTIONS, required: true, default: "communications_outreach" },
       { name: "pipeline_id", label: "Only this pipeline (deal targets; a manual count also shows its +1 buttons on this pipeline's page)", type: "ref", ref: "pipelines" },
-      { name: "stage_id", label: "Deals advanced or CIMs reviewed: count moves into this stage or later", type: "ref", ref: "pipeline_stages", help: "Empty = NDA signed (Deals advanced) or CIM reviewed (CIMs reviewed)." },
+      { name: "stage_id", label: "Deals advanced or CIMs reviewed: count moves into this stage or later", type: "ref", ref: "pipeline_stages", help: "Empty = NDA signed (Deals advanced) or CIM review (CIMs reviewed)." },
       { name: "initiative_id", label: "Initiative", type: "ref", ref: "initiatives" },
       { name: "start_date", label: "Counting starts on", type: "date", help: "Days before this date are not counted as met or missed. Empty = today." },
       { name: "is_commitment", label: "Counts as a commitment (included in the commitment score)", type: "boolean", default: true },

@@ -43,7 +43,7 @@ export function ActivityRows({ available, rows }: { available: boolean; rows: Ac
             {r.manual ? (
               <GuardedForm action={addTargetEntry}>
                 <input type="hidden" name="target_id" value={r.id} />
-                <input type="hidden" name="back" value="/" />
+                <input type="hidden" name="back" value="/today" />
                 <input type="hidden" name="count" value="1" />
                 <SubmitButton size="sm" variant="outline" pendingText="+1" aria-label={`Add 1 to ${r.name}`} className="h-7 w-14" data-testid="activity-plus">
                   <Plus /> 1

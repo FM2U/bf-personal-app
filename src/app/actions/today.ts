@@ -135,7 +135,7 @@ export async function finishOutcomesStep(): Promise<never> {
   const { supabase, ownerId } = await requireOwner();
   const ctx = await loadCtx(supabase, ownerId);
   const review = await todaysReview(ctx);
-  if (!review) redirect("/");
+  if (!review) redirect("/today");
   // Completing the close completes its own task first, so it is never counted as missed.
   await supabase.from("tasks").update({ status: "done" }).eq("owner_id", ownerId).eq("title", "Complete the daily close").eq("status", "todo").lte("due_date", ctx.today);
   await checkCommitments(ctx, true);
@@ -158,7 +158,7 @@ export async function finishChangesStep(input: { changes: string; tomorrow: stri
   const { supabase, ownerId } = await requireOwner();
   const ctx = await loadCtx(supabase, ownerId);
   const review = await todaysReview(ctx);
-  if (!review) redirect("/");
+  if (!review) redirect("/today");
   const saved = await saveChangesStep(input);
   if (!saved.ok) return saved;
   await saveStep(ctx, review, 3, { changes: String(input.changes ?? "").trim(), tomorrow_priority: String(input.tomorrow ?? "").trim() });
@@ -186,7 +186,7 @@ export async function finishClose(): Promise<never> {
   const { supabase, ownerId } = await requireOwner();
   const ctx = await loadCtx(supabase, ownerId);
   const review = await todaysReview(ctx);
-  if (!review) redirect("/");
+  if (!review) redirect("/today");
   const { data: plan } = await supabase.from("daily_plans").select("tomorrow_priority").eq("owner_id", ownerId).eq("plan_date", ctx.today).maybeSingle();
   const tomorrow = String((plan as Row | null)?.tomorrow_priority ?? "").trim();
   if (tomorrow) {
@@ -201,7 +201,7 @@ export async function finishClose(): Promise<never> {
   await checkCommitments(ctx, false);
   if (isWeekday(ctx.today)) await draftDailyPartnerReports(ctx, ctx.today);
   revalidatePath("/", "layout");
-  redirect("/?closed=1");
+  redirect("/today?closed=1");
 }
 
 /** Reopen: the day is open again (the review goes back to draft at step 1). Nothing else changes. */
@@ -214,5 +214,5 @@ export async function reopenDay(): Promise<never> {
     await supabase.from("reviews").update({ answers, status: "draft", completed_at: null }).eq("id", review.id);
   }
   revalidatePath("/", "layout");
-  redirect("/");
+  redirect("/today");
 }

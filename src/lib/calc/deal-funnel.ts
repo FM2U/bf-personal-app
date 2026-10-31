@@ -296,11 +296,15 @@ export type StageRow = { id: string; pipeline_id: string; name?: string | null; 
  * Position of the step's stage in a pipeline: the given stage when it belongs to that pipeline, otherwise the stage
  * with this name (any case), otherwise `fallback` (the default Acquisitions position).
  */
-export function stagePosition(stages: StageRow[], pipelineId: string, name: string, fallback: number, ownStageId?: string | null): number {
+export function stagePosition(stages: StageRow[], pipelineId: string, name: string | string[], fallback: number, ownStageId?: string | null): number {
   const own = ownStageId ? stages.find((s) => s.id === ownStageId) : null;
   if (own && own.pipeline_id === pipelineId) return Number(own.position);
-  const byName = stages.find((s) => s.pipeline_id === pipelineId && String(s.name ?? "").toLowerCase() === name.toLowerCase());
-  return byName ? Number(byName.position) : fallback;
+  // Several names: the first one found wins (the acquisition stages were renamed by database update 0020).
+  for (const n of Array.isArray(name) ? name : [name]) {
+    const byName = stages.find((s) => s.pipeline_id === pipelineId && String(s.name ?? "").toLowerCase() === n.toLowerCase());
+    if (byName) return Number(byName.position);
+  }
+  return fallback;
 }
 
 /**

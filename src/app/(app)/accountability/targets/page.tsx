@@ -32,7 +32,7 @@ const SOURCE_SHORT: Record<string, string> = {
   deals_sourced: "Counts new acquisition items added (proprietary and brokered)",
   deals_advanced:
     "Counts each deal once per day when it moved to NDA signed or later, or a CIM request or a source contact was logged on it",
-  cims_reviewed: "Counts each deal once, on the day it first moved to CIM reviewed or a later stage (not the stage it was added in)",
+  cims_reviewed: "Counts each deal once, on the day it first moved to CIM review or a later stage (not the stage it was added in)",
   deal_calls: "Counts calls and meetings logged on acquisition deals, one per deal per day",
   manual: "Counted with the +1 and +5 buttons (a note is optional)",
 };

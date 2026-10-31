@@ -27,14 +27,28 @@ const LABEL = "clamp-1 text-sm font-medium leading-5 text-slate-800";
  * "Write with AI" (one line in, a draft out). Send now uses the shared confirmation dialog (SendOrSaveButtons);
  * a sent email is logged as outreach by the server. While text is typed and not sent or saved, leaving asks first.
  */
-export function ComposeEmailDialog({ setup, open, onOpenChange }: { setup: ComposeSetup; open: boolean; onOpenChange: (open: boolean) => void }) {
+export function ComposeEmailDialog({
+  setup,
+  open,
+  onOpenChange,
+  initial,
+  onSent,
+}: {
+  setup: ComposeSetup;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** A prefilled subject and plain text message (the Chase button on Work on now); both stay editable. */
+  initial?: { subject: string; body: string } | null;
+  /** Called once after Gmail accepted the email (the Chase button resets the wait). */
+  onSent?: () => void | Promise<void>;
+}) {
   const router = useRouter();
   const ids = useId();
   const [to, setTo] = useState(setup.defaultTo);
   const [toTouched, setToTouched] = useState(false);
-  const [subject, setSubject] = useState("");
+  const [subject, setSubject] = useState(initial?.subject ?? "");
   // The Message box holds formatted text (editor HTML); `body` is its plain text version.
-  const [bodyHtml, setBodyHtml] = useState("");
+  const [bodyHtml, setBodyHtml] = useState(() => (initial?.body ? textToEditorHtml(initial.body) : ""));
   const body = useMemo(() => emailBodyHtmlToText(bodyHtml), [bodyHtml]);
   const [instruction, setInstruction] = useState("");
   const [aiError, setAiError] = useState<string | null>(null);
@@ -58,8 +72,8 @@ export function ComposeEmailDialog({ setup, open, onOpenChange }: { setup: Compo
   function reset() {
     setTo(setup.defaultTo);
     setToTouched(false);
-    setSubject("");
-    setBodyHtml("");
+    setSubject(initial?.subject ?? "");
+    setBodyHtml(initial?.body ? textToEditorHtml(initial.body) : "");
     setInstruction("");
     setAiError(null);
     setSent(false);
@@ -228,6 +242,7 @@ export function ComposeEmailDialog({ setup, open, onOpenChange }: { setup: Compo
             const r = await sendComposedEmail({ to: to.trim(), subject, body, bodyHtml, requestId, includeSignature, ...context });
             if (r.ok) {
               setSent(true);
+              await onSent?.();
               router.refresh();
             }
             return r;

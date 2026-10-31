@@ -6,6 +6,7 @@
  */
 import { addDaysISO, addMonthsISO } from "@/lib/calc/dates";
 import type { Batch } from "@/lib/initiative/proposal";
+import { buildWorkSample, type WorkSample, type WorkSampleSetup } from "@/lib/work/sample";
 
 export type SampleSetup = {
   today: string;
@@ -24,12 +25,14 @@ export type SampleSetup = {
   dailyReports?: boolean;
   /** Database update 0019 is applied: three outcomes for today (one complete), by initiative name. */
   initiatives?: Record<string, string> | null;
+  /** Database update 0020 is applied: the Work module's listings and deals (src/lib/work/sample.ts), with the acquisition stages by name. */
+  work?: WorkSampleSetup | null;
 };
 
 /** Tables sample data writes to, in insert order. Removal deletes in the reverse dependency order (SQL). */
 export const SAMPLE_TABLES = [
   "accounts", "account_balances", "organizations", "contacts", "income_sources", "pipeline_items", "deal_financials",
-  "consulting_details", "transactions", "debts", "partners", "communications", "budget_lines", "daily_outcomes",
+  "consulting_details", "transactions", "debts", "partners", "communications", "budget_lines", "daily_outcomes", "notes",
 ] as const;
 
 /** Software subscriptions in the sample: the last two are never confirmed as used (unused-subscription flags). */
@@ -54,7 +57,7 @@ function rng(seed: string) {
   };
 }
 
-export function buildSampleData(s: SampleSetup, newId: () => string): { batches: Batch[]; counts: Record<string, number> } {
+export function buildSampleData(s: SampleSetup, newId: () => string): { batches: Batch[]; counts: Record<string, number>; work: Pick<WorkSample, "stageDates" | "documents"> | null } {
   const rand = rng(`sample:${s.today.slice(0, 7)}`);
   const vary = (base: number, pct: number) => Math.round(base * (1 + (rand() * 2 - 1) * pct) * 100) / 100;
   const cat = (name: string) => s.categories[name] ?? null;
@@ -130,10 +133,14 @@ export function buildSampleData(s: SampleSetup, newId: () => string): { batches:
     const hvac = newId();
     const bakery = newId();
     const land = newId();
+    // With the Work module (0020): the stages are Interested, NDA signed, ...; the landscaping listing was passed.
+    const w = s.work ? { what_hvac: { what_it_does: "Commercial HVAC installs and service contracts", location: "Atlanta, GA", industry: "HVAC services" }, what_bakery: { what_it_does: "Three wholesale bakeries supplying grocers", location: "Marietta, GA", industry: "Food production" } } : null;
     items.push(
-      { id: hvac, pipeline_id: s.acquisitions.pipelineId, stage_id: stage(s.acquisitions, "Screened"), name: "Sample HVAC Services Co.", organization_id: org.hvac, primary_contact_id: c.owner, deal_source_type: "proprietary", source_contact_id: c.owner, introduced_by_contact_id: c.friendA, source_notes: "Sample Friend A knows the owner.", next_action: "Request the last 3 years of financials", next_action_due: addDaysISO(today, 2) },
-      { id: bakery, pipeline_id: s.acquisitions.pipelineId, stage_id: stage(s.acquisitions, "NDA signed", "Screened"), name: "Sample Bakery Group", organization_id: org.bakery, primary_contact_id: c.broker, deal_source_type: "brokered", source_contact_id: c.broker, next_action: "Review the CIM", next_action_due: addDaysISO(today, 1) },
-      { id: land, pipeline_id: s.acquisitions.pipelineId, stage_id: stage(s.acquisitions, "Sourced"), name: "Sample Landscaping LLC", deal_source_type: "brokered", source: "Sample listing website", next_action: "Screen the listing", next_action_due: today },
+      { id: hvac, pipeline_id: s.acquisitions.pipelineId, stage_id: stage(s.acquisitions, "Interested", "Screened"), name: "Sample HVAC Services Co.", organization_id: org.hvac, primary_contact_id: c.owner, deal_source_type: "proprietary", source_contact_id: c.owner, introduced_by_contact_id: c.friendA, source_notes: "Sample Friend A knows the owner.", next_action: "Request the last 3 years of financials", next_action_due: addDaysISO(today, 2), ...(w ? { ...w.what_hvac, source: "Network" } : {}) },
+      { id: bakery, pipeline_id: s.acquisitions.pipelineId, stage_id: stage(s.acquisitions, "NDA signed", "Screened"), name: "Sample Bakery Group", organization_id: org.bakery, primary_contact_id: c.broker, deal_source_type: "brokered", source_contact_id: c.broker, next_action: "Review the CIM", next_action_due: addDaysISO(today, 1), ...(w ? { ...w.what_bakery, source: "Broker outreach", key_finding: "Asking price is high for the earnings" } : {}) },
+      s.work
+        ? { id: land, pipeline_id: s.acquisitions.pipelineId, stage_id: stage(s.acquisitions, "Passed"), name: "Sample Landscaping LLC", deal_source_type: "brokered", source: "Broker newsletter", what_it_does: "Residential lawn care, 300 customers", location: "Rome, GA", industry: "Landscaping", pass_reason: "no_growth_path" }
+        : { id: land, pipeline_id: s.acquisitions.pipelineId, stage_id: stage(s.acquisitions, "Sourced"), name: "Sample Landscaping LLC", deal_source_type: "brokered", source: "Sample listing website", next_action: "Screen the listing", next_action_due: today },
     );
     financials.push(
       { id: newId(), item_id: hvac, asking_price: 2400000, revenue: 3100000, ebitda: 610000, sde: 720000 },
@@ -191,11 +198,22 @@ export function buildSampleData(s: SampleSetup, newId: () => string): { batches:
 
   const partners = [{ id: newId(), name: "Sample Partner A", is_pseudonym: true, contact_id: c.partner, email: "partner-a@example.com", schedule: "weekly", delivery_methods: ["email"], next_report_on: addDaysISO(today, 7), is_active: true, notes: "Sample accountability partner for testing.", ...(s.reportTemplateId ? { report_template_id: s.reportTemplateId } : {}), ...(s.dailyReports ? { report_frequency: "both" } : {}) }];
 
-  const comms = [
+  // The Work module's listings and deals (database update 0020).
+  const work = s.work ? buildWorkSample(s.work, newId, today) : null;
+  if (work) {
+    organizations.push(...(work.organizations as typeof organizations));
+    contacts.push(...(work.contacts as typeof contacts));
+    items.push(...work.items);
+    financials.push(...work.financials);
+  }
+
+  const comms: Record<string, unknown>[] = [
     { id: newId(), occurred_at: `${addDaysISO(today, -12)}T15:00:00Z`, method: "call", direction: "outgoing", contact_id: c.friendA, subject: "Sample call: off-market deals", summary: "Asked about owners thinking of selling.", is_outreach: true, outcome: "referral", purpose: "deal_sourcing" },
     { id: newId(), occurred_at: `${addDaysISO(today, -6)}T14:00:00Z`, method: "email", direction: "outgoing", contact_id: c.broker, organization_id: org.brokers, subject: "Sample email: new listings", summary: "Asked for listings in home services.", is_outreach: true, outcome: "replied", purpose: "deal_sourcing" },
     { id: newId(), occurred_at: `${addDaysISO(today, -3)}T16:30:00Z`, method: "meeting", direction: "outgoing", contact_id: c.client, organization_id: org.client, subject: "Sample monthly review meeting", summary: "Reviewed the operations report.", is_outreach: false },
+    ...(work ? work.communications : []),
   ];
+  const notes: Record<string, unknown>[] = work ? work.notes : [];
 
   const budgetLines: Record<string, unknown>[] = [];
   if (s.budgetId) {
@@ -234,9 +252,10 @@ export function buildSampleData(s: SampleSetup, newId: () => string): { batches:
     { table: "communications", rows: comms },
     { table: "budget_lines", rows: budgetLines },
     { table: "daily_outcomes", rows: outcomes },
+    { table: "notes", rows: notes },
   ].filter((b) => b.rows.length);
   const counts = Object.fromEntries(batches.map((b) => [b.table, b.rows.length]));
-  return { batches, counts };
+  return { batches, counts, work: work ? { stageDates: work.stageDates, documents: work.documents } : null };
 }
 
 /** Fields that hold a display name in sample rows (each must start with "Sample"). */
