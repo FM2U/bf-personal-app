@@ -1,7 +1,8 @@
 /**
  * The acquisition stages of the Work module (pure, tested in src/lib/work/stages.test.ts): the nine working stages in
- * order, the progress mark, the wait thresholds, what Done means for a deal, and the Chase email draft. The stage rows
- * themselves live in the database (pipeline_stages, set by database update 0020); these helpers read them by name.
+ * order, the progress mark, the wait thresholds, what Done means for a deal, and the Follow up email draft. The stage rows
+ * themselves live in the database (pipeline_stages, set by database update 0020; the two defaults that said "Chase"
+ * say "Follow up" since update 0021); these helpers read them by name.
  */
 import { daysBetween } from "@/lib/calc/dates";
 
@@ -9,16 +10,16 @@ import { daysBetween } from "@/lib/calc/dates";
 export const WORK_STAGES = ["Interested", "NDA signed", "Broker call", "CIM review", "Seller call", "Model", "Partner presentation", "IOI or LOI", "Diligence"] as const;
 export type WorkStageName = (typeof WORK_STAGES)[number];
 
-/** The default next action per stage (also in database update 0020; shown as the hint on the Deals stage headings). */
+/** The default next action per stage (also in database updates 0020 and 0021; shown as the hint on the Deals stage headings). */
 export const STAGE_DEFAULTS: Record<WorkStageName, { title: string; dueInDays: number; hint: string }> = {
   Interested: { title: "Sign the NDA and ask the broker for a call", dueInDays: 1, hint: "sign the NDA and ask the broker for a call" },
-  "NDA signed": { title: "Chase the broker for the CIM and the call", dueInDays: 3, hint: "chase the broker for the CIM and the call in 3 days" },
+  "NDA signed": { title: "Follow up with the broker for the CIM and the call", dueInDays: 3, hint: "follow up with the broker for the CIM and the call in 3 days" },
   "Broker call": { title: "Ask for the seller call", dueInDays: 2, hint: "ask for the seller call" },
   "CIM review": { title: "Write the key finding, research the market if interested, request 3 years of financials and unit economics", dueInDays: 3, hint: "key finding, market research, request 3 years of financials and unit economics" },
   "Seller call": { title: "Ask for tax returns and start the model", dueInDays: 3, hint: "ask for tax returns, start the model" },
   Model: { title: "Book the partner meeting", dueInDays: 5, hint: "book the partner meeting" },
   "Partner presentation": { title: "Submit the IOI or LOI", dueInDays: 5, hint: "submit the IOI or LOI" },
-  "IOI or LOI": { title: "Wait for the broker, chase in 7 days", dueInDays: 7, hint: "wait for the broker, chase in 7 days" },
+  "IOI or LOI": { title: "Wait for the broker, follow up in 7 days", dueInDays: 7, hint: "wait for the broker, follow up in 7 days" },
   Diligence: { title: "Data room, quality of earnings, lawyer review", dueInDays: 14, hint: "data room, quality of earnings, lawyer review" },
 };
 
@@ -97,8 +98,8 @@ export function dueLabel(due: string | null | undefined, today: string, fmt: (d:
   return { text: fmt(d), tone: "later" };
 }
 
-/** The follow-up email the Chase button opens, ready to edit. */
-export function chaseDraft(i: { dealName: string; waitingOn: string | null; contactName: string | null; days: number }): { subject: string; body: string } {
+/** The email the Follow up button opens, ready to edit. */
+export function followUpDraft(i: { dealName: string; waitingOn: string | null; contactName: string | null; days: number }): { subject: string; body: string } {
   const first = String(i.contactName ?? "").trim().split(/\s+/)[0] || "there";
   const what = String(i.waitingOn ?? "").trim();
   const since = i.days >= 2 ? ` It has been ${i.days} days, so I wanted to make sure it did not get lost.` : "";

@@ -451,7 +451,7 @@ export const EMAIL_COLORS = {
   muted: "#64748b",
   border: "#e2e8f0",
   link: "#1e40af",
-  cobalt: "#1d4ed8",
+  cobalt: "#1e40af",
 };
 
 export const STATUS_WORD: Record<TileStatus, string> = { met: "On track", soon: "Close", missed: "Off track", neutral: "No target" };

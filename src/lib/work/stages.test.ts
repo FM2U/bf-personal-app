@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chaseDraft, dayInStage, daysLabel, daysShort, daysWaiting, doneOutcome, dueLabel, nextStageName, progressSegments, STAGE_DEFAULTS, stageIndex, waitLevel, WORK_STAGES } from "./stages";
+import { followUpDraft, dayInStage, daysLabel, daysShort, daysWaiting, doneOutcome, dueLabel, nextStageName, progressSegments, STAGE_DEFAULTS, stageIndex, waitLevel, WORK_STAGES } from "./stages";
 
 describe("the nine stages", () => {
   it("are in the approved order with a default next action each", () => {
@@ -60,14 +60,14 @@ describe("waiting on someone", () => {
     expect(dayInStage(null, "2026-10-30", (ts) => ts.slice(0, 10))).toBe(1);
   });
 
-  it("drafts the chase email to the contact's first name", () => {
-    const d = chaseDraft({ dealName: "Summit Logistics Group", waitingOn: "A seller call to be scheduled", contactName: "Mark Reed", days: 11 });
+  it("drafts the follow-up email to the contact's first name", () => {
+    const d = followUpDraft({ dealName: "Summit Logistics Group", waitingOn: "A seller call to be scheduled", contactName: "Mark Reed", days: 11 });
     expect(d.subject).toBe("Following up on Summit Logistics Group");
     expect(d.body).toContain("Hi Mark,");
     expect(d.body).toContain("a seller call to be scheduled");
     expect(d.body).toContain("11 days");
     expect(d.body).not.toMatch(/[\u2013\u2014]/);
-    expect(chaseDraft({ dealName: "X", waitingOn: null, contactName: null, days: 1 }).body).toContain("Hi there,");
+    expect(followUpDraft({ dealName: "X", waitingOn: null, contactName: null, days: 1 }).body).toContain("Hi there,");
   });
 });
 

@@ -3,7 +3,8 @@
 /* Light mode only. Colors follow the shadcn/ui variable names. */
 /*
  * Palette (light mode only). Every color is a token here; components use the Tailwind names in @theme below.
- * - Cobalt (primary): buttons, links, active navigation, focus rings, the Next required action card.
+ * - Blue (primary, #1e40af since 2026-10-31): buttons, links, active navigation, focus rings, the Next required action card;
+ *   hover and pressed #14297b.
  * - Gold (secondary accent): Proprietary badges, highlights, small accent rules, the second chart series.
  * - Status: green = met or done, amber = due soon or warnings, red = missed or overdue, gray = neutral.
  * - Accents (violet, cyan, coral): module icons and chart series only, one per module or series.
@@ -14,10 +15,10 @@
   --foreground: #0f172a;
   --card: #ffffff;
   --card-foreground: #0f172a;
-  --primary: #1d4ed8; /* cobalt: 6.7:1 with white text */
+  --primary: #1e40af; /* the main blue: 8.7:1 with white text */
   --primary-foreground: #ffffff;
-  --primary-hover: #1e40af;
-  --primary-strong: #1e40af; /* cobalt text links: 8.7:1 on white */
+  --primary-hover: #14297b; /* hover and pressed */
+  --primary-strong: #1e40af; /* text links and active menu items: the main blue (hover darkens to --primary-hover) */
   --primary-soft: #eef3fe;
   --primary-border: #c7d5fb;
   --secondary: #f1f5f9;
@@ -30,7 +31,7 @@
   --destructive-foreground: #ffffff;
   --border: #e2e8f0;
   --input: #cbd5e1;
-  --ring: #2563eb;
+  --ring: #1e40af;
   /* Gold: graphics use --gold (3.2:1, never for text); text uses --gold-strong (6.0:1 on --gold-soft). */
   --gold: #b8862b;
   --gold-strong: #7a5714;
@@ -68,7 +69,7 @@
   --status-neutral-border: #e2e8f0;
   --status-neutral-solid: #94a3b8;
   /* Next required action card: a 4px cobalt line on the left of a very light cobalt tint (gold would read as "due soon"). */
-  --action-stripe: #1d4ed8;
+  --action-stripe: #1e40af;
   --action-bg: #f4f7fe;
   color-scheme: light;
 }

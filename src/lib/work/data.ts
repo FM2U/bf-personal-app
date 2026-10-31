@@ -5,18 +5,32 @@ import { loadCtx, type Ctx } from "@/lib/engine/helpers";
 import { date as fmtDate } from "@/lib/format";
 import { loadDocuments, type DocumentItem } from "@/lib/record-panels-data";
 import { loadComposeSetup, type ComposeSetup } from "@/lib/compose-email";
+import { DB_UPDATE_NOTICE_0020, DB_UPDATE_NOTICE_0021 } from "@/lib/schema-guard";
 import { hasUpdate0020 } from "@/lib/update-0020";
+import { hasUpdate0021 } from "@/lib/update-0021";
 import { askingMultiple, checkBuyBox, earningsOf, passReasonLabel } from "@/lib/work/buy-box";
+import { glanceCounts, type GlanceCounts } from "@/lib/work/home";
+import { compareNames, displayName } from "@/lib/work/names";
+import { parseOpenQuestions, type QuestionGroups } from "@/lib/work/questions";
 import { DEFAULT_WAIT_THRESHOLD_DAYS, WORK_STAGES, dayInStage, daysWaiting, doneOutcome, nextStageName, stageIndex, waitLevel, type WaitLevel } from "@/lib/work/stages";
+import { sortTodos, topTodo, type DealTodo } from "@/lib/work/todos";
 import type { Row } from "@/lib/types";
 
 /**
- * Everything the Work screens read (Work on now, Screen listings, Deals, the deal page). One pipeline: the owner's
+ * Everything the Work screens read (Home, Screen listings, Deals, the deal page). One pipeline: the owner's
  * acquisition pipeline (kind acquisition). Listings are its items with screened = false and no stage; deals are its
- * screened items. Nothing here writes; the actions are in src/app/actions/work.ts.
+ * screened items. Nothing here writes; the actions are in src/app/actions/work.ts. Every loader first checks database
+ * updates 0020 and 0021; before them `available` is false and `notice` names the file to run.
  */
 
 export type WorkCtx = Ctx & { threshold: number };
+
+/** The "Database update needed" line for the first update that is missing, or null when both are applied. */
+export async function workUpdateNotice(sb: SupabaseClient): Promise<string | null> {
+  if (!(await hasUpdate0020(sb))) return DB_UPDATE_NOTICE_0020;
+  if (!(await hasUpdate0021(sb))) return DB_UPDATE_NOTICE_0021;
+  return null;
+}
 
 export type Stage = { id: string; name: string; position: number; outcome: string; defaultTitle: string | null; defaultDueInDays: number | null };
 
@@ -25,7 +39,11 @@ export type WorkPipeline = { id: string; name: string; stages: Stage[]; byName: 
 /** One deal (a screened item) as every Work screen shows it. Plain data for client components. */
 export type DealRow = {
   id: string;
+  /** What the screens show: the company name when set, otherwise the listing name. */
   name: string;
+  /** The listing name ("00 Industrial Filtration Distributor" until the company is named). */
+  listingName: string;
+  companyName: string | null;
   status: string;
   stageId: string | null;
   stageName: string | null;
@@ -41,7 +59,9 @@ export type DealRow = {
   listingUrl: string | null;
   whySelling: string | null;
   keyFinding: string | null;
-  openQuestions: string | null;
+  openQuestions: QuestionGroups;
+  /** The first open item of the Also to do checklist (offered as the next action when the current one is Done). */
+  topTodo: { id: string; text: string } | null;
   nextAction: string | null;
   nextActionDue: string | null;
   nextActionMinutes: number | null;
@@ -106,9 +126,15 @@ export async function countToScreen(sb: SupabaseClient, ownerId: string): Promis
   return count ?? 0;
 }
 
-const ITEM_COLUMNS = "id,name,status,stage_id,pipeline_id,primary_contact_id,source,next_action,next_action_due,next_action_minutes,what_it_does,location,industry,listing_url,broker_name,why_selling,key_finding,open_questions,waiting_on,waiting_since,pass_reason,screened,created_at,stage_entered_at,notes";
+const ITEM_COLUMNS = "id,name,company_name,status,stage_id,pipeline_id,primary_contact_id,source,next_action,next_action_due,next_action_minutes,what_it_does,location,industry,listing_url,broker_name,why_selling,key_finding,open_questions,open_questions_json,waiting_on,waiting_since,pass_reason,screened,created_at,stage_entered_at,notes";
 
-type Loaded = { items: Row[]; financials: Record<string, Row>; contacts: Record<string, Row> };
+const TODO_COLUMNS = "id,deal_id,text,position,done_at,created_at";
+
+export function toTodo(t: Row): DealTodo {
+  return { id: String(t.id), text: String(t.text ?? ""), position: Number(t.position ?? 0), doneAt: t.done_at ? String(t.done_at) : null, createdAt: String(t.created_at ?? "") };
+}
+
+type Loaded = { items: Row[]; financials: Record<string, Row>; contacts: Record<string, Row>; todos: Record<string, DealTodo[]> };
 
 async function loadItems(sb: SupabaseClient, ownerId: string, pipelineId: string, screened: boolean | null): Promise<Loaded> {
   let q = sb.from("pipeline_items").select(ITEM_COLUMNS).eq("owner_id", ownerId).eq("pipeline_id", pipelineId).limit(500);
@@ -118,28 +144,35 @@ async function loadItems(sb: SupabaseClient, ownerId: string, pipelineId: string
   const items = (data ?? []) as Row[];
   const ids = items.map((i) => i.id);
   const contactIds = [...new Set(items.map((i) => i.primary_contact_id).filter(Boolean))];
-  const [{ data: fin }, { data: cs }] = await Promise.all([
+  const [{ data: fin }, { data: cs }, { data: td }] = await Promise.all([
     ids.length ? sb.from("deal_financials").select("item_id,revenue,ebitda,sde,asking_price").in("item_id", ids) : Promise.resolve({ data: [] as Row[] }),
     contactIds.length ? sb.from("contacts").select("id,name,email,organization_id").in("id", contactIds) : Promise.resolve({ data: [] as Row[] }),
+    ids.length && screened !== false ? sb.from("deal_todos").select(TODO_COLUMNS).eq("owner_id", ownerId).in("deal_id", ids).is("done_at", null).limit(2000) : Promise.resolve({ data: [] as Row[] }),
   ]);
+  const todos: Record<string, DealTodo[]> = {};
+  for (const t of (td ?? []) as Row[]) (todos[String(t.deal_id)] ??= []).push(toTodo(t));
   return {
     items,
     financials: Object.fromEntries(((fin ?? []) as Row[]).map((f) => [f.item_id, f])),
     contacts: Object.fromEntries(((cs ?? []) as Row[]).map((c) => [c.id, c])),
+    todos,
   };
 }
 
 const num = (v: unknown) => (v === null || v === undefined || v === "" ? null : Number.isFinite(Number(v)) ? Number(v) : null);
 
-export function toDealRow(i: Row, f: Row | undefined, contact: Row | undefined, pipe: WorkPipeline, ctx: WorkCtx): DealRow {
+export function toDealRow(i: Row, f: Row | undefined, contact: Row | undefined, pipe: WorkPipeline, ctx: WorkCtx, todos: readonly DealTodo[] = []): DealRow {
   const stage = i.stage_id ? pipe.byId[i.stage_id] : undefined;
   const stageName = stage?.name ?? null;
   const days = daysWaiting(i.waiting_since, ctx.today);
   const { amount, label } = earningsOf(f?.ebitda, f?.sde);
   const outcome = doneOutcome({ stageName, nextAction: i.next_action ?? null, defaultTitle: stage?.defaultTitle ?? null });
+  const top = topTodo(todos);
   return {
     id: String(i.id),
-    name: String(i.name),
+    name: displayName({ name: String(i.name), companyName: i.company_name as string | null }),
+    listingName: String(i.name),
+    companyName: i.company_name ? String(i.company_name) : null,
     status: String(i.status ?? "open"),
     stageId: stage?.id ?? null,
     stageName,
@@ -154,7 +187,8 @@ export function toDealRow(i: Row, f: Row | undefined, contact: Row | undefined, 
     listingUrl: i.listing_url ?? null,
     whySelling: i.why_selling ?? null,
     keyFinding: i.key_finding ?? null,
-    openQuestions: i.open_questions ?? null,
+    openQuestions: parseOpenQuestions(i.open_questions_json, i.open_questions as string | null),
+    topTodo: top ? { id: top.id, text: top.text } : null,
     nextAction: i.next_action ?? null,
     nextActionDue: i.next_action_due ? String(i.next_action_due).slice(0, 10) : null,
     nextActionMinutes: num(i.next_action_minutes),
@@ -180,57 +214,65 @@ export function toDealRow(i: Row, f: Row | undefined, contact: Row | undefined, 
   };
 }
 
-export const NEXT_ACTIONS_SHOWN = 10;
+/** One listing on the Home tile: name, broker, and location. */
+export type ListingTile = { id: string; name: string; meta: string };
 
 export type WorkNowData = {
   available: boolean;
+  /** The "Database update needed" line when a Work update is missing. */
+  notice: string | null;
   today: string;
   threshold: number;
   toScreen: number;
-  nextActions: DealRow[];
-  nextActionsMore: number;
-  waiting: DealRow[];
-  waitingOver: number;
+  /** The open deals in the nine working stages (every Home section and filter reads these). */
+  deals: DealRow[];
+  /** The newest three listings to screen. */
+  listings: ListingTile[];
+  glance: GlanceCounts;
 };
 
-/** Work on now: next actions due today or earlier (soonest first), who you are waiting on (longest first), the counts. */
+/** Home (Work on now): the open deals in the nine stages, the newest listings to screen, and the Deals at a glance counts. */
 export async function loadWorkNow(sb: SupabaseClient, ownerId: string): Promise<WorkNowData> {
   const ctx = await loadWorkCtx(sb, ownerId);
-  const base: WorkNowData = { available: false, today: ctx.today, threshold: ctx.threshold, toScreen: 0, nextActions: [], nextActionsMore: 0, waiting: [], waitingOver: 0 };
-  if (!(await hasUpdate0020(sb))) return base;
+  const base: WorkNowData = { available: false, notice: null, today: ctx.today, threshold: ctx.threshold, toScreen: 0, deals: [], listings: [], glance: { active: 0, early: 0, evaluate: 0, decide: 0, waitingOver: 0, needsAction: 0 } };
+  const notice = await workUpdateNotice(sb);
+  if (notice) return { ...base, notice };
   const pipe = await loadWorkPipeline(sb, ownerId);
   if (!pipe) return { ...base, available: true };
-  const [loaded, toScreen] = await Promise.all([loadItems(sb, ownerId, pipe.id, true), countToScreen(sb, ownerId)]);
-  const deals = loaded.items.filter((i) => i.status === "open").map((i) => toDealRow(i, loaded.financials[i.id], loaded.contacts[i.primary_contact_id], pipe, ctx)).filter((d) => d.stageIndex >= 0);
-  const due = deals.filter((d) => d.nextAction && d.nextActionDue && d.nextActionDue <= ctx.today).sort((a, b) => (a.nextActionDue! < b.nextActionDue! ? -1 : a.nextActionDue! > b.nextActionDue! ? 1 : a.name.localeCompare(b.name)));
-  const waiting = deals.filter((d) => d.waitLevel !== "none").sort((a, b) => b.waitDays - a.waitDays || a.name.localeCompare(b.name));
+  const loaded = await loadItems(sb, ownerId, pipe.id, null);
+  const rows = loaded.items.map((i) => toDealRow(i, loaded.financials[i.id], loaded.contacts[i.primary_contact_id], pipe, ctx, loaded.todos[i.id]));
+  const deals = rows.filter((d, n) => loaded.items[n].screened !== false && d.status === "open" && d.stageIndex >= 0).sort((a, b) => compareNames(a.name, b.name));
+  const listings = rows
+    .filter((d, n) => loaded.items[n].screened === false && d.status === "open")
+    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : compareNames(a.name, b.name)));
+  const groups = WORK_STAGES.map((name) => ({ stage: { name }, deals: deals.filter((d) => d.stageName === name) }));
   return {
     ...base,
     available: true,
-    toScreen: toScreen ?? 0,
-    nextActions: due.slice(0, NEXT_ACTIONS_SHOWN),
-    nextActionsMore: Math.max(0, due.length - NEXT_ACTIONS_SHOWN),
-    waiting,
-    waitingOver: waiting.filter((d) => d.waitLevel === "amber" || d.waitLevel === "red").length,
+    toScreen: listings.length,
+    deals,
+    listings: listings.slice(0, 3).map((l) => ({ id: l.id, name: l.name, meta: [l.brokerName, l.location].filter(Boolean).join(" · ") })),
+    glance: glanceCounts(groups),
   };
 }
 
 export type PassedRow = { id: string; name: string; reasonLabel: string; date: string; earnings: number | null; earningsLabel: "EBITDA" | "SDE" | null; location: string | null };
 
-export type ListingsData = { available: boolean; today: string; listings: ListingRow[]; passed: PassedRow[] };
+export type ListingsData = { available: boolean; notice: string | null; today: string; listings: ListingRow[]; passed: PassedRow[] };
 
 /** Screen listings: the unscreened listings (newest first) and the passed list (newest first). */
 export async function loadListings(sb: SupabaseClient, ownerId: string): Promise<ListingsData> {
   const ctx = await loadWorkCtx(sb, ownerId);
-  const base: ListingsData = { available: false, today: ctx.today, listings: [], passed: [] };
-  if (!(await hasUpdate0020(sb))) return base;
+  const base: ListingsData = { available: false, notice: null, today: ctx.today, listings: [], passed: [] };
+  const notice = await workUpdateNotice(sb);
+  if (notice) return { ...base, notice };
   const pipe = await loadWorkPipeline(sb, ownerId);
   if (!pipe) return { ...base, available: true };
   const loaded = await loadItems(sb, ownerId, pipe.id, null);
   const rows = loaded.items.map((i) => toDealRow(i, loaded.financials[i.id], loaded.contacts[i.primary_contact_id], pipe, ctx));
   const listings: ListingRow[] = rows
     .filter((d, n) => loaded.items[n].screened === false && d.status === "open")
-    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : a.name.localeCompare(b.name)))
+    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : compareNames(a.name, b.name)))
     .map((d) => {
       const check = checkBuyBox({ name: d.name, whatItDoes: d.whatItDoes, industry: d.industry, location: d.location, ebitda: d.ebitda, sde: d.sde });
       return { ...d, buyBox: { fits: check.fits, label: check.label } };
@@ -246,6 +288,7 @@ export type StageGroup = { stage: Stage; hint: string | null; deals: DealRow[] }
 
 export type DealsData = {
   available: boolean;
+  notice: string | null;
   today: string;
   threshold: number;
   groups: StageGroup[];
@@ -261,13 +304,14 @@ export type DealsData = {
 /** Deals: every screened item grouped by stage in the nine's order; Passed, Lost, and Closed apart. */
 export async function loadDeals(sb: SupabaseClient, ownerId: string): Promise<DealsData> {
   const ctx = await loadWorkCtx(sb, ownerId);
-  const base: DealsData = { available: false, today: ctx.today, threshold: ctx.threshold, groups: [], counts: {}, active: 0, waitingOver: 0, needsAction: 0, passed: [], lost: [], closed: [] };
-  if (!(await hasUpdate0020(sb))) return base;
+  const base: DealsData = { available: false, notice: null, today: ctx.today, threshold: ctx.threshold, groups: [], counts: {}, active: 0, waitingOver: 0, needsAction: 0, passed: [], lost: [], closed: [] };
+  const notice = await workUpdateNotice(sb);
+  if (notice) return { ...base, notice };
   const pipe = await loadWorkPipeline(sb, ownerId);
   if (!pipe) return { ...base, available: true };
   const loaded = await loadItems(sb, ownerId, pipe.id, true);
-  const deals = loaded.items.map((i) => toDealRow(i, loaded.financials[i.id], loaded.contacts[i.primary_contact_id], pipe, ctx));
-  const byDue = (a: DealRow, b: DealRow) => (a.nextActionDue ?? "9999") < (b.nextActionDue ?? "9999") ? -1 : (a.nextActionDue ?? "9999") > (b.nextActionDue ?? "9999") ? 1 : a.name.localeCompare(b.name);
+  const deals = loaded.items.map((i) => toDealRow(i, loaded.financials[i.id], loaded.contacts[i.primary_contact_id], pipe, ctx, loaded.todos[i.id]));
+  const byDue = (a: DealRow, b: DealRow) => (a.nextActionDue ?? "9999") < (b.nextActionDue ?? "9999") ? -1 : (a.nextActionDue ?? "9999") > (b.nextActionDue ?? "9999") ? 1 : compareNames(a.name, b.name);
   const groups: StageGroup[] = WORK_STAGES.map((name) => {
     const stage = pipe.byName[name] ?? { id: name, name, position: 0, outcome: "open", defaultTitle: null, defaultDueInDays: null };
     const list = deals.filter((d) => d.stageName === name && d.status === "open").sort(byDue);
@@ -300,14 +344,22 @@ function commTitle(c: Row): string {
 
 export type TimelineEvent = { id: string; kind: "note" | "email" | "call" | "move" | "other"; when: string; date: string; title: string; detail: string | null; href: string | null };
 
+/** A person the "Email these questions" message can go to: the broker (the deal's main contact) and, when known, the seller. */
+export type QuestionsRecipient = { contactId: string; name: string; email: string; role: "Broker" | "Seller" | "Deal came from" | "Introduced by" | "At the organization" };
+
 export type DealPageData = {
   available: boolean;
+  notice: string | null;
   today: string;
   threshold: number;
   deal: DealRow | null;
   timeline: TimelineEvent[];
   documents: DocumentItem[];
+  /** The Also to do checklist, open items first. */
+  todos: DealTodo[];
   compose: ComposeSetup | null;
+  /** The email setup for "Email these questions": to the broker by default, the seller selectable when the app knows one. */
+  questionsCompose: ComposeSetup | null;
   /** The next open stage after this one in the pipeline (Advance), with its id. */
   advanceTo: Stage | null;
   passedStageId: string | null;
@@ -317,14 +369,15 @@ export type DealPageData = {
 /** The deal page: the deal, its timeline (notes, communications, stage moves; newest first), documents, and the email setup. */
 export async function loadDealPage(sb: SupabaseClient, ownerId: string, id: string): Promise<DealPageData> {
   const ctx = await loadWorkCtx(sb, ownerId);
-  const base: DealPageData = { available: false, today: ctx.today, threshold: ctx.threshold, deal: null, timeline: [], documents: [], compose: null, advanceTo: null, passedStageId: null, lostStageId: null };
-  if (!(await hasUpdate0020(sb))) return base;
+  const base: DealPageData = { available: false, notice: null, today: ctx.today, threshold: ctx.threshold, deal: null, timeline: [], documents: [], todos: [], compose: null, questionsCompose: null, advanceTo: null, passedStageId: null, lostStageId: null };
+  const notice = await workUpdateNotice(sb);
+  if (notice) return { ...base, notice };
   const pipe = await loadWorkPipeline(sb, ownerId);
   if (!pipe) return { ...base, available: true };
   const { data: row } = await sb.from("pipeline_items").select(ITEM_COLUMNS).eq("owner_id", ownerId).eq("id", id).eq("pipeline_id", pipe.id).maybeSingle();
   const item = row as Row | null;
   if (!item) return { ...base, available: true };
-  const [{ data: fin }, { data: contact }, { data: notes }, { data: comms }, { data: links }, { data: history }, documents, { data: full }] = await Promise.all([
+  const [{ data: fin }, { data: contact }, { data: notes }, { data: comms }, { data: links }, { data: history }, documents, { data: full }, { data: todoRows }] = await Promise.all([
     sb.from("deal_financials").select("item_id,revenue,ebitda,sde,asking_price").eq("item_id", id).maybeSingle(),
     item.primary_contact_id ? sb.from("contacts").select("id,name,email,organization_id").eq("id", item.primary_contact_id).maybeSingle() : Promise.resolve({ data: null }),
     sb.from("notes").select("id,body,created_at").eq("record_type", "pipeline_items").eq("record_id", id).order("created_at", { ascending: false }).limit(50),
@@ -333,8 +386,10 @@ export async function loadDealPage(sb: SupabaseClient, ownerId: string, id: stri
     sb.from("stage_history").select("id,stage_id,entered_at").eq("item_id", id).order("entered_at", { ascending: false }).limit(50),
     loadDocuments(sb, "pipeline_items", id),
     sb.from("pipeline_items").select("*").eq("id", id).maybeSingle(),
+    sb.from("deal_todos").select(TODO_COLUMNS).eq("owner_id", ownerId).eq("deal_id", id).limit(500),
   ]);
-  const deal = toDealRow(item, (fin as Row | null) ?? undefined, (contact as Row | null) ?? undefined, pipe, ctx);
+  const todos = sortTodos(((todoRows ?? []) as Row[]).map(toTodo));
+  const deal = toDealRow(item, (fin as Row | null) ?? undefined, (contact as Row | null) ?? undefined, pipe, ctx, todos);
   // Communications linked through record_links but not stamped with the item (older rows).
   const commRows = (comms ?? []) as Row[];
   const linkedIds = ((links ?? []) as Row[]).map((l) => l.from_id).filter((x) => !commRows.some((c) => c.id === x));
@@ -367,9 +422,45 @@ export async function loadDealPage(sb: SupabaseClient, ownerId: string, id: stri
     deal,
     timeline: events,
     documents,
+    todos,
     compose: compose ? { ...compose, title: `Email about ${deal.name}` } : null,
+    questionsCompose: compose ? await questionsComposeSetup(sb, compose, deal) : null,
     advanceTo,
     passedStageId: pipe.byName.Passed?.id ?? null,
     lostStageId: pipe.byName.Lost?.id ?? null,
+  };
+}
+
+/** True for a contact that reads as the seller: a role of seller or owner, or a title such as Owner, Founder, President, CEO. */
+export function isSellerContact(c: { roles?: unknown; title?: unknown }): boolean {
+  const roles = Array.isArray(c.roles) ? c.roles.map((r) => String(r).toLowerCase()) : [];
+  if (roles.includes("seller") || roles.includes("owner")) return true;
+  return /\b(owner|founder|president|ceo|seller)\b/i.test(String(c.title ?? ""));
+}
+
+/**
+ * "Email these questions": the deal's main contact as the broker (the default), the seller when one of the deal's
+ * people reads as the owner (selectable in the editor), and the deal's other people after them.
+ */
+async function questionsComposeSetup(sb: SupabaseClient, compose: ComposeSetup, deal: DealRow): Promise<ComposeSetup> {
+  const ids = compose.recipients.map((r) => r.contactId);
+  const { data } = ids.length ? await sb.from("contacts").select("id,roles,title").in("id", ids) : { data: [] as Row[] };
+  const byId = Object.fromEntries(((data ?? []) as Row[]).map((c) => [String(c.id), c]));
+  const recipients = compose.recipients.map((r) => {
+    const c = byId[r.contactId];
+    const seller = c ? isSellerContact(c) : false;
+    const role = seller ? "Seller" : r.contactId === deal.contactId ? "Broker" : r.role;
+    return { ...r, role };
+  });
+  // Broker first, then the seller, then the rest.
+  const order = (role: string) => (role === "Broker" ? 0 : role === "Seller" ? 1 : 2);
+  recipients.sort((a, b) => order(a.role) - order(b.role));
+  const broker = recipients.find((r) => r.role === "Broker") ?? recipients[0] ?? null;
+  return {
+    ...compose,
+    title: `Email these questions about ${deal.name}`,
+    recipients,
+    defaultTo: broker?.email ?? "",
+    toNote: broker ? null : "This deal has no broker or seller with an email address. Type the address.",
   };
 }

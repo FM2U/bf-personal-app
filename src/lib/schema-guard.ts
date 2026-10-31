@@ -188,3 +188,17 @@ export const PROBE_0020 = "schema_has_0020";
 export const COLUMNS_0020: Record<string, string[]> = {
   pipeline_items: ["what_it_does", "location", "industry", "listing_url", "broker_name", "why_selling", "key_finding", "open_questions", "waiting_on", "waiting_since", "pass_reason", "screened", "buy_box_note", "next_action_minutes"],
 };
+
+/**
+ * Database update 0021 (Edit batch A): pipeline_items.company_name and open_questions_json (three groups of lines),
+ * the deal_todos table ("Also to do" per deal), "Chase" renamed "Follow up" in the stage defaults, and
+ * schema_has_0021(). Before it, Work on now, Screen listings, Deals, and the deal page show DB_UPDATE_NOTICE_0021
+ * instead of their content, and every other screen and both scheduled jobs keep working.
+ */
+export const DB_UPDATE_FILE_0021 = "supabase/UPDATE_0021_RUN_ONCE.sql";
+export const DB_UPDATE_NOTICE_0021 = `Database update needed: paste ${DB_UPDATE_FILE_0021} into the Supabase SQL Editor and run it.`;
+export const PROBE_0021 = "schema_has_0021";
+export const TABLES_0021 = ["deal_todos"];
+export const COLUMNS_0021: Record<string, string[]> = {
+  pipeline_items: ["company_name", "open_questions_json"],
+};

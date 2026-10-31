@@ -7,24 +7,27 @@ import { addDaysISO } from "@/lib/calc/dates";
 import { loadCtx, refreshNextActionAlert, type Ctx } from "@/lib/engine/helpers";
 import { checkCommitments, releaseSupersededNextActions } from "@/lib/engine/tasks";
 import { evaluateConditions } from "@/lib/engine/rules";
-import { AIUnavailable, callClaude, cleanDeep, parseJsonFromText, textOf } from "@/lib/ai/claude";
-import { AI_SYSTEM_BASE } from "@/lib/ai/claude";
+import { AIInvalidReply, AIUnavailable, callForJson, cleanDeep } from "@/lib/ai/claude";
+import { date as fmtDate } from "@/lib/format";
 import { missingForStage } from "@/lib/pipeline";
-import { DB_UPDATE_NOTICE_0020, isMissingSchemaError } from "@/lib/schema-guard";
-import { hasUpdate0020 } from "@/lib/update-0020";
-import { checkBuyBox, dealSourceTypeFor, isPassReason, LISTING_SOURCES, parseMoneyText } from "@/lib/work/buy-box";
-import { listingNumbers, listingPrompt, readListingFields, type ListingFields } from "@/lib/work/listing-text";
-import { loadWorkPipeline, type WorkPipeline } from "@/lib/work/data";
+import { DB_UPDATE_NOTICE_0021, isMissingSchemaError } from "@/lib/schema-guard";
+import { checkBuyBox, dealSourceTypeFor, isPassReason, LISTING_SOURCES, moneyShort, parseMoneyText } from "@/lib/work/buy-box";
+import { listingNumbers, listingPrompt, validateListingReply, type ListingFields } from "@/lib/work/listing-text";
+import { loadWorkPipeline, workUpdateNotice, type WorkPipeline } from "@/lib/work/data";
+import { cleanQuestions, countQuestions, mergeQuestions, parseOpenQuestions, questionsPrompt, TODO_MAX_LENGTH, todosPrompt, validateQuestionsReply, validateTodosReply, type DealContext, type QuestionGroups } from "@/lib/work/questions";
+import { nextTodoPosition, openTodos, type DealTodo } from "@/lib/work/todos";
 import type { Row } from "@/lib/types";
 
 /**
- * The Work module's saves (batch A). Every action returns { ok: false, error } instead of throwing, so what the
- * owner typed stays on the screen with the message. Pages re-read on the next load (router.refresh in the component).
+ * The Work module's saves (batch A and Edit batch A). Every action returns { ok: false, error } instead of throwing,
+ * so what the owner typed stays on the screen with the message. Pages re-read on the next load (router.refresh in
+ * the component). The AI parts (Fill from text, Suggest questions, Suggest to-dos) go through callForJson, which asks
+ * once more with the problems listed when the reply is not the expected JSON.
  */
 
 type Fail = { ok: false; error: string };
 const fail = (error: string): Fail => ({ ok: false, error });
-const notSaved = (e: { message?: string | null } | null | undefined) => fail(isMissingSchemaError(e) ? DB_UPDATE_NOTICE_0020 : `Not saved: ${e?.message ?? "try again."}`);
+const notSaved = (e: { message?: string | null } | null | undefined) => fail(isMissingSchemaError(e) ? DB_UPDATE_NOTICE_0021 : `Not saved: ${e?.message ?? "try again."}`);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const clean = (v: unknown, max: number) => String(v ?? "").replace(/\s+/g, " ").trim().slice(0, max) || null;
@@ -32,7 +35,8 @@ const cleanText = (v: unknown, max: number) => String(v ?? "").replace(/\r\n/g, 
 
 async function setup(): Promise<{ sb: SupabaseClient; ctx: Ctx; pipe: WorkPipeline } | Fail> {
   const { supabase, ownerId } = await requireOwner();
-  if (!(await hasUpdate0020(supabase))) return fail(DB_UPDATE_NOTICE_0020);
+  const notice = await workUpdateNotice(supabase);
+  if (notice) return fail(notice);
   const pipe = await loadWorkPipeline(supabase, ownerId);
   if (!pipe) return fail("There is no acquisition pipeline. Add one under More, Pipelines.");
   const ctx = await loadCtx(supabase, ownerId);
@@ -52,7 +56,7 @@ function done() {
 }
 
 /**
- * The inline actions (Pass, Interested, Done, Later, Chase) do not revalidate here: a revalidation would re-render
+ * The inline actions (Pass, Interested, Done, Later, Follow up) do not revalidate here: a revalidation would re-render
  * the list in the same round trip and remove the row before its confirmation line is seen. The row shows the line,
  * then refreshes the page itself (router.refresh).
  */
@@ -60,17 +64,20 @@ function doneQuietly() {}
 
 // ---------- Screen listings ----------
 
-/** "Fill from text": the pasted listing text goes to the AI; the fields come back for the owner to correct. */
-export async function fillListingFromText(text: string): Promise<{ ok: true; fields: ListingFields } | Fail> {
+/**
+ * "Fill from text": the pasted listing text goes to the AI; the fields come back for the owner to correct. When the
+ * reply is not the expected JSON the AI is asked once more with the problems listed; when it still fails, the first
+ * 300 characters of its reply come back with the error so the owner sees why.
+ */
+export async function fillListingFromText(text: string): Promise<{ ok: true; fields: ListingFields } | (Fail & { reply?: string })> {
   const { supabase, ownerId } = await requireOwner();
   const body = String(text ?? "").trim();
   if (body.length < 20) return fail("Paste the listing text first (the broker email or the page), then press Fill from text.");
   try {
-    const msg = await callClaude({ sb: supabase, ownerId, purpose: "listing_fields", system: AI_SYSTEM_BASE, messages: [{ role: "user", content: listingPrompt(body) }], maxTokens: 600 });
-    const fields = readListingFields(cleanDeep(parseJsonFromText<unknown>(textOf(msg))));
-    if (!fields) return fail("The AI could not read the fields from this text. Fill them in by hand.");
+    const fields = await callForJson<ListingFields>({ sb: supabase, ownerId, purpose: "listing_fields", prompt: listingPrompt(body), maxTokens: 700, validate: (v) => validateListingReply(cleanDeep(v)) });
     return { ok: true, fields };
   } catch (e) {
+    if (e instanceof AIInvalidReply) return { ok: false, error: "The AI answered, but not with the fields. Fill them in by hand, or try again.", reply: e.reply.replace(/\s+/g, " ").trim().slice(0, 300) };
     const why = e instanceof AIUnavailable ? e.message : "The AI request failed.";
     return fail(`${why} Fill the fields in by hand.`);
   }
@@ -90,6 +97,7 @@ export async function createListing(input: ListingFields): Promise<{ ok: true; i
     pipeline_id: pipe.id,
     stage_id: null,
     name,
+    company_name: clean(input.company_name, 200),
     screened: false,
     source,
     deal_source_type: dealSourceTypeFor(source),
@@ -129,8 +137,11 @@ export async function passDeal(id: string, reason: string): Promise<{ ok: true }
   return { ok: true };
 }
 
-/** Interested: the listing becomes a deal at Interested; the stage's default next action is set, due tomorrow. */
-export async function markInterested(id: string): Promise<{ ok: true; nextAction: string | null; due: string | null } | Fail> {
+/**
+ * Interested: the listing becomes a deal at Interested; the stage's default next action is set, due tomorrow. Then
+ * the AI fills the open questions (silently: when that fails the card shows "Suggest questions" to try again).
+ */
+export async function markInterested(id: string): Promise<{ ok: true; nextAction: string | null; due: string | null; questions: number } | Fail> {
   const s = await setup();
   if (isFail(s)) return s;
   const { sb, ctx, pipe } = s;
@@ -144,8 +155,192 @@ export async function markInterested(id: string): Promise<{ ok: true; nextAction
   const { error } = await sb.from("pipeline_items").update({ stage_id: stage.id, screened: true, pass_reason: null, next_action: title, next_action_due: due, next_action_minutes: null }).eq("id", item.id);
   if (error) return notSaved(error);
   await evaluateConditions(ctx).catch(() => null);
+  const questions = await suggestQuestionsFor(sb, ctx, pipe, item.id).catch(() => 0);
   doneQuietly();
-  return { ok: true, nextAction: title, due };
+  return { ok: true, nextAction: title, due, questions };
+}
+
+// ---------- The AI on a deal: open questions and to-dos ----------
+
+/** What the AI reads about a deal: facts, stage, key finding, notes, emails, calls, and document names. */
+async function dealContext(sb: SupabaseClient, pipe: WorkPipeline, item: Row): Promise<DealContext> {
+  const stage = item.stage_id ? pipe.byId[item.stage_id] : null;
+  const [{ data: fin }, { data: notes }, { data: comms }, { data: docs }] = await Promise.all([
+    sb.from("deal_financials").select("revenue,ebitda,sde,asking_price").eq("item_id", item.id).maybeSingle(),
+    sb.from("notes").select("body,created_at").eq("record_type", "pipeline_items").eq("record_id", item.id).order("created_at", { ascending: false }).limit(20),
+    sb.from("communications").select("occurred_at,method,direction,subject,summary").eq("pipeline_item_id", item.id).order("occurred_at", { ascending: false }).limit(20),
+    sb.from("documents").select("file_name,kind").eq("record_type", "pipeline_items").eq("record_id", item.id).order("created_at", { ascending: false }).limit(20),
+  ]);
+  const f = (fin ?? null) as Row | null;
+  const money = (v: unknown) => (v === null || v === undefined || v === "" ? null : moneyShort(Number(v)));
+  const timeline = [
+    ...((notes ?? []) as Row[]).map((n) => ({ when: String(n.created_at), text: `note: ${String(n.body ?? "").slice(0, 300)}` })),
+    ...((comms ?? []) as Row[]).map((c) => ({ when: String(c.occurred_at), text: `${c.method === "email" ? (c.direction === "incoming" ? "email received" : "email sent") : String(c.method)}: ${[c.subject, c.summary].filter(Boolean).join(". ")}` })),
+  ]
+    .sort((a, b) => (a.when < b.when ? 1 : -1))
+    .map((e) => `${fmtDate(e.when, "MMM d")}, ${e.text}`);
+  return {
+    name: String(item.company_name || item.name),
+    stage: stage?.name ?? null,
+    whatItDoes: item.what_it_does ?? null,
+    location: item.location ?? null,
+    industry: item.industry ?? null,
+    brokerName: item.broker_name ?? null,
+    source: item.source ?? null,
+    whySelling: item.why_selling ?? null,
+    revenue: money(f?.revenue),
+    ebitda: money(f?.ebitda),
+    sde: money(f?.sde),
+    askingPrice: money(f?.asking_price),
+    keyFinding: item.key_finding ?? null,
+    nextAction: item.next_action ?? null,
+    timeline,
+    documentNames: ((docs ?? []) as Row[]).map((d) => String(d.file_name)),
+    existing: parseOpenQuestions(item.open_questions_json, item.open_questions as string | null),
+  };
+}
+
+/** Asks the AI for open questions and adds the new ones to the deal's groups. Returns how many were added. Throws when the AI fails. */
+async function suggestQuestionsFor(sb: SupabaseClient, ctx: Ctx, pipe: WorkPipeline, id: string): Promise<number> {
+  const { data } = await sb.from("pipeline_items").select("*").eq("owner_id", ctx.ownerId).eq("id", id).maybeSingle();
+  const item = data as Row | null;
+  if (!item) return 0;
+  const context = await dealContext(sb, pipe, item);
+  const next = await callForJson<QuestionGroups>({ sb, ownerId: ctx.ownerId, purpose: "open_questions", prompt: questionsPrompt(context), maxTokens: 900, validate: (v) => validateQuestionsReply(cleanDeep(v)) });
+  const { merged, added } = mergeQuestions(context.existing, next);
+  if (!added) return 0;
+  const { error } = await sb.from("pipeline_items").update({ open_questions_json: merged }).eq("id", item.id);
+  if (error) throw new Error(error.message);
+  return added;
+}
+
+/** "Suggest questions" on the Findings card: the AI adds questions it has not asked yet; the groups come back. */
+export async function suggestQuestions(id: string): Promise<{ ok: true; questions: QuestionGroups; added: number } | Fail> {
+  const s = await setup();
+  if (isFail(s)) return s;
+  const { sb, ctx, pipe } = s;
+  const item = await dealOf(sb, ctx, pipe, id);
+  if (isFail(item)) return item;
+  try {
+    const added = await suggestQuestionsFor(sb, ctx, pipe, item.id);
+    const { data } = await sb.from("pipeline_items").select("open_questions,open_questions_json").eq("id", item.id).maybeSingle();
+    const row = data as Row | null;
+    done();
+    return { ok: true, questions: parseOpenQuestions(row?.open_questions_json, row?.open_questions as string | null), added };
+  } catch (e) {
+    return fail(e instanceof AIUnavailable || e instanceof AIInvalidReply ? e.message : `The AI request failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+/** "Suggest" on the Also to do card: up to 5 items from the deal's facts, questions, and timeline. */
+export async function suggestTodos(id: string): Promise<{ ok: true; added: number } | Fail> {
+  const s = await setup();
+  if (isFail(s)) return s;
+  const { sb, ctx, pipe } = s;
+  const item = await dealOf(sb, ctx, pipe, id);
+  if (isFail(item)) return item;
+  try {
+    const [context, existing] = await Promise.all([dealContext(sb, pipe, item), loadTodos(sb, ctx, item.id)]);
+    const open = openTodos(existing);
+    const items = await callForJson<string[]>({ sb, ownerId: ctx.ownerId, purpose: "deal_todos", prompt: todosPrompt(context, open.map((t) => t.text)), maxTokens: 500, validate: (v) => validateTodosReply(cleanDeep(v)) });
+    const seen = new Set(existing.map((t) => t.text.toLowerCase()));
+    const fresh = items.filter((t) => !seen.has(t.toLowerCase()));
+    if (!fresh.length) return { ok: true, added: 0 };
+    let position = nextTodoPosition(existing);
+    const { error } = await sb.from("deal_todos").insert(fresh.map((text) => ({ owner_id: ctx.ownerId, deal_id: item.id, text, position: position++ })));
+    if (error) return notSaved(error);
+    done();
+    return { ok: true, added: fresh.length };
+  } catch (e) {
+    return fail(e instanceof AIUnavailable || e instanceof AIInvalidReply ? e.message : `The AI request failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+async function loadTodos(sb: SupabaseClient, ctx: Ctx, dealId: string): Promise<DealTodo[]> {
+  const { data } = await sb.from("deal_todos").select("id,text,position,done_at,created_at").eq("owner_id", ctx.ownerId).eq("deal_id", dealId).limit(500);
+  return ((data ?? []) as Row[]).map((t) => ({ id: String(t.id), text: String(t.text ?? ""), position: Number(t.position ?? 0), doneAt: t.done_at ? String(t.done_at) : null, createdAt: String(t.created_at ?? "") }));
+}
+
+// ---------- Also to do ----------
+
+export async function addTodo(id: string, text: string): Promise<{ ok: true; todoId: string } | Fail> {
+  const s = await setup();
+  if (isFail(s)) return s;
+  const { sb, ctx, pipe } = s;
+  const item = await dealOf(sb, ctx, pipe, id);
+  if (isFail(item)) return item;
+  const line = clean(text, TODO_MAX_LENGTH);
+  if (!line) return fail("Type the item first.");
+  const existing = await loadTodos(sb, ctx, item.id);
+  const { data, error } = await sb.from("deal_todos").insert({ owner_id: ctx.ownerId, deal_id: item.id, text: line, position: nextTodoPosition(existing) }).select("id").single();
+  if (error) return notSaved(error);
+  done();
+  return { ok: true, todoId: String(data.id) };
+}
+
+async function todoOf(sb: SupabaseClient, ctx: Ctx, todoId: string): Promise<Row | Fail> {
+  if (!UUID.test(todoId)) return fail("This item was not found.");
+  const { data } = await sb.from("deal_todos").select("*").eq("owner_id", ctx.ownerId).eq("id", todoId).maybeSingle();
+  return (data as Row | null) ?? fail("This item was not found. It may have been deleted.");
+}
+
+/** The checkbox: done (now) or open again. */
+export async function setTodoDone(todoId: string, isDone: boolean): Promise<{ ok: true } | Fail> {
+  const s = await setup();
+  if (isFail(s)) return s;
+  const { sb, ctx } = s;
+  const todo = await todoOf(sb, ctx, todoId);
+  if (isFail(todo)) return todo;
+  const { error } = await sb.from("deal_todos").update({ done_at: isDone ? new Date().toISOString() : null }).eq("id", todo.id);
+  if (error) return notSaved(error);
+  done();
+  return { ok: true };
+}
+
+export async function deleteTodo(todoId: string): Promise<{ ok: true } | Fail> {
+  const s = await setup();
+  if (isFail(s)) return s;
+  const { sb, ctx } = s;
+  const todo = await todoOf(sb, ctx, todoId);
+  if (isFail(todo)) return todo;
+  const { error } = await sb.from("deal_todos").delete().eq("id", todo.id);
+  if (error) return notSaved(error);
+  done();
+  return { ok: true };
+}
+
+/**
+ * "Make this the next action": the item's text becomes the deal's next action (due tomorrow) and the item leaves the
+ * list. A next action that was there before is kept as a to-do at the top of the list, so nothing typed is lost.
+ */
+export async function makeTodoNextAction(todoId: string): Promise<{ ok: true; nextAction: string; due: string; kept: string | null } | Fail> {
+  const s = await setup();
+  if (isFail(s)) return s;
+  const { sb, ctx, pipe } = s;
+  const todo = await todoOf(sb, ctx, todoId);
+  if (isFail(todo)) return todo;
+  const item = await dealOf(sb, ctx, pipe, String(todo.deal_id));
+  if (isFail(item)) return item;
+  const r = await setNextActionFromTodo(sb, ctx, item, todo, false);
+  if (isFail(r)) return r;
+  done();
+  return { ok: true, ...r };
+}
+
+/** Shared by "Make this the next action" and Done: the to-do becomes the next action due tomorrow; the old action is kept as a to-do unless it was just done. */
+async function setNextActionFromTodo(sb: SupabaseClient, ctx: Ctx, item: Row, todo: Row, oldActionDone: boolean): Promise<{ nextAction: string; due: string; kept: string | null } | Fail> {
+  const text = String(todo.text ?? "").trim();
+  if (!text) return fail("This item is empty.");
+  const due = addDaysISO(ctx.today, 1);
+  const old = oldActionDone ? null : clean(item.next_action, TODO_MAX_LENGTH);
+  const keep = old && old.toLowerCase() !== text.toLowerCase() ? old : null;
+  const { error } = await sb.from("pipeline_items").update({ next_action: text, next_action_due: due, next_action_minutes: null }).eq("id", item.id);
+  if (error) return notSaved(error);
+  await sb.from("deal_todos").delete().eq("id", todo.id);
+  if (keep) await sb.from("deal_todos").insert({ owner_id: ctx.ownerId, deal_id: item.id, text: keep, position: 0 });
+  await releaseSupersededNextActions(ctx, item.id);
+  await refreshNextActionAlert(ctx);
+  return { nextAction: text, due, kept: keep };
 }
 
 // ---------- Next actions (Work on now and the deal page) ----------
@@ -158,16 +353,27 @@ async function completeActionTask(sb: SupabaseClient, ctx: Ctx, item: Row) {
 }
 
 /**
- * Done. With `move`, the deal goes to the next stage and gets that stage's default next action and due date;
- * otherwise the action is cleared and the deal stays where it is ("Needs a next action").
+ * Done. With `move`, the deal goes to the next stage and gets that stage's default next action and due date; with
+ * `todoId`, that Also to do item becomes the next action (due tomorrow) and leaves the list; otherwise the action is
+ * cleared and the deal stays where it is ("Needs a next action").
  */
-export async function completeNextAction(id: string, move: boolean): Promise<{ ok: true; movedTo: string | null } | Fail> {
+export async function completeNextAction(id: string, move: boolean, todoId: string | null = null): Promise<{ ok: true; movedTo: string | null; nextAction: string | null } | Fail> {
   const s = await setup();
   if (isFail(s)) return s;
   const { sb, ctx, pipe } = s;
   const item = await dealOf(sb, ctx, pipe, id);
   if (isFail(item)) return item;
   await completeActionTask(sb, ctx, item);
+  if (todoId) {
+    const todo = await todoOf(sb, ctx, todoId);
+    if (isFail(todo)) return todo;
+    if (String(todo.deal_id) !== String(item.id)) return fail("This item belongs to another deal.");
+    const r = await setNextActionFromTodo(sb, ctx, item, todo, true);
+    if (isFail(r)) return r;
+    await evaluateConditions(ctx).catch(() => null);
+    doneQuietly();
+    return { ok: true, movedTo: null, nextAction: r.nextAction };
+  }
   const current = item.stage_id ? pipe.byId[item.stage_id] : null;
   const next = move && current ? pipe.stages.find((st) => st.outcome === "open" && st.position > current.position) ?? null : null;
   let update: Row;
@@ -182,7 +388,7 @@ export async function completeNextAction(id: string, move: boolean): Promise<{ o
   await refreshNextActionAlert(ctx);
   await evaluateConditions(ctx).catch(() => null);
   doneQuietly();
-  return { ok: true, movedTo: move && next ? next.name : null };
+  return { ok: true, movedTo: move && next ? next.name : null, nextAction: move && next ? next.defaultTitle : null };
 }
 
 /** Later: the next action's due date moves to the chosen date (tomorrow by default); the mirrored task moves with it. */
@@ -236,7 +442,7 @@ export async function saveNextAction(id: string, input: NextActionInput): Promis
   return { ok: true };
 }
 
-/** Chase sent: the wait starts again today (the email itself is logged by the send). */
+/** Follow up sent: the wait starts again today (the email itself is logged by the send). */
 export async function resetWaiting(id: string): Promise<{ ok: true } | Fail> {
   const s = await setup();
   if (isFail(s)) return s;
@@ -252,19 +458,21 @@ export async function resetWaiting(id: string): Promise<{ ok: true } | Fail> {
 
 // ---------- The deal page ----------
 
-export async function saveFindings(id: string, input: { keyFinding: string; openQuestions: string }): Promise<{ ok: true } | Fail> {
+/** The Findings card: the key finding (several lines) and the open questions as three groups of lines. */
+export async function saveFindings(id: string, input: { keyFinding: string; questions: QuestionGroups }): Promise<{ ok: true; questions: QuestionGroups } | Fail> {
   const s = await setup();
   if (isFail(s)) return s;
   const { sb, ctx, pipe } = s;
   const item = await dealOf(sb, ctx, pipe, id);
   if (isFail(item)) return item;
-  const { error } = await sb.from("pipeline_items").update({ key_finding: clean(input.keyFinding, 300), open_questions: cleanText(input.openQuestions, 4000) }).eq("id", item.id);
+  const questions = cleanQuestions(input.questions);
+  const { error } = await sb.from("pipeline_items").update({ key_finding: cleanText(input.keyFinding, 2000), open_questions_json: countQuestions(questions) ? questions : null }).eq("id", item.id);
   if (error) return notSaved(error);
   done();
-  return { ok: true };
+  return { ok: true, questions };
 }
 
-export type FactsInput = { name: string; whatItDoes: string; location: string; revenue: string; ebitda: string; sde: string; askingPrice: string; industry: string; brokerName: string; source: string; whySelling: string; listingUrl: string };
+export type FactsInput = { name: string; companyName: string; whatItDoes: string; location: string; revenue: string; ebitda: string; sde: string; askingPrice: string; industry: string; brokerName: string; source: string; whySelling: string; listingUrl: string };
 
 /** The Facts card: the deal's text facts and its numbers (deal_financials). */
 export async function saveFacts(id: string, input: FactsInput): Promise<{ ok: true } | Fail> {
@@ -274,12 +482,13 @@ export async function saveFacts(id: string, input: FactsInput): Promise<{ ok: tr
   const item = await dealOf(sb, ctx, pipe, id);
   if (isFail(item)) return item;
   const name = clean(input.name, 200);
-  if (!name) return fail("The deal needs a name.");
+  if (!name) return fail("The deal needs a listing name.");
   const source = (LISTING_SOURCES as readonly string[]).includes(String(input.source)) ? String(input.source) : clean(input.source, 80);
   const { error } = await sb
     .from("pipeline_items")
     .update({
       name,
+      company_name: clean(input.companyName, 200),
       what_it_does: clean(input.whatItDoes, 300),
       location: clean(input.location, 120),
       industry: clean(input.industry, 120),

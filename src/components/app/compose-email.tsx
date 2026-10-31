@@ -37,9 +37,9 @@ export function ComposeEmailDialog({
   setup: ComposeSetup;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** A prefilled subject and plain text message (the Chase button on Work on now); both stay editable. */
+  /** A prefilled subject and plain text message (the Follow up button on Work on now); both stay editable. */
   initial?: { subject: string; body: string } | null;
-  /** Called once after Gmail accepted the email (the Chase button resets the wait). */
+  /** Called once after Gmail accepted the email (the Follow up button resets the wait). */
   onSent?: () => void | Promise<void>;
 }) {
   const router = useRouter();

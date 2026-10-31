@@ -16,8 +16,11 @@ const LABEL = "text-xs font-medium text-muted-foreground";
 
 /**
  * "Add a listing" (Screen listings): the header button opens the form card (?add=1). "Paste listing text" at the top
- * and "Fill from text" sends the text to the AI, which fills the fields; the owner corrects and presses Save to the
- * list. Typed text is never lost: a failed save shows its message under the buttons with everything still in place.
+ * and "Fill from text" sends the text to the AI, which fills the fields (two name fields since Edit batch A: the
+ * listing name, built as "00 " plus a plain description, and the company name when known); the owner corrects and
+ * presses Save to the list. When the AI's reply is not the fields even after one retry, the first 300 characters of
+ * its reply show under the error with "Try again". Typed text is never lost: a failed save shows its message under
+ * the buttons with everything still in place.
  */
 export function AddListingButton({ open }: { open: boolean }) {
   return (
@@ -40,6 +43,7 @@ export function AddListingCard() {
   const [filling, startFill] = useTransition();
   const [saving, startSave] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [reply, setReply] = useState<string | null>(null);
   const dirty = open && (text.trim() !== "" || Object.entries(f).some(([k, v]) => k !== "source" && String(v).trim() !== ""));
   useUnsavedWork(dirty, "This listing is not saved yet. Leaving discards it.");
 
@@ -47,9 +51,13 @@ export function AddListingCard() {
 
   function fill() {
     setError(null);
+    setReply(null);
     startFill(async () => {
       const r = await fillListingFromText(text);
-      if (!r.ok) return setError(r.error);
+      if (!r.ok) {
+        setReply(r.reply ?? null);
+        return setError(r.error);
+      }
       // Fields the owner already typed are kept; empty ones are filled.
       setF((x) => Object.fromEntries(Object.entries(x).map(([k, v]) => [k, String(v).trim() && k !== "source" ? v : r.fields[k as keyof ListingFields] || v])) as ListingFields);
     });
@@ -60,7 +68,7 @@ export function AddListingCard() {
     startSave(async () => {
       const r = await createListing(f);
       if (!r.ok) return setError(r.error);
-      const name = f.name;
+      const name = f.company_name.trim() || f.name;
       setF(EMPTY_LISTING_FIELDS);
       setText("");
       router.push(`/work/listings?saved=${encodeURIComponent(name)}`);
@@ -84,9 +92,32 @@ export function AddListingCard() {
                 </RowButton>
                 <span className="text-xs text-muted-foreground">The AI fills the empty fields below. Check them, then save.</span>
               </div>
+              {error && reply !== null ? (
+                <p className="text-[13px] text-status-missed" role="alert" data-testid="listing-fill-error">
+                  {error}
+                  {reply ? (
+                    <>
+                      {" "}
+                      Its reply: <q className="text-slate-700 italic" data-testid="listing-fill-reply">{reply}</q>
+                    </>
+                  ) : null}{" "}
+                  <button type="button" onClick={fill} disabled={filling} className="font-medium text-primary-strong hover:underline" data-testid="listing-fill-retry">
+                    Try again
+                  </button>
+                </p>
+              ) : null}
             </div>
-            <Field id={`${ids}-name`} label="Name">
-              <input id={`${ids}-name`} value={f.name} onChange={set("name")} className={INPUT} data-testid="listing-name" />
+            <Field id={`${ids}-name`} label="Listing name" top>
+              <div className="flex min-w-0 flex-col gap-1 sm:self-start">
+                <input id={`${ids}-name`} value={f.name} onChange={set("name")} placeholder="00 Industrial Filtration Distributor" className={INPUT} data-testid="listing-name" />
+                <span className="text-xs leading-[1.35] text-muted-foreground">Built from the listing text when the company is not named. Starts with 00 so unnamed deals sort together.</span>
+              </div>
+            </Field>
+            <Field id={`${ids}-company`} label="Company name (when known)" top>
+              <div className="flex min-w-0 flex-col gap-1 sm:self-start">
+                <input id={`${ids}-company`} value={f.company_name} onChange={set("company_name")} className={INPUT} data-testid="listing-company" />
+                <span className="text-xs leading-[1.35] text-muted-foreground">Fill in after the NDA. Shown everywhere once set.</span>
+              </div>
             </Field>
             <Field id={`${ids}-source`} label="Source">
               <select id={`${ids}-source`} value={f.source} onChange={set("source")} className={INPUT} data-testid="listing-source">
@@ -121,7 +152,7 @@ export function AddListingCard() {
             <Field id={`${ids}-link`} label="Link">
               <input id={`${ids}-link`} value={f.listing_url} onChange={set("listing_url")} placeholder="https://" className={INPUT} data-testid="listing-link" />
             </Field>
-            {error ? (
+            {error && reply === null ? (
               <p className="rounded-md bg-status-missed-bg px-3 py-2 text-[13px] text-status-missed sm:col-span-2 lg:col-span-4" role="alert" data-testid="listing-error">
                 {error}
               </p>
@@ -141,10 +172,10 @@ export function AddListingCard() {
   );
 }
 
-function Field({ id, label, children }: { id: string; label: string; children: React.ReactNode }) {
+function Field({ id, label, children, top = false }: { id: string; label: string; children: React.ReactNode; /** The label sits at the top of a field that has a help line under it (labels stay on one or two lines). */ top?: boolean }) {
   return (
     <>
-      <label htmlFor={id} className={LABEL}>
+      <label htmlFor={id} className={cn(LABEL, "leading-[1.3]", top && "sm:self-start sm:pt-2.5")}>
         {label}
       </label>
       {children}

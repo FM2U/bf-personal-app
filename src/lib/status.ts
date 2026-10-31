@@ -117,7 +117,7 @@ export function progressPct(count: number, required: number): number {
  */
 export type Accent = "cobalt" | "gold" | "violet" | "cyan" | "coral" | "gray";
 export const ACCENT_HEX: Record<Accent, string> = {
-  cobalt: "#1d4ed8",
+  cobalt: "#1e40af",
   gold: "#b8862b",
   violet: "#6d28d9",
   cyan: "#0e7c86",

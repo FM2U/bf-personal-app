@@ -1,5 +1,5 @@
 -- BF Personal App: database update 0020 (the Work module, batch A: Work on now, Screen listings, Deals, the deal page).
--- For the live database, which has 0001 to 0019. Paste this whole file into the Supabase SQL Editor and press Run.
+-- For a database that has 0001 to 0019 (the live database with 0001 to 0020 uses UPDATE_0021_RUN_ONCE.sql). Paste this whole file into the Supabase SQL Editor and press Run.
 -- Expected result: "Success. No rows returned". Safe to run more than once: nothing is duplicated and no deal is deleted.
 -- What it changes:
 --   On pipeline items (deals): what it does, location, industry, link, broker, why selling, key finding, open questions,

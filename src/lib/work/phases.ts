@@ -79,3 +79,9 @@ export function filterCounts(deals: readonly FilterableDeal[], today: string): R
     needs: open.filter(needsNextAction).length,
   };
 }
+
+/** The filter named in a page address (?filter=wait, from Deals at a glance on Home); anything else is All. */
+export function parseDealFilter(value: unknown): DealFilter {
+  const v = String(value ?? "");
+  return DEAL_FILTERS.some((f) => f.key === v) ? (v as DealFilter) : "all";
+}

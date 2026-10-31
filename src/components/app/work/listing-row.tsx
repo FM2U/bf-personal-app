@@ -62,9 +62,10 @@ export function PassMenu({ onPick, label = "Pass", pending, tone = "outline", te
 
 /**
  * One listing to screen: name and the buy box pill, what it does, source, broker and location, the three figures,
- * Pass (reason menu) and Interested. After either the row shows one line, then leaves the list.
+ * Pass (reason menu) and Interested (soft blue). After either the row shows one line, then leaves the list.
+ * `hidden` keeps the row in the page but out of sight (the filter pills and Find on Screen listings).
  */
-export function ListingRow({ listing }: { listing: ListingRowData }) {
+export function ListingRow({ listing, hidden = false }: { listing: ListingRowData; hidden?: boolean }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [result, setResult] = useState<{ tone: "ok" | "warn" | "blue"; text: string } | null>(null);
@@ -81,13 +82,13 @@ export function ListingRow({ listing }: { listing: ListingRowData }) {
     start(async () => {
       const r = await markInterested(listing.id);
       if (!r.ok) return setResult({ tone: "warn", text: r.error });
-      setResult({ tone: "ok", text: `${listing.name} is now a deal at Interested. Next action: ${r.nextAction ? r.nextAction.charAt(0).toLowerCase() + r.nextAction.slice(1) : "set it on the deal"}, due ${r.due ? fmtDate(r.due, "EEE MMM d") : "soon"}.` });
+      setResult({ tone: "ok", text: `${listing.name} is now a deal at Interested. Next action: ${r.nextAction ? r.nextAction.charAt(0).toLowerCase() + r.nextAction.slice(1) : "set it on the deal"}, due ${r.due ? fmtDate(r.due, "EEE MMM d") : "soon"}.${r.questions ? " Open questions drafted by the AI on the deal." : ""}` });
       refresh();
     });
 
   if (result) {
     return (
-      <RowShell testId="listing-row" dataAttrs={{ "data-listing": listing.id }}>
+      <RowShell testId="listing-row" dataAttrs={{ "data-listing": listing.id, "data-hidden": hidden ? "1" : "0" }} className={cn(hidden && "hidden")}>
         <Confirm tone={result.tone} testId="listing-result">
           <span>{result.text}</span>
           {result.tone === "warn" ? <RowButton onClick={() => setResult(null)}>Try again</RowButton> : null}
@@ -100,7 +101,8 @@ export function ListingRow({ listing }: { listing: ListingRowData }) {
   return (
     <RowShell
       testId="listing-row"
-      dataAttrs={{ "data-listing": listing.id, "data-fits": listing.buyBox.fits ? "1" : "0" }}
+      dataAttrs={{ "data-listing": listing.id, "data-fits": listing.buyBox.fits ? "1" : "0", "data-hidden": hidden ? "1" : "0" }}
+      className={cn(hidden && "hidden")}
       right={
         <>
           <Stat value={moneyShort(listing.revenue)} label="Revenue" testId="listing-revenue-stat" />
@@ -108,7 +110,7 @@ export function ListingRow({ listing }: { listing: ListingRowData }) {
           <Stat value={moneyShort(listing.askingPrice)} label="Asking" testId="listing-asking-stat" />
           <div className="flex gap-1.5">
             <PassMenu onPick={pass} pending={pending} />
-            <RowButton tone="primary" onClick={interested} disabled={pending} data-testid="interested-button">
+            <RowButton tone="soft" onClick={interested} disabled={pending} data-testid="interested-button">
               {pending ? "Saving..." : "Interested"}
             </RowButton>
           </div>

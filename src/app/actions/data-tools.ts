@@ -9,6 +9,7 @@ import { requireOwner } from "@/lib/auth";
 import { hasUpdate0018 } from "@/lib/update-0018";
 import { hasUpdate0019 } from "@/lib/update-0019";
 import { hasUpdate0020 } from "@/lib/update-0020";
+import { hasUpdate0021 } from "@/lib/update-0021";
 import { addDaysISO } from "@/lib/calc/dates";
 import { documentPath } from "@/lib/documents";
 import { loadWorkPipeline } from "@/lib/work/data";
@@ -115,7 +116,7 @@ export async function loadSampleData(fd: FormData) {
     const usedIds = seriesRows.filter((s) => !unused.includes(s.merchant_name)).map((s) => s.id);
     if (usedIds.length) await supabase.from("recurring_series").update({ review_status: "in_use" }).in("id", usedIds);
   }
-  if (work && workPipe) await finishWorkSample(supabase, ownerId, ctx.today, work, Object.fromEntries(workPipe.stages.map((st) => [st.name, st.id])));
+  if (work && workPipe) await finishWorkSample(supabase, ownerId, ctx.today, work, Object.fromEntries(workPipe.stages.map((st) => [st.name, st.id])), await hasUpdate0021(supabase));
   await evaluateConditions(ctx).catch(() => null);
   revalidatePath("/", "layout");
   const total = Object.values(counts).reduce((s, n) => s + n, 0);
@@ -124,11 +125,13 @@ export async function loadSampleData(fd: FormData) {
 
 /**
  * The Work module's sample deals (database update 0020): stage entry dates in the past (the insert stamps "now"),
- * the earlier stages in stage_history, and Dalton Services' two small documents in storage. Sample removal deletes
- * stage history and documents of sample items, so nothing here needs its own marker.
+ * the earlier stages in stage_history, Dalton Services' two small documents in storage, and (database update 0021)
+ * the Also to do items. Sample removal deletes stage history, documents, and to-dos with the sample deals, so nothing
+ * here needs its own marker.
  */
-async function finishWorkSample(sb: SupabaseClient, ownerId: string, today: string, work: Pick<WorkSample, "stageDates" | "documents">, stageIds: Record<string, string>) {
+async function finishWorkSample(sb: SupabaseClient, ownerId: string, today: string, work: Pick<WorkSample, "stageDates" | "documents" | "todos">, stageIds: Record<string, string>, has0021: boolean) {
   const at = (daysAgo: number, hour: number) => `${addDaysISO(today, -daysAgo)}T${String(hour).padStart(2, "0")}:00:00.000Z`;
+  if (has0021 && work.todos.length) await sb.from("deal_todos").insert(work.todos.map((t) => ({ ...t, owner_id: ownerId })));
   for (const d of work.stageDates) {
     await sb.from("pipeline_items").update({ stage_entered_at: at(d.enteredDaysAgo, 14) }).eq("id", d.itemId);
     await sb.from("stage_history").update({ entered_at: at(d.enteredDaysAgo, 14) }).eq("item_id", d.itemId).is("exited_at", null);

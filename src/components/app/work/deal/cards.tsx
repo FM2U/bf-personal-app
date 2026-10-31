@@ -1,17 +1,19 @@
 "use client";
 
-import { useId, useState, useTransition } from "react";
+import { useEffect, useId, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Mail } from "lucide-react";
-import { addDealNote, advanceDeal, markLost, passDeal, saveFacts, saveFindings, saveNextAction, type FactsInput } from "@/app/actions/work";
+import { Mail, Sparkles } from "lucide-react";
+import { addDealNote, addTodo, advanceDeal, deleteTodo, makeTodoNextAction, markLost, passDeal, saveFacts, saveFindings, saveNextAction, setTodoDone, suggestQuestions, suggestTodos, type FactsInput } from "@/app/actions/work";
 import { ComposeEmailDialog } from "@/components/app/compose-email";
 import { useUnsavedWork } from "@/components/app/unsaved-changes";
 import type { ComposeSetup } from "@/lib/compose-email";
 import { date as fmtDate } from "@/lib/format";
 import { LISTING_SOURCES, moneyShort, type PassReason } from "@/lib/work/buy-box";
 import type { DealRow, Stage, TimelineEvent } from "@/lib/work/data";
+import { QUESTION_GROUPS, questionsEmailDraft, type QuestionGroupKey, type QuestionGroups } from "@/lib/work/questions";
 import { dueLabel } from "@/lib/work/stages";
+import { sortTodos, todosLabel, type DealTodo } from "@/lib/work/todos";
 import { NextActionRow } from "@/components/app/work/next-action-row";
 import { PassMenu } from "@/components/app/work/listing-row";
 import { Pill, RowButton, WorkCard } from "@/components/app/work/ui";
@@ -20,11 +22,39 @@ import { cn } from "@/lib/utils";
 /**
  * The cards of the deal page (/work/deals/[id]). Each card saves through its own server action and shows "Saved" or
  * the error next to its button; typed text stays in place either way. The page re-reads after a successful save.
+ * Edit batch A (2026-10-31): the key finding grows with its text, the open questions are an outline in three groups
+ * (filled by the AI, every line editable, Suggest questions, Email these questions), the Also to do checklist, the
+ * two name fields in Facts, and Add a note under the timeline.
  */
 
 const INPUT = "h-9 w-full min-w-0 rounded-[7px] border border-input bg-white px-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-60";
 const LABEL = "text-xs font-medium text-muted-foreground";
 const FORM = "grid grid-cols-1 items-center gap-x-3.5 gap-y-2.5 px-[22px] pt-3 pb-5 sm:grid-cols-[110px_minmax(0,1fr)]";
+
+/** A text box that grows with its text (several lines, nothing cut off). */
+function GrowingTextarea({ value, onChange, minRows = 2, minHeight, plain = false, className, ...props }: Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, "value" | "onChange"> & { value: string; onChange: (v: string) => void; minRows?: number; minHeight?: number; /** No box until it is hovered or focused (the open question lines). */ plain?: boolean }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "0px";
+    el.style.height = `${Math.max(el.scrollHeight, minHeight ?? minRows * 22 + 16)}px`;
+  }, [value, minRows, minHeight]);
+  return (
+    <textarea
+      ref={ref}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      rows={minRows}
+      className={cn(
+        plain ? "w-full min-w-0 rounded-[6px] border border-transparent bg-transparent px-1.5 py-1 text-sm leading-[22px] text-slate-800 hover:border-slate-200 focus-visible:border-input focus-visible:bg-white focus-visible:outline-none" : cn(INPUT, "py-2 leading-[22px]"),
+        "h-auto resize-none overflow-hidden",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
 
 function SaveLine({ state, children }: { state: { kind: "idle" } | { kind: "saved" } | { kind: "error"; text: string }; children: React.ReactNode }) {
   return (
@@ -177,29 +207,269 @@ export function NextActionCard({ deal, today }: { deal: DealRow; today: string }
 
 // ---------- Findings ----------
 
-export function FindingsCard({ deal }: { deal: DealRow }) {
+const sameQuestions = (a: QuestionGroups, b: QuestionGroups) => QUESTION_GROUPS.every((g) => a[g.key].length === b[g.key].length && a[g.key].every((l, i) => l === b[g.key][i]));
+
+/**
+ * Findings: the key finding (a full-width box that grows with its text) and the open questions as an outline in
+ * three groups, Ask the seller, Ask the broker, Find out myself. Every line is a text box (edit it, or clear it and
+ * press the faint x to delete it); "+ Add" adds a line to a group. "Suggest questions" asks the AI for more (the
+ * new lines are added to the groups); "Email these questions" opens the email editor to the broker (the seller
+ * selectable when known) with the seller and broker groups as bullets. Save keeps the key finding and the lines.
+ */
+export function FindingsCard({ deal, compose }: { deal: DealRow; compose: ComposeSetup | null }) {
   const ids = useId();
   const { pending, state, run } = useSave();
   const [key, setKey] = useSynced(deal.keyFinding ?? "");
-  const [questions, setQuestions] = useSynced(deal.openQuestions ?? "");
-  const dirty = key !== (deal.keyFinding ?? "") || questions !== (deal.openQuestions ?? "");
+  // The lines on screen, and the saved lines they are compared with (Suggest questions saves on the server and moves
+  // the baseline, so typed lines stay and nothing counts as unsaved that is not).
+  const [questions, setQuestions] = useState<QuestionGroups>(deal.openQuestions);
+  const [baseline, setBaseline] = useState<QuestionGroups>(deal.openQuestions);
+  const [prevProp, setPrevProp] = useState(deal.openQuestions);
+  if (prevProp !== deal.openQuestions) {
+    setPrevProp(deal.openQuestions);
+    setBaseline(deal.openQuestions);
+    setQuestions(deal.openQuestions);
+  }
+  const [suggesting, startSuggest] = useTransition();
+  const [suggestNote, setSuggestNote] = useState<{ tone: "ok" | "warn"; text: string } | null>(null);
+  const [emailOpen, setEmailOpen] = useState(false);
+  const [focusLine, setFocusLine] = useState<string | null>(null);
+  const dirty = key !== (deal.keyFinding ?? "") || !sameQuestions(questions, baseline);
   useUnsavedWork(dirty, "The findings are not saved yet.");
+
+  const setLine = (g: QuestionGroupKey, i: number, text: string) => setQuestions((q) => ({ ...q, [g]: q[g].map((l, n) => (n === i ? text : l)) }));
+  const removeLine = (g: QuestionGroupKey, i: number) => setQuestions((q) => ({ ...q, [g]: q[g].filter((_, n) => n !== i) }));
+  const addLine = (g: QuestionGroupKey) => {
+    setQuestions((q) => ({ ...q, [g]: [...q[g], ""] }));
+    setFocusLine(`${g}-${questions[g].length}`);
+  };
+  const suggest = () => {
+    setSuggestNote(null);
+    startSuggest(async () => {
+      const r = await suggestQuestions(deal.id);
+      if (!r.ok) return setSuggestNote({ tone: "warn", text: r.error });
+      // Lines typed here and not saved yet stay; the AI's new lines (saved on the deal already) join them.
+      setBaseline(r.questions);
+      setQuestions((q) => {
+        const next = { ...q };
+        for (const g of QUESTION_GROUPS) {
+          const have = new Set(q[g.key].map((l) => l.trim().toLowerCase()));
+          next[g.key] = [...q[g.key], ...r.questions[g.key].filter((l) => !have.has(l.toLowerCase()))];
+        }
+        return next;
+      });
+      setSuggestNote({ tone: "ok", text: r.added ? `${r.added} suggested. Edit or delete any.` : "Nothing new to add." });
+    });
+  };
+  const draft = questionsEmailDraft({ dealName: deal.name, toName: compose?.recipients.find((r) => r.email === compose.defaultTo)?.name ?? null, questions });
+  const emailable = questions.seller.some((l) => l.trim()) || questions.broker.some((l) => l.trim());
   return (
-    <WorkCard title="Findings" hint="One line that decides it, and what to ask" testId="deal-findings">
-      <div className={FORM} data-testid="findings-form">
+    <WorkCard title="Findings" testId="deal-findings">
+      <div className="flex flex-col gap-2.5 px-[22px] pt-3 pb-5" data-testid="findings-form">
         <label htmlFor={`${ids}-k`} className={LABEL}>
           Key finding
         </label>
-        <input id={`${ids}-k`} value={key} onChange={(e) => setKey(e.target.value)} placeholder="The one line that matters most" className={INPUT} data-testid="key-finding" />
-        <label htmlFor={`${ids}-q`} className={cn(LABEL, "sm:self-start sm:pt-2")}>
-          Open questions
-        </label>
-        <textarea id={`${ids}-q`} value={questions} onChange={(e) => setQuestions(e.target.value)} rows={3} placeholder="One per line, for the broker or the seller" className={cn(INPUT, "h-auto min-h-[72px] resize-y py-2")} data-testid="open-questions" />
+        <GrowingTextarea id={`${ids}-k`} value={key} onChange={setKey} placeholder="The one line that matters most" data-testid="key-finding" />
+        <div className={cn(LABEL, "pt-1")}>Open questions</div>
+        <div className="flex flex-col gap-1" data-testid="open-questions">
+          {QUESTION_GROUPS.map((g) => (
+            <div key={g.key} className="flex flex-col" data-testid="question-group" data-group={g.key} data-count={questions[g.key].filter((l) => l.trim()).length}>
+              <div className="flex items-center justify-between gap-2 pt-1.5 pb-1">
+                <span className="text-[13px] font-semibold text-slate-900">{g.label}</span>
+                <button type="button" onClick={() => addLine(g.key)} className="text-xs font-medium text-primary-strong hover:underline" data-testid={`question-add-${g.key}`}>
+                  + Add
+                </button>
+              </div>
+              {questions[g.key].length ? (
+                questions[g.key].map((line, i) => (
+                  <div key={`${g.key}-${i}`} className="flex items-start gap-1.5 border-t border-slate-100 py-0.5" data-testid="question-line">
+                    <span className="mt-[13px] h-1.5 w-1.5 shrink-0 rounded-full bg-gold" aria-hidden />
+                    <GrowingTextarea
+                      value={line}
+                      onChange={(v) => setLine(g.key, i, v.replace(/\n/g, " "))}
+                      minRows={1}
+                      minHeight={30}
+                      plain
+                      autoFocus={focusLine === `${g.key}-${i}`}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          addLine(g.key);
+                        }
+                      }}
+                      placeholder="Type the question"
+                      aria-label={`${g.label}, line ${i + 1}`}
+                      className="flex-1"
+                      data-testid="question-input"
+                    />
+                    <button type="button" onClick={() => removeLine(g.key, i)} className="mt-1 h-6 w-6 shrink-0 rounded text-slate-300 hover:bg-slate-100 hover:text-slate-600" aria-label="Delete this question" title="Delete" data-testid="question-delete">
+                      ×
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <p className="border-t border-slate-100 py-1.5 text-[12.5px] text-slate-400">None yet.</p>
+              )}
+            </div>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">Filled by the AI when a listing becomes Interested. Edit anything.</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <RowButton onClick={suggest} disabled={suggesting || pending} data-testid="suggest-questions">
+            <Sparkles className="mr-1.5 h-3.5 w-3.5" /> {suggesting ? "Thinking..." : "Suggest questions"}
+          </RowButton>
+          {compose ? (
+            <RowButton onClick={() => setEmailOpen(true)} disabled={!emailable} title={emailable ? undefined : "Add a seller or broker question first"} data-testid="email-questions">
+              <Mail className="mr-1.5 h-3.5 w-3.5" /> Email these questions
+            </RowButton>
+          ) : null}
+          {suggestNote ? (
+            <span className={cn("text-[13px]", suggestNote.tone === "ok" ? "text-status-met" : "text-status-missed")} role="status" data-testid="suggest-note">
+              {suggestNote.text}
+            </span>
+          ) : null}
+        </div>
         <SaveLine state={dirty ? { kind: "idle" } : state}>
-          <RowButton tone="primary" disabled={pending || !dirty} onClick={() => run(() => saveFindings(deal.id, { keyFinding: key, openQuestions: questions }))} data-testid="findings-save">
+          <RowButton tone="primary" disabled={pending || !dirty} onClick={() => run(() => saveFindings(deal.id, { keyFinding: key, questions }))} data-testid="findings-save">
             {pending ? "Saving..." : "Save"}
           </RowButton>
         </SaveLine>
+      </div>
+      {compose && emailOpen ? <ComposeEmailDialog setup={compose} open={emailOpen} onOpenChange={setEmailOpen} initial={draft} /> : null}
+    </WorkCard>
+  );
+}
+
+// ---------- Also to do ----------
+
+/**
+ * Also to do: other things to do on this deal, outside its one next action (they do not show on Home). Each item
+ * has a checkbox (done), a faint x (delete), and "Make this the next action" (the text becomes the next action due
+ * tomorrow and the item leaves the list; a next action that was there is kept as an item). "+ Add" adds a typed
+ * item; "Suggest" asks the AI for up to 5 from the deal.
+ */
+export function TodosCard({ deal, todos }: { deal: DealRow; todos: DealTodo[] }) {
+  const router = useRouter();
+  const [text, setText] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [pending, start] = useTransition();
+  const [note, setNote] = useState<{ tone: "ok" | "warn"; text: string } | null>(null);
+  // The checkbox shows the click at once; the saved state arrives with the page re-read.
+  const [ticked, setTicked] = useState<Record<string, boolean>>({});
+  const [prevTodos, setPrevTodos] = useState(todos);
+  if (prevTodos !== todos) {
+    setPrevTodos(todos);
+    setTicked({});
+  }
+  const list = sortTodos(todos);
+  const open = list.filter((t) => !t.doneAt).length;
+  const act = <R extends { ok: true } | { ok: false; error: string }>(fn: () => Promise<R>, after?: (r: Extract<R, { ok: true }>) => void) =>
+    start(async () => {
+      setNote(null);
+      const r = await fn();
+      if (r.ok === false) return setNote({ tone: "warn", text: (r as { ok: false; error: string }).error });
+      after?.(r as Extract<R, { ok: true }>);
+      router.refresh();
+    });
+  useUnsavedWork(text.trim() !== "", "The to-do you typed is not added yet.");
+  const add = () => {
+    if (!text.trim()) return;
+    act(
+      () => addTodo(deal.id, text),
+      () => {
+        setText("");
+        setAdding(false);
+      },
+    );
+  };
+  return (
+    <WorkCard
+      title="Also to do"
+      hint={todosLabel(open)}
+      actions={
+        deal.status === "open" ? (
+          <>
+            <button type="button" onClick={() => setAdding(true)} className="text-xs font-medium text-primary-strong hover:underline" data-testid="todo-add">
+              + Add
+            </button>
+            <RowButton onClick={() => act(() => suggestTodos(deal.id), (r) => setNote({ tone: "ok", text: r.added ? `${r.added} suggested.` : "Nothing new to add." }))} disabled={pending} className="h-7 px-2.5 text-xs" data-testid="todo-suggest">
+              <Sparkles className="mr-1 h-3 w-3" /> Suggest
+            </RowButton>
+          </>
+        ) : undefined
+      }
+      testId="deal-todos"
+    >
+      <div className="flex flex-col px-[22px] pt-2 pb-4" data-testid="todo-list">
+        {list.map((t) => (
+          <div key={t.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-slate-100 py-[7px] last:border-b-0" data-testid="todo-item" data-done={t.doneAt ? "1" : "0"}>
+            <input
+              type="checkbox"
+              checked={ticked[t.id] ?? !!t.doneAt}
+              onChange={(e) => {
+                const on = e.target.checked;
+                setTicked((m) => ({ ...m, [t.id]: on }));
+                act(() => setTodoDone(t.id, on));
+              }}
+              disabled={pending}
+              aria-label={`Done: ${t.text}`}
+              className="h-4 w-4 shrink-0 accent-[var(--primary)]"
+              data-testid="todo-check"
+            />
+            <span className={cn("min-w-0 flex-1 basis-[220px] text-sm text-slate-800", t.doneAt && "text-slate-400 line-through")} data-testid="todo-text">
+              {t.text}
+            </span>
+            {!t.doneAt && deal.status === "open" ? (
+              <button type="button" onClick={() => act(() => makeTodoNextAction(t.id), () => setNote({ tone: "ok", text: `Next action set: ${t.text}, due tomorrow.` }))} disabled={pending} className="ml-6 shrink-0 text-xs font-medium whitespace-nowrap text-primary-strong hover:underline sm:ml-0" data-testid="todo-make-next">
+                Make this the next action
+              </button>
+            ) : null}
+            <button type="button" onClick={() => act(() => deleteTodo(t.id))} disabled={pending} className="h-6 w-6 shrink-0 rounded text-slate-300 hover:bg-slate-100 hover:text-slate-600" aria-label={`Delete: ${t.text}`} title="Delete" data-testid="todo-delete">
+              ×
+            </button>
+          </div>
+        ))}
+        {!list.length && !adding ? <p className="py-2 text-[13px] text-muted-foreground">Nothing else yet. Add what else needs doing on this deal, or let the AI suggest a few.</p> : null}
+        {adding ? (
+          <div className="flex items-center gap-2 pt-2">
+            <input
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  add();
+                }
+                if (e.key === "Escape") {
+                  setAdding(false);
+                  setText("");
+                }
+              }}
+              autoFocus
+              placeholder="Something else to do on this deal"
+              className={INPUT}
+              data-testid="todo-input"
+            />
+            <RowButton tone={text.trim() ? "primary" : "outline"} onClick={add} disabled={pending || !text.trim()} data-testid="todo-save">
+              Add
+            </RowButton>
+            <button
+              type="button"
+              onClick={() => {
+                setAdding(false);
+                setText("");
+              }}
+              className="text-xs text-muted-foreground hover:underline"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : null}
+        {note ? (
+          <p className={cn("pt-2 text-[13px]", note.tone === "ok" ? "text-status-met" : "text-status-missed")} role="status" data-testid="todo-note">
+            {note.text}
+          </p>
+        ) : null}
       </div>
     </WorkCard>
   );
@@ -232,7 +502,8 @@ export function FactsCard({ deal }: { deal: DealRow }) {
   const { pending, state, run, reset } = useSave();
   const [editing, setEditing] = useState(false);
   const initial = (): FactsInput => ({
-    name: deal.name,
+    name: deal.listingName,
+    companyName: deal.companyName ?? "",
     whatItDoes: deal.whatItDoes ?? "",
     location: deal.location ?? "",
     revenue: deal.revenue === null ? "" : moneyShort(deal.revenue),
@@ -297,7 +568,8 @@ export function FactsCard({ deal }: { deal: DealRow }) {
     >
       {editing ? (
         <div className="grid grid-cols-1 gap-x-3.5 gap-y-2.5 px-[22px] pt-3 pb-5 sm:grid-cols-2" data-testid="facts-form">
-          <div className="sm:col-span-2">{field("name", "Name")}</div>
+          {field("name", "Listing name", "00 Industrial Filtration Distributor")}
+          {field("companyName", "Company name (when known)", "Shown everywhere once set")}
           <div className="sm:col-span-2">{field("whatItDoes", "What it does", "The product or service and who buys it")}</div>
           {field("revenue", "Revenue", "$5.6M")}
           {field("ebitda", "EBITDA", "$1.7M")}
@@ -368,20 +640,7 @@ export function TimelineCard({ deal, events }: { deal: DealRow; events: Timeline
   useUnsavedWork(note.trim() !== "", "The note is not saved yet.");
   return (
     <WorkCard title="Timeline" hint="Newest first" testId="deal-timeline">
-      <div className="flex flex-col gap-2 px-[22px] pt-3 pb-2" data-testid="note-form">
-        <textarea id="deal-note" value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="Add a note: what you learned, who said what" className={cn(INPUT, "h-auto min-h-[56px] resize-y py-2")} data-testid="deal-note" />
-        <div className="flex items-center justify-end gap-3">
-          {state.kind === "error" ? (
-            <span className="text-[13px] text-status-missed" role="alert" data-testid="save-error">
-              {state.text}
-            </span>
-          ) : null}
-          <RowButton tone={note.trim() ? "primary" : "outline"} disabled={pending || !note.trim()} onClick={() => run(() => addDealNote(deal.id, note), () => setNote(""))} data-testid="note-save">
-            {pending ? "Saving..." : "Add note"}
-          </RowButton>
-        </div>
-      </div>
-      <div className="px-[22px] pt-1 pb-4" data-testid="timeline-events">
+      <div className="px-[22px] pt-1 pb-1" data-testid="timeline-events">
         {events.length ? (
           events.map((e) => (
             <div key={e.id} className="grid grid-cols-[56px_22px_minmax(0,1fr)] gap-x-2.5 border-b border-slate-100 py-[9px] last:border-b-0" data-testid="timeline-event" data-kind={e.kind}>
@@ -405,6 +664,19 @@ export function TimelineCard({ deal, events }: { deal: DealRow; events: Timeline
           <p className="py-2 text-[13px] text-muted-foreground">Nothing yet. Notes, emails, calls, and stage moves show here.</p>
         )}
       </div>
+      <div className="flex flex-col gap-2 px-[22px] pt-2 pb-4" data-testid="note-form">
+        <div className="flex items-start gap-2">
+          <GrowingTextarea id="deal-note" value={note} onChange={setNote} minRows={1} placeholder="Add a note: what you learned, who said what" className="flex-1" data-testid="deal-note" />
+          <RowButton tone={note.trim() ? "primary" : "outline"} disabled={pending || !note.trim()} onClick={() => run(() => addDealNote(deal.id, note), () => setNote(""))} className="h-9 shrink-0" data-testid="note-save">
+            {pending ? "Saving..." : "Add note"}
+          </RowButton>
+        </div>
+        {state.kind === "error" ? (
+          <span className="text-[13px] text-status-missed" role="alert" data-testid="save-error">
+            {state.text}
+          </span>
+        ) : null}
+      </div>
     </WorkCard>
   );
 }
@@ -426,7 +698,7 @@ export function DecisionCard({ deal, advanceTo }: { deal: DealRow; advanceTo: St
     return (
       <WorkCard title="Decision" hint="Recorded on the deal" testId="deal-decision">
         <div className="flex flex-wrap items-center gap-2 px-[22px] pt-3 pb-5">
-          <Pill tone={deal.stageName === "Closed" ? "green" : "gray"} testId="decision-closed">
+          <Pill tone={deal.stageName === "Closed" ? "green" : "charcoal"} testId="decision-closed">
             {deal.stageName === "Passed" ? `Passed: ${deal.passReasonLabel ?? "no reason recorded"}` : deal.stageName === "Lost" ? "Lost" : "Closed"}
           </Pill>
           {deal.stageEnteredAt ? <span className="text-[13px] text-muted-foreground">{fmtDate(deal.stageEnteredAt, "MMM d, yyyy")}</span> : null}

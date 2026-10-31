@@ -59,7 +59,7 @@ export function SidebarLinks({ toScreen }: { toScreen?: number | null }) {
   );
 }
 
-/** The Work tabs (Work on now, Screen listings with the count, Deals), in the module tab style. */
+/** The Work tabs (Home, Screen listings with the count, Deals), in the module tab style. */
 export function WorkTabs({ toScreen }: { toScreen?: number | null }) {
   const path = usePathname();
   const tab = workTabFor(path);
