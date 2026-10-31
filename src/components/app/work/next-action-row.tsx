@@ -11,10 +11,12 @@ import type { DealRow } from "@/lib/work/data";
 import { Confirm, Due, Line1, Line2, Name, Pill, ProgressMark, RowButton, RowShell, What } from "@/components/app/work/ui";
 
 /**
- * One next action on Work on now (and the Done and Later buttons of the deal page's Next action card, through
- * `compact`). Done: when the action is the stage's default, the row asks "Move X to <next stage>? Yes / Not yet";
- * Yes moves the deal and sets the next stage's default action, Not yet clears the action (the deal then needs a next
- * action). Later: Tomorrow, or a date. Every save goes through a server action; the page re-reads after it.
+ * One next action on Home (and the Done and Later buttons of the deal page's Next action card, through `compact`).
+ * Done: when the action is the stage's default, the row asks "Move X to <next stage>? Yes / Not yet"; Yes moves the
+ * deal and sets the next stage's default action, Not yet clears the action (the deal then needs a next action). When
+ * the deal has Also to do items, the same line also offers "Next: <top item>", which makes that item the next action
+ * (due tomorrow); a typed action with to-dos offers that too instead of clearing at once. Later: Tomorrow, or a
+ * date. Every save goes through a server action; the page re-reads after it.
  */
 export function NextActionRow({ deal, today, compact = false }: { deal: DealRow; today: string; compact?: boolean }) {
   const router = useRouter();
@@ -24,13 +26,14 @@ export function NextActionRow({ deal, today, compact = false }: { deal: DealRow;
   // The confirmation stays readable for a moment before the list re-reads (the row then leaves Work on now).
   const refresh = () => (compact ? router.refresh() : setTimeout(() => router.refresh(), 1600));
 
-  const finish = (move: boolean) =>
+  const finish = (move: boolean, todoId: string | null = null) =>
     start(async () => {
-      const r = await completeNextAction(deal.id, move);
+      const r = await completeNextAction(deal.id, move, todoId);
       if (!r.ok) return setState({ kind: "error", text: r.error });
-      setState({ kind: "done", text: r.movedTo ? `${deal.name} moved to ${r.movedTo}. Next action set from the stage default; edit it on the deal.` : `Done. ${deal.name} stays at ${deal.stageName ?? "its stage"} and needs a next action.` });
+      setState({ kind: "done", text: r.movedTo ? `${deal.name} moved to ${r.movedTo}. Next action set from the stage default; edit it on the deal.` : todoId && r.nextAction ? `Done. Next on ${deal.name}: ${r.nextAction}, due tomorrow.` : `Done. ${deal.name} stays at ${deal.stageName ?? "its stage"} and needs a next action.` });
       refresh();
     });
+  const asks = (deal.actionIsDefault && !!deal.nextStage) || !!deal.topTodo;
   const later = (date: string) =>
     start(async () => {
       const r = await deferNextAction(deal.id, date);
@@ -54,7 +57,7 @@ export function NextActionRow({ deal, today, compact = false }: { deal: DealRow;
 
   const buttons = (
     <div className="flex gap-1.5">
-      <RowButton tone="primary" disabled={pending} onClick={() => (deal.actionIsDefault && deal.nextStage ? setState({ kind: "ask" }) : finish(false))} data-testid="next-action-done">
+      <RowButton tone="primary" disabled={pending} onClick={() => (asks ? setState({ kind: "ask" }) : finish(false))} data-testid="next-action-done">
         {pending ? "Saving..." : "Done"}
       </RowButton>
       <RowButton disabled={pending} onClick={() => setState(state.kind === "later" ? { kind: "idle" } : { kind: "later" })} data-testid="next-action-later">
@@ -67,7 +70,7 @@ export function NextActionRow({ deal, today, compact = false }: { deal: DealRow;
     return (
       <div className="flex flex-col gap-2" data-testid="next-action-row" data-deal={deal.id}>
         <div className="flex justify-end">{buttons}</div>
-        {state.kind === "ask" ? <AskMove deal={deal} pending={pending} onYes={() => finish(true)} onNo={() => finish(false)} /> : null}
+        {state.kind === "ask" ? <AskMove deal={deal} pending={pending} onYes={() => finish(true)} onNo={() => finish(false)} onTodo={(id) => finish(false, id)} /> : null}
         {state.kind === "later" ? <LaterChoice today={today} pending={pending} onPick={later} onCancel={() => setState({ kind: "idle" })} /> : null}
       </div>
     );
@@ -98,23 +101,40 @@ export function NextActionRow({ deal, today, compact = false }: { deal: DealRow;
         </What>
       </Line1>
       <Line2 className="text-slate-900">{deal.nextAction}</Line2>
-      {state.kind === "ask" ? <AskMove deal={deal} pending={pending} onYes={() => finish(true)} onNo={() => finish(false)} /> : null}
+      {state.kind === "ask" ? <AskMove deal={deal} pending={pending} onYes={() => finish(true)} onNo={() => finish(false)} onTodo={(id) => finish(false, id)} /> : null}
       {state.kind === "later" ? <LaterChoice today={today} pending={pending} onPick={later} onCancel={() => setState({ kind: "idle" })} /> : null}
     </RowShell>
   );
 }
 
-function AskMove({ deal, pending, onYes, onNo }: { deal: DealRow; pending: boolean; onYes: () => void; onNo: () => void }) {
+/**
+ * The line after Done: "Move X to <next stage>? Yes / Next: <top to-do> / Not yet" when the action was the stage
+ * default; "Done. Next: <top to-do> / No next action" when it was typed and the deal has to-dos.
+ */
+function AskMove({ deal, pending, onYes, onNo, onTodo }: { deal: DealRow; pending: boolean; onYes: () => void; onNo: () => void; onTodo: (todoId: string) => void }) {
+  const move = deal.actionIsDefault && !!deal.nextStage;
+  const todo = deal.topTodo;
   return (
     <Confirm tone="blue" className="mt-2" testId="next-action-ask">
-      <span>
-        Done. Move <b>{deal.name}</b> to <b>{deal.nextStage}</b>?
-      </span>
-      <RowButton tone="primary" disabled={pending} onClick={onYes} data-testid="next-action-yes">
-        Yes
-      </RowButton>
+      {move ? (
+        <span>
+          Done. Move <b>{deal.name}</b> to <b>{deal.nextStage}</b>?
+        </span>
+      ) : (
+        <span>Done. What is next on {deal.name}?</span>
+      )}
+      {move ? (
+        <RowButton tone="primary" disabled={pending} onClick={onYes} data-testid="next-action-yes">
+          Yes
+        </RowButton>
+      ) : null}
+      {todo ? (
+        <RowButton tone={move ? "soft" : "primary"} disabled={pending} onClick={() => onTodo(todo.id)} className="max-w-full" title={todo.text} data-testid="next-action-todo">
+          <span className="truncate">Next: {todo.text}</span>
+        </RowButton>
+      ) : null}
       <RowButton disabled={pending} onClick={onNo} data-testid="next-action-not-yet">
-        Not yet
+        {move ? "Not yet" : "No next action"}
       </RowButton>
     </Confirm>
   );

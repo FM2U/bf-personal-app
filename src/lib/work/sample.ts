@@ -1,9 +1,12 @@
 /**
- * The Work module's sample data (database update 0020), added by "Load sample data": the listings and deals of the
- * approved mockup (2026-10-30), with their brokers, numbers, waits, key findings, and on Dalton Services a few
- * timeline entries and two documents. Pure: dates are relative to `today`; tested in src/lib/work/sample.test.ts.
+ * The Work module's sample data (database updates 0020 and 0021), added by "Load sample data": the listings and deals
+ * of the approved mockup (2026-10-30), with their brokers, numbers, waits, key findings, and on Dalton Services a few
+ * timeline entries and two documents. Since Edit batch A (2026-10-31): one listing with a placeholder name
+ * ("00 Medicaid Transport Provider", no company name yet), one deal with both names (listed as "00 Fleet Repair
+ * Shop, Jacksonville", company Coastal Fleet Maintenance), open questions in three groups on three deals, and Also to
+ * do items on two. Pure: dates are relative to `today`; tested in src/lib/work/sample.test.ts.
  * Unlike the rest of the sample data these names come from the approved mockup and do not start with "Sample";
- * every row is still recorded in sample_records, so Remove sample data deletes them.
+ * every row is still recorded in sample_records, so Remove sample data deletes them (the to-dos go with their deal).
  */
 import { addDaysISO } from "@/lib/calc/dates";
 import { checkBuyBox, dealSourceTypeFor } from "@/lib/work/buy-box";
@@ -24,12 +27,14 @@ export type WorkSample = {
   stageDates: { itemId: string; enteredDaysAgo: number; history: { stageName: string; daysAgo: number }[] }[];
   /** Small files to put in storage and record as documents (Dalton Services). */
   documents: { itemId: string; fileName: string; kind: string; mimeType: string; text: string }[];
+  /** The Also to do items (deal_todos, database update 0021), inserted after the deals. */
+  todos: { id: string; deal_id: string; text: string; position: number }[];
 };
 
 /** Every sample name the Work module adds (listings, deals, brokers, firms), so tests can tell them apart. */
 export const WORK_SAMPLE_NAMES = [
   "Apex Precision Machining", "Sunny Smiles Franchise, 3 units", "Harbor Point Boat Storage", "Northstar Managed IT", "Cascade Outdoor Retail",
-  "Bluegrass Senior Transport", "Titan Steel Fabrication", "Hilltop Pest Solutions", "BrightPath Home Care", "Oakline Dental Lab",
+  "00 Medicaid Transport Provider", "00 Fleet Repair Shop, Jacksonville", "Titan Steel Fabrication", "Hilltop Pest Solutions", "BrightPath Home Care", "Oakline Dental Lab",
   "Summit Logistics Group", "Dalton Services", "Coastal Fleet Maintenance", "Meridian Industrial Coatings", "Ridgeline Commercial Roofing",
   "Pinecrest Landscaping", "Lakeside Car Wash, 2 sites", "Great Plains Grain Hauling", "QuickFit Gym Franchise", "Valley Print Group",
   "Transworld Business Advisors", "Sunbelt Business Brokers", "Murphy Business", "Rachel Kim", "Mark Reed", "Dana Whitfield", "Luis Ortega",
@@ -75,7 +80,8 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
   listing({ name: "Harbor Point Boat Storage", what_it_does: "Dry stack storage and service for private boats", source: "Broker newsletter", broker_name: "Murphy", location: "Savannah, GA", industry: "Marine services" }, { revenue: 1_100_000, sde: 180_000, asking: 900_000 });
   listing({ name: "Northstar Managed IT", what_it_does: "Outsourced IT and help desk for firms with 20 to 200 staff", source: "Broker outreach", broker_name: "Benchmark", location: "Richmond, VA", industry: "IT services" }, { revenue: 7_800_000, ebitda: 1_900_000, asking: 8_500_000 });
   listing({ name: "Cascade Outdoor Retail", what_it_does: "Two retail stores selling camping gear", source: "Broker newsletter", broker_name: "BizBuySell", location: "Spokane, WA", industry: "Retail" }, { revenue: 3_300_000, sde: 520_000, asking: 1_400_000 });
-  listing({ name: "Bluegrass Senior Transport", what_it_does: "Non-emergency medical transport under Medicaid contracts", source: "Network", broker_name: "Intro from J. Alvarez", location: "Lexington, KY", industry: "Medical transport" }, { revenue: 5_000_000, ebitda: 1_100_000, asking: null });
+  // A listing whose company is not named yet: the placeholder name, no company name.
+  listing({ name: "00 Medicaid Transport Provider", company_name: null, what_it_does: "Non-emergency medical transport under Medicaid contracts", source: "Network", broker_name: "Intro from J. Alvarez", location: "Lexington, KY", industry: "Medical transport" }, { revenue: 5_000_000, ebitda: 1_100_000, asking: null });
   listing({ name: "Titan Steel Fabrication", what_it_does: "Structural steel for commercial builders", source: "Broker newsletter", broker_name: "Sunbelt", location: "Charlotte, NC", industry: "Steel fabrication" }, { revenue: 22_000_000, ebitda: 4_300_000, asking: 19_000_000 });
 
   // Nine deals across the stages. Next actions that equal the stage default make Done ask about the next stage.
@@ -85,15 +91,23 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
 
   const hilltop = add({ name: "Hilltop Pest Solutions", stage_id: stage("Interested"), what_it_does: "Residential and commercial pest control, 2,400 recurring accounts", source: "Broker newsletter", broker_name: "Transworld, Rachel Kim", primary_contact_id: c.kim, organization_id: org.transworld, location: "Athens, GA", industry: "Pest control", next_action: d("Interested"), next_action_due: today, next_action_minutes: 15 }, { revenue: 3_400_000, sde: 1_000_000, asking: 3_600_000 });
   entered(hilltop, 0);
-  const brightpath = add({ name: "BrightPath Home Care", stage_id: stage("NDA signed"), what_it_does: "Non-medical home care, 85 clients, private pay and LTC insurance", source: "Broker newsletter", broker_name: "Transworld, Rachel Kim", primary_contact_id: c.kim, organization_id: org.transworld, location: "Nashville, TN", industry: "Home care", next_action: d("NDA signed"), next_action_due: today, next_action_minutes: 10, key_finding: "Caregiver retention is the question", waiting_on: "The CIM and a call", waiting_since: ago(3) }, { revenue: 4_200_000, ebitda: 1_300_000, asking: 4_900_000 });
+  const brightpath = add({ name: "BrightPath Home Care", stage_id: stage("NDA signed"), what_it_does: "Non-medical home care, 85 clients, private pay and LTC insurance", source: "Broker newsletter", broker_name: "Transworld, Rachel Kim", primary_contact_id: c.kim, organization_id: org.transworld, location: "Nashville, TN", industry: "Home care", next_action: d("NDA signed"), next_action_due: today, next_action_minutes: 10, key_finding: "Caregiver retention is the question", waiting_on: "The CIM and a call", waiting_since: ago(3),
+    open_questions_json: { seller: ["What is caregiver turnover over the last 12 months?", "How many clients are private pay versus LTC insurance?"], broker: ["When does the CIM arrive, and is a seller call possible next week?"], self: ["What do the two largest home care agencies in Nashville pay caregivers?"] } }, { revenue: 4_200_000, ebitda: 1_300_000, asking: 4_900_000 });
   entered(brightpath, 3, [{ stageName: "Interested", daysAgo: 5 }]);
   const oakline = add({ name: "Oakline Dental Lab", stage_id: stage("NDA signed"), what_it_does: "Crowns and implants for 140 dental practices", source: "Broker newsletter", broker_name: "Murphy, Luis Ortega", primary_contact_id: c.ortega, organization_id: org.murphy, location: "Birmingham, AL", industry: "Dental lab", next_action: "Wait for the CIM", next_action_due: ahead(2), key_finding: "Owner is the lead technician", waiting_on: "The CIM", waiting_since: ago(2) }, { revenue: 5_100_000, ebitda: 1_600_000, asking: 6_200_000 });
   entered(oakline, 2, [{ stageName: "Interested", daysAgo: 6 }]);
   const summit = add({ name: "Summit Logistics Group", stage_id: stage("Broker call"), what_it_does: "Regional LTL freight brokerage, 300 shipper accounts", source: "Broker outreach", broker_name: "Transworld, Mark Reed", primary_contact_id: c.reed, organization_id: org.transworld, location: "Knoxville, TN", industry: "Freight brokerage", next_action: "Seller call to be scheduled", next_action_due: ahead(5), key_finding: "Margins thin; growth came from one shipper", waiting_on: "A seller call to be scheduled", waiting_since: ago(11) }, { revenue: 18_000_000, ebitda: 2_200_000, asking: 9_500_000 });
   entered(summit, 11, [{ stageName: "Interested", daysAgo: 18 }, { stageName: "NDA signed", daysAgo: 15 }]);
-  const dalton = add({ name: "Dalton Services", stage_id: stage("CIM review"), what_it_does: "Commercial HVAC service and maintenance contracts", source: "Broker newsletter", broker_name: "Rachel Kim, Transworld", primary_contact_id: c.kim, organization_id: org.transworld, location: "Chattanooga, TN", industry: "Home and building services", why_selling: "Retiring, no successor", listing_url: "https://www.example.com/listings/dalton-services", next_action: "Review the CIM and write the key finding", next_action_due: today, next_action_minutes: 60, key_finding: "70% of revenue is recurring maintenance contracts; service calls are the rest", open_questions: "Why is the owner selling at 58?\nTechnician count and tenure?\nAny customer over 10% of revenue?" }, { revenue: 5_600_000, ebitda: 1_700_000, asking: 6_000_000 });
+  const dalton = add({ name: "Dalton Services", stage_id: stage("CIM review"), what_it_does: "Commercial HVAC service and maintenance contracts", source: "Broker newsletter", broker_name: "Rachel Kim, Transworld", primary_contact_id: c.kim, organization_id: org.transworld, location: "Chattanooga, TN", industry: "Home and building services", why_selling: "Retiring, no successor", listing_url: "https://www.example.com/listings/dalton-services", next_action: "Review the CIM and write the key finding", next_action_due: today, next_action_minutes: 60, key_finding: "70% of revenue is recurring maintenance contracts; service calls are the rest",
+    open_questions_json: {
+      seller: ["Why sell now at 58, and would you stay 12 months after close?", "Can the service side (the other 30%) grow without adding technicians?", "How many of the 11 technicians have been with you over 3 years?", "Is any customer over 10% of revenue?"],
+      broker: ["Can we get 3 years of tax returns and the monthly P&L?", "Is the $6.0M asking firm, and is a seller note on the table?", "Are there other bidders or a deadline for offers?"],
+      self: ["How fast is commercial HVAC service growing in Chattanooga?", "What does a service call earn versus a maintenance visit?", "Who are the two or three local competitors, and do they sell maintenance contracts?"],
+    } }, { revenue: 5_600_000, ebitda: 1_700_000, asking: 6_000_000 });
   entered(dalton, 3, [{ stageName: "Interested", daysAgo: 8 }, { stageName: "NDA signed", daysAgo: 7 }, { stageName: "Broker call", daysAgo: 4 }]);
-  const coastal = add({ name: "Coastal Fleet Maintenance", stage_id: stage("Seller call"), what_it_does: "Fleet repair for delivery and utility companies", source: "Broker newsletter", broker_name: "Sunbelt, Dana Whitfield", primary_contact_id: c.whitfield, organization_id: org.sunbelt, location: "Jacksonville, FL", industry: "Fleet services", next_action: d("Seller call"), next_action_due: today, next_action_minutes: 45, key_finding: "Seller wants to stay 12 months; good sign" }, { revenue: 6_800_000, ebitda: 1_500_000, asking: 5_800_000 });
+  // A deal with both names: listed as a placeholder, the company named after the NDA.
+  const coastal = add({ name: "00 Fleet Repair Shop, Jacksonville", company_name: "Coastal Fleet Maintenance", stage_id: stage("Seller call"), what_it_does: "Fleet repair for delivery and utility companies", source: "Broker newsletter", broker_name: "Sunbelt, Dana Whitfield", primary_contact_id: c.whitfield, organization_id: org.sunbelt, location: "Jacksonville, FL", industry: "Fleet services", next_action: d("Seller call"), next_action_due: today, next_action_minutes: 45, key_finding: "Seller wants to stay 12 months; good sign",
+    open_questions_json: { seller: ["Which three fleet customers are the largest, and how long have they been with you?", "What share of repairs is warranty or contract work?"], broker: ["Can we get the fixed asset list with ages?"], self: [] } }, { revenue: 6_800_000, ebitda: 1_500_000, asking: 5_800_000 });
   entered(coastal, 2, [{ stageName: "Interested", daysAgo: 14 }, { stageName: "NDA signed", daysAgo: 12 }, { stageName: "Broker call", daysAgo: 9 }, { stageName: "CIM review", daysAgo: 7 }]);
   const meridian = add({ name: "Meridian Industrial Coatings", stage_id: stage("Model"), what_it_does: "Powder coating for OEM equipment makers", source: "Broker outreach", broker_name: "Benchmark", location: "Greenville, SC", industry: "Industrial coatings", next_action: "Finish the 7-year model, scenario at 3x TTM", next_action_due: ago(1), next_action_minutes: 120, key_finding: "TTM up 18%; check if one customer drove it" }, { revenue: 11_000_000, ebitda: 2_400_000, asking: 8_400_000 });
   entered(meridian, 4, [{ stageName: "Interested", daysAgo: 24 }, { stageName: "NDA signed", daysAgo: 22 }, { stageName: "Broker call", daysAgo: 18 }, { stageName: "CIM review", daysAgo: 15 }, { stageName: "Seller call", daysAgo: 9 }]);
@@ -125,5 +139,14 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
     { itemId: dalton, fileName: "Dalton_PL_2023_2025.csv", kind: "statement", mimeType: "text/csv", text: "Year,Revenue,EBITDA\n2023,4800000,1350000\n2024,5200000,1520000\n2025,5600000,1700000\n" },
   ];
 
-  return { organizations, contacts, items, financials, communications, notes, stageDates, documents };
+  // Also to do (database update 0021): other things to do on a deal, outside its one next action.
+  const todos: WorkSample["todos"] = [
+    { id: newId(), deal_id: dalton, text: "Ask Rachel for the customer list by revenue", position: 1 },
+    { id: newId(), deal_id: dalton, text: "Read the maintenance contract template in the CIM", position: 2 },
+    { id: newId(), deal_id: dalton, text: "Compare the asking multiple with the two HVAC deals passed on", position: 3 },
+    { id: newId(), deal_id: meridian, text: "Ask for the top 10 customers by year", position: 1 },
+    { id: newId(), deal_id: meridian, text: "Book 30 minutes with the partner before the model is final", position: 2 },
+  ];
+
+  return { organizations, contacts, items, financials, communications, notes, stageDates, documents, todos };
 }

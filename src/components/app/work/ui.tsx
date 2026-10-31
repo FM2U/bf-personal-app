@@ -3,24 +3,136 @@ import { progressSegments, type WaitLevel } from "@/lib/work/stages";
 import { cn } from "@/lib/utils";
 
 /**
- * The building blocks of the Work screens (approved mockup, 2026-10-30): a card with a thin gold rule under its
- * title, two-line rows without column headers, small labeled figures on the right, pills in the status colors, the
- * nine-segment stage progress mark, and the gold bar on stage headings. Server and client components both use them.
+ * The building blocks of the Work screens (approved mockup 2026-10-30, mockup v6 2026-10-31): a card with a thin gold
+ * rule under its title (the title row can stay pinned while the card scrolls), two-line rows without column headers,
+ * small labeled figures on the right, pills in the status colors, the nine-segment stage progress mark, the gold
+ * small-caps section headings that collapse their section, the filter pills with the Find box and the Collapse all
+ * control, and the small row buttons. Server and client components both use them.
  */
 
-export function WorkCard({ id, title, count, hint, actions, children, className, testId, rule = true }: { id?: string; title: React.ReactNode; count?: number | null; hint?: React.ReactNode; actions?: React.ReactNode; children: React.ReactNode; className?: string; testId?: string; /** False: no gold rule (a closed card with nothing under its title). */ rule?: boolean }) {
+/**
+ * The pinned header rule (approved 2026-10-31, item 21), shared by every Work page and every card that scrolls:
+ * a pinned header has a solid background (the page background for the page block, white for a card header) that
+ * fully covers what scrolls under it, and a hairline at its bottom edge. Nothing shows through or touches it.
+ */
+
+/**
+ * The pinned block at the top of a Work page: the title, the tabs, the filter pills with Find and Collapse all.
+ * Solid page background, 12px of space under its last row, a 1px hairline (the border color) at the bottom edge, and
+ * the first card 16px below it. It stays at the top while the page scrolls on desktop; on the phone it scrolls with
+ * the page (the same background, space, and hairline).
+ */
+export function PinnedBlock({ children, testId }: { children: React.ReactNode; testId?: string }) {
   return (
-    <section id={id} className={cn("flex min-w-0 flex-col rounded-xl border border-border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]", className)} data-testid={testId}>
-      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-[22px] pt-4 pb-3">
-        <h2 className="flex items-center gap-2 text-[15px] font-semibold tracking-[-0.01em] whitespace-nowrap text-slate-900">
-          <span>{title}</span>
-          {count ? <span className="tabular rounded-full bg-status-neutral-bg px-2 py-px text-[11px] font-semibold leading-4 text-status-neutral">{count}</span> : null}
-        </h2>
-        {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : hint ? <span className="min-w-0 flex-1 text-right text-[13px] text-muted-foreground">{hint}</span> : null}
-      </div>
-      {rule ? <div className="mx-[22px] h-px bg-gold-rule" /> : <div className="h-1" />}
+    <div className="z-10 mb-4 border-b border-border bg-background pb-3 lg:sticky lg:top-0 lg:-mt-6 lg:pt-6" data-testid={testId} data-pinned="page">
       {children}
+    </div>
+  );
+}
+
+/** A card header that stays at the top while the card scrolls (desktop): solid white, a gold hairline across the full width. */
+export const PINNED_CARD_HEADER = "bg-white border-b border-gold-rule lg:sticky lg:top-0 lg:z-[2]";
+
+export function WorkCard({ id, title, count, hint, sub, actions, children, className, testId, rule = true, pinned = false, scroll = false, bodyClassName }: { id?: string; title: React.ReactNode; count?: number | null; hint?: React.ReactNode; /** A quiet line under the title (for narrow cards, where a hint at the right would wrap). */ sub?: React.ReactNode; actions?: React.ReactNode; children: React.ReactNode; className?: string; testId?: string; /** False: no gold rule (a closed card ends at its title row). */ rule?: boolean; /** The title row stays at the top while the content under it scrolls (desktop): solid white with the hairline across the full width. */ pinned?: boolean; /** The card scrolls on its own (desktop); give it a height through className. */ scroll?: boolean; bodyClassName?: string }) {
+  return (
+    <section id={id} className={cn("flex min-w-0 flex-col rounded-xl border border-border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]", scroll && "lg:overflow-y-auto", className)} data-testid={testId}>
+      <div className={cn("rounded-t-xl bg-white", pinned && rule && PINNED_CARD_HEADER)} data-pinned={pinned && rule ? "card" : undefined}>
+        <div className={cn("flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-[22px] pt-4", rule ? "pb-3" : "pb-4")}>
+          <h2 className="flex items-center gap-2 text-[15px] font-semibold tracking-[-0.01em] whitespace-nowrap text-slate-900">
+            <span>{title}</span>
+            {count ? <span className="tabular rounded-full bg-status-neutral-bg px-2 py-px text-[11px] font-semibold leading-4 text-status-neutral">{count}</span> : null}
+          </h2>
+          {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : hint ? <span className="min-w-0 flex-1 text-right text-[13px] text-muted-foreground">{hint}</span> : null}
+          {sub ? <div className="-mt-1 w-full text-[13px] text-muted-foreground">{sub}</div> : null}
+        </div>
+        {rule && !pinned ? <div className="mx-[22px] h-px bg-gold-rule" /> : null}
+      </div>
+      {rule ? <div className={bodyClassName}>{children}</div> : null}
     </section>
+  );
+}
+
+/**
+ * A section heading inside a card (mockup v6): gold small caps with a thin gold line, the count at the right, a
+ * small triangle that turns when the section is collapsed. An empty section is a faint heading with "none" and does
+ * not collapse. `hint` shows at the right on wider screens (the buy box line, "Next by default: ...").
+ */
+export function SectionHeading({ name, count, collapsed, onToggle, hint, title, testId = "section-heading", dataAttrs, className, countRight = false }: { name: string; count: number; collapsed: boolean; onToggle?: () => void; hint?: React.ReactNode; title?: string; testId?: string; dataAttrs?: Record<string, string>; className?: string; /** The count at the right end (the Deals stage headings) instead of next to the name. */ countRight?: boolean }) {
+  const empty = count === 0;
+  const cls = cn(
+    "group mt-3 mb-1 flex w-full items-center gap-2 border-b py-1.5 pb-[7px] text-left text-[12.5px] font-medium tracking-[0.09em] uppercase select-none",
+    empty ? "cursor-default border-slate-100 text-slate-400" : "cursor-pointer border-gold-rule text-gold-strong",
+    className,
+  );
+  const body = (
+    <>
+      <svg viewBox="0 0 10 10" className={cn("h-[9px] w-3 shrink-0 text-gold-rule transition-transform group-hover:text-gold", collapsed && "-rotate-90", empty && "invisible")} aria-hidden>
+        <path d="M1 2.5h8L5 8z" fill="currentColor" />
+      </svg>
+      <span className="min-w-0 truncate">{name}</span>
+      {empty ? <span className={cn("tabular text-xs font-normal tracking-normal normal-case", countRight ? "ml-auto" : "ml-1")}>none</span> : <span className={cn("tabular text-[12.5px] font-medium tracking-normal text-muted-foreground", countRight ? "ml-auto" : "ml-1")}>{count}</span>}
+      {hint ? <span className={cn("hidden min-w-0 truncate text-xs font-normal tracking-normal normal-case text-slate-400 md:block", !countRight && "ml-auto")}>{hint}</span> : null}
+    </>
+  );
+  if (empty || !onToggle) {
+    return (
+      <div title={title} className={cls} data-testid={testId} data-count={count} {...dataAttrs}>
+        {body}
+      </div>
+    );
+  }
+  return (
+    <button type="button" onClick={onToggle} aria-expanded={!collapsed} title={title} className={cls} data-testid={testId} data-count={count} {...dataAttrs}>
+      {body}
+    </button>
+  );
+}
+
+/** "Collapse all" or "Expand all" at the right end of a filter row: one small text control whose label flips. */
+export function CollapseAllButton({ allCollapsed, onClick, className }: { allCollapsed: boolean; onClick: () => void; className?: string }) {
+  return (
+    <button type="button" onClick={onClick} className={cn("shrink-0 px-0.5 py-1 text-[12.5px] font-medium whitespace-nowrap text-primary-strong hover:underline", className)} data-testid="collapse-all" data-state={allCollapsed ? "collapsed" : "expanded"}>
+      {allCollapsed ? "Expand all" : "Collapse all"}
+    </button>
+  );
+}
+
+/**
+ * The filter row under the tabs: the pills with their counts (one active), the Find box, and Collapse all at the
+ * right end. `prefix` names the test ids ("deals-filter-wait", "deals-search"). It is the last row of the PinnedBlock,
+ * which adds the space and the hairline under it.
+ */
+export function FilterRow<K extends string>({ prefix, filters, active, counts, onPick, query, onQuery, placeholder = "Find", collapse, className }: { prefix: string; filters: readonly { key: K; label: string }[]; active: K; counts: Record<K, number>; onPick: (k: K) => void; query: string; onQuery: (q: string) => void; placeholder?: string; collapse?: { allCollapsed: boolean; onClick: () => void } | null; className?: string }) {
+  return (
+    <div className={cn("flex flex-wrap items-center gap-2", className)} data-testid={`${prefix}-filters`}>
+      {filters.map((f) => {
+        const on = active === f.key;
+        return (
+          <button
+            key={f.key}
+            type="button"
+            onClick={() => onPick(f.key)}
+            className={cn("inline-flex items-center rounded-full border px-3 py-1 text-[12.5px] font-medium whitespace-nowrap", on ? "border-primary-border bg-primary-soft text-primary-strong" : "border-border bg-white text-status-neutral hover:bg-slate-50")}
+            aria-pressed={on}
+            data-testid={`${prefix}-filter-${f.key}`}
+            data-count={counts[f.key]}
+          >
+            {f.label}
+            <span className={cn("tabular ml-[5px] font-medium", on ? "text-primary-strong" : "text-slate-400")}>{counts[f.key]}</span>
+          </button>
+        );
+      })}
+      <input
+        type="search"
+        value={query}
+        onChange={(e) => onQuery(e.target.value)}
+        placeholder={placeholder}
+        aria-label={placeholder}
+        className="h-[30px] w-full rounded-[7px] border border-input bg-white px-2.5 text-[13px] text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:ml-auto sm:w-[200px]"
+        data-testid={`${prefix}-search`}
+      />
+      {collapse ? <CollapseAllButton allCollapsed={collapse.allCollapsed} onClick={collapse.onClick} /> : null}
+    </div>
   );
 }
 
@@ -89,10 +201,12 @@ export function Stat({ value, label, className, testId }: { value: React.ReactNo
   );
 }
 
-export type PillTone = "gray" | "amber" | "red" | "green" | "gold" | "blue" | "quiet";
+export type PillTone = "gray" | "amber" | "red" | "green" | "gold" | "blue" | "quiet" | "charcoal";
 
 const PILL: Record<PillTone, string> = {
   gray: "border-border bg-status-neutral-bg text-status-neutral",
+  /** Passed and Lost: medium charcoal with white text (approved 2026-10-31). */
+  charcoal: "border-[#4b5563] bg-[#4b5563] text-white",
   amber: "border-status-soon-border bg-status-soon-bg text-status-soon",
   red: "border-status-missed-border bg-status-missed-bg text-status-missed",
   green: "border-status-met-border bg-status-met-bg text-status-met",
@@ -157,7 +271,7 @@ export function Quiet({ children, className, testId }: { children: React.ReactNo
   );
 }
 
-/** The inline confirmation strip inside a row (after Done, Interested, Chase). */
+/** The inline confirmation strip inside a row (after Done, Interested, Follow up). */
 export function Confirm({ tone = "blue", children, className, testId }: { tone?: "blue" | "ok" | "warn"; children: React.ReactNode; className?: string; testId?: string }) {
   return (
     <div
@@ -176,14 +290,15 @@ export function Confirm({ tone = "blue", children, className, testId }: { tone?:
   );
 }
 
-/** The small buttons on rows: cobalt (primary), gold (Chase), or outline. */
-export function RowButton({ tone = "outline", className, children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { tone?: "primary" | "gold" | "outline" }) {
+/** The small buttons on rows: blue (primary), soft blue (Interested), gold (Follow up), or outline. */
+export function RowButton({ tone = "outline", className, children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { tone?: "primary" | "soft" | "gold" | "outline" }) {
   return (
     <button
       type="button"
       className={cn(
         "inline-flex h-[30px] items-center justify-center rounded-[7px] border px-[11px] text-[12.5px] font-medium whitespace-nowrap transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50",
-        tone === "primary" && "border-primary bg-primary text-white hover:bg-primary-hover",
+        tone === "primary" && "border-primary bg-primary text-white hover:border-primary-hover hover:bg-primary-hover",
+        tone === "soft" && "border-primary-border bg-primary-soft text-primary hover:bg-[#e3ebfd]",
         tone === "gold" && "border-gold-border bg-gold-soft text-gold-strong hover:bg-[#f6ead0]",
         tone === "outline" && "border-input bg-white text-slate-800 hover:bg-slate-50",
         className,
@@ -195,23 +310,16 @@ export function RowButton({ tone = "outline", className, children, ...props }: R
   );
 }
 
-/** The three count chips at the top of Work on now. Each is a link. */
-export function CountChip({ href, n, label, warn, testId }: { href: string; n: number; label: string; warn?: boolean; testId?: string }) {
-  return (
-    <Link href={href} className={cn("flex min-w-[190px] items-center gap-3 rounded-[10px] border px-4 py-3 text-slate-900", warn ? "border-status-soon-border bg-status-soon-bg" : "border-border bg-white hover:bg-[#fbfcfe]")} data-testid={testId}>
-      <b className={cn("tabular text-2xl leading-none font-semibold", warn && "text-status-soon")}>{n}</b>
-      <span className="text-[13px] leading-[1.2] text-muted-foreground">{label}</span>
-    </Link>
-  );
-}
-
 /** The page title row: the title on the left, the date or buttons on the right. */
-export function WorkHeader({ title, right, crumb }: { title: React.ReactNode; right?: React.ReactNode; crumb?: React.ReactNode }) {
+export function WorkHeader({ title, right, crumb, under }: { title: React.ReactNode; right?: React.ReactNode; crumb?: React.ReactNode; /** A quiet line under the title ("Listed as 00 ..."). */ under?: React.ReactNode }) {
   return (
     <div className="mb-1.5">
       {crumb ? <div className="mb-1.5 text-[13px] text-muted-foreground">{crumb}</div> : null}
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-slate-900">{title}</h1>
+        <div className="min-w-0">
+          <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-slate-900">{title}</h1>
+          {under ? <div className="mt-0.5 text-[13px] text-muted-foreground">{under}</div> : null}
+        </div>
         {right ? <div className="flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground">{right}</div> : null}
       </div>
     </div>

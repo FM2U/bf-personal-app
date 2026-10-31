@@ -1,6 +1,6 @@
 /**
  * "Reset all data" (Settings, Sample data and reset). The database function public.reset_all_data('RESET')
- * (supabase/migrations/0019_focused_today.sql; first written in 0014, daily outcomes added in 0019) deletes the tables in RESET_DELETE_TABLES, in this order,
+ * (supabase/migrations/0021_edit_batch_a.sql; first written in 0014, daily outcomes added in 0019, deal to-dos in 0021) deletes the tables in RESET_DELETE_TABLES, in this order,
  * in one transaction, and keeps RESET_KEEP_TABLES. src/lib/reset.test.ts checks that these lists match the SQL
  * function and that every table in the app is in exactly one list.
  */
@@ -18,7 +18,7 @@ export const RESET_DELETE_TABLES = [
   "scenario_input_changes", "scenarios", "decision_options", "decisions", "decision_conditions",
   "milestone_options", "milestones", "goals",
   "pipeline_item_stage_extensions", "stage_history", "diligence_items", "deal_financials", "job_details",
-  "investor_details", "consulting_details", "pipeline_items",
+  "investor_details", "consulting_details", "deal_todos", "pipeline_items",
   "communications", "contacts", "organizations",
 ] as const;
 
@@ -61,6 +61,7 @@ export const RESET_TABLE_LABELS: Record<string, string> = {
   pipeline_items: "Pipeline items",
   stage_history: "Stage history",
   deal_financials: "Deal financials",
+  deal_todos: "Deal to-dos",
   diligence_items: "Diligence items",
   job_details: "Job details",
   investor_details: "Investor details",

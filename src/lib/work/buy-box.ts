@@ -83,7 +83,7 @@ export function parseMoneyText(text: string | number | null | undefined): number
 
 /** True when the typed earnings figure says SDE ("$1.2M SDE", "SDE 410K"). */
 export function mentionsSde(text: string | null | undefined): boolean {
-  return /\bsde\b|seller'?s? discretionary/i.test(String(text ?? ""));
+  return /\bsde\b|seller'?s? discretionary|cash ?flow|owner'?s? benefit|discretionary earnings/i.test(String(text ?? ""));
 }
 
 /** "$1.4M", "$410K", "$22M", "$900K"; "Not stated" for nothing. */

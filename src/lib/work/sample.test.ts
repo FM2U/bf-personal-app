@@ -27,7 +27,7 @@ describe("the Work module's sample data", () => {
 
   it("has five next actions due today or earlier and two waits over 5 days", () => {
     const due = w.items.filter((i) => i.screened !== false && i.next_action_due && String(i.next_action_due) <= "2026-10-30" && ![stages.Passed, stages.Lost].includes(String(i.stage_id)));
-    expect(due.map((i) => i.name).sort()).toEqual(["BrightPath Home Care", "Coastal Fleet Maintenance", "Dalton Services", "Hilltop Pest Solutions", "Meridian Industrial Coatings"].sort());
+    expect(due.map((i) => i.name).sort()).toEqual(["00 Fleet Repair Shop, Jacksonville", "BrightPath Home Care", "Dalton Services", "Hilltop Pest Solutions", "Meridian Industrial Coatings"].sort());
     const waits = w.items.filter((i) => i.waiting_on).map((i) => ({ name: i.name, since: i.waiting_since }));
     expect(waits.filter((x) => String(x.since) <= "2026-10-25")).toHaveLength(2);
     expect(byName("Summit Logistics Group").waiting_since).toBe("2026-10-19");
@@ -36,7 +36,7 @@ describe("the Work module's sample data", () => {
 
   it("uses the stage default as the next action where Done should ask about the next stage", () => {
     expect(byName("Hilltop Pest Solutions").next_action).toBe(STAGE_DEFAULTS.Interested.title);
-    expect(byName("Coastal Fleet Maintenance").next_action).toBe(STAGE_DEFAULTS["Seller call"].title);
+    expect(byName("00 Fleet Repair Shop, Jacksonville").next_action).toBe(STAGE_DEFAULTS["Seller call"].title);
     expect(byName("Dalton Services").next_action).toBe("Review the CIM and write the key finding");
   });
 
@@ -45,13 +45,28 @@ describe("the Work module's sample data", () => {
     const fin = w.financials.find((f) => f.item_id === dalton.id)!;
     expect(fin).toMatchObject({ revenue: 5_600_000, ebitda: 1_700_000, asking_price: 6_000_000 });
     expect(String(dalton.key_finding)).toContain("70% of revenue");
-    expect(String(dalton.open_questions).split("\n")).toHaveLength(3);
+    const q = dalton.open_questions_json as { seller: string[]; broker: string[]; self: string[] };
+    expect(q.seller.length).toBeGreaterThanOrEqual(3);
+    expect(q.broker.length).toBeGreaterThanOrEqual(2);
+    expect(q.self.length).toBeGreaterThanOrEqual(2);
+    expect(w.todos.filter((t) => t.deal_id === dalton.id)).toHaveLength(3);
+    expect(w.todos.every((t) => t.text && t.position > 0)).toBe(true);
     expect(w.communications.filter((c) => c.pipeline_item_id === dalton.id)).toHaveLength(3);
     expect(w.notes.filter((x) => x.record_id === dalton.id)).toHaveLength(1);
     expect(w.documents.filter((d) => d.itemId === dalton.id).map((d) => d.fileName)).toEqual(["Dalton_CIM.pdf", "Dalton_PL_2023_2025.csv"]);
     const dates = w.stageDates.find((d) => d.itemId === dalton.id)!;
     expect(dates.enteredDaysAgo).toBe(3);
     expect(dates.history.map((h) => h.stageName)).toEqual(["Interested", "NDA signed", "Broker call"]);
+  });
+
+  it("has one listing with a placeholder name and no company name, and one deal with both names", () => {
+    const placeholder = w.items.find((i) => i.name === "00 Medicaid Transport Provider")!;
+    expect(placeholder.screened).toBe(false);
+    expect(placeholder.company_name).toBeNull();
+    const both = w.items.find((i) => i.company_name === "Coastal Fleet Maintenance")!;
+    expect(both.name).toBe("00 Fleet Repair Shop, Jacksonville");
+    expect(both.screened).toBe(true);
+    expect(w.items.filter((i) => i.open_questions_json)).toHaveLength(3);
   });
 
   it("marks every listing with the buy box check, has example.com emails, and lists every name", () => {
@@ -61,7 +76,7 @@ describe("the Work module's sample data", () => {
     }
     expect(w.contacts.every((c) => String(c.email).endsWith("@example.com"))).toBe(true);
     for (const r of [...w.items, ...w.contacts, ...w.organizations]) expect(WORK_SAMPLE_NAMES).toContain(r.name);
-    const ids = [...w.items, ...w.financials, ...w.contacts, ...w.organizations, ...w.communications, ...w.notes].map((r) => r.id);
+    const ids = [...w.items, ...w.financials, ...w.contacts, ...w.organizations, ...w.communications, ...w.notes, ...w.todos].map((r) => r.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
 });

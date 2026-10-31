@@ -538,16 +538,20 @@ google.listen(GOOGLE_PORT, () => console.log(`Mock Google listening on http://lo
 //   "TASK: initiative_proposal" -> the weekly meal plan proposal (dev-tools/fixtures/meal-plan.cjs)
 //   "TASK: savings_ideas"       -> up to 3 ideas built from the expense keys in the request
 //   "TASK: compose_email"       -> a short email built from the one-line instruction (Email button, Write with AI)
-//   "TASK: listing_fields"      -> the listing fields read from the pasted text with simple patterns (Fill from text)
+//   "TASK: listing_fields"      -> the listing fields read from the pasted text with simple patterns (Fill from text);
+//                                  with {"listing": "invalid"} a plain sentence instead (never the fields, so the app
+//                                  shows the reply after its retry)
+//   "TASK: open_questions"      -> three groups of questions built from the deal name in the request (Interested, Suggest questions)
+//   "TASK: deal_todos"          -> three to-do lines built from the deal name (Suggest on Also to do)
 //   chat (a request with tools) -> a short bulleted answer
 //   anything else               -> HTTP 400, so morning plans, review drafts, and message drafts use their templates
-// Test controls: POST /__mode {"initiative": "valid" | "invalid_once" | "invalid"}; GET /__calls; GET /__last_chat (the
-// last chat request's system prompt and messages, to check "Ask AI about this" context); POST /__reset.
+// Test controls: POST /__mode {"initiative": "valid" | "invalid_once" | "invalid", "listing": "valid" | "invalid"}; GET /__calls;
+// GET /__last_chat (the last chat request's system prompt and messages, to check "Ask AI about this" context); POST /__reset.
 import { createRequire } from "node:module";
 const requireCjs = createRequire(import.meta.url);
 const { mealPlanProposal } = requireCjs("./fixtures/meal-plan.cjs");
 const AI_PORT = Number(process.env.MOCK_AI_PORT || 54330);
-let aiMode = { initiative: "valid" };
+let aiMode = { initiative: "valid", listing: "valid" };
 let aiCalls = [];
 let invalidSent = false;
 let lastChat = null;
@@ -580,7 +584,7 @@ const ai = http.createServer(async (req, res) => {
       return send(res, 200, aiMode);
     }
     if (url.pathname === "/__reset" && req.method === "POST") {
-      aiMode = { initiative: "valid" };
+      aiMode = { initiative: "valid", listing: "valid" };
       aiCalls = [];
       invalidSent = false;
       return send(res, 200, { ok: true });
@@ -616,11 +620,16 @@ const ai = http.createServer(async (req, res) => {
       if (text.includes("TASK: listing_fields")) {
         aiCalls.push("listing_fields");
         const listing = (text.split('"""')[1] || "").trim();
+        if (aiMode.listing === "invalid") return send(res, 200, aiMessage("I can see an industrial filtration distributor in Macon with about $4M in sales, but the text gives no asking price or earnings figure, so I cannot fill the fields."));
         const pick = (re) => (listing.match(re) || [])[1] || "";
         const money = (label) => pick(new RegExp(`${label}[^$\\d]{0,12}(\\$?\\d[\\d,.]*\\s*[MmKk]?)`));
-        const sde = money("SDE");
+        const sde = money("SDE") || money("Cash Flow");
+        const headline = pick(/^(?:Business|Listing|Name)?:?\s*([^\n]{3,80})/m).replace(/^(For sale|Listing|Name):\s*/i, "").replace(/\s*\([^)]*\)\s*$/, "").trim();
+        // A line "Company: X" names the company; otherwise the headline is the listing description.
+        const company = pick(/^Company:\s*([^\n]{3,80})/m);
         const reply = {
-          name: pick(/^(?:Business|Listing|Name)?:?\s*([^\n]{3,80})/m).replace(/^(For sale|Listing|Name):\s*/i, "").replace(/\s*\([^)]*\)\s*$/, "").trim(),
+          listing_name: headline.replace(/\s+(Co|Company|Inc|LLC)\.?$/i, ""),
+          company_name: company,
           source: /newsletter/i.test(listing) ? "Broker newsletter" : /network|intro/i.test(listing) ? "Network" : "Broker outreach",
           what_it_does: pick(/(?:What it does|Description|Overview)[:\s]+([^\n]{5,160})/i) || (listing.split("\n").find((l) => /\b(for|serving|provides|offers)\b/i.test(l)) || "").trim().slice(0, 160),
           broker_name: pick(/(?:Broker|Listed by|Contact):\s*([^\n]{3,60})/i),
@@ -632,6 +641,22 @@ const ai = http.createServer(async (req, res) => {
           listing_url: pick(/(https?:\/\/\S+|\b[a-z0-9.-]+\.(?:com|net|org)\/\S*)/i),
         };
         return send(res, 200, aiMessage(JSON.stringify(reply)));
+      }
+      if (text.includes("TASK: open_questions")) {
+        aiCalls.push("open_questions");
+        const deal = (text.match(/^Deal: ([^\n]+)/m) || [])[1] || "this deal";
+        const asked = (text.split("Questions already on the deal (do not repeat):")[1] || "").toLowerCase();
+        const seller = [`Why are you selling ${deal} now?`, `Which customers make up the top 20% of ${deal}'s revenue?`].filter((q) => !asked.includes(q.toLowerCase()));
+        const broker = [`Can we get 3 years of financials for ${deal}?`, `Are there other bidders on ${deal}?`].filter((q) => !asked.includes(q.toLowerCase()));
+        const self = [`Who are the local competitors of ${deal}?`].filter((q) => !asked.includes(q.toLowerCase()));
+        return send(res, 200, aiMessage("```json\n" + JSON.stringify({ seller, broker, self }) + "\n```"));
+      }
+      if (text.includes("TASK: deal_todos")) {
+        aiCalls.push("deal_todos");
+        const deal = (text.match(/^Deal: ([^\n]+)/m) || [])[1] || "this deal";
+        const listed = (text.match(/Items already listed \(do not repeat\): ([^\n]+)/) || [])[1] || "";
+        const todos = [`Read the CIM of ${deal} end to end`, `Ask for the customer list of ${deal}`, `Compare ${deal} with the last two deals passed on`].filter((t) => !listed.toLowerCase().includes(t.toLowerCase()));
+        return send(res, 200, aiMessage(JSON.stringify({ todos })));
       }
       if (Array.isArray(body.tools) && body.tools.length) {
         aiCalls.push("chat");

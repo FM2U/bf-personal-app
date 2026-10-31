@@ -3,8 +3,9 @@ export type NavTab = { href: string; label: string };
 export type NavModule = { key: string; label: string; href: string; icon: string; tabs: NavTab[] };
 
 /**
- * The main menu (the Work module, batch A, 2026-10-30): three items. Work opens on Work on now (the start page; "/"
- * goes there). Accountability opens the existing Commitments page with its sub-tabs. More lists every other page.
+ * The main menu (the Work module, batch A, 2026-10-30): three items. Work opens on Home (the start page, headed
+ * "Work on now"; "/" goes there). Accountability opens the existing Commitments page with its sub-tabs. More lists
+ * every other page.
  */
 export const MAIN_NAV: NavModule[] = [
   { key: "work", label: "Work", href: "/work", icon: "work", tabs: [] },
@@ -12,9 +13,9 @@ export const MAIN_NAV: NavModule[] = [
   { key: "more", label: "More", href: "/more", icon: "more", tabs: [] },
 ];
 
-/** The Work tabs (Work on now, Screen listings, Deals). Outreach comes in batch B. */
+/** The Work tabs (Home, Screen listings, Deals; Edit batch A 2026-10-31). Outreach comes in batch B. */
 export const WORK_TABS: NavTab[] = [
-  { href: "/work", label: "Work on now" },
+  { href: "/work", label: "Home" },
   { href: "/work/listings", label: "Screen listings" },
   { href: "/work/deals", label: "Deals" },
 ];

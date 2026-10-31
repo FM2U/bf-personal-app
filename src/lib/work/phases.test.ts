@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEAL_FILTERS, dealsLabel, filterCounts, groupByPhase, matchesFilter, matchesSearch, PHASES, type FilterableDeal } from "./phases";
+import { DEAL_FILTERS, dealsLabel, filterCounts, groupByPhase, matchesFilter, matchesSearch, parseDealFilter, PHASES, type FilterableDeal } from "./phases";
 import { WORK_STAGES } from "./stages";
 
 const TODAY = "2026-10-30";
@@ -76,5 +76,15 @@ describe("the Deals filters", () => {
     expect(matchesSearch(deal("Oakline Dental Lab"), "pest")).toBe(false);
     expect(matchesSearch(deal("Oakline Dental Lab"), "")).toBe(true);
     expect(matchesSearch(deal("Oakline Dental Lab"), "   ")).toBe(true);
+  });
+
+  it("read the filter named in the page address (Deals at a glance on Home) and fall back to All", () => {
+    expect(parseDealFilter("wait")).toBe("wait");
+    expect(parseDealFilter("needs")).toBe("needs");
+    expect(parseDealFilter("today")).toBe("today");
+    expect(parseDealFilter("all")).toBe("all");
+    expect(parseDealFilter("passed")).toBe("all");
+    expect(parseDealFilter(undefined)).toBe("all");
+    expect(parseDealFilter(["wait"])).toBe("all");
   });
 });

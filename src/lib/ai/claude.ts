@@ -167,8 +167,15 @@ export function parseJsonFromText<T>(s: string): T | null {
   }
 }
 
-/** The AI replied, but not with JSON that passes the check, even after one retry. */
-export class AIInvalidReply extends Error {}
+/** The AI replied, but not with JSON that passes the check, even after one retry. `reply` is the text of the last reply. */
+export class AIInvalidReply extends Error {
+  constructor(
+    message: string,
+    public reply = "",
+  ) {
+    super(message);
+  }
+}
 
 /**
  * Asks for strict JSON and checks it. When the reply is not valid JSON or fails the check, asks once more with the
@@ -184,6 +191,7 @@ export async function callForJson<T>(params: {
 }): Promise<T> {
   const messages: Anthropic.MessageParam[] = [{ role: "user", content: params.prompt }];
   let lastError = "";
+  let lastReply = "";
   for (let attempt = 0; attempt < 2; attempt++) {
     const msg = await callClaude({ sb: params.sb, ownerId: params.ownerId, purpose: params.purpose, system: AI_SYSTEM_BASE, messages, maxTokens: params.maxTokens ?? 3000 });
     const raw = textOf(msg);
@@ -191,9 +199,10 @@ export async function callForJson<T>(params: {
     const r = parsed === null ? ({ ok: false, error: "the reply was not valid JSON" } as const) : params.validate(parsed);
     if (r.ok) return r.value;
     lastError = r.error;
+    lastReply = raw;
     messages.push({ role: "assistant", content: raw || "(empty reply)" }, { role: "user", content: `Your reply did not match the required JSON: ${r.error}. Return only the corrected JSON object, nothing else.` });
   }
-  throw new AIInvalidReply(`The AI reply could not be used, even after one retry (${lastError}). Try again or reword the request.`);
+  throw new AIInvalidReply(`The AI reply could not be used, even after one retry (${lastError}). Try again or reword the request.`, lastReply);
 }
 
 /** cleanText on every string inside a value (AI JSON replies). */

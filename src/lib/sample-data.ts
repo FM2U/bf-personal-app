@@ -57,7 +57,7 @@ function rng(seed: string) {
   };
 }
 
-export function buildSampleData(s: SampleSetup, newId: () => string): { batches: Batch[]; counts: Record<string, number>; work: Pick<WorkSample, "stageDates" | "documents"> | null } {
+export function buildSampleData(s: SampleSetup, newId: () => string): { batches: Batch[]; counts: Record<string, number>; work: Pick<WorkSample, "stageDates" | "documents" | "todos"> | null } {
   const rand = rng(`sample:${s.today.slice(0, 7)}`);
   const vary = (base: number, pct: number) => Math.round(base * (1 + (rand() * 2 - 1) * pct) * 100) / 100;
   const cat = (name: string) => s.categories[name] ?? null;
@@ -255,7 +255,7 @@ export function buildSampleData(s: SampleSetup, newId: () => string): { batches:
     { table: "notes", rows: notes },
   ].filter((b) => b.rows.length);
   const counts = Object.fromEntries(batches.map((b) => [b.table, b.rows.length]));
-  return { batches, counts, work: work ? { stageDates: work.stageDates, documents: work.documents } : null };
+  return { batches, counts, work: work ? { stageDates: work.stageDates, documents: work.documents, todos: work.todos } : null };
 }
 
 /** Fields that hold a display name in sample rows (each must start with "Sample"). */

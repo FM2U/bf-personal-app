@@ -3412,24 +3412,47 @@ const expectText = async (page, text) => {
     await expectText(page, "Sample data is loaded");
   });
 
-  // ---------- The Work module (batch A, database update 0020): the sample listings and deals are loaded above ----------
-  const dealByName = (name) => one("select i.id, i.next_action, i.next_action_due::text, i.waiting_on, i.waiting_since::text, i.screened, i.pass_reason, s.name as stage from pipeline_items i left join pipeline_stages s on s.id = i.stage_id where i.name = $1", [name]);
+  // ---------- The Work module (batch A and Edit batch A, database updates 0020 and 0021): the sample listings and deals are loaded above ----------
+  const dealByName = (name) => one("select i.id, i.name, i.company_name, i.next_action, i.next_action_due::text, i.waiting_on, i.waiting_since::text, i.screened, i.pass_reason, i.open_questions_json, i.key_finding, s.name as stage from pipeline_items i left join pipeline_stages s on s.id = i.stage_id where i.name = $1 or i.company_name = $1", [name]);
+  const todosOf = (dealId) => pg.query("select id, text, position, done_at from deal_todos where deal_id = $1 order by position", [dealId]).then((r) => r.rows);
 
-  await step("Work: the start page is Work on now; the menu is Work, Accountability, More; counts match the sample data", async () => {
+  await step("Work: the start page is Home (Work on now); the menu is Work, Accountability, More; the tiles and pills match the sample data", async () => {
     await page.goto(`${BASE}/`);
     await page.waitForURL(/\/work$/);
     await page.getByTestId("work-now").waitFor();
     const menu = await page.locator("aside nav[aria-label='Main menu'] > div > a").allInnerTexts();
     if (menu.map((m) => m.trim()).join("|") !== "Work|Accountability|More") throw new Error(`menu: ${menu.join("|")}`);
+    const sub = (await page.getByTestId("work-subnav").locator("a").allInnerTexts()).map((t) => t.trim().split("\n")[0]);
+    if (sub.join("|") !== "Home|Screen listings|Deals") throw new Error(`work subnav: ${sub.join("|")}`);
+    if ((await page.locator("h1").first().innerText()).trim() !== "Work on now") throw new Error("the heading stays Work on now");
+    const tabs = (await page.locator("nav[aria-label='Work sections'] a").allInnerTexts()).map((t) => t.trim().split("\n")[0]);
+    if (tabs.join("|") !== "Home|Screen listings|Deals") throw new Error(`tabs: ${tabs.join("|")}`);
     const toScreen = (await one("select count(*)::int n from pipeline_items where screened = false and status = 'open'")).n;
     if (toScreen < 7) throw new Error(`expected the 7 sample listings, found ${toScreen}`);
-    for (const t of ["subnav-to-screen", "tab-to-screen"]) if ((await page.getByTestId(t).innerText()).trim() !== String(toScreen)) throw new Error(`${t} badge`);
-    if (!(await page.getByTestId("chip-screen").innerText()).includes(String(toScreen))) throw new Error("listings chip");
-    if (!(await page.getByTestId("chip-waiting").innerText()).includes("2")) throw new Error("waiting chip should count the two long waits");
+    for (const t of ["subnav-to-screen", "tab-to-screen", "home-to-screen"]) if ((await page.getByTestId(t).innerText()).trim() !== String(toScreen)) throw new Error(`${t} count`);
+    if ((await page.getByTestId("home-listing").count()) !== 3) throw new Error("the Screen listings tile shows the newest three");
+    // No count chips; the numbers live in the tiles and the filter pills.
+    if (await page.getByTestId("work-chips").count()) throw new Error("count chips are still on Home");
+    const glance = Object.fromEntries(await page.getByTestId("glance-row").evaluateAll((els) => els.map((e) => [e.dataset.key, Number(e.dataset.count)])));
+    const inDb = await one(`select (select count(*)::int from pipeline_items i join pipeline_stages s on s.id = i.stage_id where i.status = 'open' and i.screened and s.name in ('Interested', 'NDA signed', 'Broker call')) early,
+      (select count(*)::int from pipeline_items i join pipeline_stages s on s.id = i.stage_id where i.status = 'open' and i.screened and s.name in ('CIM review', 'Seller call', 'Model')) evaluate,
+      (select count(*)::int from pipeline_items i join pipeline_stages s on s.id = i.stage_id where i.status = 'open' and i.screened and s.name in ('Partner presentation', 'IOI or LOI', 'Diligence')) decide`);
+    if (glance.early !== inDb.early || glance.evaluate !== inDb.evaluate || glance.decide !== inDb.decide) throw new Error(`glance: ${JSON.stringify(glance)} vs ${JSON.stringify(inDb)}`);
+    if (glance.wait !== 2) throw new Error("Waiting over 5 days should count the two long waits");
+    // Sections: Overdue (Meridian), Due today, Needs a next action (none in the sample); Waiting over and under 5 days.
+    const sections = await page.getByTestId("home-section").evaluateAll((els) => els.map((e) => [e.dataset.section, e.querySelector("[data-testid=section-heading]")?.dataset.count]));
+    if (sections.map((x) => x[0]).join(",") !== "overdue,today,needs,wait-over,wait-under") throw new Error(`sections: ${JSON.stringify(sections)}`);
+    if (Number(sections[0][1]) < 1 || Number(sections[1][1]) < 3 || Number(sections[3][1]) !== 2) throw new Error(`section counts: ${JSON.stringify(sections)}`);
     if ((await page.getByTestId("next-action-row").count()) < 5) throw new Error("next action rows");
     const pills = await page.getByTestId("waiting-days").evaluateAll((els) => els.map((e) => `${e.innerText}:${e.dataset.tone}`));
     if (!pills.includes("11 days:red") || !pills.includes("6 days:amber")) throw new Error(`wait pills: ${pills.join(",")}`);
+    if ((await page.getByTestId("follow-up-button").count()) < 3) throw new Error("Follow up buttons");
+    if (await page.locator("button", { hasText: /^Chase$/ }).count()) throw new Error("a Chase button is still shown");
     if (!(await page.getByTestId("work-date").innerText()).match(/^[A-Z][a-z]+day, [A-Z][a-z]{2} \d/)) throw new Error("date");
+    // The company name shows where it is set ("00 Fleet Repair Shop, Jacksonville" is listed as Coastal Fleet Maintenance).
+    const body = await page.locator("body").innerText();
+    if (!body.includes("Coastal Fleet Maintenance") || body.includes("00 Fleet Repair Shop")) throw new Error("the company name should show instead of the listing name");
+    if (!(await page.getByTestId("home-listings").innerText()).includes("00 Medicaid Transport Provider")) throw new Error("a listing without a company name shows its 00 name");
     // Today and Close the day are under More.
     await page.goto(`${BASE}/more`);
     const more = await page.getByTestId("more-links").innerText();
@@ -3438,15 +3461,61 @@ const expectText = async (page, text) => {
     await page.getByTestId("today").waitFor();
   });
 
-  await step("Screen listings: Add a listing by pasting text (the AI stand-in fills the fields), save, the buy box says Fits", async () => {
+  await step("Home: the filter pills show only matching rows and collapse the other sections; Find narrows by name; Collapse all flips to Expand all and is remembered", async () => {
+    await page.goto(`${BASE}/work`);
+    await page.getByTestId("home-bento").waitFor();
+    const pill = async (k) => Number(await page.getByTestId(`home-filter-${k}`).getAttribute("data-count"));
+    const shownRows = () => page.locator("[data-testid=home-row][data-hidden='0']").count();
+    if ((await pill("all")) !== (await shownRows())) throw new Error("All counts every row");
+    await page.getByTestId("home-filter-wait").click();
+    if ((await shownRows()) !== (await pill("wait"))) throw new Error("the Waiting filter shows the wrong rows");
+    const collapsed = await page.getByTestId("home-section").evaluateAll((els) => els.map((e) => [e.dataset.section, e.dataset.collapsed, !!e.querySelector("[data-testid=home-row][data-hidden='0']"), Number(e.querySelector("[data-testid=section-heading]")?.dataset.count)]));
+    for (const [name, c, hasMatch, n] of collapsed) if (n && c !== (hasMatch ? "0" : "1")) throw new Error(`${name} should be ${hasMatch ? "open" : "collapsed"} under Waiting on someone`);
+    await page.screenshot({ path: path.join(OUT, "flow-work-home-filter.png") });
+    await page.getByTestId("home-filter-all").click();
+    if ((await shownRows()) !== (await pill("all"))) throw new Error("All shows every row again");
+    await page.getByTestId("home-search").fill("summit");
+    const found = await page.locator("[data-testid=home-row][data-hidden='0']").allInnerTexts();
+    if (!found.length || found.some((t) => !t.includes("Summit Logistics Group"))) throw new Error(`Find: ${found.join(" | ").slice(0, 120)}`);
+    await page.getByTestId("home-search").fill("");
+    // Collapse all: every section with rows collapses, the label flips, the choice is remembered in this browser.
+    const ca = page.getByTestId("collapse-all");
+    if ((await ca.innerText()).trim() !== "Collapse all") throw new Error("label before");
+    await ca.click();
+    await page.waitForFunction(() => document.querySelector("[data-testid=collapse-all]")?.innerText.trim() === "Expand all");
+    if (await page.locator("[data-testid=home-section][data-collapsed='0'] [data-testid=section-heading]:not([data-count='0'])").count()) throw new Error("a section with rows is still open");
+    if (await page.getByTestId("home-row").count()) throw new Error("rows still drawn under collapsed sections");
+    await page.screenshot({ path: path.join(OUT, "flow-work-home-collapsed.png") });
+    await page.reload();
+    await page.getByTestId("home-bento").waitFor();
+    await page.waitForFunction(() => document.querySelector("[data-testid=collapse-all]")?.innerText.trim() === "Expand all", null, { timeout: 10000 }).catch(() => { throw new Error("Collapse all not remembered"); });
+    await page.getByTestId("collapse-all").click();
+    await page.waitForFunction(() => document.querySelector("[data-testid=collapse-all]")?.innerText.trim() === "Collapse all");
+    if ((await shownRows()) !== (await pill("all"))) throw new Error("Expand all shows every row");
+    // Deals at a glance: "Waiting over 5 days" opens Deals with the Waiting on someone filter on; "Needs a next action" too.
+    await page.locator("[data-testid=glance-row][data-key=wait]").click();
+    await page.waitForURL(/\/work\/deals\?filter=wait$/);
+    await page.getByTestId("deals-columns").waitFor();
+    if ((await page.getByTestId("deals-filter-wait").getAttribute("aria-pressed")) !== "true") throw new Error("the Waiting filter is not preselected on Deals");
+    const dealsPill = Number(await page.getByTestId("deals-filter-wait").getAttribute("data-count"));
+    if ((await page.locator("[data-testid=deal-row][data-hidden='0']").count()) !== dealsPill) throw new Error("Deals shows only the waiting cards");
+    await page.goto(`${BASE}/work/deals?filter=needs`);
+    await page.getByTestId("deals-columns").waitFor();
+    if ((await page.getByTestId("deals-filter-needs").getAttribute("aria-pressed")) !== "true") throw new Error("the Needs filter is not preselected");
+    await page.goto(`${BASE}/work/deals?filter=nonsense`);
+    await page.getByTestId("deals-columns").waitFor();
+    if ((await page.getByTestId("deals-filter-all").getAttribute("aria-pressed")) !== "true") throw new Error("an unknown filter should mean All");
+  });
+
+  await step("Screen listings: Add a listing by pasting text (the AI stand-in fills both names and the fields), save, the buy box says Fits", async () => {
     await page.goto(`${BASE}/work/listings?add=1`);
     await page.getByTestId("add-listing-card").waitFor();
-    await page.getByTestId("listing-text").fill(["For sale: Riverbend Commercial Cleaning (broker newsletter)", "Janitorial for office parks and medical buildings, 60 recurring contracts", "Revenue: $4.1M. SDE: $1.2M. Asking price: $3.9M", "Location: Macon, GA", "Industry: Commercial services", "Broker: Sunbelt, Dana Whitfield", "https://www.example.com/listings/riverbend"].join("\n"));
+    await page.getByTestId("listing-text").fill(["For sale: Commercial cleaning company (broker newsletter)", "Company: Riverbend Commercial Cleaning", "Janitorial for office parks and medical buildings, 60 recurring contracts", "Revenue: $4.1M. SDE: $1.2M. Asking price: $3.9M", "Location: Macon, GA", "Industry: Commercial services", "Broker: Sunbelt, Dana Whitfield", "https://www.example.com/listings/riverbend"].join("\n"));
     await page.getByTestId("listing-fill").click();
-    await page.waitForFunction(() => document.querySelector("[data-testid=listing-name]")?.value === "Riverbend Commercial Cleaning", null, { timeout: 15000 });
+    await page.waitForFunction(() => document.querySelector("[data-testid=listing-name]")?.value === "00 Commercial Cleaning", null, { timeout: 15000 });
     const got = {};
-    for (const k of ["earnings", "revenue", "asking", "location", "broker", "link", "industry"]) got[k] = await page.getByTestId(`listing-${k}`).inputValue();
-    if (got.earnings !== "$1.2M SDE" || got.revenue !== "$4.1M" || got.asking !== "$3.9M" || got.location !== "Macon, GA" || !got.broker.includes("Sunbelt") || !got.link.includes("riverbend")) throw new Error(`filled: ${JSON.stringify(got)}`);
+    for (const k of ["company", "earnings", "revenue", "asking", "location", "broker", "link", "industry"]) got[k] = await page.getByTestId(`listing-${k}`).inputValue();
+    if (got.company !== "Riverbend Commercial Cleaning" || got.earnings !== "$1.2M SDE" || got.revenue !== "$4.1M" || got.asking !== "$3.9M" || got.location !== "Macon, GA" || !got.broker.includes("Sunbelt") || !got.link.includes("riverbend")) throw new Error(`filled: ${JSON.stringify(got)}`);
     // A typed value is kept when Fill from text runs again.
     await page.getByTestId("listing-what").fill("Janitorial for office parks and medical buildings");
     await page.getByTestId("listing-save").click();
@@ -3454,16 +3523,61 @@ const expectText = async (page, text) => {
     await expectText(page, "Saved Riverbend Commercial Cleaning to the list.");
     const row = page.getByTestId("listing-row").filter({ hasText: "Riverbend Commercial Cleaning" });
     await row.waitFor();
+    if ((await row.innerText()).includes("00 Commercial Cleaning")) throw new Error("the row should show the company name, not the listing name");
     if ((await row.getByTestId("buy-box-pill").innerText()).trim() !== "Fits") throw new Error(`buy box: ${await row.getByTestId("buy-box-pill").innerText()}`);
     if (!(await row.getByTestId("listing-earnings-stat").innerText()).includes("SDE")) throw new Error("earnings stat should say SDE");
+    // Interested is the soft blue button, Add a listing the solid one.
+    const soft = await row.getByTestId("interested-button").evaluate((e) => getComputedStyle(e).backgroundColor);
+    const solid = await page.getByTestId("add-listing-button").evaluate((e) => getComputedStyle(e).backgroundColor);
+    if (soft !== "rgb(238, 243, 254)" || solid !== "rgb(30, 64, 175)") throw new Error(`button colors: interested ${soft}, add ${solid}`);
     const d = await dealByName("Riverbend Commercial Cleaning");
     const fin = await one("select revenue, ebitda, sde, asking_price from deal_financials where item_id = $1", [d.id]);
-    if (d.screened !== false || d.stage !== null || Number(fin.sde) !== 1200000 || fin.ebitda !== null || Number(fin.revenue) !== 4100000 || Number(fin.asking_price) !== 3900000) throw new Error(JSON.stringify({ d, fin }));
+    if (d.name !== "00 Commercial Cleaning" || d.company_name !== "Riverbend Commercial Cleaning" || d.screened !== false || d.stage !== null || Number(fin.sde) !== 1200000 || fin.ebitda !== null || Number(fin.revenue) !== 4100000 || Number(fin.asking_price) !== 3900000) throw new Error(JSON.stringify({ d, fin }));
     await page.screenshot({ path: path.join(OUT, "flow-work-listings.png"), fullPage: true });
   });
 
-  await step("Screen listings: Pass with a reason removes the row, keeps it in the Passed list, and the search finds it", async () => {
+  await step("Fill from text: when the AI never returns the fields, the error shows its reply (first 300 characters) and Try again; a typed listing saves with its 00 name", async () => {
+    await aipost("/__mode", { listing: "invalid" });
+    await page.goto(`${BASE}/work/listings?add=1`);
+    await page.getByTestId("add-listing-card").waitFor();
+    await page.getByTestId("listing-text").fill("Industrial filtration distributor in Macon, about $4M in sales, serving plants across Georgia. Broker: Sunbelt.");
+    const callsBefore = (await aicalls()).filter((c) => c === "listing_fields").length;
+    await page.getByTestId("listing-fill").click();
+    await page.getByTestId("listing-fill-error").waitFor({ timeout: 20000 });
+    const reply = (await page.getByTestId("listing-fill-reply").innerText()).trim();
+    if (!reply.startsWith("I can see an industrial filtration distributor") || reply.length > 300) throw new Error(`reply shown: ${reply.slice(0, 80)}`);
+    // Asked once more with the problems listed (two calls), then gave up.
+    if ((await aicalls()).filter((c) => c === "listing_fields").length !== callsBefore + 2) throw new Error("expected one retry");
+    await page.getByTestId("listing-fill-retry").click();
+    // The retry runs: the error line goes away while the AI is asked, then comes back.
+    await page.waitForFunction(() => !document.querySelector("[data-testid=listing-fill-reply]"), null, { timeout: 5000 }).catch(() => null);
+    await page.getByTestId("listing-fill-error").waitFor({ timeout: 20000 });
+    if ((await aicalls()).filter((c) => c === "listing_fields").length !== callsBefore + 4) throw new Error("Try again should ask again");
+    if ((await page.getByTestId("listing-text").inputValue()).length < 20) throw new Error("the pasted text was lost");
+    await aipost("/__mode", { listing: "valid" });
+    // Typed by hand: the listing name and no company name.
+    await page.getByTestId("listing-name").fill("00 Industrial Filtration Distributor");
+    await page.getByTestId("listing-revenue").fill("$4M");
+    await page.getByTestId("listing-earnings").fill("$900K cash flow");
+    await page.getByTestId("listing-location").fill("Macon, GA");
+    await page.getByTestId("listing-save").click();
+    await page.waitForURL(/\/work\/listings\?saved=/);
+    await expectText(page, "Saved 00 Industrial Filtration Distributor to the list.");
+    const d = await dealByName("00 Industrial Filtration Distributor");
+    const fin = await one("select sde, ebitda from deal_financials where item_id = $1", [d.id]);
+    if (d.company_name !== null || Number(fin.sde) !== 900000 || fin.ebitda !== null) throw new Error(`typed listing: ${JSON.stringify({ d, fin })}`);
+    await page.screenshot({ path: path.join(OUT, "flow-work-listings-fill-error.png"), fullPage: true });
+  });
+
+  await step("Screen listings: the filter pills count fits and misses; Pass with a reason removes the row, keeps it in the Passed list, and Find finds it there", async () => {
     await page.goto(`${BASE}/work/listings`);
+    await page.getByTestId("to-screen-card").waitFor();
+    const pill = async (k) => Number(await page.getByTestId(`listings-filter-${k}`).getAttribute("data-count"));
+    const rows = page.locator("[data-testid=listing-row][data-hidden='0']");
+    if ((await pill("all")) !== (await rows.count()) || (await pill("fit")) + (await pill("nofit")) !== (await pill("all"))) throw new Error("listing filter counts");
+    await page.getByTestId("listings-filter-fit").click();
+    if ((await rows.count()) !== (await pill("fit")) || (await page.locator("[data-testid=listing-row][data-hidden='0'][data-fits='0']").count())) throw new Error("Fits buy box shows the wrong rows");
+    await page.getByTestId("listings-filter-all").click();
     const before = Number((await page.getByTestId("tab-to-screen").innerText()).trim());
     const row = page.getByTestId("listing-row").filter({ hasText: "Titan Steel Fabrication" });
     if ((await row.getByTestId("buy-box-pill").innerText()).trim() !== "Too big") throw new Error("Titan should be too big");
@@ -3471,28 +3585,44 @@ const expectText = async (page, text) => {
     await page.getByTestId("pass-menu").waitFor();
     await page.getByTestId("pass-reason-too_big").click();
     await row.getByTestId("listing-result").waitFor();
-    await page.waitForFunction(() => !document.body.innerText.includes("Titan Steel Fabrication") || document.querySelector("[data-testid=tab-to-screen]")?.innerText.trim() !== undefined, null, { timeout: 15000 });
     await page.waitForFunction((n) => document.querySelector("[data-testid=tab-to-screen]")?.innerText.trim() === String(n - 1), before, { timeout: 15000 });
     const d = await dealByName("Titan Steel Fabrication");
     if (d.stage !== "Passed" || d.pass_reason !== "too_big" || d.screened !== true) throw new Error(JSON.stringify(d));
-    await page.getByTestId("passed-toggle").click();
-    await page.getByTestId("passed-search").fill("titan");
+    // Passed is collapsed by default; the Passed pill opens it and shows only passed rows; Find narrows them.
+    if ((await page.getByTestId("passed-card").getAttribute("data-collapsed")) !== "1") throw new Error("Passed should start collapsed");
+    await page.getByTestId("listings-filter-passed").click();
+    await page.locator("[data-testid=passed-card][data-collapsed='0']").waitFor();
+    if ((await page.getByTestId("to-screen-card").getAttribute("data-collapsed")) !== "1") throw new Error("To screen should collapse under the Passed filter");
+    await page.getByTestId("listings-search").fill("titan");
     const prow = page.getByTestId("passed-row");
     if ((await prow.count()) !== 1 || (await prow.first().getByTestId("passed-reason").innerText()).trim() !== "Too big") throw new Error("passed list search");
-    await page.getByTestId("passed-search").fill("zzzz");
+    await page.getByTestId("listings-search").fill("zzzz");
     await page.getByTestId("passed-empty").waitFor();
+    await page.getByTestId("listings-search").fill("");
+    await page.getByTestId("listings-filter-all").click();
+    // Collapse all on this page too.
+    await page.getByTestId("collapse-all").click();
+    await page.waitForFunction(() => document.querySelector("[data-testid=collapse-all]")?.innerText.trim() === "Expand all");
+    if (await page.getByTestId("listing-row").count()) throw new Error("rows still drawn under the collapsed To screen");
+    await page.getByTestId("collapse-all").click();
+    await page.getByTestId("listing-row").first().waitFor();
   });
 
-  await step("Interested, then Done twice from Work on now moves the deal through two stages (Yes); Not yet clears the action", async () => {
+  await step("Interested fills the open questions with the AI stand-in; then Done twice from Home moves the deal through two stages (Yes); Not yet clears the action", async () => {
     await page.goto(`${BASE}/work/listings`);
     const row = page.getByTestId("listing-row").filter({ hasText: "Riverbend Commercial Cleaning" });
+    const qBefore = (await aicalls()).filter((c) => c === "open_questions").length;
     await row.getByTestId("interested-button").click();
-    await row.getByTestId("listing-result").waitFor();
-    if (!(await row.getByTestId("listing-result").innerText()).includes("now a deal at Interested")) throw new Error("interested confirmation");
+    await row.getByTestId("listing-result").waitFor({ timeout: 20000 });
+    const result = await row.getByTestId("listing-result").innerText();
+    if (!result.includes("now a deal at Interested") || !result.includes("Open questions drafted by the AI")) throw new Error(`interested confirmation: ${result}`);
+    if ((await aicalls()).filter((c) => c === "open_questions").length !== qBefore + 1) throw new Error("Interested should ask the AI for questions once");
     let d = await dealByName("Riverbend Commercial Cleaning");
     if (d.stage !== "Interested" || d.next_action !== "Sign the NDA and ask the broker for a call" || d.next_action_due !== nyDate(1)) throw new Error(JSON.stringify(d));
-    if (!(await one("select 1 x from tasks where pipeline_item_id = $1 and status = 'todo' and title = $2", [d.id, `Riverbend Commercial Cleaning: ${d.next_action}`]))) throw new Error("no task for the next action");
-    // Due today, so it shows on Work on now.
+    const q = d.open_questions_json;
+    if (!q || q.seller.length !== 2 || q.broker.length !== 2 || q.self.length !== 1 || !q.seller[0].includes("Riverbend Commercial Cleaning")) throw new Error(`questions: ${JSON.stringify(q)}`);
+    if (!(await one("select 1 x from tasks where pipeline_item_id = $1 and status = 'todo' and title = $2", [d.id, `00 Commercial Cleaning: ${d.next_action}`]))) throw new Error("no task for the next action");
+    // Due today, so it shows on Home.
     await pg.query("update pipeline_items set next_action_due = $2 where id = $1", [d.id, nyDate(0)]);
     for (const expectStage of ["NDA signed", "Broker call"]) {
       await page.goto(`${BASE}/work`);
@@ -3501,6 +3631,7 @@ const expectText = async (page, text) => {
       await r.getByTestId("next-action-done").click();
       await r.getByTestId("next-action-ask").waitFor();
       if (!(await r.getByTestId("next-action-ask").innerText()).includes(`to ${expectStage}?`)) throw new Error(`ask text: ${await r.getByTestId("next-action-ask").innerText()}`);
+      if (await r.getByTestId("next-action-todo").count()) throw new Error("no to-do, so no Next: choice");
       await r.getByTestId("next-action-yes").click();
       await r.getByTestId("next-action-result").waitFor();
       if (!(await r.getByTestId("next-action-result").innerText()).includes(`moved to ${expectStage}`)) throw new Error("result text");
@@ -3521,13 +3652,16 @@ const expectText = async (page, text) => {
     for (let i = 0; i < 40 && (await dealByName("Riverbend Commercial Cleaning")).next_action !== null; i++) await page.waitForTimeout(250);
     d = await dealByName("Riverbend Commercial Cleaning");
     if (d.stage !== "Broker call" || d.next_action !== null) throw new Error(JSON.stringify(d));
+    // It now shows under Needs a next action on Home, with Set next action.
+    await page.goto(`${BASE}/work`);
+    await page.locator(`[data-testid=needs-action-row][data-deal="${d.id}"] [data-testid=set-next-action]`).waitFor();
     await page.goto(`${BASE}/work/deals`);
     const dr = page.locator(`[data-testid=deal-row][data-deal="${d.id}"]`);
     await dr.getByTestId("needs-action").waitFor();
     await page.screenshot({ path: path.join(OUT, "flow-work-deals.png"), fullPage: true });
   });
 
-  await step("Later moves a next action to tomorrow (the deal and its task); Done on a typed action only clears it", async () => {
+  await step("Later moves a next action to tomorrow (the deal and its task); Done on a typed action with no to-dos only clears it", async () => {
     const dalton = await dealByName("Dalton Services");
     await page.goto(`${BASE}/work`);
     const r = page.locator(`[data-testid=next-action-row][data-deal="${dalton.id}"]`);
@@ -3541,51 +3675,72 @@ const expectText = async (page, text) => {
     const task = await one("select due_date::text from tasks where pipeline_item_id = $1 and status = 'todo' and title = $2", [dalton.id, `Dalton Services: ${dalton.next_action}`]);
     if (task && task.due_date !== nyDate(1)) throw new Error(`task due ${task.due_date}`);
     await pg.query("update pipeline_items set next_action_due = $2 where id = $1", [dalton.id, nyDate(0)]);
-    // Coastal Fleet's action is the stage default; Hilltop's too. Meridian's is typed: Done clears without asking.
-    const meridian = await dealByName("Meridian Industrial Coatings");
+    // Hilltop's action is the stage default. Meridian's is typed: with its to-dos, Done offers the top one (checked on the deal page later);
+    // without to-dos it clears at once. Ridgeline has a typed action and no to-dos.
+    const ridgeline = await dealByName("Ridgeline Commercial Roofing");
+    await pg.query("update pipeline_items set next_action = 'Call the partner about the roofing backlog', next_action_due = $2 where id = $1", [ridgeline.id, nyDate(0)]);
     await page.goto(`${BASE}/work`);
-    const m = page.locator(`[data-testid=next-action-row][data-deal="${meridian.id}"]`);
+    const m = page.locator(`[data-testid=next-action-row][data-deal="${ridgeline.id}"]`);
     await m.getByTestId("next-action-done").click();
     await m.getByTestId("next-action-result").waitFor();
-    if (await m.getByTestId("next-action-ask").count()) throw new Error("a typed action should not ask about the next stage");
-    for (let i = 0; i < 40 && (await dealByName("Meridian Industrial Coatings")).next_action !== null; i++) await page.waitForTimeout(250);
-    if ((await dealByName("Meridian Industrial Coatings")).stage !== "Model") throw new Error("Meridian moved");
+    if (await m.getByTestId("next-action-ask").count()) throw new Error("a typed action without to-dos should not ask");
+    for (let i = 0; i < 40 && (await dealByName("Ridgeline Commercial Roofing")).next_action !== null; i++) await page.waitForTimeout(250);
+    if ((await dealByName("Ridgeline Commercial Roofing")).stage !== "Partner presentation") throw new Error("Ridgeline moved");
   });
 
-  await step("Chase opens the email editor with a drafted follow-up; sending through the Google stand-in logs it on the deal and resets the wait", async () => {
+  await step("Follow up opens the email editor with a drafted follow-up; sending through the Google stand-in logs it on the deal and resets the wait (Followed up)", async () => {
     const summit = await dealByName("Summit Logistics Group");
     const sentBefore = (await gsent()).length;
     await page.goto(`${BASE}/work`);
     const r = page.locator(`[data-testid=waiting-row][data-deal="${summit.id}"]`);
     await r.waitFor();
     if ((await r.getByTestId("waiting-days").getAttribute("data-tone")) !== "red") throw new Error("Summit should be red");
-    await r.getByTestId("chase-button").click();
+    if (!(await r.getByTestId("waiting-since").innerText()).includes("Broker call")) throw new Error("the stage shows next to Since");
+    await r.getByTestId("follow-up-button").click();
     const dlg = page.getByTestId("compose-dialog");
     await dlg.waitFor();
     if ((await composeTo(page)) !== "mark.reed@example.com") throw new Error(`To is ${await composeTo(page)}`);
     if ((await page.getByTestId("compose-subject").inputValue()) !== "Following up on Summit Logistics Group") throw new Error("subject");
     const body = await shownText(page.getByTestId("compose-body"));
     if (!body.includes("Hi Mark,") || !body.includes("a seller call to be scheduled") || !body.includes("11 days")) throw new Error(`body: ${body.slice(0, 120)}`);
-    await page.screenshot({ path: path.join(OUT, "flow-work-chase.png") });
+    await page.screenshot({ path: path.join(OUT, "flow-work-follow-up.png") });
     await page.getByTestId("send-now").click();
     const confirm = page.getByRole("dialog", { name: "Send this email?" });
     await confirm.waitFor();
     await page.getByTestId("send-confirm").click();
     await dlg.getByTestId("send-success").waitFor();
-    if ((await gsent()).length !== sentBefore + 1) throw new Error("Gmail did not get the chase");
+    if ((await gsent()).length !== sentBefore + 1) throw new Error("Gmail did not get the follow-up");
     await page.getByTestId("compose-close").click();
-    await r.getByTestId("chase-sent").waitFor();
+    await r.getByTestId("follow-up-sent").waitFor();
+    if (!(await r.getByTestId("follow-up-sent").innerText()).startsWith("Followed up")) throw new Error("the confirmation should say Followed up");
     for (let i = 0; i < 40 && (await dealByName("Summit Logistics Group")).waiting_since !== nyDate(0); i++) await page.waitForTimeout(250);
     const after = await dealByName("Summit Logistics Group");
     if (after.waiting_since !== nyDate(0) || after.waiting_on !== summit.waiting_on) throw new Error(JSON.stringify(after));
     const comm = await one("select id, subject from communications where pipeline_item_id = $1 and subject = 'Following up on Summit Logistics Group'", [summit.id]);
-    if (!comm) throw new Error("the chase was not logged on the deal");
+    if (!comm) throw new Error("the follow-up was not logged on the deal");
     await page.goto(`${BASE}/work/deals/${summit.id}`);
     await page.getByTestId("timeline-event").filter({ hasText: "Following up on Summit Logistics Group" }).waitFor();
     if (!(await page.getByTestId("deal-wait-pill").innerText()).includes("Today")) throw new Error("the deal page should show the wait reset to today");
   });
 
-  await step("Deal page: next action, findings, and facts save; a note joins the timeline; Advance moves the stage; Pass with a reason", async () => {
+  await step("Deal page: Listed as, Findings (key finding grows, open questions outline, Suggest questions, Email these questions prefilled), Also to do (add, suggest, make next action), Done offers the top to-do", async () => {
+    // A deal with both names shows the company name as the title and "Listed as" under it.
+    const coastal = await dealByName("Coastal Fleet Maintenance");
+    await page.goto(`${BASE}/work/deals/${coastal.id}`);
+    await page.getByTestId("work-deal").waitFor();
+    if ((await page.locator("h1").first().innerText()).trim() !== "Coastal Fleet Maintenance") throw new Error("title should be the company name");
+    if ((await page.getByTestId("deal-listed-as").innerText()).trim() !== "Listed as 00 Fleet Repair Shop, Jacksonville") throw new Error("Listed as");
+    // The right column order: Facts, Timeline, Documents, Decision; the left: Next action, Findings, Also to do.
+    const order = await page.locator("[data-testid=work-deal] section[data-testid^=deal-], [data-testid=work-deal] [data-testid=panel-documents]").evaluateAll((els) => els.map((e) => e.dataset.testid));
+    if (order.join(",") !== "deal-next-action,deal-findings,deal-todos,deal-facts,deal-timeline,panel-documents,deal-decision") throw new Error(`card order: ${order.join(",")}`);
+    // Add a note sits below the timeline list.
+    const noteBelow = await page.getByTestId("deal-timeline").evaluate((card) => {
+      const events = card.querySelector("[data-testid=timeline-events]").getBoundingClientRect();
+      const form = card.querySelector("[data-testid=note-form]").getBoundingClientRect();
+      return form.top >= events.bottom - 1;
+    });
+    if (!noteBelow) throw new Error("Add a note should sit below the timeline");
+
     const dalton = await dealByName("Dalton Services");
     await page.goto(`${BASE}/work/deals/${dalton.id}`);
     await page.getByTestId("work-deal").waitFor();
@@ -3593,33 +3748,142 @@ const expectText = async (page, text) => {
     if (!status.includes("CIM review · day 4") || !status.includes("Not waiting on anyone")) throw new Error(`status line: ${status}`);
     if ((await page.getByTestId("timeline-event").count()) < 6 || (await page.getByTestId("panel-documents").innerText()).includes("No documents")) throw new Error("timeline or documents");
     if (!(await page.getByTestId("fact-asking").innerText()).includes("(3.5x)")) throw new Error("multiple");
-    // Findings
-    await page.getByTestId("key-finding").fill("70% recurring; the service side is the growth question");
+    // The open questions outline: the sample's three groups, every line a text box.
+    const groups = await page.getByTestId("question-group").evaluateAll((els) => els.map((e) => [e.dataset.group, Number(e.dataset.count)]));
+    if (groups.map((g) => g[0]).join(",") !== "seller,broker,self" || groups[0][1] !== 4 || groups[1][1] !== 3 || groups[2][1] !== 3) throw new Error(`groups: ${JSON.stringify(groups)}`);
+    const labels = await page.getByTestId("findings-form").innerText();
+    for (const t of ["Key finding", "Open questions", "Ask the seller", "Ask the broker", "Find out myself", "Filled by the AI when a listing becomes Interested. Edit anything."]) if (!labels.includes(t)) throw new Error(`Findings is missing "${t}"`);
+    if (labels.includes("One line that decides it")) throw new Error("the old subtitle is still there");
+    // The key finding box grows with its text (a textarea that gets taller).
+    const h1 = await page.getByTestId("key-finding").evaluate((e) => e.getBoundingClientRect().height);
+    await page.getByTestId("key-finding").fill("70% recurring; the service side is the growth question.\nTechnician tenure is long.\nThe asking multiple is fair if the top customer stays.\nAsk about the warranty backlog.");
+    const h2 = await page.getByTestId("key-finding").evaluate((e) => e.getBoundingClientRect().height);
+    if (h2 <= h1 + 20) throw new Error(`key finding did not grow: ${h1} -> ${h2}`);
+    // Edit a line, delete a line, add a line.
+    const sellerGroup = page.locator("[data-testid=question-group][data-group=seller]");
+    await sellerGroup.getByTestId("question-input").first().fill("Why sell now at 58, and would you stay 18 months after close?");
+    await sellerGroup.getByTestId("question-delete").last().click();
+    await page.getByTestId("question-add-self").click();
+    await page.locator("[data-testid=question-group][data-group=self] [data-testid=question-input]").last().fill("What do service techs earn in Chattanooga?");
     await page.getByTestId("findings-save").click();
     await page.getByTestId("deal-findings").getByTestId("save-ok").waitFor();
+    let saved = await dealByName("Dalton Services");
+    if (saved.open_questions_json.seller.length !== 3 || saved.open_questions_json.seller[0] !== "Why sell now at 58, and would you stay 18 months after close?" || saved.open_questions_json.self.length !== 4 || !saved.key_finding.includes("warranty backlog")) throw new Error(`saved questions: ${JSON.stringify(saved.open_questions_json)}`);
+    // Suggest questions: the AI stand-in adds lines that are not there yet (saved on the deal; the note says how many).
+    await page.getByTestId("suggest-questions").click();
+    await page.getByTestId("suggest-note").waitFor({ timeout: 20000 });
+    if (!(await page.getByTestId("suggest-note").innerText()).includes("5 suggested")) throw new Error(`suggest note: ${await page.getByTestId("suggest-note").innerText()}`);
+    saved = await dealByName("Dalton Services");
+    if (saved.open_questions_json.seller.length !== 5 || saved.open_questions_json.broker.length !== 5 || saved.open_questions_json.self.length !== 5) throw new Error(`after suggest: ${JSON.stringify(saved.open_questions_json)}`);
+    if ((await page.getByTestId("findings-save").isDisabled()) !== true) throw new Error("nothing is unsaved after Suggest questions");
+    // Email these questions: the editor opens to the broker with the seller and broker groups as bullets under their headings.
+    await page.getByTestId("email-questions").click();
+    const dlg = page.getByTestId("compose-dialog");
+    await dlg.waitFor();
+    if ((await composeTo(page)) !== "rachel.kim@example.com") throw new Error(`To is ${await composeTo(page)}`);
+    if ((await page.getByTestId("compose-subject").inputValue()) !== "Dalton Services, questions") throw new Error("subject");
+    const body = await editorText(page.getByTestId("compose-body"));
+    if (!body.includes("Hi Rachel,") || !body.includes("Ask the seller") || !body.includes("Ask the broker") || !body.includes("- Why sell now at 58, and would you stay 18 months after close?") || !body.includes("- Can we get 3 years of tax returns and the monthly P&L?")) throw new Error(`body: ${body.slice(0, 200)}`);
+    if (body.includes("Find out myself") || body.includes("What do service techs earn")) throw new Error("Find out myself should stay on the deal page");
+    const sendTo = page.getByTestId("compose-recipient");
+    if (!(await sendTo.innerText()).includes("(Broker)")) throw new Error("the broker should be listed as the broker");
+    await page.screenshot({ path: path.join(OUT, "flow-work-email-questions.png") });
+    const sentBefore = (await gsent()).length;
+    await page.getByTestId("send-now").click();
+    await page.getByRole("dialog", { name: "Send this email?" }).waitFor();
+    await page.getByTestId("send-confirm").click();
+    await dlg.getByTestId("send-success").waitFor();
+    if ((await gsent()).length !== sentBefore + 1) throw new Error("Gmail did not get the questions");
+    await page.getByTestId("compose-close").click();
+    await page.getByTestId("timeline-event").filter({ hasText: "Dalton Services, questions" }).waitFor({ timeout: 15000 });
+    if (!(await one("select 1 x from communications where pipeline_item_id = $1 and subject = 'Dalton Services, questions'", [dalton.id]))) throw new Error("the questions email was not logged on the deal");
+
+    // Also to do: the sample's three items; add one, Suggest adds the stand-in's, Make this the next action swaps it in and keeps the old action as an item.
+    const todos = page.getByTestId("deal-todos");
+    if ((await todos.getByTestId("todo-item").count()) !== 3) throw new Error("Dalton should start with 3 to-dos");
+    await todos.getByTestId("todo-add").click();
+    await todos.getByTestId("todo-input").fill("Call the two reference customers");
+    await todos.getByTestId("todo-save").click();
+    await todos.getByTestId("todo-item").filter({ hasText: "Call the two reference customers" }).waitFor();
+    await todos.getByTestId("todo-suggest").click();
+    await todos.getByTestId("todo-note").waitFor({ timeout: 20000 });
+    await page.waitForFunction(() => document.querySelectorAll("[data-testid=deal-todos] [data-testid=todo-item]").length === 7, null, { timeout: 15000 });
+    let rows = await todosOf(dalton.id);
+    if (rows.length !== 7 || !rows.some((t) => t.text === "Read the CIM of Dalton Services end to end")) throw new Error(`to-dos: ${rows.map((t) => t.text).join(" | ")}`);
+    // The checkbox marks one done (struck through, at the bottom); the x deletes one.
+    const first = todos.getByTestId("todo-item").first();
+    const firstText = (await first.getByTestId("todo-text").innerText()).trim();
+    await first.getByTestId("todo-check").check();
+    await page.waitForFunction((t) => [...document.querySelectorAll("[data-testid=deal-todos] [data-testid=todo-item][data-done='1']")].some((e) => e.innerText.includes(t)), firstText, { timeout: 15000 });
+    rows = await todosOf(dalton.id);
+    if (!rows.find((t) => t.text === firstText).done_at) throw new Error("done_at not set");
+    const last = todos.getByTestId("todo-item").filter({ hasText: "Compare Dalton Services with the last two deals passed on" });
+    await last.getByTestId("todo-delete").click();
+    await page.waitForFunction(() => document.querySelectorAll("[data-testid=deal-todos] [data-testid=todo-item]").length === 6, null, { timeout: 15000 });
+    // Make this the next action.
+    const target = todos.getByTestId("todo-item").filter({ hasText: "Call the two reference customers" });
+    await target.getByTestId("todo-make-next").click();
+    await page.waitForFunction(() => document.querySelector("[data-testid=na-action]")?.value === "Call the two reference customers", null, { timeout: 15000 });
+    saved = await dealByName("Dalton Services");
+    if (saved.next_action !== "Call the two reference customers" || saved.next_action_due !== nyDate(1)) throw new Error(`next action: ${JSON.stringify(saved)}`);
+    rows = await todosOf(dalton.id);
+    if (rows.some((t) => t.text === "Call the two reference customers") || !rows.some((t) => t.text === "Review the CIM and write the key finding" && t.position === 0)) throw new Error(`after make next: ${rows.map((t) => `${t.position}:${t.text}`).join(" | ")}`);
+    if ((await page.getByTestId("na-due").inputValue()) !== nyDate(1)) throw new Error("due tomorrow on the card");
+    // Done on this typed action offers the top to-do as the next action.
+    await page.getByTestId("next-action-done").click();
+    await page.getByTestId("next-action-ask").waitFor();
+    const choice = page.getByTestId("next-action-todo");
+    if (!(await choice.innerText()).includes("Next: Review the CIM and write the key finding")) throw new Error(`Next choice: ${await choice.innerText()}`);
+    await choice.click();
+    await page.waitForFunction(() => document.querySelector("[data-testid=na-action]")?.value === "Review the CIM and write the key finding", null, { timeout: 15000 });
+    saved = await dealByName("Dalton Services");
+    if (saved.next_action !== "Review the CIM and write the key finding" || saved.next_action_due !== nyDate(1) || (await todosOf(dalton.id)).some((t) => t.text === saved.next_action)) throw new Error(`after Done with to-do: ${JSON.stringify(saved)}`);
+    // Done on the stage default offers Yes (move), the top to-do, and Not yet: Hilltop with a to-do added.
+    const hilltop = await dealByName("Hilltop Pest Solutions");
+    await pg.query("insert into deal_todos (owner_id, deal_id, text, position) values ($1, $2, 'Ask about the route density', 1)", [OWNER, hilltop.id]);
+    await page.goto(`${BASE}/work`);
+    const hr = page.locator(`[data-testid=next-action-row][data-deal="${hilltop.id}"]`);
+    await hr.waitFor();
+    await hr.getByTestId("next-action-done").click();
+    await hr.getByTestId("next-action-ask").waitFor();
+    const askText = await hr.getByTestId("next-action-ask").innerText();
+    if (!askText.includes("to NDA signed?") || !askText.includes("Next: Ask about the route density") || !askText.includes("Not yet")) throw new Error(`ask with to-do: ${askText}`);
+    await page.screenshot({ path: path.join(OUT, "flow-work-done-todo.png") });
+    await hr.getByTestId("next-action-todo").click();
+    await hr.getByTestId("next-action-result").waitFor();
+    for (let i = 0; i < 40 && (await dealByName("Hilltop Pest Solutions")).next_action !== "Ask about the route density"; i++) await page.waitForTimeout(250);
+    const h = await dealByName("Hilltop Pest Solutions");
+    if (h.stage !== "Interested" || h.next_action !== "Ask about the route density" || (await todosOf(hilltop.id)).length !== 0) throw new Error(`Hilltop after Next: ${JSON.stringify(h)}`);
+    await page.screenshot({ path: path.join(OUT, "flow-work-deal.png"), fullPage: true });
+  });
+
+  await step("Deal page: next action, facts (two names), a note; Advance moves the stage; Pass with a reason (charcoal pill); the Deals filters, Find, Collapse all, and a remembered stage", async () => {
+    const dalton = await dealByName("Dalton Services");
+    await page.goto(`${BASE}/work/deals/${dalton.id}`);
+    await page.getByTestId("work-deal").waitFor();
     // Next action: block minutes and waiting on
     await page.getByTestId("na-minutes").fill("75");
     await page.getByTestId("na-waiting").fill("Rachel Kim");
     await page.getByTestId("na-save").click();
     await page.getByTestId("deal-next-action").getByTestId("save-ok").waitFor();
-    // Facts
+    // Facts: the listing name and the company name are two fields.
     await page.getByTestId("facts-edit").click();
+    if ((await page.getByTestId("fact-name").inputValue()) !== "Dalton Services" || (await page.getByTestId("fact-companyName").inputValue()) !== "") throw new Error("facts name fields");
     await page.getByTestId("fact-revenue").fill("$5.9M");
     await page.getByTestId("fact-whySelling").fill("Retiring at 58, no successor");
     await page.getByTestId("facts-save").click();
     await page.getByTestId("facts-grid").waitFor();
     await page.waitForFunction(() => document.querySelector("[data-testid=fact-revenue]")?.innerText.includes("$5.9M"), null, { timeout: 15000 });
-    // A note
+    // A note (under the timeline)
     await page.getByTestId("deal-note").fill("Flow note: technician tenure averages 6 years.");
     await page.getByTestId("note-save").click();
     await page.getByTestId("timeline-event").filter({ hasText: "Flow note: technician tenure" }).waitFor();
     await page.reload();
-    if ((await page.getByTestId("key-finding").inputValue()) !== "70% recurring; the service side is the growth question") throw new Error("key finding not kept");
+    if (!(await page.getByTestId("key-finding").inputValue()).includes("warranty backlog")) throw new Error("key finding not kept");
     if ((await page.getByTestId("na-minutes").inputValue()) !== "75" || (await page.getByTestId("na-waiting").inputValue()) !== "Rachel Kim") throw new Error("next action not kept");
     if (!(await page.getByTestId("deal-wait-pill").innerText()).includes("Waiting on Rachel Kim")) throw new Error("wait pill");
     const saved = await one("select f.revenue, i.why_selling, i.next_action_minutes, i.waiting_on from pipeline_items i join deal_financials f on f.item_id = i.id where i.id = $1", [dalton.id]);
     if (Number(saved.revenue) !== 5900000 || saved.why_selling !== "Retiring at 58, no successor" || saved.next_action_minutes !== 75) throw new Error(JSON.stringify(saved));
-    await page.screenshot({ path: path.join(OUT, "flow-work-deal.png"), fullPage: true });
     // Advance
     await page.getByTestId("decision-advance").click();
     await page.waitForFunction(() => document.querySelector("[data-testid=deal-stage-pill]")?.innerText.includes("Seller call"), null, { timeout: 15000 });
@@ -3627,7 +3891,7 @@ const expectText = async (page, text) => {
     const moved = await dealByName("Dalton Services");
     if (moved.stage !== "Seller call" || moved.next_action !== "Review the CIM and write the key finding" || moved.waiting_on !== null) throw new Error(JSON.stringify(moved));
     await page.getByTestId("timeline-event").filter({ hasText: "Moved to Seller call" }).waitFor();
-    // Pass with a reason (header button) on another deal
+    // Pass with a reason (header button) on another deal: the Passed pill is charcoal with white text.
     const oakline = await dealByName("Oakline Dental Lab");
     await page.goto(`${BASE}/work/deals/${oakline.id}`);
     await page.getByTestId("deal-pass").click();
@@ -3636,6 +3900,9 @@ const expectText = async (page, text) => {
     const passed = await dealByName("Oakline Dental Lab");
     if (passed.stage !== "Passed" || passed.pass_reason !== "no_growth_path") throw new Error(JSON.stringify(passed));
     if (await page.getByTestId("deal-advance").count()) throw new Error("a passed deal still offers Advance");
+    const pillStyle = await page.getByTestId("deal-stage-pill").evaluate((e) => [getComputedStyle(e).backgroundColor, getComputedStyle(e).color]);
+    if (pillStyle[0] !== "rgb(75, 85, 99)" || pillStyle[1] !== "rgb(255, 255, 255)") throw new Error(`Passed pill: ${pillStyle.join(" / ")}`);
+    await page.screenshot({ path: path.join(OUT, "flow-work-deal-passed.png") });
     // Deals: three phase columns with the nine stages, the stage counts match, the filters count and collapse,
     // a card opens the deal page, Passed and Lost in the bar under the columns
     await page.goto(`${BASE}/work/deals`);
@@ -3669,6 +3936,15 @@ const expectText = async (page, text) => {
     if (found < 1 || found > (await pill("all")) || (await page.locator("[data-testid=deal-row][data-hidden='0']").first().innerText()).indexOf(firstName) < 0) throw new Error(`Find a deal: ${firstName} gives ${found}`);
     if ((await page.locator("[data-testid=deal-row][data-hidden='1']").count()) !== (await pill("all")) - found) throw new Error("Find a deal hides the rest");
     await page.getByTestId("deals-search").fill("");
+    // Collapse all collapses every stage with deals and reads Expand all; Expand all opens them again.
+    await page.getByTestId("collapse-all").click();
+    await page.waitForFunction(() => document.querySelector("[data-testid=collapse-all]")?.innerText.trim() === "Expand all");
+    if (await page.locator("[data-testid=stage-group][data-collapsed='0'] [data-testid=stage-heading]:not([data-count='0'])").count()) throw new Error("a stage with deals is still open after Collapse all");
+    if (await page.getByTestId("stage-body").count()) throw new Error("a collapsed stage still draws its body");
+    await page.screenshot({ path: path.join(OUT, "flow-work-deals-collapsed.png") });
+    await page.getByTestId("collapse-all").click();
+    await page.waitForFunction(() => document.querySelector("[data-testid=collapse-all]")?.innerText.trim() === "Collapse all");
+    if ((await page.locator("[data-testid=deal-row][data-hidden='0']").count()) !== (await pill("all"))) throw new Error("Expand all shows every card");
     // A collapsed stage is remembered in this browser (the first stage that has deals; an empty stage has nothing to collapse)
     const stageName = await page.locator("[data-testid=stage-heading]:not([data-count='0'])").first().getAttribute("data-stage");
     await page.locator(`[data-testid=stage-heading][data-stage="${stageName}"]`).click();

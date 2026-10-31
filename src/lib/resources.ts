@@ -1420,7 +1420,7 @@ export const EXPORT_TABLES = [
   "funding_sources", "repayment_schedules", "reduction_actions", "savings_targets",
   "initiatives", "goals", "milestones", "milestone_options", "decision_conditions", "decisions", "decision_options",
   "scenarios", "scenario_input_changes",
-  "pipelines", "pipeline_stages", "pipeline_items", "stage_history", "deal_financials", "diligence_items", "job_details", "investor_details", "consulting_details",
+  "pipelines", "pipeline_stages", "pipeline_items", "stage_history", "deal_financials", "deal_todos", "diligence_items", "job_details", "investor_details", "consulting_details",
   "stage_tasks", "pipeline_item_stage_extensions",
   "task_templates", "tasks", "calendar_events", "daily_plans", "daily_outcomes",
   "commitments", "missed_commitments", "reviews", "partners", "partner_links", "partner_reports",
