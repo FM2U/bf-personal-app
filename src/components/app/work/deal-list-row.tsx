@@ -4,7 +4,7 @@ import type { DealRow } from "@/lib/work/data";
 import { daysLabel, dueLabel } from "@/lib/work/stages";
 import { Due, Line1, Line2, Line3, Name, Pill, RowShell, Stat, waitTone, What } from "@/components/app/work/ui";
 
-/** One deal row on Deals: name, what it does, the action with its due date, the key finding; EBITDA and location; the wait pill. */
+/** One deal row in the Passed, Lost, and Closed list under the Deals columns: name, what it does, the outcome with its date, the key finding; EBITDA and location; the wait pill. */
 export function DealListRow({ deal, today }: { deal: DealRow; today: string }) {
   const due = deal.nextAction ? dueLabel(deal.nextActionDue, today, (x) => fmtDate(x, "MMM d")) : null;
   const waiting = deal.waitLevel !== "none" && deal.status === "open";

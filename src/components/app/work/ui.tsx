@@ -135,7 +135,7 @@ export function ProgressMark({ stage, className }: { stage: string | null | unde
   );
 }
 
-/** A stage heading inside the Deals card: the gold bar, the name, the count, and the default next action hint. */
+/** A stage heading with the gold bar, the name and the count (the Passed, Lost, and Closed groups under the Deals columns). */
 export function StageHeading({ name, count, hint, empty, children }: { name: string; count: number; hint?: string | null; empty?: boolean; children?: React.ReactNode }) {
   return (
     <div className={cn("flex items-center gap-2.5 px-[22px] text-[13px]", empty ? "py-[11px] font-medium text-slate-400" : "pt-3.5 pb-1 font-semibold text-slate-900")}>

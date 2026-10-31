@@ -3636,13 +3636,47 @@ const expectText = async (page, text) => {
     const passed = await dealByName("Oakline Dental Lab");
     if (passed.stage !== "Passed" || passed.pass_reason !== "no_growth_path") throw new Error(JSON.stringify(passed));
     if (await page.getByTestId("deal-advance").count()) throw new Error("a passed deal still offers Advance");
-    // Deals: grouped by stage, the stepper counts match, a row opens the deal page, Passed and Lost collapsed with counts
+    // Deals: three phase columns with the nine stages, the stage counts match, the filters count and collapse,
+    // a card opens the deal page, Passed and Lost in the bar under the columns
     await page.goto(`${BASE}/work/deals`);
-    const counts = await page.getByTestId("stepper-stage").evaluateAll((els) => els.map((e) => [e.innerText.replace(/\d+$/, "").trim(), Number(e.dataset.count)]));
+    const phases = await page.getByTestId("deals-phase").evaluateAll((els) => els.map((e) => [e.dataset.phase, Number(e.dataset.count)]));
+    if (phases.map((x) => x[0]).join(",") !== "early,evaluate,decide") throw new Error(`phases: ${JSON.stringify(phases)}`);
+    const counts = await page.getByTestId("stage-heading").evaluateAll((els) => els.map((e) => [e.dataset.stage, Number(e.dataset.count)]));
+    if (counts.map((x) => x[0]).join(",") !== "Interested,NDA signed,Broker call,CIM review,Seller call,Model,Partner presentation,IOI or LOI,Diligence") throw new Error(`stages: ${JSON.stringify(counts)}`);
     for (const [name, n] of counts) {
       const inDb = (await one("select count(*)::int n from pipeline_items i join pipeline_stages s on s.id = i.stage_id join pipelines p on p.id = i.pipeline_id where p.kind = 'acquisition' and s.name = $1 and i.screened and i.status = 'open'", [name])).n;
       if (inDb !== n) throw new Error(`${name}: shown ${n}, records ${inDb}`);
     }
+    if (counts.reduce((s, [, n]) => s + n, 0) !== phases.reduce((s, [, n]) => s + n, 0)) throw new Error("phase counts do not add up to the stage counts");
+    if (await page.getByTestId("deals-stepper").count()) throw new Error("the stepper is still on Deals");
+    // Filters: the pill counts match the cards; Waiting on someone shows only the waiting cards and collapses the other stages
+    const pill = async (k) => Number(await page.getByTestId(`deals-filter-${k}`).getAttribute("data-count"));
+    const allRows = page.locator("[data-testid=deal-row][data-hidden]");
+    if ((await pill("all")) !== (await allRows.count())) throw new Error("All count");
+    if ((await pill("wait")) !== (await allRows.locator("[data-testid=deal-wait]").count())) throw new Error("Waiting count");
+    if ((await pill("needs")) !== (await allRows.locator("[data-testid=needs-action]").count())) throw new Error("Needs count");
+    await page.getByTestId("deals-filter-wait").click();
+    if ((await page.locator("[data-testid=deal-row][data-hidden='0']").count()) !== (await pill("wait"))) throw new Error("Waiting filter shows the wrong cards");
+    const collapsed = await page.getByTestId("stage-group").evaluateAll((els) => els.filter((e) => e.closest("[data-testid=deals-phase]")).map((e) => [e.dataset.stage, e.dataset.collapsed, !!e.querySelector("[data-testid=deal-row][data-hidden='0']"), Number(e.querySelector("[data-testid=stage-heading]").dataset.count)]));
+    for (const [name, c, hasMatch, n] of collapsed) if (n && c !== (hasMatch ? "0" : "1")) throw new Error(`${name} should be ${hasMatch ? "open" : "collapsed"} under Waiting on someone`);
+    await page.screenshot({ path: path.join(OUT, "flow-work-deals-filter.png") });
+    await page.getByTestId("deals-filter-all").click();
+    if ((await page.locator("[data-testid=deal-row][data-hidden='0']").count()) !== (await pill("all"))) throw new Error("All shows every card");
+    // Find a deal narrows by name (the first card's full name, so only that deal is shown)
+    const firstName = (await page.locator("[data-testid=deal-row][data-hidden='0']").first().innerText()).split("\n")[0].trim();
+    await page.getByTestId("deals-search").fill(firstName.toLowerCase());
+    const found = await page.locator("[data-testid=deal-row][data-hidden='0']").count();
+    if (found < 1 || found > (await pill("all")) || (await page.locator("[data-testid=deal-row][data-hidden='0']").first().innerText()).indexOf(firstName) < 0) throw new Error(`Find a deal: ${firstName} gives ${found}`);
+    if ((await page.locator("[data-testid=deal-row][data-hidden='1']").count()) !== (await pill("all")) - found) throw new Error("Find a deal hides the rest");
+    await page.getByTestId("deals-search").fill("");
+    // A collapsed stage is remembered in this browser (the first stage that has deals; an empty stage has nothing to collapse)
+    const stageName = await page.locator("[data-testid=stage-heading]:not([data-count='0'])").first().getAttribute("data-stage");
+    await page.locator(`[data-testid=stage-heading][data-stage="${stageName}"]`).click();
+    await page.locator(`[data-testid=stage-group][data-stage="${stageName}"][data-collapsed="1"]`).waitFor();
+    await page.reload();
+    await page.locator(`[data-testid=stage-group][data-stage="${stageName}"][data-collapsed="1"]`).waitFor({ timeout: 10000 }).catch(() => { throw new Error(`collapsed stage ${stageName} not remembered`); });
+    await page.locator(`[data-testid=stage-heading][data-stage="${stageName}"]`).click();
+    await page.locator(`[data-testid=stage-group][data-stage="${stageName}"][data-collapsed="0"]`).waitFor();
     if (!(await page.getByTestId("closed-label").innerText()).match(/Passed \d+ · Lost \d+/)) throw new Error("closed label");
     await page.getByTestId("closed-toggle").click();
     await page.locator("[data-testid=stage-group][data-stage=Passed]").waitFor();

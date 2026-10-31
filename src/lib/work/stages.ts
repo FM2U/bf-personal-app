@@ -67,6 +67,12 @@ export function daysLabel(days: number): string {
   return `${days} ${days === 1 ? "day" : "days"}`;
 }
 
+/** "11 d", "1 d", "Today" (for 0): the wait on the small deal cards. */
+export function daysShort(days: number): string {
+  if (days <= 0) return "Today";
+  return `${days} d`;
+}
+
 /**
  * What Done does on a deal: when the action just done is the stage's default next action, the app asks to move the
  * deal to the next stage ("ask"); otherwise the action is simply cleared and the deal stays where it is ("clear").

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chaseDraft, dayInStage, daysLabel, daysWaiting, doneOutcome, dueLabel, nextStageName, progressSegments, STAGE_DEFAULTS, stageIndex, waitLevel, WORK_STAGES } from "./stages";
+import { chaseDraft, dayInStage, daysLabel, daysShort, daysWaiting, doneOutcome, dueLabel, nextStageName, progressSegments, STAGE_DEFAULTS, stageIndex, waitLevel, WORK_STAGES } from "./stages";
 
 describe("the nine stages", () => {
   it("are in the approved order with a default next action each", () => {
@@ -53,6 +53,9 @@ describe("waiting on someone", () => {
     expect(daysLabel(0)).toBe("Today");
     expect(daysLabel(1)).toBe("1 day");
     expect(daysLabel(6)).toBe("6 days");
+    expect(daysShort(0)).toBe("Today");
+    expect(daysShort(1)).toBe("1 d");
+    expect(daysShort(11)).toBe("11 d");
     expect(dayInStage("2026-10-27T14:00:00Z", "2026-10-30", (ts) => ts.slice(0, 10))).toBe(4);
     expect(dayInStage(null, "2026-10-30", (ts) => ts.slice(0, 10))).toBe(1);
   });
