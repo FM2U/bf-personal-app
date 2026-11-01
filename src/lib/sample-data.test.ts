@@ -14,7 +14,7 @@ const setup: SampleSetup = {
   budgetId: "b-1",
   budgetedCategoryIds: ["cat-Housing"],
   acquisitions: { pipelineId: "p-acq", stages: { Sourced: "s1", Screened: "s2", "NDA signed": "s3" } },
-  consulting: { pipelineId: "p-con", stages: { Active: "c7", Signed: "c6" } },
+  consulting: { pipelineId: "p-con", stages: { Engagement: "c3", Lead: "c1" } },
   initiatives: { "Acquisition Search": "i-acq", Consulting: "i-con" },
 };
 let n = 0;

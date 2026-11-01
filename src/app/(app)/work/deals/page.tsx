@@ -1,5 +1,6 @@
 import { requireOwner } from "@/lib/auth";
-import { countToScreen, loadDeals } from "@/lib/work/data";
+import { loadDeals, loadTabCounts } from "@/lib/work/data";
+import { AskAiPill } from "@/components/app/work/ask-ai";
 import { parseDealFilter } from "@/lib/work/phases";
 import { WorkTabs } from "@/components/app/nav-links";
 import { WorkShell, WorkUpdateNotice } from "@/components/app/work/shell";
@@ -19,12 +20,21 @@ export const metadata = { title: "Deals" };
 export default async function DealsPage({ searchParams }: { searchParams: Promise<{ filter?: string }> }) {
   const { supabase, ownerId } = await requireOwner();
   const sp = await searchParams;
-  const [d, toScreen] = await Promise.all([loadDeals(supabase, ownerId), countToScreen(supabase, ownerId)]);
+  const d = await loadDeals(supabase, ownerId);
+  const tabs = await loadTabCounts(supabase, ownerId, d.today);
   const summary = d.available ? [`Acquisition`, `${d.active} active`, d.waitingOver ? `${d.waitingOver} waiting over ${d.threshold} days` : null].filter(Boolean).join(" · ") : "";
   const header = (
     <>
-      <WorkHeader title="Deals" right={<span data-testid="deals-summary">{summary}</span>} />
-      <WorkTabs toScreen={toScreen} />
+      <WorkHeader
+        title="Deals"
+        right={
+          <>
+            <span data-testid="deals-summary">{summary}</span>
+            <AskAiPill context="Deals" />
+          </>
+        }
+      />
+      <WorkTabs toScreen={tabs.toScreen} outreachDue={tabs.outreachDue} />
     </>
   );
   return (

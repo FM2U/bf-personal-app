@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, useTransition } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Mail, Sparkles } from "lucide-react";
+import { Mail, Phone, Sparkles } from "lucide-react";
 import { addDealNote, addTodo, advanceDeal, deleteTodo, makeTodoNextAction, markLost, passDeal, saveFacts, saveFindings, saveNextAction, setTodoDone, suggestQuestions, suggestTodos, type FactsInput } from "@/app/actions/work";
 import { ComposeEmailDialog } from "@/components/app/compose-email";
 import { useUnsavedWork } from "@/components/app/unsaved-changes";
@@ -13,9 +12,12 @@ import { LISTING_SOURCES, moneyShort, type PassReason } from "@/lib/work/buy-box
 import type { DealRow, Stage, TimelineEvent } from "@/lib/work/data";
 import { QUESTION_GROUPS, questionsEmailDraft, type QuestionGroupKey, type QuestionGroups } from "@/lib/work/questions";
 import { dueLabel } from "@/lib/work/stages";
-import { sortTodos, todosLabel, type DealTodo } from "@/lib/work/todos";
+import type { DealTodo } from "@/lib/work/todos";
 import { NextActionRow } from "@/components/app/work/next-action-row";
+import { TasksCard } from "@/components/app/work/tasks-card";
+import { TimelineEvents } from "@/components/app/work/timeline-list";
 import { PassMenu } from "@/components/app/work/listing-row";
+import { LogCallDrawer } from "@/components/app/work/log-call-drawer";
 import { Pill, RowButton, WorkCard } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
 
@@ -23,8 +25,8 @@ import { cn } from "@/lib/utils";
  * The cards of the deal page (/work/deals/[id]). Each card saves through its own server action and shows "Saved" or
  * the error next to its button; typed text stays in place either way. The page re-reads after a successful save.
  * Edit batch A (2026-10-31): the key finding grows with its text, the open questions are an outline in three groups
- * (filled by the AI, every line editable, Suggest questions, Email these questions), the Also to do checklist, the
- * two name fields in Facts, and Add a note under the timeline.
+ * (filled by the AI, every line editable, Suggest questions, Email these questions), the Tasks checklist (was Also
+ * to do; batch B's shared TasksCard), the two name fields in Facts, Add a note under the timeline, and Log a call.
  */
 
 const INPUT = "h-9 w-full min-w-0 rounded-[7px] border border-input bg-white px-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-60";
@@ -32,7 +34,7 @@ const LABEL = "text-xs font-medium text-muted-foreground";
 const FORM = "grid grid-cols-1 items-center gap-x-3.5 gap-y-2.5 px-[22px] pt-3 pb-5 sm:grid-cols-[110px_minmax(0,1fr)]";
 
 /** A text box that grows with its text (several lines, nothing cut off). */
-function GrowingTextarea({ value, onChange, minRows = 2, minHeight, plain = false, className, ...props }: Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, "value" | "onChange"> & { value: string; onChange: (v: string) => void; minRows?: number; minHeight?: number; /** No box until it is hovered or focused (the open question lines). */ plain?: boolean }) {
+export function GrowingTextarea({ value, onChange, minRows = 2, minHeight, plain = false, className, ...props }: Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, "value" | "onChange"> & { value: string; onChange: (v: string) => void; minRows?: number; minHeight?: number; /** No box until it is hovered or focused (the open question lines). */ plain?: boolean }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     const el = ref.current;
@@ -56,7 +58,7 @@ function GrowingTextarea({ value, onChange, minRows = 2, minHeight, plain = fals
   );
 }
 
-function SaveLine({ state, children }: { state: { kind: "idle" } | { kind: "saved" } | { kind: "error"; text: string }; children: React.ReactNode }) {
+export function SaveLine({ state, children }: { state: { kind: "idle" } | { kind: "saved" } | { kind: "error"; text: string }; children: React.ReactNode }) {
   return (
     <div className="flex flex-wrap items-center justify-end gap-3 sm:col-span-2">
       {state.kind === "saved" ? (
@@ -77,7 +79,7 @@ function SaveLine({ state, children }: { state: { kind: "idle" } | { kind: "save
 type SaveState = { kind: "idle" } | { kind: "saved" } | { kind: "error"; text: string };
 
 /** Field state that follows its saved value: after a save the page re-reads and the field shows what was saved. */
-function useSynced<T>(value: T): [T, React.Dispatch<React.SetStateAction<T>>] {
+export function useSynced<T>(value: T): [T, React.Dispatch<React.SetStateAction<T>>] {
   const [state, setState] = useState(value);
   const [prev, setPrev] = useState(value);
   if (prev !== value) {
@@ -87,7 +89,7 @@ function useSynced<T>(value: T): [T, React.Dispatch<React.SetStateAction<T>>] {
   return [state, setState];
 }
 
-function useSave() {
+export function useSave() {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [state, setState] = useState<SaveState>({ kind: "idle" });
@@ -104,9 +106,11 @@ function useSave() {
 
 // ---------- Header ----------
 
-export function DealHeaderActions({ deal, compose, advanceTo }: { deal: DealRow; compose: ComposeSetup | null; advanceTo: Stage | null }) {
+export function DealHeaderActions({ deal, compose, advanceTo, today, tz }: { deal: DealRow; compose: ComposeSetup | null; advanceTo: Stage | null; today: string; tz: string }) {
   const router = useRouter();
   const [emailOpen, setEmailOpen] = useState(false);
+  const [callOpen, setCallOpen] = useState(false);
+  const [callNote, setCallNote] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const open = deal.status === "open";
@@ -128,19 +132,38 @@ export function DealHeaderActions({ deal, compose, advanceTo }: { deal: DealRow;
             <Mail className="mr-1.5 h-3.5 w-3.5" /> {deal.brokerName || deal.contactName ? "Email the broker" : "Email"}
           </RowButton>
         ) : null}
+        <RowButton onClick={() => setCallOpen(true)} className="h-9 px-3.5 text-[13px]" data-testid="deal-log-call">
+          <Phone className="mr-1.5 h-3.5 w-3.5" /> Log a call
+        </RowButton>
         {open && advanceTo ? (
           <RowButton tone="gold" onClick={() => act(() => advanceDeal(deal.id))} disabled={pending} className="h-9 px-3.5 text-[13px]" data-testid="deal-advance">
             {pending ? "Moving..." : `Advance to ${advanceTo.name}`}
           </RowButton>
         ) : null}
-        {open ? <PassMenu onPick={(reason: PassReason) => act(() => passDeal(deal.id, reason))} pending={pending} testId="deal-pass" /> : null}
+        {open ? <PassMenu onPick={(reason: PassReason) => act(() => passDeal(deal.id, reason))} pending={pending} testId="deal-pass" className="h-9 px-3.5 text-[13px]" /> : null}
       </div>
       {error ? (
         <span className="text-[13px] text-status-missed" role="alert" data-testid="deal-action-error">
           {error}
         </span>
       ) : null}
+      {callNote ? (
+        <span className="text-[13px] font-medium text-status-met" role="status" data-testid="deal-call-logged">
+          {callNote}
+        </span>
+      ) : null}
       {compose && emailOpen ? <ComposeEmailDialog setup={compose} open={emailOpen} onOpenChange={setEmailOpen} /> : null}
+      <LogCallDrawer
+        target={{ contactId: deal.contactId, dealId: deal.id, who: deal.contactName ?? deal.brokerName ?? "", from: `From ${deal.name}`, currentDate: deal.nextActionDue }}
+        today={today}
+        tz={tz}
+        open={callOpen}
+        onOpenChange={setCallOpen}
+        onSaved={(r) => {
+          setCallNote(`Call logged on the timeline, ${r.minutes} min.${r.nextAction ? ` Next action: ${r.nextAction}.` : ""}`);
+          router.refresh();
+        }}
+      />
     </div>
   );
 }
@@ -340,138 +363,25 @@ export function FindingsCard({ deal, compose }: { deal: DealRow; compose: Compos
   );
 }
 
-// ---------- Also to do ----------
+// ---------- Tasks (was Also to do) ----------
 
-/**
- * Also to do: other things to do on this deal, outside its one next action (they do not show on Home). Each item
- * has a checkbox (done), a faint x (delete), and "Make this the next action" (the text becomes the next action due
- * tomorrow and the item leaves the list; a next action that was there is kept as an item). "+ Add" adds a typed
- * item; "Suggest" asks the AI for up to 5 from the deal.
- */
+/** Tasks on a deal: the shared card wired to the deal actions (add, done, delete, Make this the next action, Suggest). */
 export function TodosCard({ deal, todos }: { deal: DealRow; todos: DealTodo[] }) {
-  const router = useRouter();
-  const [text, setText] = useState("");
-  const [adding, setAdding] = useState(false);
-  const [pending, start] = useTransition();
-  const [note, setNote] = useState<{ tone: "ok" | "warn"; text: string } | null>(null);
-  // The checkbox shows the click at once; the saved state arrives with the page re-read.
-  const [ticked, setTicked] = useState<Record<string, boolean>>({});
-  const [prevTodos, setPrevTodos] = useState(todos);
-  if (prevTodos !== todos) {
-    setPrevTodos(todos);
-    setTicked({});
-  }
-  const list = sortTodos(todos);
-  const open = list.filter((t) => !t.doneAt).length;
-  const act = <R extends { ok: true } | { ok: false; error: string }>(fn: () => Promise<R>, after?: (r: Extract<R, { ok: true }>) => void) =>
-    start(async () => {
-      setNote(null);
-      const r = await fn();
-      if (r.ok === false) return setNote({ tone: "warn", text: (r as { ok: false; error: string }).error });
-      after?.(r as Extract<R, { ok: true }>);
-      router.refresh();
-    });
-  useUnsavedWork(text.trim() !== "", "The to-do you typed is not added yet.");
-  const add = () => {
-    if (!text.trim()) return;
-    act(
-      () => addTodo(deal.id, text),
-      () => {
-        setText("");
-        setAdding(false);
-      },
-    );
-  };
   return (
-    <WorkCard
-      title="Also to do"
-      hint={todosLabel(open)}
-      actions={
-        deal.status === "open" ? (
-          <>
-            <button type="button" onClick={() => setAdding(true)} className="text-xs font-medium text-primary-strong hover:underline" data-testid="todo-add">
-              + Add
-            </button>
-            <RowButton onClick={() => act(() => suggestTodos(deal.id), (r) => setNote({ tone: "ok", text: r.added ? `${r.added} suggested.` : "Nothing new to add." }))} disabled={pending} className="h-7 px-2.5 text-xs" data-testid="todo-suggest">
-              <Sparkles className="mr-1 h-3 w-3" /> Suggest
-            </RowButton>
-          </>
-        ) : undefined
-      }
+    <TasksCard
+      tasks={todos}
+      open={deal.status === "open"}
+      actions={{
+        add: (text) => addTodo(deal.id, text),
+        setDone: (id, done) => setTodoDone(id, done),
+        remove: (id) => deleteTodo(id),
+        makeNext: (id) => makeTodoNextAction(id),
+        suggest: () => suggestTodos(deal.id),
+      }}
+      placeholder="Something else to do on this deal"
+      emptyText="Nothing else yet. Add what else needs doing on this deal, or let the AI suggest a few."
       testId="deal-todos"
-    >
-      <div className="flex flex-col px-[22px] pt-2 pb-4" data-testid="todo-list">
-        {list.map((t) => (
-          <div key={t.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-slate-100 py-[7px] last:border-b-0" data-testid="todo-item" data-done={t.doneAt ? "1" : "0"}>
-            <input
-              type="checkbox"
-              checked={ticked[t.id] ?? !!t.doneAt}
-              onChange={(e) => {
-                const on = e.target.checked;
-                setTicked((m) => ({ ...m, [t.id]: on }));
-                act(() => setTodoDone(t.id, on));
-              }}
-              disabled={pending}
-              aria-label={`Done: ${t.text}`}
-              className="h-4 w-4 shrink-0 accent-[var(--primary)]"
-              data-testid="todo-check"
-            />
-            <span className={cn("min-w-0 flex-1 basis-[220px] text-sm text-slate-800", t.doneAt && "text-slate-400 line-through")} data-testid="todo-text">
-              {t.text}
-            </span>
-            {!t.doneAt && deal.status === "open" ? (
-              <button type="button" onClick={() => act(() => makeTodoNextAction(t.id), () => setNote({ tone: "ok", text: `Next action set: ${t.text}, due tomorrow.` }))} disabled={pending} className="ml-6 shrink-0 text-xs font-medium whitespace-nowrap text-primary-strong hover:underline sm:ml-0" data-testid="todo-make-next">
-                Make this the next action
-              </button>
-            ) : null}
-            <button type="button" onClick={() => act(() => deleteTodo(t.id))} disabled={pending} className="h-6 w-6 shrink-0 rounded text-slate-300 hover:bg-slate-100 hover:text-slate-600" aria-label={`Delete: ${t.text}`} title="Delete" data-testid="todo-delete">
-              ×
-            </button>
-          </div>
-        ))}
-        {!list.length && !adding ? <p className="py-2 text-[13px] text-muted-foreground">Nothing else yet. Add what else needs doing on this deal, or let the AI suggest a few.</p> : null}
-        {adding ? (
-          <div className="flex items-center gap-2 pt-2">
-            <input
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  add();
-                }
-                if (e.key === "Escape") {
-                  setAdding(false);
-                  setText("");
-                }
-              }}
-              autoFocus
-              placeholder="Something else to do on this deal"
-              className={INPUT}
-              data-testid="todo-input"
-            />
-            <RowButton tone={text.trim() ? "primary" : "outline"} onClick={add} disabled={pending || !text.trim()} data-testid="todo-save">
-              Add
-            </RowButton>
-            <button
-              type="button"
-              onClick={() => {
-                setAdding(false);
-                setText("");
-              }}
-              className="text-xs text-muted-foreground hover:underline"
-            >
-              Cancel
-            </button>
-          </div>
-        ) : null}
-        {note ? (
-          <p className={cn("pt-2 text-[13px]", note.tone === "ok" ? "text-status-met" : "text-status-missed")} role="status" data-testid="todo-note">
-            {note.text}
-          </p>
-        ) : null}
-      </div>
-    </WorkCard>
+    />
   );
 }
 
@@ -488,7 +398,7 @@ function linkLabel(url: string): string {
   }
 }
 
-function Fact({ label, children, testId }: { label: string; children: React.ReactNode; testId?: string }) {
+export function Fact({ label, children, testId }: { label: string; children: React.ReactNode; testId?: string }) {
   return (
     <div className="flex min-w-0 flex-col gap-0.5" data-testid={testId}>
       <span className="text-[11px] font-semibold tracking-[0.06em] text-slate-400 uppercase">{label}</span>
@@ -626,44 +536,13 @@ export function FactsCard({ deal }: { deal: DealRow }) {
 
 // ---------- Timeline ----------
 
-const ICON: Record<TimelineEvent["kind"], { text: string; cls: string }> = {
-  note: { text: "N", cls: "border-border bg-status-neutral-bg text-status-neutral" },
-  email: { text: "E", cls: "border-gold-border bg-gold-soft text-gold-strong" },
-  call: { text: "C", cls: "border-border bg-status-neutral-bg text-status-neutral" },
-  move: { text: "→", cls: "border-primary-border bg-primary-soft text-primary-strong" },
-  other: { text: "·", cls: "border-border bg-status-neutral-bg text-status-neutral" },
-};
-
 export function TimelineCard({ deal, events }: { deal: DealRow; events: TimelineEvent[] }) {
   const { pending, state, run } = useSave();
   const [note, setNote] = useState("");
   useUnsavedWork(note.trim() !== "", "The note is not saved yet.");
   return (
     <WorkCard title="Timeline" hint="Newest first" testId="deal-timeline">
-      <div className="px-[22px] pt-1 pb-1" data-testid="timeline-events">
-        {events.length ? (
-          events.map((e) => (
-            <div key={e.id} className="grid grid-cols-[56px_22px_minmax(0,1fr)] gap-x-2.5 border-b border-slate-100 py-[9px] last:border-b-0" data-testid="timeline-event" data-kind={e.kind}>
-              <span className="pt-0.5 text-xs text-muted-foreground">{e.date}</span>
-              <span className={cn("flex h-[18px] w-[18px] items-center justify-center rounded-full border text-[10px] font-bold", ICON[e.kind].cls)} aria-hidden>
-                {ICON[e.kind].text}
-              </span>
-              <span className="min-w-0 text-sm text-slate-900">
-                {e.href ? (
-                  <Link href={e.href} className="hover:underline">
-                    {e.title}
-                  </Link>
-                ) : (
-                  e.title
-                )}
-                {e.detail ? <span className="block text-[12.5px] text-muted-foreground">{e.detail}</span> : null}
-              </span>
-            </div>
-          ))
-        ) : (
-          <p className="py-2 text-[13px] text-muted-foreground">Nothing yet. Notes, emails, calls, and stage moves show here.</p>
-        )}
-      </div>
+      <TimelineEvents events={events} empty="Nothing yet. Notes, emails, calls, and stage moves show here." />
       <div className="flex flex-col gap-2 px-[22px] pt-2 pb-4" data-testid="note-form">
         <div className="flex items-start gap-2">
           <GrowingTextarea id="deal-note" value={note} onChange={setNote} minRows={1} placeholder="Add a note: what you learned, who said what" className="flex-1" data-testid="deal-note" />
@@ -715,7 +594,7 @@ export function DecisionCard({ deal, advanceTo }: { deal: DealRow; advanceTo: St
               {pending ? "Moving..." : `Advance to ${advanceTo.name}`}
             </RowButton>
           ) : null}
-          <PassMenu label="Pass with a reason" onPick={(reason: PassReason) => act(() => passDeal(deal.id, reason))} pending={pending} testId="decision-pass" align="left" />
+          <PassMenu label="Pass with a reason" onPick={(reason: PassReason) => act(() => passDeal(deal.id, reason))} pending={pending} testId="decision-pass" align="left" className="h-9 px-3.5 text-[13px]" />
           <button type="button" onClick={() => act(() => markLost(deal.id))} disabled={pending} className="ml-1 text-xs text-muted-foreground hover:text-slate-800 hover:underline" data-testid="decision-lost">
             Lost (the seller withdrew or chose someone else)
           </button>

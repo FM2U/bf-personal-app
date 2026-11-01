@@ -5,21 +5,28 @@ import { MAIN_NAV, mainFor, moduleFor, WORK_TABS, workTabFor } from "@/lib/nav";
 import { cn } from "@/lib/utils";
 import { ModuleIcon } from "@/components/app/module-icon";
 
-/** A small count next to a menu or tab label (listings to screen). */
-export function CountBadge({ n, className, testId }: { n: number | null | undefined; className?: string; testId?: string }) {
+/** A small count next to a menu or tab label (listings to screen; amber for people due on Outreach). */
+export function CountBadge({ n, className, testId, tone = "gray" }: { n: number | null | undefined; className?: string; testId?: string; tone?: "gray" | "amber" }) {
   if (!n) return null;
   return (
-    <span className={cn("tabular rounded-full bg-status-neutral-bg px-2 py-px text-[11px] font-semibold leading-4 text-status-neutral", className)} data-testid={testId}>
+    <span className={cn("tabular rounded-full px-2 py-px text-[11px] font-semibold leading-4", tone === "amber" ? "bg-status-soon-bg text-status-soon" : "bg-status-neutral-bg text-status-neutral", className)} data-testid={testId}>
       {n}
     </span>
   );
 }
 
+/** The badge a Work tab shows: listings to screen (gray) or people due today or overdue on Outreach (amber). */
+function tabBadge(href: string, toScreen: number | null | undefined, outreachDue: number | null | undefined, where: "subnav" | "tab") {
+  if (href === "/work/listings") return <CountBadge n={toScreen} testId={`${where}-to-screen`} />;
+  if (href === "/work/outreach") return <CountBadge n={outreachDue} tone="amber" testId={`${where}-outreach-due`} />;
+  return null;
+}
+
 /**
- * The main menu: Work, Accountability, More. Under Work (while it is open), its three screens with the count of
- * listings to screen (`toScreen`, read by the app layout).
+ * The main menu: Work, Accountability, More. Under Work (while it is open), its eight screens with the count of
+ * listings to screen and the count of people due on Outreach (`toScreen`, `outreachDue`, read by the app layout).
  */
-export function SidebarLinks({ toScreen }: { toScreen?: number | null }) {
+export function SidebarLinks({ toScreen, outreachDue }: { toScreen?: number | null; outreachDue?: number | null }) {
   const path = usePathname();
   const active = mainFor(path).key;
   const tab = workTabFor(path);
@@ -47,7 +54,7 @@ export function SidebarLinks({ toScreen }: { toScreen?: number | null }) {
                     className={cn("flex items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-slate-600 hover:bg-slate-100", tab?.href === t.href && "font-semibold text-primary-strong")}
                   >
                     {t.label}
-                    {t.href === "/work/listings" ? <CountBadge n={toScreen} testId="subnav-to-screen" /> : null}
+                    {tabBadge(t.href, toScreen, outreachDue, "subnav")}
                   </Link>
                 ))}
               </div>
@@ -59,12 +66,12 @@ export function SidebarLinks({ toScreen }: { toScreen?: number | null }) {
   );
 }
 
-/** The Work tabs (Home, Screen listings with the count, Deals), in the module tab style. */
-export function WorkTabs({ toScreen }: { toScreen?: number | null }) {
+/** The Work tabs (Home, Screen listings with the count, Deals, Outreach with the due count, Rosara, Job search, Consulting, To-dos), in the module tab style. */
+export function WorkTabs({ toScreen, outreachDue, tight = false }: { toScreen?: number | null; outreachDue?: number | null; /** No space or line under the tabs (a pinned block with no filter row draws the hairline itself). */ tight?: boolean }) {
   const path = usePathname();
   const tab = workTabFor(path);
   return (
-    <div className="no-print -mx-4 mb-6 overflow-x-auto border-b border-border px-4 sm:mx-0 sm:px-0">
+    <div className={cn("no-print -mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0", tight ? "mb-0" : "mb-6 border-b border-border")}>
       <nav className="flex min-w-max gap-1" aria-label="Work sections">
         {WORK_TABS.map((t) => (
           <Link
@@ -77,7 +84,7 @@ export function WorkTabs({ toScreen }: { toScreen?: number | null }) {
             data-testid={`work-tab-${t.href.replace(/\//g, "-").replace(/^-/, "")}`}
           >
             {t.label}
-            {t.href === "/work/listings" ? <CountBadge n={toScreen} testId="tab-to-screen" /> : null}
+            {tabBadge(t.href, toScreen, outreachDue, "tab")}
           </Link>
         ))}
       </nav>

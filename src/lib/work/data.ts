@@ -5,14 +5,18 @@ import { loadCtx, type Ctx } from "@/lib/engine/helpers";
 import { date as fmtDate } from "@/lib/format";
 import { loadDocuments, type DocumentItem } from "@/lib/record-panels-data";
 import { loadComposeSetup, type ComposeSetup } from "@/lib/compose-email";
-import { DB_UPDATE_NOTICE_0020, DB_UPDATE_NOTICE_0021 } from "@/lib/schema-guard";
+import { DB_UPDATE_NOTICE_0020, DB_UPDATE_NOTICE_0021, DB_UPDATE_NOTICE_0022 } from "@/lib/schema-guard";
 import { hasUpdate0020 } from "@/lib/update-0020";
 import { hasUpdate0021 } from "@/lib/update-0021";
+import { hasUpdate0022 } from "@/lib/update-0022";
+import { countOutreachDue, loadOutreachHome, type OutreachHome } from "@/lib/work/outreach-data";
 import { askingMultiple, checkBuyBox, earningsOf, passReasonLabel } from "@/lib/work/buy-box";
 import { glanceCounts, type GlanceCounts } from "@/lib/work/home";
 import { compareNames, displayName } from "@/lib/work/names";
 import { parseOpenQuestions, type QuestionGroups } from "@/lib/work/questions";
 import { DEFAULT_WAIT_THRESHOLD_DAYS, WORK_STAGES, dayInStage, daysWaiting, doneOutcome, nextStageName, stageIndex, waitLevel, type WaitLevel } from "@/lib/work/stages";
+import { commTitle, type TimelineEvent } from "@/lib/work/timeline";
+export type { TimelineEvent } from "@/lib/work/timeline";
 import { sortTodos, topTodo, type DealTodo } from "@/lib/work/todos";
 import type { Row } from "@/lib/types";
 
@@ -20,15 +24,16 @@ import type { Row } from "@/lib/types";
  * Everything the Work screens read (Home, Screen listings, Deals, the deal page). One pipeline: the owner's
  * acquisition pipeline (kind acquisition). Listings are its items with screened = false and no stage; deals are its
  * screened items. Nothing here writes; the actions are in src/app/actions/work.ts. Every loader first checks database
- * updates 0020 and 0021; before them `available` is false and `notice` names the file to run.
+ * updates 0020, 0021, and 0022; before them `available` is false and `notice` names the file to run.
  */
 
 export type WorkCtx = Ctx & { threshold: number };
 
-/** The "Database update needed" line for the first update that is missing, or null when both are applied. */
+/** The "Database update needed" line for the first update that is missing, or null when all three are applied. */
 export async function workUpdateNotice(sb: SupabaseClient): Promise<string | null> {
   if (!(await hasUpdate0020(sb))) return DB_UPDATE_NOTICE_0020;
   if (!(await hasUpdate0021(sb))) return DB_UPDATE_NOTICE_0021;
+  if (!(await hasUpdate0022(sb))) return DB_UPDATE_NOTICE_0022;
   return null;
 }
 
@@ -124,6 +129,14 @@ export async function countToScreen(sb: SupabaseClient, ownerId: string): Promis
   const { count, error } = await sb.from("pipeline_items").select("id", { count: "exact", head: true }).eq("owner_id", ownerId).eq("screened", false).eq("status", "open");
   if (error) return null;
   return count ?? 0;
+}
+
+/** The two badges on the Work tabs: listings to screen and people due on Outreach (null before their updates). */
+export type TabCounts = { toScreen: number | null; outreachDue: number | null };
+
+export async function loadTabCounts(sb: SupabaseClient, ownerId: string, today: string): Promise<TabCounts> {
+  const [toScreen, outreachDue] = await Promise.all([countToScreen(sb, ownerId), countOutreachDue(sb, ownerId, today)]);
+  return { toScreen, outreachDue };
 }
 
 const ITEM_COLUMNS = "id,name,company_name,status,stage_id,pipeline_id,primary_contact_id,source,next_action,next_action_due,next_action_minutes,what_it_does,location,industry,listing_url,broker_name,why_selling,key_finding,open_questions,open_questions_json,waiting_on,waiting_since,pass_reason,screened,created_at,stage_entered_at,notes";
@@ -222,6 +235,7 @@ export type WorkNowData = {
   /** The "Database update needed" line when a Work update is missing. */
   notice: string | null;
   today: string;
+  tz: string;
   threshold: number;
   toScreen: number;
   /** The open deals in the nine working stages (every Home section and filter reads these). */
@@ -229,16 +243,18 @@ export type WorkNowData = {
   /** The newest three listings to screen. */
   listings: ListingTile[];
   glance: GlanceCounts;
+  /** The Outreach tile and the outreach rows on Next actions (batch B). */
+  outreach: OutreachHome;
 };
 
 /** Home (Work on now): the open deals in the nine stages, the newest listings to screen, and the Deals at a glance counts. */
 export async function loadWorkNow(sb: SupabaseClient, ownerId: string): Promise<WorkNowData> {
   const ctx = await loadWorkCtx(sb, ownerId);
-  const base: WorkNowData = { available: false, notice: null, today: ctx.today, threshold: ctx.threshold, toScreen: 0, deals: [], listings: [], glance: { active: 0, early: 0, evaluate: 0, decide: 0, waitingOver: 0, needsAction: 0 } };
+  const base: WorkNowData = { available: false, notice: null, today: ctx.today, tz: ctx.tz, threshold: ctx.threshold, toScreen: 0, deals: [], listings: [], glance: { active: 0, early: 0, evaluate: 0, decide: 0, waitingOver: 0, needsAction: 0 }, outreach: { counter: { count: 0, target: 10, pct: 0 }, dueToday: [], due: [], overdue: 0 } };
   const notice = await workUpdateNotice(sb);
   if (notice) return { ...base, notice };
-  const pipe = await loadWorkPipeline(sb, ownerId);
-  if (!pipe) return { ...base, available: true };
+  const [pipe, outreach] = await Promise.all([loadWorkPipeline(sb, ownerId), loadOutreachHome(sb, ctx)]);
+  if (!pipe) return { ...base, available: true, outreach };
   const loaded = await loadItems(sb, ownerId, pipe.id, null);
   const rows = loaded.items.map((i) => toDealRow(i, loaded.financials[i.id], loaded.contacts[i.primary_contact_id], pipe, ctx, loaded.todos[i.id]));
   const deals = rows.filter((d, n) => loaded.items[n].screened !== false && d.status === "open" && d.stageIndex >= 0).sort((a, b) => compareNames(a.name, b.name));
@@ -253,6 +269,7 @@ export async function loadWorkNow(sb: SupabaseClient, ownerId: string): Promise<
     deals,
     listings: listings.slice(0, 3).map((l) => ({ id: l.id, name: l.name, meta: [l.brokerName, l.location].filter(Boolean).join(" · ") })),
     glance: glanceCounts(groups),
+    outreach,
   };
 }
 
@@ -333,17 +350,6 @@ export async function loadDeals(sb: SupabaseClient, ownerId: string): Promise<De
   };
 }
 
-/** "Email received: CIM received", "Call with Rachel Kim, 20 min" (no "Call:" twice), "Meeting: ...". */
-function commTitle(c: Row): string {
-  const kind = c.method === "email" ? (c.direction === "incoming" ? "Email received" : "Email sent") : c.method === "call" ? "Call" : c.method === "meeting" ? "Meeting" : c.method === "video" ? "Video call" : "Contact";
-  const subject = c.subject ? String(c.subject).slice(0, 120) : "";
-  if (!subject) return kind;
-  if (new RegExp(`^${c.method === "email" ? "email" : kind}\\b`, "i").test(subject)) return subject;
-  return `${kind}: ${subject}`;
-}
-
-export type TimelineEvent = { id: string; kind: "note" | "email" | "call" | "move" | "other"; when: string; date: string; title: string; detail: string | null; href: string | null };
-
 /** A person the "Email these questions" message can go to: the broker (the deal's main contact) and, when known, the seller. */
 export type QuestionsRecipient = { contactId: string; name: string; email: string; role: "Broker" | "Seller" | "Deal came from" | "Introduced by" | "At the organization" };
 
@@ -351,12 +357,15 @@ export type DealPageData = {
   available: boolean;
   notice: string | null;
   today: string;
+  tz: string;
   threshold: number;
   deal: DealRow | null;
   timeline: TimelineEvent[];
   documents: DocumentItem[];
-  /** The Also to do checklist, open items first. */
+  /** The Tasks checklist (was Also to do), open items first. */
   todos: DealTodo[];
+  /** The last logged email or call on this deal (the header figure): the owner's date (YYYY-MM-DD) and what kind. */
+  lastContact: { on: string; kind: string } | null;
   compose: ComposeSetup | null;
   /** The email setup for "Email these questions": to the broker by default, the seller selectable when the app knows one. */
   questionsCompose: ComposeSetup | null;
@@ -369,7 +378,7 @@ export type DealPageData = {
 /** The deal page: the deal, its timeline (notes, communications, stage moves; newest first), documents, and the email setup. */
 export async function loadDealPage(sb: SupabaseClient, ownerId: string, id: string): Promise<DealPageData> {
   const ctx = await loadWorkCtx(sb, ownerId);
-  const base: DealPageData = { available: false, notice: null, today: ctx.today, threshold: ctx.threshold, deal: null, timeline: [], documents: [], todos: [], compose: null, questionsCompose: null, advanceTo: null, passedStageId: null, lostStageId: null };
+  const base: DealPageData = { available: false, notice: null, today: ctx.today, tz: ctx.tz, threshold: ctx.threshold, deal: null, timeline: [], documents: [], todos: [], lastContact: null, compose: null, questionsCompose: null, advanceTo: null, passedStageId: null, lostStageId: null };
   const notice = await workUpdateNotice(sb);
   if (notice) return { ...base, notice };
   const pipe = await loadWorkPipeline(sb, ownerId);
@@ -381,7 +390,7 @@ export async function loadDealPage(sb: SupabaseClient, ownerId: string, id: stri
     sb.from("deal_financials").select("item_id,revenue,ebitda,sde,asking_price").eq("item_id", id).maybeSingle(),
     item.primary_contact_id ? sb.from("contacts").select("id,name,email,organization_id").eq("id", item.primary_contact_id).maybeSingle() : Promise.resolve({ data: null }),
     sb.from("notes").select("id,body,created_at").eq("record_type", "pipeline_items").eq("record_id", id).order("created_at", { ascending: false }).limit(50),
-    sb.from("communications").select("id,occurred_at,method,direction,subject,summary").eq("pipeline_item_id", id).order("occurred_at", { ascending: false }).limit(50),
+    sb.from("communications").select("id,occurred_at,method,direction,subject,summary,call_minutes,awaiting_log").eq("pipeline_item_id", id).order("occurred_at", { ascending: false }).limit(50),
     sb.from("record_links").select("from_id").eq("from_type", "communications").eq("to_type", "pipeline_items").eq("to_id", id),
     sb.from("stage_history").select("id,stage_id,entered_at").eq("item_id", id).order("entered_at", { ascending: false }).limit(50),
     loadDocuments(sb, "pipeline_items", id),
@@ -391,12 +400,13 @@ export async function loadDealPage(sb: SupabaseClient, ownerId: string, id: stri
   const todos = sortTodos(((todoRows ?? []) as Row[]).map(toTodo));
   const deal = toDealRow(item, (fin as Row | null) ?? undefined, (contact as Row | null) ?? undefined, pipe, ctx, todos);
   // Communications linked through record_links but not stamped with the item (older rows).
-  const commRows = (comms ?? []) as Row[];
+  const commRows = ((comms ?? []) as Row[]).filter((c) => !c.awaiting_log);
   const linkedIds = ((links ?? []) as Row[]).map((l) => l.from_id).filter((x) => !commRows.some((c) => c.id === x));
   if (linkedIds.length) {
-    const { data: more } = await sb.from("communications").select("id,occurred_at,method,direction,subject,summary").in("id", linkedIds);
-    commRows.push(...((more ?? []) as Row[]));
+    const { data: more } = await sb.from("communications").select("id,occurred_at,method,direction,subject,summary,call_minutes,awaiting_log").in("id", linkedIds);
+    commRows.push(...((more ?? []) as Row[]).filter((c) => !c.awaiting_log));
   }
+  const lastComm = [...commRows].filter((c) => ["email", "call", "meeting", "video", "text"].includes(String(c.method))).sort((a, b) => (String(a.occurred_at) < String(b.occurred_at) ? 1 : -1))[0];
   const events: TimelineEvent[] = [
     ...((notes ?? []) as Row[]).map((n) => ({ id: `note:${n.id}`, kind: "note" as const, when: String(n.created_at), date: fmtDate(String(n.created_at), "MMM d"), title: String(n.body ?? "").split("\n")[0].slice(0, 140), detail: String(n.body ?? "").split("\n").slice(1).join(" ").trim() || null, href: null })),
     ...commRows.map((c) => ({
@@ -423,6 +433,7 @@ export async function loadDealPage(sb: SupabaseClient, ownerId: string, id: stri
     timeline: events,
     documents,
     todos,
+    lastContact: lastComm ? { on: todayInTz(ctx.tz, new Date(String(lastComm.occurred_at))), kind: String(lastComm.method) } : null,
     compose: compose ? { ...compose, title: `Email about ${deal.name}` } : null,
     questionsCompose: compose ? await questionsComposeSetup(sb, compose, deal) : null,
     advanceTo,

@@ -4,7 +4,10 @@
  * timeline entries and two documents. Since Edit batch A (2026-10-31): one listing with a placeholder name
  * ("00 Medicaid Transport Provider", no company name yet), one deal with both names (listed as "00 Fleet Repair
  * Shop, Jacksonville", company Coastal Fleet Maintenance), open questions in three groups on three deals, and Also to
- * do items on two. Pure: dates are relative to `today`; tested in src/lib/work/sample.test.ts.
+ * do items on two. Batch B (2026-10-31, update 0022): the four brokers and twelve more people on Outreach with roles,
+ * purposes, next follow-ups, and notes across every section, calls and emails on their timelines, three incoming
+ * replies not yet logged (two on Mark Reed), tasks on two people, and five personal to-dos. Pure: dates are relative
+ * to `today`; tested in src/lib/work/sample.test.ts.
  * Unlike the rest of the sample data these names come from the approved mockup and do not start with "Sample";
  * every row is still recorded in sample_records, so Remove sample data deletes them (the to-dos go with their deal).
  */
@@ -12,7 +15,7 @@ import { addDaysISO } from "@/lib/calc/dates";
 import { checkBuyBox, dealSourceTypeFor } from "@/lib/work/buy-box";
 import { STAGE_DEFAULTS } from "@/lib/work/stages";
 
-export type WorkSampleSetup = { pipelineId: string; stages: Record<string, string> };
+export type WorkSampleSetup = { pipelineId: string; stages: Record<string, string>; /** Database update 0022 is applied: the Outreach people, their calls, emails, and replies, tasks on people, and the personal to-dos. */ batchB?: boolean };
 
 type R = Record<string, unknown>;
 
@@ -27,8 +30,10 @@ export type WorkSample = {
   stageDates: { itemId: string; enteredDaysAgo: number; history: { stageName: string; daysAgo: number }[] }[];
   /** Small files to put in storage and record as documents (Dalton Services). */
   documents: { itemId: string; fileName: string; kind: string; mimeType: string; text: string }[];
-  /** The Also to do items (deal_todos, database update 0021), inserted after the deals. */
-  todos: { id: string; deal_id: string; text: string; position: number }[];
+  /** The Tasks items (deal_todos, database update 0021), inserted after the deals; batch B adds tasks on people (record_type contacts). */
+  todos: { id: string; deal_id?: string; record_type?: string; record_id?: string; text: string; position: number }[];
+  /** The personal To-dos (table todos, database update 0022): two due today, two in the next 7 days, one later. */
+  personalTodos: R[];
 };
 
 /** Every sample name the Work module adds (listings, deals, brokers, firms), so tests can tell them apart. */
@@ -38,6 +43,11 @@ export const WORK_SAMPLE_NAMES = [
   "Summit Logistics Group", "Dalton Services", "Coastal Fleet Maintenance", "Meridian Industrial Coatings", "Ridgeline Commercial Roofing",
   "Pinecrest Landscaping", "Lakeside Car Wash, 2 sites", "Great Plains Grain Hauling", "QuickFit Gym Franchise", "Valley Print Group",
   "Transworld Business Advisors", "Sunbelt Business Brokers", "Murphy Business", "Rachel Kim", "Mark Reed", "Dana Whitfield", "Luis Ortega",
+  // Outreach (batch B): the people of the approved mockup and their organizations.
+  "Priya Natarajan", "Carla Jenkins", "Tom Alvarez", "Denise Walker", "Lena Fischer", "Greg Thornton", "Maria Santos", "Jamal Whitaker",
+  "Rita Caldwell", "Kevin O'Brien", "Sam Patel", "Nina Reyes",
+  "Truist", "Southern Staffing Group", "Alvarez Advisory", "Sunrise Home Care", "Sullivan Wickley", "Atlanta Ventures", "Bain, Atlanta",
+  "GA Home Care Association", "Pathway Search Partners", "Peachtree Logistics", "Korn Ferry, Atlanta",
 ];
 
 export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: string): WorkSample {
@@ -52,12 +62,12 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
     { id: org.murphy, name: "Murphy Business", kind: "broker" },
   ];
   const c = { kim: newId(), reed: newId(), whitfield: newId(), ortega: newId() };
-  const broker = (id: string, name: string, orgId: string, email: string) => ({ id, name, roles: ["broker"], organization_id: orgId, email, relationship_group: "professional", is_deal_source: true, title: "Business broker" });
+  const broker = (id: string, name: string, orgId: string, email: string, more: R = {}) => ({ id, name, roles: ["broker"], organization_id: orgId, email, relationship_group: "professional", is_deal_source: true, title: "Business broker", ...(s.batchB ? { outreach_role: "broker", purposes: ["off_market_deals"], ...more } : {}) });
   const contacts: R[] = [
-    broker(c.kim, "Rachel Kim", org.transworld, "rachel.kim@example.com"),
-    broker(c.reed, "Mark Reed", org.transworld, "mark.reed@example.com"),
-    broker(c.whitfield, "Dana Whitfield", org.sunbelt, "dana.whitfield@example.com"),
-    broker(c.ortega, "Luis Ortega", org.murphy, "luis.ortega@example.com"),
+    broker(c.kim, "Rachel Kim", org.transworld, "rachel.kim@example.com", { title: "Chattanooga", follow_up_date: ahead(10), follow_up_note: "Ask what else she has in building services", notes: "Sends the best-prepared CIMs; answers email within a day", linkedin_url: "linkedin.com/in/rachelkim-example", phone: "(423) 555-0118" }),
+    broker(c.reed, "Mark Reed", org.transworld, "mark.reed@example.com", { title: "East Tennessee", follow_up_date: ago(2), follow_up_note: "Ask for the two owner names and the Summit seller call date", notes: "Asked him for off-market HVAC owners; he also owes the Summit seller call date\nPrefers a call over email; answers the phone before 9.", linkedin_url: "linkedin.com/in/markreed-example", phone: "(865) 555-0142" }),
+    broker(c.whitfield, "Dana Whitfield", org.sunbelt, "dana.whitfield@example.com", { title: "Atlanta", follow_up_date: ahead(6), follow_up_note: "Coffee; ask who is thinking about selling before spring", notes: "Coffee every six weeks; she sees landscaping and roofing owners first", linkedin_url: "linkedin.com/in/danawhitfield-example", phone: "(404) 555-0177" }),
+    broker(c.ortega, "Luis Ortega", org.murphy, "luis.ortega@example.com", { title: "Birmingham", follow_up_date: ahead(6), follow_up_note: "Ask about the dental lab owner's other business", notes: "Ask about the dental lab owner's other business", phone: "(205) 555-0133" }),
   ];
 
   const items: R[] = [];
@@ -126,9 +136,9 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
   // Dalton Services: the timeline of the mockup (an email received, a call, an email sent) and two documents.
   const communications: R[] = [
     { id: newId(), occurred_at: `${today}T13:05:00Z`, method: "email", direction: "incoming", contact_id: c.kim, organization_id: org.transworld, subject: "CIM received from Rachel Kim", summary: "Attached: Dalton_CIM.pdf, 3 years P&L.", is_outreach: false, purpose: "general", pipeline_item_id: dalton },
-    { id: newId(), occurred_at: `${ago(3)}T15:30:00Z`, method: "call", direction: "outgoing", contact_id: c.kim, organization_id: org.transworld, subject: "Call with Rachel Kim, 20 min", summary: "Owner is 58, retiring. 11 technicians. Wants to close by Q2.", is_outreach: false, purpose: "general", pipeline_item_id: dalton },
+    { id: newId(), occurred_at: `${ago(3)}T15:30:00Z`, method: "call", direction: "outgoing", contact_id: c.kim, organization_id: org.transworld, subject: "Call with Rachel Kim, 20 min", summary: "Owner is 58, retiring. 11 technicians. Wants to close by Q2.", is_outreach: false, purpose: "general", pipeline_item_id: dalton, ...(s.batchB ? { call_minutes: 20 } : {}) },
     { id: newId(), occurred_at: `${ago(6)}T14:10:00Z`, method: "email", direction: "outgoing", contact_id: c.kim, organization_id: org.transworld, subject: "Asked for a call", summary: "When can we talk?", is_outreach: true, purpose: "deal_sourcing", pipeline_item_id: dalton },
-    { id: newId(), occurred_at: `${ago(11)}T16:00:00Z`, method: "call", direction: "outgoing", contact_id: c.reed, organization_id: org.transworld, subject: "Broker call with Mark Reed, 25 min", summary: "Walked through the shipper mix. He will ask the owner about a call.", is_outreach: false, purpose: "general", pipeline_item_id: summit },
+    { id: newId(), occurred_at: `${ago(11)}T16:00:00Z`, method: "call", direction: "outgoing", contact_id: c.reed, organization_id: org.transworld, subject: "Broker call with Mark Reed, 25 min", summary: "Walked through the shipper mix. He will ask the owner about a call.", is_outreach: false, purpose: "general", pipeline_item_id: summit, ...(s.batchB ? { call_minutes: 25 } : {}) },
   ];
   const notes: R[] = [
     { id: newId(), record_type: "pipeline_items", record_id: dalton, body: "Broker call done; she will ask the owner about a call next week." },
@@ -148,5 +158,82 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
     { id: newId(), deal_id: meridian, text: "Book 30 minutes with the partner before the model is final", position: 2 },
   ];
 
-  return { organizations, contacts, items, financials, communications, notes, stageDates, documents, todos };
+  // ---------- Outreach (batch B, database update 0022): the people of the approved mockup ----------
+  const personalTodos: R[] = [];
+  if (s.batchB) {
+    const o = { truist: newId(), ssg: newId(), alvarez: newId(), sunrise: newId(), sw: newId(), av: newId(), bain: newId(), gahca: newId(), pathway: newId(), peachtree: newId(), kf: newId() };
+    organizations.push(
+      { id: o.truist, name: "Truist", kind: "lender" },
+      { id: o.ssg, name: "Southern Staffing Group", kind: "business" },
+      { id: o.alvarez, name: "Alvarez Advisory", kind: "broker" },
+      { id: o.sunrise, name: "Sunrise Home Care", kind: "business" },
+      { id: o.sw, name: "Sullivan Wickley", kind: "business" },
+      { id: o.av, name: "Atlanta Ventures", kind: "investor" },
+      { id: o.bain, name: "Bain, Atlanta", kind: "business" },
+      { id: o.gahca, name: "GA Home Care Association", kind: "nonprofit" },
+      { id: o.pathway, name: "Pathway Search Partners", kind: "other" },
+      { id: o.peachtree, name: "Peachtree Logistics", kind: "business" },
+      { id: o.kf, name: "Korn Ferry, Atlanta", kind: "other" },
+    );
+    const person = (name: string, orgId: string | null, role: string, title: string | null, purposes: string[], followUp: string | null, what: string | null, note: string, email: string, more: R = {}) => {
+      const id = newId();
+      contacts.push({ id, name, roles: ["other"], organization_id: orgId, email, relationship_group: "professional", title, outreach_role: role, purposes, follow_up_date: followUp, follow_up_note: what, notes: note, ...more });
+      return id;
+    };
+    const p = {
+      priya: person("Priya Natarajan", o.truist, "lender", "SBA, Atlanta", ["off_market_deals"], ago(3), "Ask which owners asked about exit loans this month", "Sends me owners who ask her about exit loans", "priya.natarajan@example.com", { phone: "(404) 555-0151" }),
+      carla: person("Carla Jenkins", o.ssg, "former_colleague", "COO", ["job_search"], today, "Ask for the hiring manager's name at the portfolio company", "She mentioned a VP ops opening at a portfolio company", "carla.jenkins@example.com", { linkedin_url: "linkedin.com/in/carlajenkins-example" }),
+      tom: person("Tom Alvarez", o.alvarez, "broker", "Nashville", ["off_market_deals"], today, "Ask for the two owners thinking about selling in 2027", "Promised two owners who are thinking about selling in 2027", "tom.alvarez@example.com", { is_deal_source: true, phone: "(615) 555-0109" }),
+      denise: person("Denise Walker", o.sunrise, "rosara_customer", "Owner", ["off_market_deals", "rosara"], today, "Ask for the Macon and Augusta owners; show the care-plan screens", "Knows two agency owners near retirement in Macon and Augusta; tests the care-plan screens", "denise.walker@example.com", { phone: "(478) 555-0162" }),
+      lena: person("Lena Fischer", null, "cofounder_candidate", "Engineer, 8 years in caregiving software", ["rosara"], ahead(3), "Send the equity split in writing", "Co-founder candidate at the Offer step; she wants the equity split in writing", "lena.fischer@example.com", { linkedin_url: "linkedin.com/in/lenafischer-example" }),
+      greg: person("Greg Thornton", o.sw, "other", "Partner, consulting client", ["consulting"], ahead(4), "Send the scope and fee for the Q1 site selection work", "Wants a scope and fee for the Q1 site selection work", "greg.thornton@example.com", { is_consulting_lead: true }),
+      maria: person("Maria Santos", o.av, "investor", null, ["rosara"], ahead(5), "Send the deck and three customer references", "Asked for the deck and three customer references after our call", "maria.santos@example.com", {}),
+      jamal: person("Jamal Whitaker", o.bain, "former_colleague", null, ["job_search"], ahead(5), "Thank him and ask for a call with his partner", "Introduced me to his partner who covers industrials", "jamal.whitaker@example.com", { linkedin_url: "linkedin.com/in/jamalwhitaker-example" }),
+      rita: person("Rita Caldwell", o.gahca, "other", "Director, consulting client", ["consulting"], ahead(13), "Ask whether the member survey project is funded for Q1", "Member survey project could use a consultant in Q1", "rita.caldwell@example.com", { is_consulting_lead: true }),
+      kevin: person("Kevin O'Brien", o.pathway, "recruiter", "Former boss", ["job_search"], ahead(14), "Monthly check-in", "Offered to be a reference; check in monthly", "kevin.obrien@example.com", {}),
+      sam: person("Sam Patel", o.peachtree, "former_colleague", "CFO", ["off_market_deals"], null, null, "Hears about carriers selling before the brokers do", "sam.patel@example.com", {}),
+      nina: person("Nina Reyes", o.kf, "recruiter", null, ["job_search"], null, null, "Sent my resume for a COO search; also runs the Harbor Health search", "nina.reyes@example.com", {}),
+    };
+    // Calls and emails on the timelines (the person's last contact comes from the newest of these).
+    const comm = (contactId: string, orgId: string | null, daysAgo: number, hour: number, method: string, direction: string, subject: string, summary: string, more: R = {}) =>
+      communications.push({ id: newId(), occurred_at: `${ago(daysAgo)}T${String(hour).padStart(2, "0")}:00:00Z`, method, direction, contact_id: contactId, organization_id: orgId, subject, summary, is_outreach: direction !== "incoming", purpose: "general", ...more });
+    comm(c.reed, org.transworld, 11, 15, "email", "outgoing", "Off-market HVAC owners in East Tennessee", "Asked for owners who might sell in the next year.");
+    comm(c.reed, org.transworld, 12, 16, "call", "outgoing", "Call with Mark Reed", "Summit owner wants a call after his trip; Mark will send two HVAC owner names.", { call_minutes: 15 });
+    comm(c.reed, org.transworld, 39, 14, "meeting", "outgoing", "Coffee in Knoxville", "Asked for my buy box on one page. Sees 3 to 4 service businesses a month.", { call_minutes: 45 });
+    comm(c.reed, org.transworld, 51, 13, "email", "outgoing", "Intro from Dana Whitfield", "Dana introduced us; asked for 20 minutes.");
+    // Two incoming replies not yet on the timeline (Log it on the person page).
+    comm(c.reed, org.transworld, 1, 14, "email", "incoming", "Re: East Tennessee owners", "Two names for you, call me Monday.", { is_outreach: false, awaiting_log: true });
+    comm(c.reed, org.transworld, 3, 10, "email", "incoming", "Re: Summit Logistics, seller call", "Owner is traveling until the 3rd.", { is_outreach: false, awaiting_log: true });
+    comm(p.tom, o.alvarez, 1, 15, "email", "incoming", "Re: owners selling in 2027", "One of the two is ready to talk; the other wants to wait until spring.", { is_outreach: false, awaiting_log: true });
+    comm(p.priya, o.truist, 14, 15, "call", "outgoing", "Call with Priya Natarajan", "Two owners asked about exit loans; she will ask if they want an intro.", { call_minutes: 20 });
+    comm(p.carla, o.ssg, 7, 17, "meeting", "outgoing", "Lunch with Carla Jenkins", "She mentioned a VP ops opening at a portfolio company; will ask the hiring manager.", { call_minutes: 60 });
+    comm(p.tom, o.alvarez, 4, 11, "email", "outgoing", "Owners thinking about selling in 2027", "Asked for the two names he mentioned.");
+    comm(p.denise, o.sunrise, 8, 16, "call", "outgoing", "Call with Denise Walker", "Walked through the care-plan screens; she knows two agency owners near retirement.", { call_minutes: 30 });
+    comm(p.lena, null, 1, 18, "meeting", "outgoing", "Working session with Lena Fischer", "Scoped the caregiver hub; she asked for the equity split in writing.", { call_minutes: 90 });
+    comm(p.greg, o.sw, 2, 14, "call", "outgoing", "Call with Greg Thornton", "Q1 site selection work; he wants a scope and fee by next week.", { call_minutes: 25, purpose: "consulting" });
+    comm(p.maria, o.av, 3, 15, "call", "outgoing", "Call with Maria Santos", "Intro call; she asked for the deck and three customer references.", { call_minutes: 30 });
+    comm(p.jamal, o.bain, 9, 13, "email", "outgoing", "Thanks for the intro", "Thanked him for the intro to his partner.");
+    comm(p.rita, o.gahca, 10, 14, "email", "outgoing", "Member survey project", "Asked whether the survey project is funded for Q1.", { purpose: "consulting" });
+    comm(p.kevin, o.pathway, 21, 12, "meeting", "outgoing", "Coffee with Kevin O'Brien", "He offered to be a reference.", { call_minutes: 45 });
+    comm(p.sam, o.peachtree, 31, 16, "call", "outgoing", "Call with Sam Patel", "Hears about carriers selling before the brokers do.", { call_minutes: 20 });
+    comm(p.nina, o.kf, 23, 11, "email", "outgoing", "COO search", "Sent my resume for the COO search.");
+    comm(c.whitfield, org.sunbelt, 3, 15, "meeting", "outgoing", "Coffee with Dana Whitfield", "Landscaping and roofing owners; Pinecrest LOI timing.", { call_minutes: 40 });
+    comm(c.ortega, org.murphy, 2, 10, "email", "outgoing", "Oakline CIM", "Asked when the CIM arrives.");
+    notes.push({ id: newId(), record_type: "contacts", record_id: c.reed, body: "Prefers a call over email; answers the phone before 9." });
+    notes.push({ id: newId(), record_type: "contacts", record_id: p.lena, body: "Wants a 50/50 split with a 4-year vest; open to a 1-year cliff." });
+    // Tasks on two people (the Tasks card on the person page).
+    todos.push({ id: newId(), record_type: "contacts", record_id: c.reed, text: "Send Mark my one-page buy box", position: 1 });
+    todos.push({ id: newId(), record_type: "contacts", record_id: c.reed, text: "Ask Mark whether Summit's owner will take a call in November", position: 2 });
+    todos.push({ id: newId(), record_type: "contacts", record_id: p.lena, text: "Draft the equity split memo", position: 1 });
+    // Personal to-dos: Today (two, one without a date), Next 7 days (two), Later (one).
+    personalTodos.push(
+      { id: newId(), text: "Renew the Cyan Arc registered agent", due_on: today, position: 1 },
+      { id: newId(), text: "Book the dentist", due_on: null, position: 2 },
+      { id: newId(), text: "Send the TimeSlips treasurer report", due_on: ahead(5), position: 3 },
+      { id: newId(), text: "Pick up the dry cleaning", due_on: ahead(4), position: 4 },
+      { id: newId(), text: "Read the SBA 7(a) rule change", due_on: ahead(14), position: 5 },
+    );
+  }
+
+  return { organizations, contacts, items, financials, communications, notes, stageDates, documents, todos, personalTodos };
 }

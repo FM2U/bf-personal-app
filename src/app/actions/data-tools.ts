@@ -10,6 +10,7 @@ import { hasUpdate0018 } from "@/lib/update-0018";
 import { hasUpdate0019 } from "@/lib/update-0019";
 import { hasUpdate0020 } from "@/lib/update-0020";
 import { hasUpdate0021 } from "@/lib/update-0021";
+import { hasUpdate0022 } from "@/lib/update-0022";
 import { addDaysISO } from "@/lib/calc/dates";
 import { documentPath } from "@/lib/documents";
 import { loadWorkPipeline } from "@/lib/work/data";
@@ -51,7 +52,7 @@ export async function loadSampleData(fd: FormData) {
   if (real.total > 0 && fd.get("confirm_real") !== "on") back(`You have ${real.total} real records. Check "Load sample data next to my real records" to continue.`);
 
   const ctx = await loadCtx(supabase, ownerId);
-  const [{ data: entities }, { data: cats }, { data: budgets }, { data: lines }, { data: pipes }, { data: stages }, { data: inits }, has0019, has0020] = await Promise.all([
+  const [{ data: entities }, { data: cats }, { data: budgets }, { data: lines }, { data: pipes }, { data: stages }, { data: inits }, has0019, has0020, has0022] = await Promise.all([
     supabase.from("entities").select("id,kind,is_default"),
     supabase.from("categories").select("id,name"),
     supabase.from("budgets").select("id").eq("is_active", true).order("created_at").limit(1),
@@ -61,6 +62,7 @@ export async function loadSampleData(fd: FormData) {
     supabase.from("initiatives").select("id,name"),
     hasUpdate0019(supabase),
     hasUpdate0020(supabase),
+    hasUpdate0022(supabase),
   ]);
   const ent = (entities ?? []) as Row[];
   const workPipe = has0020 ? await loadWorkPipeline(supabase, ownerId) : null;
@@ -85,7 +87,7 @@ export async function loadSampleData(fd: FormData) {
       reportTemplateId: ((detailedTemplate as Row | null)?.id as string | undefined) ?? null,
       dailyReports: await hasUpdate0018(supabase),
       initiatives: has0019 ? Object.fromEntries(((inits ?? []) as Row[]).map((i) => [String(i.name), String(i.id)])) : null,
-      work: workPipe ? { pipelineId: workPipe.id, stages: Object.fromEntries(workPipe.stages.map((st) => [st.name, st.id])) } : null,
+      work: workPipe ? { pipelineId: workPipe.id, stages: Object.fromEntries(workPipe.stages.map((st) => [st.name, st.id])), batchB: has0022 } : null,
     },
     () => randomUUID(),
   );
@@ -120,14 +122,14 @@ export async function loadSampleData(fd: FormData) {
   await evaluateConditions(ctx).catch(() => null);
   revalidatePath("/", "layout");
   const total = Object.values(counts).reduce((s, n) => s + n, 0);
-  back(`Sample data loaded: ${total} records (${counts.transactions ?? 0} transactions over 12 months, ${counts.accounts ?? 0} accounts, ${counts.contacts ?? 0} contacts, ${counts.pipeline_items ?? 0} pipeline items) and ${seriesRows.length} recurring charges. Every name starts with "Sample".`);
+  back(`Sample data loaded: ${total} records (${counts.transactions ?? 0} transactions over 12 months, ${counts.accounts ?? 0} accounts, ${counts.contacts ?? 0} contacts, ${counts.pipeline_items ?? 0} pipeline items${counts.todos ? `, ${counts.todos} to-dos` : ""}) and ${seriesRows.length} recurring charges. Every name starts with "Sample" except the Work module's listings, deals, and people, which carry the mockup's names.`);
 }
 
 /**
  * The Work module's sample deals (database update 0020): stage entry dates in the past (the insert stamps "now"),
  * the earlier stages in stage_history, Dalton Services' two small documents in storage, and (database update 0021)
- * the Also to do items. Sample removal deletes stage history, documents, and to-dos with the sample deals, so nothing
- * here needs its own marker.
+ * the Tasks items (deals; batch B adds tasks on people, which carry record_type contacts). Sample removal deletes
+ * stage history, documents, and tasks with the sample deals and people, so nothing here needs its own marker.
  */
 async function finishWorkSample(sb: SupabaseClient, ownerId: string, today: string, work: Pick<WorkSample, "stageDates" | "documents" | "todos">, stageIds: Record<string, string>, has0021: boolean) {
   const at = (daysAgo: number, hour: number) => `${addDaysISO(today, -daysAgo)}T${String(hour).padStart(2, "0")}:00:00.000Z`;

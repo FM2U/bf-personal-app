@@ -9,15 +9,20 @@ import { isAIConfigured } from "@/lib/env";
 import { UnsavedChangesGuard } from "@/components/app/unsaved-changes";
 import { WindowProvider } from "@/components/app/window-host";
 import { countToScreen } from "@/lib/work/data";
+import { countOutreachDue } from "@/lib/work/outreach-data";
+import { todayInTz } from "@/lib/calc/dates";
 
 export default async function AppLayout({ children, modal }: { children: React.ReactNode; modal: React.ReactNode }) {
   const { supabase, user, ownerId } = await requireOwner();
-  const [{ count: pending }, { count: alerts }, toScreen] = await Promise.all([
+  const [{ count: pending }, { count: alerts }, toScreen, { data: profile }] = await Promise.all([
     supabase.from("ai_proposals").select("id", { count: "exact", head: true }).eq("status", "pending"),
     supabase.from("alerts").select("id", { count: "exact", head: true }).eq("status", "open"),
     // Listings to screen (the badge under Work); null before database update 0020.
     countToScreen(supabase, ownerId),
+    supabase.from("owner_profile").select("timezone").eq("owner_id", ownerId).maybeSingle(),
   ]);
+  // People due today or overdue on Outreach (the amber badge); null before database update 0022.
+  const outreachDue = await countOutreachDue(supabase, ownerId, todayInTz(String((profile as { timezone?: string | null } | null)?.timezone || "America/New_York")));
   return (
     <WindowProvider>
     <div className="min-h-screen lg:pl-60">
@@ -26,7 +31,7 @@ export default async function AppLayout({ children, modal }: { children: React.R
           <span aria-hidden className="h-2.5 w-2.5 rotate-45 rounded-[2px] bg-gold" />
           BF Personal App
         </Link>
-        <SidebarLinks toScreen={toScreen} />
+        <SidebarLinks toScreen={toScreen} outreachDue={outreachDue} />
         <div className="mt-auto flex flex-col gap-1 border-t border-border pt-3 text-sm">
           <AskAiSidebarButton />
           <Link href="/proposals" className="flex items-center justify-between rounded-md px-3 py-2 text-slate-600 hover:bg-slate-100">

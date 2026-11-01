@@ -1,5 +1,6 @@
 import { requireOwner } from "@/lib/auth";
-import { loadListings } from "@/lib/work/data";
+import { loadListings, loadTabCounts } from "@/lib/work/data";
+import { AskAiPill } from "@/components/app/work/ask-ai";
 import { WorkTabs } from "@/components/app/nav-links";
 import { WorkShell, WorkUpdateNotice } from "@/components/app/work/shell";
 import { WorkHeader } from "@/components/app/work/ui";
@@ -17,11 +18,20 @@ export default async function ScreenListingsPage({ searchParams }: { searchParam
   const { supabase, ownerId } = await requireOwner();
   const sp = await searchParams;
   const d = await loadListings(supabase, ownerId);
+  const tabs = await loadTabCounts(supabase, ownerId, d.today);
   const adding = sp.add === "1";
   const header = (
     <>
-      <WorkHeader title="Screen listings" right={d.available ? <AddListingButton open={adding} /> : null} />
-      <WorkTabs toScreen={d.available ? d.listings.length : null} />
+      <WorkHeader
+        title="Screen listings"
+        right={
+          <>
+            {d.available ? <AddListingButton open={adding} /> : null}
+            <AskAiPill context="Screen listings" />
+          </>
+        }
+      />
+      <WorkTabs toScreen={d.available ? d.listings.length : null} outreachDue={tabs.outreachDue} />
     </>
   );
   return (

@@ -3423,10 +3423,16 @@ const expectText = async (page, text) => {
     const menu = await page.locator("aside nav[aria-label='Main menu'] > div > a").allInnerTexts();
     if (menu.map((m) => m.trim()).join("|") !== "Work|Accountability|More") throw new Error(`menu: ${menu.join("|")}`);
     const sub = (await page.getByTestId("work-subnav").locator("a").allInnerTexts()).map((t) => t.trim().split("\n")[0]);
-    if (sub.join("|") !== "Home|Screen listings|Deals") throw new Error(`work subnav: ${sub.join("|")}`);
+    if (sub.join("|") !== "Home|Screen listings|Deals|Outreach|Rosara|Job search|Consulting|To-dos") throw new Error(`work subnav: ${sub.join("|")}`);
     if ((await page.locator("h1").first().innerText()).trim() !== "Work on now") throw new Error("the heading stays Work on now");
     const tabs = (await page.locator("nav[aria-label='Work sections'] a").allInnerTexts()).map((t) => t.trim().split("\n")[0]);
-    if (tabs.join("|") !== "Home|Screen listings|Deals") throw new Error(`tabs: ${tabs.join("|")}`);
+    if (tabs.join("|") !== "Home|Screen listings|Deals|Outreach|Rosara|Job search|Consulting|To-dos") throw new Error(`tabs: ${tabs.join("|")}`);
+    // The Outreach badge (amber) counts the people due today or overdue.
+    const dueCount = (await one("select count(*)::int n from contacts where archived_at is null and follow_up_date <= $1", [nyDate(0)])).n;
+    if (dueCount < 5) throw new Error(`expected the sample's 5 people due or overdue, found ${dueCount}`);
+    for (const t of ["subnav-outreach-due", "tab-outreach-due"]) if ((await page.getByTestId(t).innerText()).trim() !== String(dueCount)) throw new Error(`${t} count`);
+    // Ask AI sits in the page header.
+    if (!(await page.getByTestId("ask-ai").count())) throw new Error("no Ask AI pill");
     const toScreen = (await one("select count(*)::int n from pipeline_items where screened = false and status = 'open'")).n;
     if (toScreen < 7) throw new Error(`expected the 7 sample listings, found ${toScreen}`);
     for (const t of ["subnav-to-screen", "tab-to-screen", "home-to-screen"]) if ((await page.getByTestId(t).innerText()).trim() !== String(toScreen)) throw new Error(`${t} count`);
@@ -3730,9 +3736,14 @@ const expectText = async (page, text) => {
     await page.getByTestId("work-deal").waitFor();
     if ((await page.locator("h1").first().innerText()).trim() !== "Coastal Fleet Maintenance") throw new Error("title should be the company name");
     if ((await page.getByTestId("deal-listed-as").innerText()).trim() !== "Listed as 00 Fleet Repair Shop, Jacksonville") throw new Error("Listed as");
-    // The right column order: Facts, Timeline, Documents, Decision; the left: Next action, Findings, Also to do.
+    // The record-page rule: left Findings, Next action, Tasks; right Facts, Timeline, Documents, Decision.
     const order = await page.locator("[data-testid=work-deal] section[data-testid^=deal-], [data-testid=work-deal] [data-testid=panel-documents]").evaluateAll((els) => els.map((e) => e.dataset.testid));
-    if (order.join(",") !== "deal-next-action,deal-findings,deal-todos,deal-facts,deal-timeline,panel-documents,deal-decision") throw new Error(`card order: ${order.join(",")}`);
+    if (order.join(",") !== "deal-findings,deal-next-action,deal-todos,deal-facts,deal-timeline,panel-documents,deal-decision") throw new Error(`card order: ${order.join(",")}`);
+    // The Tasks card (was Also to do) and the three header figures.
+    if ((await page.getByTestId("deal-todos").locator("h2").innerText()).trim() !== "Tasks") throw new Error("the checklist should be titled Tasks");
+    if (await page.locator("body", { hasText: "Also to do" }).count() && (await page.locator("body").innerText()).includes("Also to do")) throw new Error("Also to do is still on the deal page");
+    const figs = await page.getByTestId("record-figures").locator("[data-testid^=figure-]").evaluateAll((els) => els.map((e) => e.dataset.testid));
+    if (figs.join(",") !== "figure-next,figure-tasks,figure-last") throw new Error(`figures: ${figs.join(",")}`);
     // Add a note sits below the timeline list.
     const noteBelow = await page.getByTestId("deal-timeline").evaluate((card) => {
       const events = card.querySelector("[data-testid=timeline-events]").getBoundingClientRect();
@@ -3960,7 +3971,394 @@ const expectText = async (page, text) => {
     await page.waitForURL(new RegExp(`/work/deals/${moved.id}$`));
   });
 
+  // ---------- Batch B1 (database update 0022): Outreach, the person page, Log a call, emails logged, To-dos, the menu ----------
+  const personByName = (name) => one("select id, name, follow_up_date::text, follow_up_note, last_contact_at::text, last_contact_kind, archived_at::text, purposes, outreach_role, notes from contacts where name = $1", [name]);
+  // The weekly counter as the database sees it: emails sent and calls logged to people, Monday to Friday of this week (New York dates).
+  const weekCount = async () => {
+    const t = nyDate(0);
+    const d = new Date(`${t}T12:00:00Z`);
+    const dow = d.getUTCDay();
+    const monday = nyDate(dow === 0 ? -6 : 1 - dow);
+    const friday = nyDate((dow === 0 ? -6 : 1 - dow) + 4);
+    return (await one(`select count(*)::int n from communications where contact_id is not null and not awaiting_log and direction <> 'incoming' and method in ('email', 'call', 'meeting', 'video')
+      and (occurred_at at time zone 'America/New_York')::date between $1 and $2`, [monday, friday])).n;
+  };
+
+  await step("Outreach: the counter, the sections by next follow-up, the rows with their figures, the filters and purpose pills, Find a person, Collapse all", async () => {
+    await page.goto(`${BASE}/work/outreach`);
+    await page.getByTestId("outreach-card").waitFor();
+    const counter = page.getByTestId("outreach-counter");
+    const n = Number(await counter.getAttribute("data-count"));
+    if (n !== (await weekCount()) || Number(await counter.getAttribute("data-target")) !== 10) throw new Error(`counter ${n} of ${await counter.getAttribute("data-target")} vs ${await weekCount()}`);
+    const sections = await page.getByTestId("outreach-section").evaluateAll((els) => els.map((e) => [e.dataset.section, Number(e.querySelector("[data-testid=section-heading]")?.dataset.count)]));
+    if (sections.map((x) => x[0]).join(",") !== "overdue,today,week,later,nodate") throw new Error(`sections: ${JSON.stringify(sections)}`);
+    const inDb = await one(`select (select count(*)::int from contacts where archived_at is null and follow_up_date < $1) o, (select count(*)::int from contacts where archived_at is null and follow_up_date = $1) t,
+      (select count(*)::int from contacts where archived_at is null and follow_up_date > $1 and follow_up_date <= $2) w, (select count(*)::int from contacts where archived_at is null and follow_up_date > $2) l,
+      (select count(*)::int from contacts where archived_at is null and follow_up_date is null) nd`, [nyDate(0), nyDate(7)]);
+    if (sections[0][1] !== inDb.o || sections[1][1] !== inDb.t || sections[2][1] !== inDb.w || sections[3][1] !== inDb.l || sections[4][1] !== inDb.nd) throw new Error(`section counts ${JSON.stringify(sections)} vs ${JSON.stringify(inDb)}`);
+    if (sections[0][1] < 2 || sections[1][1] < 3 || sections[4][1] < 2) throw new Error("the sample should fill Overdue, Due today, and No date");
+    // Mark Reed's row: the org and role line, the purpose pill, the note, LAST CONTACT and NEXT FOLLOW-UP (red).
+    const reed = await personByName("Mark Reed");
+    const row = page.locator(`[data-testid=person-row][data-person="${reed.id}"]`);
+    const text = await row.innerText();
+    if (!text.includes("Transworld Business Advisors · Broker, Broker, East Tennessee") && !text.includes("Transworld Business Advisors · Broker, Broker")) {
+      if (!text.includes("Transworld Business Advisors") || !text.includes("Broker")) throw new Error(`row line: ${text.slice(0, 120)}`);
+    }
+    if (!text.includes("Off-market deals") || !text.includes("Asked him for off-market HVAC owners")) throw new Error(`row: ${text.slice(0, 200)}`);
+    if ((await row.getByTestId("person-next-follow-up").getAttribute("data-tone")) !== "over") throw new Error("Mark Reed should be overdue (red)");
+    if (!(await row.getByTestId("person-last-contact").innerText()).match(/^(Today|[A-Z][a-z]{2} \d+) · (email|call|meeting)/)) throw new Error(`last contact: ${await row.getByTestId("person-last-contact").innerText()}`);
+    // Filters: the date pills and the purpose pills count the rows; a purpose pill shows only those people.
+    const pill = async (k) => Number(await page.getByTestId(`outreach-filter-${k}`).getAttribute("data-count"));
+    const shownRows = () => page.locator("[data-testid=outreach-row][data-hidden='0']").count();
+    if ((await pill("all")) !== (await shownRows())) throw new Error("All counts every row");
+    if ((await pill("today")) !== inDb.t || (await pill("over")) !== inDb.o || (await pill("nodate")) !== inDb.nd) throw new Error("date pills");
+    const purposeInDb = async (k) => (await one("select count(*)::int n from contacts where archived_at is null and $1 = any (purposes)", [k])).n;
+    for (const k of ["off_market_deals", "job_search", "consulting", "rosara"]) if ((await pill(k)) !== (await purposeInDb(k))) throw new Error(`purpose pill ${k}`);
+    await page.getByTestId("outreach-filter-job_search").click();
+    if ((await shownRows()) !== (await pill("job_search"))) throw new Error("Job search filter shows the wrong rows");
+    const shownPills = await page.locator("[data-testid=outreach-row][data-hidden='0'] [data-testid=purpose-pill]").allInnerTexts();
+    if (!shownPills.every((t) => t === "Job search")) throw new Error(`job search rows carry other pills: ${shownPills.join(",")}`);
+    const collapsedStates = await page.getByTestId("outreach-section").evaluateAll((els) => els.map((e) => [e.dataset.section, e.dataset.collapsed, !!e.querySelector("[data-testid=outreach-row][data-hidden='0']"), Number(e.querySelector("[data-testid=section-heading]").dataset.count)]));
+    for (const [name, c, hasMatch, cnt] of collapsedStates) if (cnt && c !== (hasMatch ? "0" : "1")) throw new Error(`${name} should be ${hasMatch ? "open" : "collapsed"} under Job search`);
+    await page.screenshot({ path: path.join(OUT, "flow-work-outreach-filter.png") });
+    await page.getByTestId("outreach-filter-all").click();
+    await page.getByTestId("outreach-search").fill("transworld");
+    const found = await shownRows();
+    if (found < 2 || (await page.locator("[data-testid=outreach-row][data-hidden='1']").count()) !== (await pill("all")) - found) throw new Error(`Find a person by organization: ${found}`);
+    await page.getByTestId("outreach-search").fill("");
+    await page.getByTestId("collapse-all").click();
+    await page.waitForFunction(() => document.querySelector("[data-testid=collapse-all]")?.innerText.trim() === "Expand all");
+    if (await page.locator("[data-testid=outreach-section][data-collapsed='0'] [data-testid=section-heading]:not([data-count='0'])").count()) throw new Error("a section with people is still open after Collapse all");
+    await page.getByTestId("collapse-all").click();
+    await page.waitForFunction(() => document.querySelector("[data-testid=collapse-all]")?.innerText.trim() === "Collapse all");
+  });
+
+  await step("Outreach: Add a person with the Purpose checklist (chosen values shown as text); the person lands in Next 7 days and on the contacts table", async () => {
+    await page.goto(`${BASE}/work/outreach?add=1`);
+    await page.getByTestId("add-person").waitFor();
+    if (!(await page.getByTestId("add-person").innerText()).includes("People here are the app's contact records. Outreach is the working view of them.")) throw new Error("the note under the form");
+    await page.getByTestId("person-name").fill("Flow Tester");
+    await page.getByTestId("person-organization").fill("Transworld Business Advisors");
+    await page.getByTestId("person-role").selectOption("lender");
+    await page.getByTestId("purpose-toggle").click();
+    await page.getByTestId("purpose-menu").waitFor();
+    await page.getByTestId("purpose-off_market_deals").check();
+    await page.getByTestId("purpose-rosara").check();
+    await page.getByTestId("person-name").click();
+    if ((await page.getByTestId("purpose-toggle").innerText()).trim() !== "Off-market deals, Rosara") throw new Error(`purpose text: ${await page.getByTestId("purpose-toggle").innerText()}`);
+    if (await page.getByTestId("purpose-menu").count()) throw new Error("the checklist should close on a click outside");
+    await page.getByTestId("person-email").fill("flow.tester@example.com");
+    await page.getByTestId("person-phone").fill("(404) 555-0100");
+    await page.getByTestId("person-linkedin").fill("linkedin.com/in/flowtester");
+    await page.getByTestId("person-nextFollowUp").fill(nyDate(3));
+    await page.getByTestId("person-note").fill("Flow: a lender who hears about owners first");
+    await page.screenshot({ path: path.join(OUT, "flow-work-add-person.png"), fullPage: true });
+    await page.getByTestId("person-save").click();
+    await page.waitForURL(/\/work\/outreach\?saved=/);
+    await page.getByTestId("person-saved").waitFor();
+    const p = await personByName("Flow Tester");
+    if (!p || p.follow_up_date !== nyDate(3) || p.outreach_role !== "lender" || p.purposes.join(",") !== "off_market_deals,rosara" || p.notes !== "Flow: a lender who hears about owners first") throw new Error(JSON.stringify(p));
+    const org = await one("select o.name from contacts c join organizations o on o.id = c.organization_id where c.id = $1", [p.id]);
+    if (org.name !== "Transworld Business Advisors") throw new Error("the existing organization should be reused");
+    if ((await one("select count(*)::int n from organizations where name ilike 'Transworld Business Advisors'")).n !== 1) throw new Error("the organization was duplicated");
+    const row = page.locator(`[data-testid=person-row][data-person="${p.id}"]`);
+    await row.waitFor();
+    if ((await row.locator("xpath=ancestor::*[@data-testid='outreach-section']").getAttribute("data-section")) !== "week") throw new Error("the new person should sit under Next 7 days");
+    if ((await row.getByTestId("person-last-contact").innerText()).split("\n")[0].trim() !== "Never") throw new Error("a new person has no last contact");
+  });
+
+  await step("Outreach: Done sets the next follow-up date and moves the row; the Home outreach row's Later moves the date", async () => {
+    const tom = await personByName("Tom Alvarez");
+    if (tom.follow_up_date !== nyDate(0)) throw new Error(`Tom should be due today: ${tom.follow_up_date}`);
+    await page.goto(`${BASE}/work/outreach`);
+    const row = page.locator(`[data-testid=person-row][data-person="${tom.id}"]`);
+    await row.waitFor();
+    await row.getByTestId("row-done").click();
+    await row.getByTestId("person-done-ask").waitFor();
+    await row.getByTestId("person-done-what").fill("Flow: ask for the two owner names");
+    const choice = row.getByTestId("person-done-choice").first();
+    const chosen = await choice.getAttribute("data-date");
+    await choice.click();
+    await row.getByTestId("person-done-result").waitFor();
+    for (let i = 0; i < 40 && (await personByName("Tom Alvarez")).follow_up_date !== chosen; i++) await page.waitForTimeout(250);
+    const after = await personByName("Tom Alvarez");
+    if (after.follow_up_date !== chosen || after.follow_up_note !== "Flow: ask for the two owner names") throw new Error(JSON.stringify(after));
+    if (after.last_contact_at !== tom.last_contact_at) throw new Error("Done must not log anything");
+    await page.waitForFunction((id) => !!document.querySelector(`[data-testid=person-row][data-person="${id}"] [data-testid=person-next-follow-up]`), tom.id, { timeout: 15000 });
+    const section = await page.locator(`[data-testid=person-row][data-person="${tom.id}"]`).locator("xpath=ancestor::*[@data-testid='outreach-section']").getAttribute("data-section");
+    if (section !== "week") throw new Error(`Tom should have moved to Next 7 days, is under ${section}`);
+    // Done with "No date" moves a person to No date.
+    const carla = await personByName("Carla Jenkins");
+    const crow = page.locator(`[data-testid=person-row][data-person="${carla.id}"]`);
+    await crow.getByTestId("row-done").click();
+    await crow.getByTestId("person-done-none").click();
+    await crow.getByTestId("person-done-result").waitFor();
+    for (let i = 0; i < 40 && (await personByName("Carla Jenkins")).follow_up_date !== null; i++) await page.waitForTimeout(250);
+    if ((await personByName("Carla Jenkins")).follow_up_date !== null) throw new Error("No date should clear the date");
+    await pg.query("update contacts set follow_up_date = $2 where id = $1", [carla.id, nyDate(0)]);
+    // Home: the people due today or overdue are rows on Next actions with the Outreach lane pill; Later moves one to tomorrow.
+    await page.goto(`${BASE}/work`);
+    await page.getByTestId("home-bento").waitFor();
+    const lanes = page.locator("[data-testid=outreach-action-row]");
+    const due = (await one("select count(*)::int n from contacts where archived_at is null and follow_up_date <= $1", [nyDate(0)])).n;
+    if ((await lanes.count()) !== due) throw new Error(`outreach rows on Home: ${await lanes.count()} vs ${due} due`);
+    if ((await lanes.first().getByTestId("lane-pill").innerText()).trim() !== "Outreach") throw new Error("lane pill");
+    const reed = await personByName("Mark Reed");
+    const hr = page.locator(`[data-testid=outreach-action-row][data-person="${reed.id}"]`);
+    if ((await hr.getByTestId("next-action-due").getAttribute("data-tone")) !== "over") throw new Error("Mark Reed is overdue on Home");
+    if (!(await hr.innerText()).includes("Ask for the two owner names and the Summit seller call date")) throw new Error("the row shows what the follow-up is for");
+    await hr.getByTestId("next-action-later").click();
+    await hr.getByTestId("later-tomorrow").click();
+    await hr.getByTestId("next-action-result").waitFor();
+    for (let i = 0; i < 40 && (await personByName("Mark Reed")).follow_up_date !== nyDate(1); i++) await page.waitForTimeout(250);
+    if ((await personByName("Mark Reed")).follow_up_date !== nyDate(1)) throw new Error("Later on Home");
+    await pg.query("update contacts set follow_up_date = $2 where id = $1", [reed.id, nyDate(-2)]);
+    // The Outreach tile: the counter, up to three people due today, the overdue count, the link.
+    await page.goto(`${BASE}/work`);
+    const tile = page.getByTestId("home-outreach");
+    if (Number(await tile.getByTestId("home-outreach-counter").getAttribute("data-count")) !== (await weekCount())) throw new Error("tile counter");
+    const tileRows = await tile.getByTestId("home-outreach-row").count();
+    if (tileRows < 1 || tileRows > 3) throw new Error(`tile rows: ${tileRows}`);
+    if (!(await tile.getByTestId("home-outreach-overdue").innerText()).match(/^\d+ overdue$/)) throw new Error("overdue line");
+    if (!(await page.getByTestId("home-jobs").innerText()).includes("Comes with the next update")) throw new Error("the Job search tile placeholder");
+    await page.screenshot({ path: path.join(OUT, "flow-work-home-outreach.png"), fullPage: true });
+  });
+
+  await step("Log a call from Outreach lands on the person's timeline, updates the last contact, and bumps the counter; Email from Outreach logs and bumps it too", async () => {
+    const before = await weekCount();
+    const priya = await personByName("Priya Natarajan");
+    await page.goto(`${BASE}/work/outreach`);
+    const row = page.locator(`[data-testid=person-row][data-person="${priya.id}"]`);
+    await row.waitFor();
+    if (Number(await page.getByTestId("outreach-counter").getAttribute("data-count")) !== before) throw new Error("counter before");
+    await row.getByTestId("row-log-call").click();
+    const drawer = page.getByTestId("log-call-drawer");
+    await drawer.waitFor();
+    if ((await drawer.getByTestId("call-who").inputValue()) !== "Priya Natarajan") throw new Error("Who is prefilled");
+    if (!(await drawer.innerText()).includes("From Outreach")) throw new Error("the drawer says where it was opened from");
+    const width = await drawer.evaluate((e) => e.getBoundingClientRect().width);
+    if (width < 440 || width > 520) throw new Error(`drawer width ${width}`);
+    await drawer.getByTestId("call-minutes").selectOption("30");
+    await drawer.getByTestId("call-said").fill("Flow: two owners asked about exit loans; she will ask if they want an intro.");
+    await drawer.getByTestId("call-next").fill("Flow: send Priya the one-page buy box");
+    const choice = drawer.getByTestId("call-next-date");
+    const date = await choice.locator("option").nth(1).getAttribute("value");
+    await choice.selectOption(date);
+    await page.screenshot({ path: path.join(OUT, "flow-work-log-call.png") });
+    await drawer.getByTestId("call-save").click();
+    await drawer.waitFor({ state: "hidden" });
+    await row.getByTestId("person-logged").waitFor();
+    if (!(await row.getByTestId("person-logged").innerText()).includes("Call logged, 30 min")) throw new Error("the row says the call was logged");
+    const comm = await one("select id, method, call_minutes, summary, call_outcome, is_outreach from communications where contact_id = $1 order by created_at desc limit 1", [priya.id]);
+    if (comm.method !== "call" || comm.call_minutes !== 30 || !comm.summary.startsWith("Flow: two owners") || comm.call_outcome !== "Flow: send Priya the one-page buy box" || !comm.is_outreach) throw new Error(JSON.stringify(comm));
+    const after = await personByName("Priya Natarajan");
+    if (after.last_contact_kind !== "call" || after.follow_up_date !== date || after.follow_up_note !== "Flow: send Priya the one-page buy box") throw new Error(JSON.stringify(after));
+    if ((await weekCount()) !== before + 1) throw new Error("the call should count this week");
+    await page.waitForFunction((n) => Number(document.querySelector("[data-testid=outreach-counter]")?.dataset.count) === n, before + 1, { timeout: 15000 });
+    await page.goto(`${BASE}/work/outreach/${priya.id}`);
+    await page.getByTestId("timeline-event").filter({ hasText: "Call with Priya Natarajan, 30 min" }).waitFor();
+    if (!(await page.getByTestId("figure-last").innerText()).includes("Today · call")) throw new Error("the header figure shows the call");
+    // Email from an Outreach row: the editor is prefilled to the person; the send (Google stand-in) is logged and counts.
+    const jamal = await personByName("Jamal Whitaker");
+    const sentBefore = (await gsent()).length;
+    await page.goto(`${BASE}/work/outreach`);
+    const jrow = page.locator(`[data-testid=person-row][data-person="${jamal.id}"]`);
+    await jrow.getByTestId("row-email").click();
+    const dlg = page.getByTestId("compose-dialog");
+    await dlg.waitFor();
+    if ((await composeTo(page)) !== "jamal.whitaker@example.com") throw new Error(`To is ${await composeTo(page)}`);
+    await page.getByTestId("compose-subject").fill("Flow: thanks for the intro");
+    await fillEditor(page.getByTestId("compose-body"), "Hi Jamal,\n\nThanks again for the intro to your partner. Could we find 20 minutes next week?\n\nBram");
+    await page.getByTestId("send-now").click();
+    await page.getByRole("dialog", { name: "Send this email?" }).waitFor();
+    await page.getByTestId("send-confirm").click();
+    await dlg.getByTestId("send-success").waitFor();
+    if ((await gsent()).length !== sentBefore + 1) throw new Error("Gmail did not get the email");
+    await page.getByTestId("compose-close").click();
+    await jrow.getByTestId("person-logged").waitFor();
+    const mail = await one("select subject, method, direction from communications where contact_id = $1 and subject = 'Flow: thanks for the intro'", [jamal.id]);
+    if (!mail || mail.method !== "email" || mail.direction !== "outgoing") throw new Error("the email was not logged on the person");
+    if ((await personByName("Jamal Whitaker")).last_contact_kind !== "email") throw new Error("last contact after the email");
+    if ((await weekCount()) !== before + 2) throw new Error("the email should count this week");
+    await page.waitForFunction((n) => Number(document.querySelector("[data-testid=outreach-counter]")?.dataset.count) === n, before + 2, { timeout: 15000 });
+  });
+
+  await step("Person page: the record-page layout, Why in touch, Next follow-up (Save, Done, Later), Tasks (add, make next), Facts (Edit), Incoming (Log it), a note, Archive and Reopen", async () => {
+    const reed = await personByName("Mark Reed");
+    await page.goto(`${BASE}/work/outreach/${reed.id}`);
+    await page.getByTestId("work-person").waitFor();
+    if ((await page.locator("h1").first().innerText()).trim() !== "Mark Reed") throw new Error("title");
+    if (!(await page.getByTestId("person-crumb").innerText()).includes("Outreach")) throw new Error("crumb");
+    // Left: Why in touch, Next follow-up, Tasks. Right: Facts, Incoming, Timeline, Decision.
+    const order = await page.locator("[data-testid=work-person] section[data-testid^=person-]").evaluateAll((els) => els.map((e) => e.dataset.testid));
+    if (order.join(",") !== "person-why,person-next-follow-up,person-tasks,person-facts,person-incoming,person-timeline,person-decision") throw new Error(`card order: ${order.join(",")}`);
+    const figs = await page.getByTestId("record-figures").locator("[data-testid^=figure-]").evaluateAll((els) => els.map((e) => [e.dataset.testid, e.dataset.tone, e.innerText.split("\n")[0]]));
+    if (figs[0][0] !== "figure-next" || figs[0][1] !== "over" || figs[1][0] !== "figure-tasks" || figs[1][2] !== "2" || figs[2][0] !== "figure-last") throw new Error(`figures: ${JSON.stringify(figs)}`);
+    const status = await page.getByTestId("person-status-line").innerText();
+    if (!status.includes("Off-market deals") || !status.includes("Transworld Business Advisors")) throw new Error(`status: ${status}`);
+    const why = await page.getByTestId("person-why").innerText();
+    if (!why.includes("Ask for the two owner names and the Summit seller call date") || !why.includes("Asked him for off-market HVAC owners")) throw new Error(`why in touch: ${why}`);
+    if ((await page.getByTestId("person-incoming").getByTestId("incoming-row").count()) !== 2) throw new Error("Mark Reed should have two incoming replies");
+    // Add a note sits below the timeline list.
+    const noteBelow = await page.getByTestId("person-timeline").evaluate((card) => card.querySelector("[data-testid=note-form]").getBoundingClientRect().top >= card.querySelector("[data-testid=timeline-events]").getBoundingClientRect().bottom - 1);
+    if (!noteBelow) throw new Error("Add a note should sit below the timeline");
+    const eventsBefore = await page.getByTestId("timeline-event").count();
+    // Log it: the reply joins the timeline and the last contact becomes that email.
+    await page.getByTestId("person-incoming").getByTestId("incoming-log").first().click();
+    await page.waitForFunction((n) => document.querySelectorAll("[data-testid=incoming-row]").length === n, 1, { timeout: 15000 });
+    await page.waitForFunction((n) => document.querySelectorAll("[data-testid=timeline-event]").length === n + 1, eventsBefore, { timeout: 15000 });
+    if ((await one("select count(*)::int n from communications where contact_id = $1 and awaiting_log", [reed.id])).n !== 1) throw new Error("Log it should clear awaiting_log");
+    if (!(await page.getByTestId("timeline-event").filter({ hasText: "Re: East Tennessee owners" }).count())) throw new Error("the logged reply is on the timeline");
+    if ((await personByName("Mark Reed")).last_contact_kind !== "email") throw new Error("last contact after Log it");
+    // Next follow-up: Save a new date and what for.
+    await page.getByTestId("fu-date").fill(nyDate(2));
+    await page.getByTestId("fu-what").fill("Flow: call about the two owners");
+    await page.getByTestId("fu-save").click();
+    await page.getByTestId("person-next-follow-up").getByTestId("save-ok").waitFor();
+    let saved = await personByName("Mark Reed");
+    if (saved.follow_up_date !== nyDate(2) || saved.follow_up_note !== "Flow: call about the two owners") throw new Error(JSON.stringify(saved));
+    await page.waitForFunction(() => document.querySelector("[data-testid=figure-next]")?.dataset.tone === "later", null, { timeout: 15000 });
+    // Done on the card: the choices, then the new date.
+    await page.getByTestId("fu-done").click();
+    await page.getByTestId("fu-done-ask").waitFor();
+    const d2 = await page.getByTestId("fu-done-choice").nth(1).getAttribute("data-date");
+    await page.getByTestId("fu-done-choice").nth(1).click();
+    await page.getByTestId("fu-result").waitFor();
+    for (let i = 0; i < 40 && (await personByName("Mark Reed")).follow_up_date !== d2; i++) await page.waitForTimeout(250);
+    if ((await personByName("Mark Reed")).follow_up_date !== d2) throw new Error("Done on the card");
+    // Later: tomorrow.
+    await page.getByTestId("fu-later").click();
+    await page.getByTestId("fu-later-tomorrow").click();
+    for (let i = 0; i < 40 && (await personByName("Mark Reed")).follow_up_date !== nyDate(1); i++) await page.waitForTimeout(250);
+    if ((await personByName("Mark Reed")).follow_up_date !== nyDate(1)) throw new Error("Later on the card");
+    // Tasks: add one, Make this the next action turns it into the follow-up and keeps the old one as a task.
+    const tasks = page.getByTestId("person-tasks");
+    await tasks.getByTestId("todo-add").click();
+    await tasks.getByTestId("todo-input").fill("Flow: send the buy box");
+    await tasks.getByTestId("todo-save").click();
+    await tasks.getByTestId("todo-item").filter({ hasText: "Flow: send the buy box" }).waitFor();
+    await tasks.getByTestId("todo-item").filter({ hasText: "Flow: send the buy box" }).getByTestId("todo-make-next").click();
+    await page.waitForFunction(() => document.querySelector("[data-testid=fu-what]")?.value === "Flow: send the buy box", null, { timeout: 15000 });
+    saved = await personByName("Mark Reed");
+    if (saved.follow_up_note !== "Flow: send the buy box") throw new Error(JSON.stringify(saved));
+    const taskRows = (await pg.query("select text, record_type from deal_todos where record_id = $1 order by position", [reed.id])).rows;
+    if (taskRows.some((t) => t.text === "Flow: send the buy box") || !taskRows.some((t) => t.text === "Flow: call about the two owners") || !taskRows.every((t) => t.record_type === "contacts")) throw new Error(`tasks: ${taskRows.map((t) => t.text).join(" | ")}`);
+    // Facts: Edit the phone and the purpose; the organization and role line follows.
+    await page.getByTestId("person-facts-edit").click();
+    await page.getByTestId("person-phone").fill("(865) 555-0199");
+    await page.getByTestId("purpose-toggle").click();
+    await page.getByTestId("purpose-rosara").check();
+    await page.getByTestId("person-facts-save").click();
+    await page.getByTestId("person-facts-grid").waitFor();
+    await page.waitForFunction(() => document.querySelector("[data-testid=pf-phone]")?.innerText.includes("(865) 555-0199"), null, { timeout: 15000 });
+    saved = await personByName("Mark Reed");
+    if (saved.purposes.join(",") !== "off_market_deals,rosara" || !saved.notes.startsWith("Asked him for off-market HVAC owners")) throw new Error(JSON.stringify(saved));
+    if (!(await page.getByTestId("pf-purpose").innerText()).includes("Off-market deals, Rosara")) throw new Error("the Facts purpose line");
+    // A note.
+    await page.getByTestId("person-note").fill("Flow note: likes a Friday call.");
+    await page.getByTestId("note-save").click();
+    await page.getByTestId("timeline-event").filter({ hasText: "Flow note: likes a Friday call." }).waitFor();
+    if (!(await one("select 1 x from notes where record_type = 'contacts' and record_id = $1 and body = 'Flow note: likes a Friday call.'", [reed.id]))) throw new Error("the note was not saved on the contact");
+    await page.screenshot({ path: path.join(OUT, "flow-work-person.png"), fullPage: true });
+    // Archive takes the person off Outreach; Reopen brings them back.
+    await page.getByTestId("person-archive").click();
+    await page.getByTestId("person-reopen").waitFor({ timeout: 15000 });
+    if (!(await personByName("Mark Reed")).archived_at) throw new Error("archived_at");
+    await page.goto(`${BASE}/work/outreach`);
+    await page.getByTestId("outreach-card").waitFor();
+    if (await page.locator(`[data-testid=person-row][data-person="${reed.id}"]`).count()) throw new Error("an archived person is still on Outreach");
+    if (!(await page.getByTestId("outreach-archived").innerText()).includes("Archived 1")) throw new Error("the Archived bar");
+    await page.goto(`${BASE}/work/outreach/${reed.id}`);
+    await page.getByTestId("person-reopen").click();
+    await page.getByTestId("person-archive").waitFor({ timeout: 15000 });
+    if ((await personByName("Mark Reed")).archived_at) throw new Error("Reopen");
+    await pg.query("update contacts set follow_up_date = $2 where id = $1", [reed.id, nyDate(-2)]);
+  });
+
+  await step("Deal page: Log a call from a deal lands on the deal timeline (and the broker's last contact) and sets the next action; the Tasks card still adds and moves items", async () => {
+    const dalton = await dealByName("Dalton Services");
+    const kim = await personByName("Rachel Kim");
+    await page.goto(`${BASE}/work/deals/${dalton.id}`);
+    await page.getByTestId("work-deal").waitFor();
+    await page.getByTestId("deal-log-call").click();
+    const drawer = page.getByTestId("log-call-drawer");
+    await drawer.waitFor();
+    if ((await drawer.getByTestId("call-who").inputValue()) !== "Rachel Kim") throw new Error("the deal's main contact is prefilled");
+    if (!(await drawer.innerText()).includes("From Dalton Services")) throw new Error("drawer sub line");
+    await drawer.getByTestId("call-minutes").selectOption("15");
+    await drawer.getByTestId("call-said").fill("Flow: she will send the customer list by Friday.");
+    await drawer.getByTestId("call-next").fill("Flow: read the customer list");
+    await drawer.getByTestId("call-save").click();
+    await drawer.waitFor({ state: "hidden" });
+    await page.getByTestId("deal-call-logged").waitFor();
+    await page.getByTestId("timeline-event").filter({ hasText: "Call with Rachel Kim, 15 min" }).waitFor({ timeout: 15000 });
+    const comm = await one("select contact_id, pipeline_item_id, call_minutes from communications where pipeline_item_id = $1 and summary like 'Flow: she will send%'", [dalton.id]);
+    if (!comm || comm.contact_id !== kim.id || comm.call_minutes !== 15) throw new Error(JSON.stringify(comm));
+    const moved = await dealByName("Dalton Services");
+    if (moved.next_action !== "Flow: read the customer list") throw new Error(`next action after the call: ${moved.next_action}`);
+    if ((await personByName("Rachel Kim")).last_contact_kind !== "call") throw new Error("the broker's last contact");
+    if (!(await page.getByTestId("figure-last").innerText()).includes("Today · call")) throw new Error("the deal header figure shows the call");
+    if (!(await one("select 1 x from record_links where from_type = 'communications' and to_type = 'pipeline_items' and to_id = $1 and from_id = (select id from communications where summary like 'Flow: she will send%' limit 1)", [dalton.id]))) throw new Error("record link");
+  });
+
+  await step("To-dos: the three sections from the sample, add (with and without a date), check off into Done today, edit inline, delete, and the Rosara, Job search, and Consulting pages with their empty state; the Ask AI panel", async () => {
+    await page.goto(`${BASE}/work/todos`);
+    await page.getByTestId("todos-card").waitFor();
+    const sections = await page.getByTestId("todos-section").evaluateAll((els) => els.map((e) => [e.dataset.section, Number(e.querySelector("[data-testid=section-heading]")?.dataset.count), e.dataset.collapsed]));
+    if (sections.map((x) => x[0]).join(",") !== "today,week,later,done") throw new Error(`sections: ${JSON.stringify(sections)}`);
+    if (sections[0][1] !== 2 || sections[1][1] !== 2 || sections[2][1] !== 1 || sections[3][1] !== 0) throw new Error(`section counts: ${JSON.stringify(sections)}`);
+    const card = page.getByTestId("todos-card");
+    const width = await card.evaluate((e) => e.getBoundingClientRect().width);
+    if (width > 720) throw new Error(`the To-dos card is ${width}px wide`);
+    await page.getByTestId("personal-todo-input").fill("Flow: call the insurance agent");
+    await page.getByTestId("personal-todo-add").click();
+    await page.locator("[data-testid=personal-todo]", { hasText: "Flow: call the insurance agent" }).waitFor();
+    await page.getByTestId("personal-todo-input").fill("Flow: renew the passport");
+    await page.getByTestId("personal-todo-due").fill(nyDate(6));
+    await page.getByTestId("personal-todo-input").press("Enter");
+    const later = page.locator("[data-testid=personal-todo]", { hasText: "Flow: renew the passport" });
+    await later.waitFor();
+    if ((await later.locator("xpath=ancestor::*[@data-testid='todos-section']").getAttribute("data-section")) !== "week") throw new Error("a to-do due in 6 days sits under Next 7 days");
+    if ((await page.locator("[data-testid=personal-todo]", { hasText: "Flow: call the insurance agent" }).locator("xpath=ancestor::*[@data-testid='todos-section']").getAttribute("data-section")) !== "today") throw new Error("a to-do without a date sits under Today");
+    const inDb = await one("select text, due_on::text from todos where text = 'Flow: renew the passport'");
+    if (!inDb || inDb.due_on !== nyDate(6)) throw new Error(JSON.stringify(inDb));
+    // Check off: the item moves under Done today (collapsed by default, so the count shows it).
+    await page.locator("[data-testid=personal-todo]", { hasText: "Book the dentist" }).getByTestId("personal-todo-check").check();
+    await page.waitForFunction(() => Number(document.querySelector("[data-testid=todos-section][data-section=done] [data-testid=section-heading]")?.dataset.count) === 1, null, { timeout: 15000 });
+    if (!(await one("select done_at from todos where text = 'Book the dentist'")).done_at) throw new Error("done_at");
+    // Edit inline.
+    const line = page.locator("[data-testid=personal-todo]", { hasText: "Flow: call the insurance agent" });
+    await line.getByTestId("personal-todo-text").click();
+    // While editing, the text sits in the input (not in the row's text), so the input is found on the page.
+    await page.getByTestId("personal-todo-edit").fill("Flow: call the insurance agent about the umbrella policy");
+    await page.getByTestId("personal-todo-edit").press("Enter");
+    await page.locator("[data-testid=personal-todo]", { hasText: "about the umbrella policy" }).waitFor({ timeout: 15000 });
+    if (!(await one("select 1 x from todos where text = 'Flow: call the insurance agent about the umbrella policy'"))) throw new Error("the edit was not saved");
+    // Delete.
+    await page.locator("[data-testid=personal-todo]", { hasText: "Flow: renew the passport" }).getByTestId("personal-todo-delete").click();
+    await page.waitForFunction(() => !document.body.innerText.includes("Flow: renew the passport"), null, { timeout: 15000 });
+    if (await one("select 1 x from todos where text = 'Flow: renew the passport'")) throw new Error("not deleted");
+    await page.screenshot({ path: path.join(OUT, "flow-work-todos.png"), fullPage: true });
+    // The three pages that batch B2 fills.
+    for (const [href, title] of [["/work/rosara", "Rosara"], ["/work/jobs", "Job search"], ["/work/consulting", "Consulting"]]) {
+      await page.goto(`${BASE}${href}`);
+      await page.getByTestId("coming-next").waitFor();
+      if ((await page.locator("h1").first().innerText()).trim() !== title || !(await page.getByTestId("coming-next").innerText()).includes("Comes with the next update")) throw new Error(`${href}`);
+    }
+    // Ask AI: the pill opens the small panel.
+    await page.getByTestId("ask-ai").click();
+    await page.getByTestId("ask-ai-panel").waitFor();
+    if (!(await page.getByTestId("ask-ai-note").innerText()).includes("Ask AI comes with the next update.")) throw new Error("the Ask AI panel text");
+    await page.screenshot({ path: path.join(OUT, "flow-work-ask-ai.png") });
+    await page.getByTestId("drawer-close").click();
+    await page.getByTestId("ask-ai-panel").waitFor({ state: "hidden" });
+  });
+
   await step("Work screens at 1280 and on the phone", async () => {
+    const reed = await personByName("Mark Reed");
+    await shoot3(`${BASE}/work/outreach`, "work-outreach");
+    await shoot3(`${BASE}/work/outreach/${reed.id}`, "work-person");
+    await shoot3(`${BASE}/work/todos`, "work-todos");
     const dalton = await dealByName("Dalton Services");
     await shoot3(`${BASE}/work`, "work-now");
     await shoot3(`${BASE}/work/listings?add=1`, "work-listings");

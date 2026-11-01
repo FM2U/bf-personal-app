@@ -13,11 +13,20 @@ export const MAIN_NAV: NavModule[] = [
   { key: "more", label: "More", href: "/more", icon: "more", tabs: [] },
 ];
 
-/** The Work tabs (Home, Screen listings, Deals; Edit batch A 2026-10-31). Outreach comes in batch B. */
+/**
+ * The Work tabs (batch B, 2026-10-31, the final menu): Home, Screen listings, Deals, Outreach, Rosara, Job search,
+ * Consulting, To-dos. Rosara, Job search, and Consulting are pages with their heading and "Comes with the next
+ * update" until batch B2 fills them.
+ */
 export const WORK_TABS: NavTab[] = [
   { href: "/work", label: "Home" },
   { href: "/work/listings", label: "Screen listings" },
   { href: "/work/deals", label: "Deals" },
+  { href: "/work/outreach", label: "Outreach" },
+  { href: "/work/rosara", label: "Rosara" },
+  { href: "/work/jobs", label: "Job search" },
+  { href: "/work/consulting", label: "Consulting" },
+  { href: "/work/todos", label: "To-dos" },
 ];
 
 /** The main menu item a path belongs to (for the active state in the menu). */
@@ -27,7 +36,7 @@ export function mainFor(path: string): NavModule {
   return MAIN_NAV[2];
 }
 
-/** The Work tab a path belongs to (the deal page belongs to Deals). */
+/** The Work tab a path belongs to (the deal page belongs to Deals, the person page to Outreach). */
 export function workTabFor(path: string): NavTab | null {
   if (!path.startsWith("/work")) return null;
   return [...WORK_TABS].sort((a, b) => b.href.length - a.href.length).find((t) => path === t.href || path.startsWith(`${t.href}/`)) ?? WORK_TABS[0];

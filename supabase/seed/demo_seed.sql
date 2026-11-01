@@ -121,7 +121,7 @@ begin
   select id into s from pipeline_stages where pipeline_id = p_acq and name = 'Interested';
   insert into pipeline_items (owner_id, pipeline_id, stage_id, name, next_action, next_action_due) values (o, p_acq, s, 'Demo Landscaping LLC', 'Request financials', current_date - 1) returning id into item2;
   insert into deal_financials (owner_id, item_id, asking_price, ebitda) values (o, item2, 1500000, 400000);
-  select id into s from pipeline_stages where pipeline_id = p_jobs and name = 'Interviewing';
+  select id into s from pipeline_stages where pipeline_id = p_jobs and name = 'Interview';
   insert into pipeline_items (owner_id, pipeline_id, stage_id, name, organization_id, next_action, next_action_due) values (o, p_jobs, s, 'VP Operations, Sample Software Inc', org_employer, 'Prepare for final interview', current_date + 4) returning id into item3;
   insert into job_details (owner_id, item_id, salary, bonus, benefits) values (o, item3, 150000, 20000, 'Health, 401k match (example)');
   select id into s from pipeline_stages where pipeline_id = p_inv and name = 'Meeting';
@@ -355,12 +355,12 @@ begin
   -- Consulting items. Inserting an item creates its stage tasks and next action (database triggers).
   for st in
     select * from (values
-      ('Demo Retail Group: operations retainer', 'Active', org_client, c_client, c_friend, 'monthly_retainer', 4200::numeric, null::numeric, null::numeric, current_date - 120, null::date, null::int),
-      ('Sample Clinic Partners: pricing project', 'Proposal sent', org_client2, c_lead, c_friend, 'project', 18000::numeric, null::numeric, 3::numeric, current_date + 21, current_date + 111, null::int),
-      ('Demo Logistics: hourly advisory', 'Discovery call', null::uuid, c_lead, null::uuid, 'hourly', 175::numeric, 20::numeric, null::numeric, null::date, null::date, 40),
-      ('Demo Bakery: process review', 'Identified', null::uuid, null::uuid, null::uuid, null::text, null::numeric, null::numeric, null::numeric, null::date, null::date, null::int),
+      ('Demo Retail Group: operations retainer', 'Engagement', org_client, c_client, c_friend, 'monthly_retainer', 4200::numeric, null::numeric, null::numeric, current_date - 120, null::date, null::int),
+      ('Sample Clinic Partners: pricing project', 'Proposal', org_client2, c_lead, c_friend, 'project', 18000::numeric, null::numeric, 3::numeric, current_date + 21, current_date + 111, null::int),
+      ('Demo Logistics: hourly advisory', 'Lead', null::uuid, c_lead, null::uuid, 'hourly', 175::numeric, 20::numeric, null::numeric, null::date, null::date, 40),
+      ('Demo Bakery: process review', 'Lead', null::uuid, null::uuid, null::uuid, null::text, null::numeric, null::numeric, null::numeric, null::date, null::date, null::int),
       -- Signed this week, no payment yet: counted in runway when the runway setting is on (until its first payment).
-      ('Demo Dental Group: monthly retainer', 'Signed', null::uuid, c_client, null::uuid, 'monthly_retainer', 2500::numeric, null::numeric, null::numeric, current_date - 3, null::date, null::int)
+      ('Demo Dental Group: monthly retainer', 'Engagement', null::uuid, c_client, null::uuid, 'monthly_retainer', 2500::numeric, null::numeric, null::numeric, current_date - 3, null::date, null::int)
     ) as v (name, stage, org, lead_from, intro, rate_type, rate, hours, months, start_d, end_d, prob)
   loop
     insert into pipeline_items (owner_id, pipeline_id, stage_id, name, organization_id, primary_contact_id, source_contact_id, introduced_by_contact_id)

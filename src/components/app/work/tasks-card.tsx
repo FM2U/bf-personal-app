@@ -1,0 +1,163 @@
+"use client";
+
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { Sparkles } from "lucide-react";
+import { useUnsavedWork } from "@/components/app/unsaved-changes";
+import { sortTodos, todosLabel, type DealTodo } from "@/lib/work/todos";
+import { RowButton, WorkCard } from "@/components/app/work/ui";
+import { cn } from "@/lib/utils";
+
+const INPUT = "h-9 w-full min-w-0 rounded-[7px] border border-input bg-white px-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
+
+type Result = { ok: true } | { ok: false; error: string };
+
+/**
+ * Tasks (the record-page rule, batch B; the deal's "Also to do" renamed): other things to do on this record, outside
+ * its one next action (they do not show on Home). Each item has a checkbox (done), a faint x (delete), and "Make
+ * this the next action" (the text becomes the next action or follow-up and the item leaves the list; the old one
+ * is kept as an item). "+ Add" adds a typed item; "Suggest" (deals) asks the AI for up to 5. The same card serves
+ * deals and people; the actions come from the page.
+ */
+export function TasksCard({ tasks, open, actions, placeholder, emptyText, testId = "deal-todos" }: {
+  tasks: DealTodo[];
+  /** The record is open (closed records show the list without the add and move controls). */
+  open: boolean;
+  actions: {
+    add: (text: string) => Promise<Result>;
+    setDone: (id: string, done: boolean) => Promise<Result>;
+    remove: (id: string) => Promise<Result>;
+    makeNext: (id: string) => Promise<Result & { nextAction?: string }>;
+    suggest?: () => Promise<(Result & { added?: number })>;
+  };
+  placeholder: string;
+  emptyText: string;
+  testId?: string;
+}) {
+  const router = useRouter();
+  const [text, setText] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [pending, start] = useTransition();
+  const [note, setNote] = useState<{ tone: "ok" | "warn"; text: string } | null>(null);
+  // The checkbox shows the click at once; the saved state arrives with the page re-read.
+  const [ticked, setTicked] = useState<Record<string, boolean>>({});
+  const [prevTasks, setPrevTasks] = useState(tasks);
+  if (prevTasks !== tasks) {
+    setPrevTasks(tasks);
+    setTicked({});
+  }
+  const list = sortTodos(tasks);
+  const openCount = list.filter((t) => !t.doneAt).length;
+  const act = <R extends Result>(fn: () => Promise<R>, after?: (r: Extract<R, { ok: true }>) => void) =>
+    start(async () => {
+      setNote(null);
+      const r = await fn();
+      if (r.ok === false) return setNote({ tone: "warn", text: (r as { ok: false; error: string }).error });
+      after?.(r as Extract<R, { ok: true }>);
+      router.refresh();
+    });
+  useUnsavedWork(text.trim() !== "", "The task you typed is not added yet.");
+  const add = () => {
+    if (!text.trim()) return;
+    act(
+      () => actions.add(text),
+      () => {
+        setText("");
+        setAdding(false);
+      },
+    );
+  };
+  return (
+    <WorkCard
+      title="Tasks"
+      hint={todosLabel(openCount)}
+      actions={
+        open ? (
+          <>
+            <button type="button" onClick={() => setAdding(true)} className="text-xs font-medium text-primary-strong hover:underline" data-testid="todo-add">
+              + Add
+            </button>
+            {actions.suggest ? (
+              <RowButton onClick={() => act(() => actions.suggest!(), (r) => setNote({ tone: "ok", text: r.added ? `${r.added} suggested.` : "Nothing new to add." }))} disabled={pending} className="h-7 px-2.5 text-xs" data-testid="todo-suggest">
+                <Sparkles className="mr-1 h-3 w-3" /> Suggest
+              </RowButton>
+            ) : null}
+          </>
+        ) : undefined
+      }
+      testId={testId}
+    >
+      <div className="flex flex-col px-[22px] pt-2 pb-4" data-testid="todo-list">
+        {list.map((t) => (
+          <div key={t.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-slate-100 py-[7px] last:border-b-0" data-testid="todo-item" data-done={t.doneAt ? "1" : "0"}>
+            <input
+              type="checkbox"
+              checked={ticked[t.id] ?? !!t.doneAt}
+              onChange={(e) => {
+                const on = e.target.checked;
+                setTicked((m) => ({ ...m, [t.id]: on }));
+                act(() => actions.setDone(t.id, on));
+              }}
+              disabled={pending}
+              aria-label={`Done: ${t.text}`}
+              className="h-4 w-4 shrink-0 accent-[var(--primary)]"
+              data-testid="todo-check"
+            />
+            <span className={cn("min-w-0 flex-1 basis-[220px] text-sm text-slate-800", t.doneAt && "text-slate-400 line-through")} data-testid="todo-text">
+              {t.text}
+            </span>
+            {!t.doneAt && open ? (
+              <button type="button" onClick={() => act(() => actions.makeNext(t.id), (r) => setNote({ tone: "ok", text: `Next action set: ${r.nextAction ?? t.text}, due tomorrow.` }))} disabled={pending} className="ml-6 shrink-0 text-xs font-medium whitespace-nowrap text-primary-strong hover:underline sm:ml-0" data-testid="todo-make-next">
+                Make this the next action
+              </button>
+            ) : null}
+            <button type="button" onClick={() => act(() => actions.remove(t.id))} disabled={pending} className="h-6 w-6 shrink-0 rounded text-slate-300 hover:bg-slate-100 hover:text-slate-600" aria-label={`Delete: ${t.text}`} title="Delete" data-testid="todo-delete">
+              ×
+            </button>
+          </div>
+        ))}
+        {!list.length && !adding ? <p className="py-2 text-[13px] text-muted-foreground">{emptyText}</p> : null}
+        {adding ? (
+          <div className="flex items-center gap-2 pt-2">
+            <input
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  add();
+                }
+                if (e.key === "Escape") {
+                  setAdding(false);
+                  setText("");
+                }
+              }}
+              autoFocus
+              placeholder={placeholder}
+              className={INPUT}
+              data-testid="todo-input"
+            />
+            <RowButton tone={text.trim() ? "primary" : "outline"} onClick={add} disabled={pending || !text.trim()} data-testid="todo-save">
+              Add
+            </RowButton>
+            <button
+              type="button"
+              onClick={() => {
+                setAdding(false);
+                setText("");
+              }}
+              className="text-xs text-muted-foreground hover:underline"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : null}
+        {note ? (
+          <p className={cn("pt-2 text-[13px]", note.tone === "ok" ? "text-status-met" : "text-status-missed")} role="status" data-testid="todo-note">
+            {note.text}
+          </p>
+        ) : null}
+      </div>
+    </WorkCard>
+  );
+}

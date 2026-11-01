@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildWorkSample, WORK_SAMPLE_NAMES } from "./sample";
 import { checkBuyBox } from "./buy-box";
 import { STAGE_DEFAULTS, WORK_STAGES } from "./stages";
+import { outreachSections, parsePurposes } from "./outreach";
 
 const stages = Object.fromEntries([...WORK_STAGES, "Closed", "Passed", "Lost"].map((n, i) => [n, `st-${i}`]));
 let n = 0;
@@ -78,5 +79,43 @@ describe("the Work module's sample data", () => {
     for (const r of [...w.items, ...w.contacts, ...w.organizations]) expect(WORK_SAMPLE_NAMES).toContain(r.name);
     const ids = [...w.items, ...w.financials, ...w.contacts, ...w.organizations, ...w.communications, ...w.notes, ...w.todos].map((r) => r.id);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe("the Outreach sample (batch B)", () => {
+  let k = 0;
+  const b = buildWorkSample({ pipelineId: "p-acq", stages, batchB: true }, () => `00000000-0000-4000-8000-${String(++k).padStart(12, "0")}`, "2026-10-30");
+  const people = b.contacts.map((c) => ({ id: String(c.id), name: String(c.name), purposes: parsePurposes(c.purposes), nextFollowUp: c.follow_up_date ? String(c.follow_up_date) : null }));
+
+  it("has 16 people with roles and purposes in every section, and nothing of it without batch B", () => {
+    expect(people).toHaveLength(16);
+    expect(b.contacts.every((c) => c.outreach_role && parsePurposes(c.purposes).length > 0 && c.notes)).toBe(true);
+    const sections = outreachSections(people, "2026-10-30");
+    expect(sections.overdue.map((p) => p.name)).toEqual(["Priya Natarajan", "Mark Reed"]);
+    expect(sections.today.map((p) => p.name).sort()).toEqual(["Carla Jenkins", "Denise Walker", "Tom Alvarez"]);
+    expect(sections.week).toHaveLength(6);
+    expect(sections.later).toHaveLength(3);
+    expect(sections.nodate.map((p) => p.name).sort()).toEqual(["Nina Reyes", "Sam Patel"]);
+    for (const purpose of ["off_market_deals", "job_search", "consulting", "rosara"]) expect(people.some((p) => p.purposes.includes(purpose as never))).toBe(true);
+    expect(w.contacts).toHaveLength(4);
+    expect(w.contacts.every((c) => c.outreach_role === undefined)).toBe(true);
+    expect(w.personalTodos).toHaveLength(0);
+  });
+
+  it("has calls and emails on the timelines, three incoming replies waiting (two on Mark Reed), tasks on people, and five to-dos", () => {
+    const reed = b.contacts.find((c) => c.name === "Mark Reed")!;
+    const incoming = b.communications.filter((c) => c.awaiting_log);
+    expect(incoming).toHaveLength(3);
+    expect(incoming.filter((c) => c.contact_id === reed.id)).toHaveLength(2);
+    expect(incoming.every((c) => c.direction === "incoming" && c.method === "email")).toBe(true);
+    const calls = b.communications.filter((c) => c.method === "call" || c.method === "meeting");
+    expect(calls.length).toBeGreaterThanOrEqual(10);
+    expect(calls.every((c) => Number(c.call_minutes) > 0)).toBe(true);
+    // Every person has at least one logged email or call (a last contact).
+    for (const p of people) expect(b.communications.some((c) => c.contact_id === p.id && !c.awaiting_log)).toBe(true);
+    expect(b.todos.filter((t) => t.record_type === "contacts")).toHaveLength(3);
+    expect(b.todos.filter((t) => t.deal_id)).toHaveLength(5);
+    expect(b.personalTodos.map((t) => t.due_on)).toEqual(["2026-10-30", null, "2026-11-04", "2026-11-03", "2026-11-13"]);
+    expect(b.notes.filter((n) => n.record_type === "contacts")).toHaveLength(2);
   });
 });

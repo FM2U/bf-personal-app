@@ -202,3 +202,21 @@ export const TABLES_0021 = ["deal_todos"];
 export const COLUMNS_0021: Record<string, string[]> = {
   pipeline_items: ["company_name", "open_questions_json"],
 };
+
+/**
+ * Database update 0022 (batch B): contacts.outreach_role, purposes, linkedin_url, last_contact_at, last_contact_kind,
+ * archived_at; communications.call_minutes, call_outcome, awaiting_log; the todos, projects, and ai_order_cache tables;
+ * deal_todos.record_type and record_id; pipeline_items.role_title, contact_name, fee; the Job search and Consulting
+ * stages; the outreach target and Rosara weekly focus settings; and schema_has_0022(). Before it, every Work screen
+ * shows DB_UPDATE_NOTICE_0022 instead of its content, and every other screen and both scheduled jobs keep working.
+ */
+export const DB_UPDATE_FILE_0022 = "supabase/UPDATE_0022_RUN_ONCE.sql";
+export const DB_UPDATE_NOTICE_0022 = `Database update needed: paste ${DB_UPDATE_FILE_0022} into the Supabase SQL Editor and run it.`;
+export const PROBE_0022 = "schema_has_0022";
+export const TABLES_0022 = ["todos", "projects", "ai_order_cache"];
+export const COLUMNS_0022: Record<string, string[]> = {
+  contacts: ["outreach_role", "purposes", "linkedin_url", "last_contact_at", "last_contact_kind", "archived_at"],
+  communications: ["call_minutes", "call_outcome", "awaiting_log"],
+  deal_todos: ["record_type", "record_id"],
+  pipeline_items: ["role_title", "contact_name", "fee"],
+};

@@ -18,8 +18,10 @@
 #   (q) 0001 to 0018 (the live database on 2026-10-30, evening) plus a daily plan and a task, then UPDATE_0019_RUN_ONCE.sql twice
 #   (r) 0001 to 0019 (the live database on 2026-10-31) plus deals in the old acquisition stages, then UPDATE_0020_RUN_ONCE.sql twice
 #   (s) 0001 to 0020 (the live database on 2026-10-31, evening) plus a deal on the Chase default with typed open questions, then UPDATE_0021_RUN_ONCE.sql twice
+#   (t) 0001 to 0021 (the live database on 2026-11-01) plus contacts with communications, consulting items in the old stages, a job item,
+#       and deal to-dos, then UPDATE_0022_RUN_ONCE.sql twice
 # Paths b, c, d (UPDATE_RUN_ONCE.sql) and j, k, l also check 0014: tables, policies, functions, sample removal, and reset.
-# UPDATE_RUN_ONCE.sql now ends with 0021, so on paths b, c, d the acquisition stages are the new ones (the checks allow both).
+# UPDATE_RUN_ONCE.sql now ends with 0022, so on paths b, c, d the acquisition, job, and consulting stages are the new ones (the checks allow both).
 # Every UPDATE_RUN_ONCE.sql path also checks 0012 and 0013.
 # Usage: bash supabase/tests/upgrade_test.sh
 set -euo pipefail
@@ -88,7 +90,7 @@ do $$ begin
   assert (select count(*) from public.targets where name = 'Deals sourced' and count_source = 'deals_sourced' and minimum_count = 5) = 1, 'Deals sourced seeded once';
   assert (select count(*) from public.targets where name = 'Deals advanced' and count_source = 'deals_advanced' and minimum_count = 1) = 1, 'Deals advanced seeded once';
   assert (select start_date from public.targets where name = 'Deals advanced') = (now() at time zone 'America/New_York')::date, 'counting starts today (New York)';
-  assert (select count(*) from public.stage_tasks) = (case when to_regprocedure('public.schema_has_0020()') is null then 60 else 59 end), 'stage tasks seeded once (46 plus 14 consulting; 59 after 0020)';
+  assert (select count(*) from public.stage_tasks) = (case when to_regprocedure('public.schema_has_0020()') is null then 60 when to_regprocedure('public.schema_has_0022()') is null then 59 else 49 end), 'stage tasks seeded once (46 plus 14 consulting; 59 after 0020; 49 after 0022 reshapes the job and consulting stages)';
   assert (select count(*) from public.inputs where key in ('pipeline_stall_days', 'stage_extension_days')) = 2, 'inputs seeded once';
   assert (select max_days_in_stage from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.name = 'Acquisitions' and s.name = 'Diligence') = 60, 'Diligence limit';
   assert (select purpose from public.communications where subject = 'Existing call') = 'general', 'existing communications get purpose general';
@@ -119,7 +121,7 @@ do $$ begin
   assert (select count(*) from public.task_templates where is_commitment) = 4, 'only review templates are commitments';
   assert (select count(*) from public.task_templates where is_commitment and not public.is_review_template_title(title)) = 0, 'no other template is a commitment';
   assert (select count(*) from public.stage_tasks where is_commitment <> is_next_action_default) = 0, 'only next-action stage tasks are commitments';
-  assert (select count(*) from public.stage_tasks) = (case when to_regprocedure('public.schema_has_0020()') is null then 60 else 59 end), 'stage tasks not duplicated';
+  assert (select count(*) from public.stage_tasks) = (case when to_regprocedure('public.schema_has_0020()') is null then 60 when to_regprocedure('public.schema_has_0022()') is null then 59 else 49 end), 'stage tasks not duplicated';
   assert (select status from public.commitments where title like 'Download%') = 'released', 'export commitment released';
   assert (select resolution from public.missed_commitments m join public.commitments c on c.id = m.commitment_id where c.title like 'Download%') = 'released', 'pending miss released';
   assert (select count(*) from public.alerts a join public.commitments c on c.id = a.related_id where c.title like 'Download%' and a.status = 'open') = 0, 'miss alert dismissed';
@@ -145,9 +147,9 @@ do $$ begin
   assert (select count(*) from public.pipelines where name = 'Consulting' and kind = 'consulting') = 1, 'one Consulting pipeline';
   assert (select count(*) from public.initiatives where name = 'Consulting') = 1, 'one Consulting initiative';
   assert (select count(*) from public.pipelines) = 6, 'six pipelines';
-  assert (select count(*) from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.name = 'Consulting') = 9, 'nine consulting stages';
-  assert (select count(*) from public.stage_tasks st join public.pipeline_stages s on s.id = st.pipeline_stage_id join public.pipelines p on p.id = s.pipeline_id where p.name = 'Consulting') = 14, 'consulting stage tasks once';
-  assert (select count(*) from public.stage_tasks) = (case when to_regprocedure('public.schema_has_0020()') is null then 60 else 59 end), 'all stage tasks once';
+  assert (select count(*) from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.name = 'Consulting') = (case when to_regprocedure('public.schema_has_0022()') is null then 9 else 6 end), 'nine consulting stages (six after 0022)';
+  assert (select count(*) from public.stage_tasks st join public.pipeline_stages s on s.id = st.pipeline_stage_id join public.pipelines p on p.id = s.pipeline_id where p.name = 'Consulting') = (case when to_regprocedure('public.schema_has_0022()') is null then 14 else 6 end), 'consulting stage tasks once';
+  assert (select count(*) from public.stage_tasks) = (case when to_regprocedure('public.schema_has_0020()') is null then 60 when to_regprocedure('public.schema_has_0022()') is null then 59 else 49 end), 'all stage tasks once';
   assert (select count(*) from public.inputs where key in ('runway_include_signed_consulting', 'consulting_monthly_income', 'consulting_months')) = 3, 'consulting inputs once';
   assert (select count(*) from public.pipeline_stages where counts_as_signed) = 2, 'two signed-work stages';
   assert (select count(*) from pg_policies where schemaname = 'public' and tablename = 'consulting_details' and policyname = 'owner_only') = 1, 'consulting policy';
@@ -159,13 +161,13 @@ do $$ begin
   assert (select purpose from public.communications where subject = 'Existing call') = 'general', 'existing communication purpose kept';
   assert (select count(*) from public.targets where name not in ('Listings screened', 'CIMs reviewed', 'Broker or owner calls')) = 3, 'no consulting target';
 end $$;
--- A new consulting item gets its stage tasks.
+-- A new consulting item gets its stage tasks (the first stage is Identified, or Lead after 0022, with its one default).
 insert into public.pipeline_items (owner_id, pipeline_id, stage_id, name)
 select p.owner_id, p.id, s.id, 'Upgrade consulting item' from public.pipelines p join public.pipeline_stages s on s.pipeline_id = p.id
-where p.name = 'Consulting' and s.name = 'Identified';
+where p.name = 'Consulting' and s.name in ('Identified', 'Lead');
 do $$ begin
-  assert (select count(*) from public.tasks where title like 'Upgrade consulting item: %') = 2, 'consulting stage tasks on create';
-  assert (select next_action from public.pipeline_items where name = 'Upgrade consulting item') = 'Research the client and their need', 'consulting next action';
+  assert (select count(*) from public.tasks where title like 'Upgrade consulting item: %') = (case when to_regprocedure('public.schema_has_0022()') is null then 2 else 1 end), 'consulting stage tasks on create';
+  assert (select next_action from public.pipeline_items where name = 'Upgrade consulting item') = (case when to_regprocedure('public.schema_has_0022()') is null then 'Research the client and their need' else 'Find out what they need and who decides' end), 'consulting next action';
 end $$;
 delete from public.pipeline_items where name = 'Upgrade consulting item';
 select '0011 checks passed' as result;
@@ -747,9 +749,109 @@ select '0021 checks passed' as result;
 SQL
 for f in UPDATE_RUN_ONCE ALL_MIGRATIONS_RUN_ONCE; do grep -q "schema_has_0021" "$DIR/$f.sql" || { echo "$f.sql is missing 0021"; exit 1; }; done
 
+# (t) Live state on 2026-11-01: 0001 to 0021 applied, two contacts (one with an email and a call logged, one never contacted),
+# consulting items in Discovery call, Active, and Proposal sent, a job item in Interviewing, a deal with two to-dos, then
+# UPDATE_0022_RUN_ONCE.sql twice. Nothing is deleted except the four emptied consulting stages, the contacts carry their last
+# contact, the to-dos read as deal tasks (record_type pipeline_items, record_id = deal_id), the consulting items sit in Lead,
+# Engagement, and Proposal with their days in stage, the job stages are renamed in place, the new tables are owner-only with the
+# change log, a task on a contact goes with the contact, the settings exist once, and a future owner gets the same.
+setup bf_upgrade_t 0021
+su postgres -c "$PSQL -d bf_upgrade_t" <<'SQL'
+\set ON_ERROR_STOP 1
+insert into public.contacts (owner_id, name, email) values ('00000000-0000-0000-0000-000000000001', 'Talked to', 'talked@example.com');
+insert into public.contacts (owner_id, name) values ('00000000-0000-0000-0000-000000000001', 'Never contacted');
+insert into public.communications (owner_id, contact_id, method, direction, subject, occurred_at)
+select owner_id, id, 'email', 'outgoing', 'Older email', now() - interval '10 days' from public.contacts where name = 'Talked to';
+insert into public.communications (owner_id, contact_id, method, direction, subject, occurred_at)
+select owner_id, id, 'call', 'outgoing', 'Newer call', now() - interval '2 days' from public.contacts where name = 'Talked to';
+insert into public.pipeline_items (owner_id, pipeline_id, stage_id, name)
+select p.owner_id, p.id, s.id, 'Consulting in ' || s.name
+  from public.pipelines p join public.pipeline_stages s on s.pipeline_id = p.id
+ where p.kind = 'consulting' and s.name in ('Discovery call', 'Active', 'Proposal sent');
+update public.pipeline_items set stage_entered_at = now() - interval '12 days' where name like 'Consulting in %';
+insert into public.pipeline_items (owner_id, pipeline_id, stage_id, name)
+select p.owner_id, p.id, s.id, 'Job in Interviewing' from public.pipelines p join public.pipeline_stages s on s.pipeline_id = p.id
+ where p.kind = 'job' and s.name = 'Interviewing';
+insert into public.deal_todos (owner_id, deal_id, text, position) select owner_id, id, 'Old to-do ' || g, g from public.pipeline_items, generate_series(1, 2) g where name = 'Existing deal';
+create table public.upgrade_t_before as select (select count(*) from public.pipeline_items) as items, (select count(*) from public.contacts) as contacts,
+  (select count(*) from public.communications) as comms, (select count(*) from public.deal_todos) as todos,
+  (select count(*) from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.kind = 'consulting') as con_stages;
+SQL
+for run in 1 2; do
+  echo "[bf_upgrade_t] Applying UPDATE_0022_RUN_ONCE.sql (run $run)"
+  su postgres -c "$PSQL -d bf_upgrade_t -f $DIR/UPDATE_0022_RUN_ONCE.sql"
+done
+su postgres -c "$PSQL -d bf_upgrade_t" <<'SQL'
+\set ON_ERROR_STOP 1
+do $$
+declare v_items bigint; v_contacts bigint; v_comms bigint; v_todos bigint; v_con uuid; v_job uuid;
+begin
+  select items, contacts, comms, todos into v_items, v_contacts, v_comms, v_todos from public.upgrade_t_before;
+  select id into v_con from public.pipelines where kind = 'consulting' limit 1;
+  select id into v_job from public.pipelines where kind = 'job' limit 1;
+  assert to_regprocedure('public.schema_has_0022()') is not null, '0022 check function';
+  assert (select count(*) from public.pipeline_items) = v_items, 'no item deleted';
+  assert (select count(*) from public.contacts) = v_contacts, 'no contact deleted';
+  assert (select count(*) from public.communications) = v_comms, 'no communication deleted';
+  assert (select count(*) from public.deal_todos) = v_todos, 'no to-do deleted';
+  assert (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'contacts'
+          and column_name in ('outreach_role', 'purposes', 'linkedin_url', 'last_contact_at', 'last_contact_kind', 'archived_at')) = 6, 'the contact columns';
+  assert (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'communications' and column_name in ('call_minutes', 'call_outcome', 'awaiting_log')) = 3, 'the communication columns';
+  assert (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'pipeline_items' and column_name in ('role_title', 'contact_name', 'fee')) = 3, 'the opportunity columns';
+  assert to_regclass('public.todos') is not null and to_regclass('public.projects') is not null and to_regclass('public.ai_order_cache') is not null, 'the new tables';
+  assert (select count(*) from pg_policies where schemaname = 'public' and policyname = 'owner_only' and tablename in ('todos', 'projects', 'ai_order_cache')) = 3, 'owner-only on the new tables';
+  assert (select count(*) from pg_trigger where tgname = 'log_change' and tgrelid in ('public.todos'::regclass, 'public.projects'::regclass)) = 2, 'change log on todos and projects';
+  assert (select last_contact_kind from public.contacts where name = 'Talked to') = 'call', 'the last contact is the newest communication';
+  assert (select last_contact_at from public.contacts where name = 'Talked to') = (select occurred_at from public.communications where subject = 'Newer call'), 'the last contact date';
+  assert (select last_contact_at from public.contacts where name = 'Never contacted') is null, 'no last contact without communications';
+  assert (select count(*) from public.deal_todos where record_type = 'pipeline_items' and record_id = deal_id) = v_todos, 'old to-dos read as deal tasks';
+  assert (select count(*) from public.pipeline_stages where pipeline_id = v_con) = 6, 'six consulting stages';
+  assert (select string_agg(name, ',' order by position) from public.pipeline_stages where pipeline_id = v_con) = 'Lead,Proposal,Engagement,Paid,Done,Lost', 'consulting stage order';
+  assert (select s.name from public.pipeline_items i join public.pipeline_stages s on s.id = i.stage_id where i.name = 'Consulting in Discovery call') = 'Lead', 'Discovery call moved to Lead';
+  assert (select s.name from public.pipeline_items i join public.pipeline_stages s on s.id = i.stage_id where i.name = 'Consulting in Active') = 'Engagement', 'Active moved to Engagement';
+  assert (select s.name from public.pipeline_items i join public.pipeline_stages s on s.id = i.stage_id where i.name = 'Consulting in Proposal sent') = 'Proposal', 'Proposal sent renamed to Proposal';
+  assert (select stage_entered_at < now() - interval '11 days' from public.pipeline_items where name = 'Consulting in Active'), 'days in stage kept on the move';
+  assert (select count(*) from public.pipeline_stages where pipeline_id = v_con and counts_as_signed) = 2, 'Engagement and Paid count as signed';
+  assert (select string_agg(name, ',' order by position) from public.pipeline_stages where pipeline_id = v_job) = 'Contact,Conversation,Interview,Offer,Accepted,Declined,Not chosen', 'job stage order';
+  assert (select s.name from public.pipeline_items i join public.pipeline_stages s on s.id = i.stage_id where i.name = 'Job in Interviewing') = 'Interview', 'Interviewing renamed in place';
+  assert (select name from public.pipelines where id = v_job) = 'Job search', 'the pipeline is named Job search';
+  assert (select count(*) from public.stage_tasks st join public.pipeline_stages s on s.id = st.pipeline_stage_id where s.pipeline_id in (v_con, v_job) and st.is_next_action_default) = 8, 'one default per open stage';
+  assert (select count(*) from public.inputs where key in ('outreach_weekly_target', 'rosara_weekly_focus')) = 2, 'the settings exist once';
+  assert (select value_number from public.inputs where key = 'outreach_weekly_target') = 10, 'the target is 10';
+  assert (select prosrc from pg_proc where proname = 'handle_new_owner') like '%seed_owner_batch_b%', 'owner setup seeds 0022';
+end $$;
+-- A task on a contact goes with the contact; a call logged with a contact updates the last contact at once.
+insert into public.deal_todos (owner_id, record_type, record_id, text, position) select owner_id, 'contacts', id, 'Send the buy box', 1 from public.contacts where name = 'Never contacted';
+insert into public.communications (owner_id, contact_id, method, direction, subject, call_minutes) select owner_id, id, 'call', 'outgoing', 'First call', 20 from public.contacts where name = 'Never contacted';
+do $$ begin
+  assert (select deal_id from public.deal_todos where text = 'Send the buy box') is null, 'a contact task has no deal';
+  assert (select last_contact_kind from public.contacts where name = 'Never contacted') = 'call', 'the trigger sets the last contact';
+end $$;
+insert into public.communications (owner_id, contact_id, method, direction, subject, awaiting_log) select owner_id, id, 'email', 'incoming', 'Reply', true from public.contacts where name = 'Never contacted';
+do $$ begin
+  assert (select last_contact_kind from public.contacts where name = 'Never contacted') = 'call', 'an incoming reply waiting to be logged does not count';
+end $$;
+delete from public.contacts where name = 'Never contacted';
+do $$ begin
+  assert (select count(*) from public.deal_todos where text = 'Send the buy box') = 0, 'the task was deleted with the contact';
+end $$;
+-- A future owner gets the same.
+delete from auth.users where id = '00000000-0000-0000-0000-000000000001';
+insert into auth.users (id, email) values ('00000000-0000-0000-0000-000000000002', 'next@example.com');
+do $$ begin
+  assert (select string_agg(s.name, ',' order by s.position) from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id
+          where p.owner_id = '00000000-0000-0000-0000-000000000002' and p.kind = 'consulting') = 'Lead,Proposal,Engagement,Paid,Done,Lost', 'future owner consulting stages';
+  assert (select count(*) from public.inputs where owner_id = '00000000-0000-0000-0000-000000000002' and key = 'outreach_weekly_target') = 1, 'future owner target';
+end $$;
+drop table public.upgrade_t_before;
+select '0022 checks passed' as result;
+SQL
+for f in UPDATE_RUN_ONCE ALL_MIGRATIONS_RUN_ONCE; do grep -q "schema_has_0022" "$DIR/$f.sql" || { echo "$f.sql is missing 0022"; exit 1; }; done
+
 echo "Upgrade paths passed: 0001-0007 + update twice, 0001-0008 + update, 0001-0009 + update twice, 0001-0010 + 0011 update twice,"
 echo "0001-0010 + 0011_0012 update twice, 0001-0011 + 0011_0012 update twice, 0001-0011 + 0012 update twice (edited text kept),"
 echo "0001-0012 + 0013 update twice, 0001-0012 + 0013_0014 update twice, 0001-0013 + 0013_0014 update twice, 0001-0013 + 0014 update twice,"
 echo "0001-0014 + 0015 update twice, 0001-0015 + 0016 update twice (future owner too), 0001-0016 + 0017 update twice (future owner too),"
 echo "0001-0017 + 0018 update twice, 0001-0018 + 0019 update twice, 0001-0019 + 0020 update twice (future owner too),"
-echo "0001-0020 + 0021 update twice (defaults renamed, questions converted once, to-dos go with the deal, future owner too)."
+echo "0001-0020 + 0021 update twice (defaults renamed, questions converted once, to-dos go with the deal, future owner too),"
+echo "0001-0021 + 0022 update twice (last contact filled, to-dos read as deal tasks, consulting and job stages reshaped, future owner too)."

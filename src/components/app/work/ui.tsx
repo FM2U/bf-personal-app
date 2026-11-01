@@ -102,24 +102,26 @@ export function CollapseAllButton({ allCollapsed, onClick, className }: { allCol
  * right end. `prefix` names the test ids ("deals-filter-wait", "deals-search"). It is the last row of the PinnedBlock,
  * which adds the space and the hairline under it.
  */
-export function FilterRow<K extends string>({ prefix, filters, active, counts, onPick, query, onQuery, placeholder = "Find", collapse, className }: { prefix: string; filters: readonly { key: K; label: string }[]; active: K; counts: Record<K, number>; onPick: (k: K) => void; query: string; onQuery: (q: string) => void; placeholder?: string; collapse?: { allCollapsed: boolean; onClick: () => void } | null; className?: string }) {
+export function FilterRow<K extends string>({ prefix, filters, active, counts, onPick, query, onQuery, placeholder = "Find", collapse, className, searchClassName }: { prefix: string; filters: readonly { key: K; label: string; /** A gold outline (the purpose pills on Outreach). */ gold?: boolean; /** A thin vertical hairline before this pill (a second group of pills). */ sepBefore?: boolean }[]; active: K; counts: Record<K, number>; onPick: (k: K) => void; query: string; onQuery: (q: string) => void; placeholder?: string; collapse?: { allCollapsed: boolean; onClick: () => void } | null; className?: string; searchClassName?: string }) {
   return (
     <div className={cn("flex flex-wrap items-center gap-2", className)} data-testid={`${prefix}-filters`}>
       {filters.map((f) => {
         const on = active === f.key;
         return (
-          <button
-            key={f.key}
-            type="button"
-            onClick={() => onPick(f.key)}
-            className={cn("inline-flex items-center rounded-full border px-3 py-1 text-[12.5px] font-medium whitespace-nowrap", on ? "border-primary-border bg-primary-soft text-primary-strong" : "border-border bg-white text-status-neutral hover:bg-slate-50")}
-            aria-pressed={on}
-            data-testid={`${prefix}-filter-${f.key}`}
-            data-count={counts[f.key]}
-          >
-            {f.label}
-            <span className={cn("tabular ml-[5px] font-medium", on ? "text-primary-strong" : "text-slate-400")}>{counts[f.key]}</span>
-          </button>
+          <span key={f.key} className="contents">
+            {f.sepBefore ? <span className="mx-0.5 hidden h-5 w-px bg-border sm:block" aria-hidden /> : null}
+            <button
+              type="button"
+              onClick={() => onPick(f.key)}
+              className={cn("inline-flex items-center rounded-full border px-3 py-1 text-[12.5px] font-medium whitespace-nowrap", on ? "border-primary-border bg-primary-soft text-primary-strong" : f.gold ? "border-gold-border bg-white text-gold-strong hover:bg-gold-soft" : "border-border bg-white text-status-neutral hover:bg-slate-50")}
+              aria-pressed={on}
+              data-testid={`${prefix}-filter-${f.key}`}
+              data-count={counts[f.key]}
+            >
+              {f.label}
+              <span className={cn("tabular ml-[5px] font-medium", on ? "text-primary-strong" : "text-slate-400")}>{counts[f.key]}</span>
+            </button>
+          </span>
         );
       })}
       <input
@@ -128,7 +130,7 @@ export function FilterRow<K extends string>({ prefix, filters, active, counts, o
         onChange={(e) => onQuery(e.target.value)}
         placeholder={placeholder}
         aria-label={placeholder}
-        className="h-[30px] w-full rounded-[7px] border border-input bg-white px-2.5 text-[13px] text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:ml-auto sm:w-[200px]"
+        className={cn("h-[30px] w-full rounded-[7px] border border-input bg-white px-2.5 text-[13px] text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:ml-auto sm:w-[200px]", searchClassName)}
         data-testid={`${prefix}-search`}
       />
       {collapse ? <CollapseAllButton allCollapsed={collapse.allCollapsed} onClick={collapse.onClick} /> : null}
@@ -323,5 +325,54 @@ export function WorkHeader({ title, right, crumb, under }: { title: React.ReactN
         {right ? <div className="flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground">{right}</div> : null}
       </div>
     </div>
+  );
+}
+
+/**
+ * A labeled figure (batch B): the value above its small uppercase label, right-aligned on wide screens. The value's
+ * color follows a tone (amber for today, red for overdue, gray for none). Figures sit 28px apart (`Figures`).
+ */
+export function Figure({ value, label, tone = "plain", className, testId }: { value: React.ReactNode; label: React.ReactNode; tone?: "plain" | "today" | "over" | "later" | "none" | "amber" | "red"; className?: string; testId?: string }) {
+  return (
+    <div className={cn("flex min-w-[72px] flex-col items-start leading-tight sm:items-end", className)} data-testid={testId} data-tone={tone}>
+      <b className={cn("tabular text-[13.5px] font-semibold whitespace-nowrap", tone === "today" || tone === "amber" ? "text-status-soon" : tone === "over" || tone === "red" ? "text-status-missed" : tone === "none" ? "text-slate-400" : "text-slate-900")}>{value}</b>
+      <span className="mt-0.5 text-[11px] tracking-[0.04em] whitespace-nowrap text-slate-400 uppercase">{label}</span>
+    </div>
+  );
+}
+
+/** Labeled figures side by side, 28px apart (the record page header, the Outreach rows). */
+export function Figures({ children, className, testId }: { children: React.ReactNode; className?: string; testId?: string }) {
+  return (
+    <div className={cn("flex flex-wrap items-end gap-x-7 gap-y-2", className)} data-testid={testId}>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * The weekly counter (batch B): "Network outreach: 4 of 10 this week" with a thin gold bar, and a quiet line at the
+ * right on wide screens ("Counted from emails sent and calls logged, Mon to Fri").
+ */
+export function TargetBar({ count, target, pct, hint, className, testId = "outreach-counter" }: { count: number; target: number; pct: number; hint?: React.ReactNode; className?: string; testId?: string }) {
+  return (
+    <div className={cn("flex flex-wrap items-center gap-x-4 gap-y-1.5 px-[22px] py-3", className)} data-testid={testId} data-count={count} data-target={target}>
+      <span className="text-[13px] text-slate-800 whitespace-nowrap">
+        Network outreach: <b className="tabular font-semibold text-slate-900">{count}</b> of {target} this week
+      </span>
+      <span className="h-[5px] w-full max-w-[220px] overflow-hidden rounded-full bg-gold-soft" aria-hidden>
+        <i className="block h-full rounded-full bg-gold" style={{ width: `${Math.max(0, Math.min(100, pct))}%` }} />
+      </span>
+      {hint ? <span className="hidden min-w-0 text-xs text-slate-400 md:ml-auto md:block">{hint}</span> : null}
+    </div>
+  );
+}
+
+/** A lane pill on a Home row (Outreach, Rosara, Job search, Consulting; deals have none). */
+export function LanePill({ lane, className }: { lane: "Outreach" | "Rosara" | "Job search" | "Consulting"; className?: string }) {
+  return (
+    <Pill tone={lane === "Outreach" || lane === "Rosara" ? "gold" : lane === "Job search" ? "blue" : "gray"} className={className} testId="lane-pill">
+      {lane}
+    </Pill>
   );
 }

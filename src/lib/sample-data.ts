@@ -32,7 +32,7 @@ export type SampleSetup = {
 /** Tables sample data writes to, in insert order. Removal deletes in the reverse dependency order (SQL). */
 export const SAMPLE_TABLES = [
   "accounts", "account_balances", "organizations", "contacts", "income_sources", "pipeline_items", "deal_financials",
-  "consulting_details", "transactions", "debts", "partners", "communications", "budget_lines", "daily_outcomes", "notes",
+  "consulting_details", "transactions", "debts", "partners", "communications", "budget_lines", "daily_outcomes", "notes", "todos",
 ] as const;
 
 /** Software subscriptions in the sample: the last two are never confirmed as used (unused-subscription flags). */
@@ -149,7 +149,7 @@ export function buildSampleData(s: SampleSetup, newId: () => string): { batches:
   }
   if (s.consulting) {
     consultingItem = newId();
-    items.push({ id: consultingItem, pipeline_id: s.consulting.pipelineId, stage_id: stage(s.consulting, "Active", "Signed"), name: "Sample Retail Client: operations retainer", organization_id: org.client, primary_contact_id: c.client, source_contact_id: c.client, introduced_by_contact_id: c.friendB, next_action: "Send the monthly operations report", next_action_due: addDaysISO(today, 5) });
+    items.push({ id: consultingItem, pipeline_id: s.consulting.pipelineId, stage_id: stage(s.consulting, "Engagement", "Active", "Signed"), name: "Sample Retail Client: operations retainer", organization_id: org.client, primary_contact_id: c.client, source_contact_id: c.client, introduced_by_contact_id: c.friendB, next_action: "Send the monthly operations report", next_action_due: addDaysISO(today, 5) });
     consultingRows.push({ id: newId(), item_id: consultingItem, rate_type: "monthly_retainer", rate: 4500, start_date: addMonthsISO(today, -6), end_date: addMonthsISO(today, 6), scope_notes: "Sample engagement for testing." });
   }
 
@@ -253,6 +253,7 @@ export function buildSampleData(s: SampleSetup, newId: () => string): { batches:
     { table: "budget_lines", rows: budgetLines },
     { table: "daily_outcomes", rows: outcomes },
     { table: "notes", rows: notes },
+    { table: "todos", rows: work ? work.personalTodos : [] },
   ].filter((b) => b.rows.length);
   const counts = Object.fromEntries(batches.map((b) => [b.table, b.rows.length]));
   return { batches, counts, work: work ? { stageDates: work.stageDates, documents: work.documents, todos: work.todos } : null };

@@ -1,24 +1,24 @@
 /**
  * "Reset all data" (Settings, Sample data and reset). The database function public.reset_all_data('RESET')
- * (supabase/migrations/0021_edit_batch_a.sql; first written in 0014, daily outcomes added in 0019, deal to-dos in 0021) deletes the tables in RESET_DELETE_TABLES, in this order,
+ * (supabase/migrations/0022_batch_b.sql; first written in 0014, daily outcomes added in 0019, deal to-dos in 0021, to-dos, projects, and the AI order cache in 0022) deletes the tables in RESET_DELETE_TABLES, in this order,
  * in one transaction, and keeps RESET_KEEP_TABLES. src/lib/reset.test.ts checks that these lists match the SQL
  * function and that every table in the app is in exactly one list.
  */
 
 /** Deleted completely, in this order (children before parents). */
 export const RESET_DELETE_TABLES = [
-  "ai_messages", "ai_proposals", "ai_conversations", "initiative_drafts", "savings_ideas",
+  "ai_messages", "ai_proposals", "ai_conversations", "ai_order_cache", "initiative_drafts", "savings_ideas",
   "checklist_items", "checklists", "plan_documents", "sample_records",
   "record_links", "notes", "documents", "alerts", "calendar_events", "daily_outcomes", "daily_plans",
   "missed_commitments", "commitments", "reviews", "target_entries", "target_misses",
-  "partner_links", "partner_reports", "partners", "tasks",
+  "partner_links", "partner_reports", "partners", "tasks", "todos",
   "raw_import_rows", "import_batches", "repayment_schedules", "funding_sources", "debt_payments", "debts",
   "reduction_actions", "budget_lines", "budgets", "savings_targets",
   "transactions", "recurring_series", "merchants", "account_balances", "accounts", "income_sources",
   "scenario_input_changes", "scenarios", "decision_options", "decisions", "decision_conditions",
   "milestone_options", "milestones", "goals",
   "pipeline_item_stage_extensions", "stage_history", "diligence_items", "deal_financials", "job_details",
-  "investor_details", "consulting_details", "deal_todos", "pipeline_items",
+  "investor_details", "consulting_details", "deal_todos", "projects", "pipeline_items",
   "communications", "contacts", "organizations",
 ] as const;
 
@@ -61,7 +61,10 @@ export const RESET_TABLE_LABELS: Record<string, string> = {
   pipeline_items: "Pipeline items",
   stage_history: "Stage history",
   deal_financials: "Deal financials",
-  deal_todos: "Deal to-dos",
+  deal_todos: "Tasks on deals, people, and projects",
+  todos: "To-dos",
+  projects: "Projects",
+  ai_order_cache: "AI orders of the day",
   diligence_items: "Diligence items",
   job_details: "Job details",
   investor_details: "Investor details",

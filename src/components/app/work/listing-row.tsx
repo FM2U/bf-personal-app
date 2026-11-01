@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
  * The Pass menu: one button that opens the seven reasons; one click passes. Used on listing rows and on the deal page.
  * `onPick` runs the save; the menu closes itself on a click outside or Escape.
  */
-export function PassMenu({ onPick, label = "Pass", pending, tone = "outline", testId = "pass-button", align = "right" }: { onPick: (reason: PassReason) => void; label?: string; pending?: boolean; tone?: "outline" | "primary"; testId?: string; align?: "right" | "left" }) {
+export function PassMenu({ onPick, label = "Pass", pending, tone = "outline", testId = "pass-button", align = "right", className }: { onPick: (reason: PassReason) => void; label?: string; pending?: boolean; tone?: "outline" | "primary"; testId?: string; align?: "right" | "left"; /** The button's size (the page header uses the taller 36px buttons). */ className?: string }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
   useEffect(() => {
@@ -33,7 +33,7 @@ export function PassMenu({ onPick, label = "Pass", pending, tone = "outline", te
   }, [open]);
   return (
     <span ref={ref} className="relative inline-block">
-      <RowButton tone={tone} onClick={() => setOpen((o) => !o)} disabled={pending} aria-haspopup="menu" aria-expanded={open} data-testid={testId}>
+      <RowButton tone={tone} onClick={() => setOpen((o) => !o)} disabled={pending} aria-haspopup="menu" aria-expanded={open} className={className} data-testid={testId}>
         {label}
       </RowButton>
       {open ? (

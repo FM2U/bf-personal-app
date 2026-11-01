@@ -1,5 +1,5 @@
 -- BF Personal App: database update 0021 (Edit batch A: listing and company names, open questions, Also to do, Follow up).
--- For the live database, which has 0001 to 0020. Paste this whole file into the Supabase SQL Editor and press Run.
+-- For a database that has 0001 to 0020 (the live database with 0001 to 0021 uses UPDATE_0022_RUN_ONCE.sql). Paste this whole file into the Supabase SQL Editor and press Run.
 -- Expected result: "Success. No rows returned". Safe to run more than once: nothing is duplicated and nothing is deleted.
 -- What it changes:
 --   On pipeline items (deals): company_name (the real name once known; the name column holds the listing name) and
