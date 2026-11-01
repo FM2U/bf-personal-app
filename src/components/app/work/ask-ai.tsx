@@ -104,7 +104,7 @@ function Bullet({ text }: { text: string }) {
 function PanelHeading({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
   return (
     <div className="mb-3 flex items-center justify-between gap-3 border-b border-rule pb-2">
-      <h3 className="text-[12.5px] font-medium tracking-[0.09em] text-violet uppercase">{children}</h3>
+      <h3 className="text-[11.5px] font-semibold tracking-[0.09em] text-violet uppercase">{children}</h3>
       {right}
     </div>
   );

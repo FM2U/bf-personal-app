@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireOwner } from "@/lib/auth";
 import { addDaysISO } from "@/lib/calc/dates";
-import { AI_REPLY_UNUSABLE, AIInvalidReply, AIUnavailable, aiBudget, callForJson, cleanDeep, replySnippet } from "@/lib/ai/claude";
+import { AI_REPLY_CUT_OFF, AI_REPLY_UNUSABLE, AIInvalidReply, AIUnavailable, aiBudget, callForJson, cleanDeep, replySnippet } from "@/lib/ai/claude";
 import { env, isAIConfigured } from "@/lib/env";
 import { loadCtx, refreshNextActionAlert, type Ctx } from "@/lib/engine/helpers";
 import { releaseSupersededNextActions } from "@/lib/engine/tasks";
@@ -43,7 +43,7 @@ async function setup(): Promise<{ sb: SupabaseClient; ctx: Ctx } | Fail> {
 }
 
 function aiError(e: unknown): Fail {
-  if (e instanceof AIInvalidReply) return { ok: false, error: `${AI_REPLY_UNUSABLE} Try again.`, reply: replySnippet(e.reply) };
+  if (e instanceof AIInvalidReply) return e.cutOff ? fail(AI_REPLY_CUT_OFF) : { ok: false, error: `${AI_REPLY_UNUSABLE} Try again.`, reply: replySnippet(e.reply) };
   return fail(e instanceof AIUnavailable ? e.message : `The AI request failed: ${e instanceof Error ? e.message : String(e)}`);
 }
 
@@ -101,7 +101,7 @@ export async function suggestNextSteps(c: AskContext): Promise<{ ok: true; steps
   try {
     const context = await buildPageContext(sb, ctx.ownerId, c);
     if (!context.lines.length) return fail(record ? "This record was not found." : "Nothing on this card to read.");
-    const steps = await callForJson<NextStep[]>({ sb, ownerId: ctx.ownerId, purpose: "ask_next_steps", prompt: nextStepsPrompt(context), maxTokens: 600, shape: "items", validate: (v) => validateNextStepsReply(cleanDeep(v)) });
+    const steps = await callForJson<NextStep[]>({ sb, ownerId: ctx.ownerId, purpose: "ask_next_steps", prompt: nextStepsPrompt(context), maxTokens: 1500, shape: "items", validate: (v) => validateNextStepsReply(cleanDeep(v)) });
     return { ok: true, steps };
   } catch (e) {
     return aiError(e);
@@ -117,7 +117,7 @@ export async function suggestTasks(c: AskContext): Promise<{ ok: true; steps: Ne
   try {
     const context = await buildPageContext(sb, ctx.ownerId, { ...c, card: "Tasks" });
     if (!context.lines.length) return fail("This record was not found.");
-    const steps = await callForJson<NextStep[]>({ sb, ownerId: ctx.ownerId, purpose: "ask_tasks", prompt: tasksPrompt(context, recordNoun(c.page)), maxTokens: 500, shape: "items", validate: (v) => validateNextStepsReply(cleanDeep(v)) });
+    const steps = await callForJson<NextStep[]>({ sb, ownerId: ctx.ownerId, purpose: "ask_tasks", prompt: tasksPrompt(context, recordNoun(c.page)), maxTokens: 1200, shape: "items", validate: (v) => validateNextStepsReply(cleanDeep(v)) });
     return { ok: true, steps };
   } catch (e) {
     return aiError(e);
@@ -155,7 +155,7 @@ export async function askAboutPage(c: AskContext, question: string): Promise<{ o
   try {
     const context = await buildPageContext(sb, ctx.ownerId, c);
     const canEmail = ["deal", "person", "opportunity", "consulting_item", "outreach", "home"].includes(c.page);
-    const answer = await callForJson<Answer>({ sb, ownerId: ctx.ownerId, purpose: "ask_page", prompt: answerPrompt(context, q, canEmail), maxTokens: 900, shape: "items", validate: (v) => validateAnswerReply(cleanDeep(v)) });
+    const answer = await callForJson<Answer>({ sb, ownerId: ctx.ownerId, purpose: "ask_page", prompt: answerPrompt(context, q, canEmail), maxTokens: 1800, shape: "items", validate: (v) => validateAnswerReply(cleanDeep(v)) });
     return { ok: true, answer };
   } catch (e) {
     return aiError(e);
@@ -170,7 +170,7 @@ export async function draftField(c: AskContext): Promise<{ ok: true; text: strin
   if (!c.field) return fail("No field to fill.");
   try {
     const context = await buildPageContext(sb, ctx.ownerId, c);
-    const text = await callForJson<string>({ sb, ownerId: ctx.ownerId, purpose: "ask_field", prompt: fieldPrompt(context, c.field), maxTokens: c.field.key === "email_body" ? 900 : 300, shape: "text", validate: (v) => validateFieldReply(cleanDeep(v)) });
+    const text = await callForJson<string>({ sb, ownerId: ctx.ownerId, purpose: "ask_field", prompt: fieldPrompt(context, c.field), maxTokens: c.field.key === "email_body" ? 1500 : 600, shape: "text", validate: (v) => validateFieldReply(cleanDeep(v)) });
     return { ok: true, text };
   } catch (e) {
     return aiError(e);
@@ -261,7 +261,7 @@ export async function aiOrderToday(force = false): Promise<{ ok: true; order: Ai
   if (!actions.length) return fail("Nothing is due today, so there is nothing to order.");
   const keys = actions.map((a) => a.key);
   try {
-    const result = await callForJson<{ order: string[]; reasons: Record<string, string> }>({ sb, ownerId: ctx.ownerId, purpose: "ai_order", prompt: aiOrderPrompt(actions, today), maxTokens: 1200, shape: "items", validate: (v) => validateAiOrderReply(cleanDeep(v), keys) });
+    const result = await callForJson<{ order: string[]; reasons: Record<string, string> }>({ sb, ownerId: ctx.ownerId, purpose: "ai_order", prompt: aiOrderPrompt(actions, today), maxTokens: 2500, shape: "items", validate: (v) => validateAiOrderReply(cleanDeep(v), keys) });
     const createdAt = new Date().toISOString();
     const { error } = await sb.from("ai_order_cache").upsert({ owner_id: ctx.ownerId, for_date: today, ordered_ids: result.order, reasons: result.reasons, created_at: createdAt }, { onConflict: "owner_id,for_date" });
     if (error) return fail(`The order came back but was not saved: ${error.message}`);

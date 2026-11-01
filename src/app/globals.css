@@ -10,7 +10,9 @@
  *   the solid active menu item rest #14297b (--primary-solid) and brighten to #1e40af on hover (--primary-solid-hover).
  * - Soft blue (option A): #eaf2ff fill, #1e40af text, #cfe0ff edge (--primary-soft, --primary-border) for lane and
  *   purpose pills, Follow up, Interested, the active filter pill, Done on hover.
- * - #00F0FF (--electric) only as the stage mark's current segment and the counter bar fill.
+ * - #00F0FF (--electric) only as the stage mark's current segment and the counter bar fill; its very faded tint
+ *   #e6fdff (--stage-soft) only as the fill of the pipeline stage pill (charcoal text, no border).
+ * - Small-caps labels (.label-caps below): one style for every one of them, charcoal #334155, 11.5px, 0.09em.
  * - Status, only where it carries meaning: green = met or done, amber = waiting or in progress, red = overdue or urgent.
  * - AI, purple only: the star, Ask AI, By the AI, suggestion pills, the panel (--violet, --violet-soft, --violet-rule).
  * - Accents (sky, cyan, coral): module icons and chart series only, one per module or series. No gold, no brown.
@@ -31,6 +33,7 @@
   --primary-border: #cfe0ff; /* soft blue A: the edge */
   --primary-soft-hover: #dbe8ff; /* a soft blue control on hover */
   --electric: #00f0ff; /* only the stage mark's current segment and the counter bar fill */
+  --stage-soft: #e6fdff; /* the very faded cyan fill of the stage pill ("Interested · day 2"); nothing else uses it */
   --heading: #334155; /* section headings and card titles, small caps; the text of the neutral pill */
   --rule: #d5dbe3; /* the hairline under card titles and section headings, the sidebar sub-menu line */
   --secondary: #f1f5f9;
@@ -98,6 +101,7 @@
   --color-primary-border: var(--primary-border);
   --color-primary-soft-hover: var(--primary-soft-hover);
   --color-electric: var(--electric);
+  --color-stage-soft: var(--stage-soft);
   --color-heading: var(--heading);
   --color-rule: var(--rule);
   --color-violet: var(--violet);
@@ -162,6 +166,19 @@ select:not([multiple]):not([size]) {
   background-size: 1rem 1rem;
   padding-right: 2.5rem;
   text-overflow: ellipsis;
+}
+
+/*
+ * Small-caps labels (Edit batch B round 2): one style for every all-caps label in the Work module (stage and section
+ * headings, the figure labels NEXT ACTION, OPEN TASKS, LAST CONTACT, the facts labels, the Weekly focus label).
+ * Unlayered so it wins over a color utility left on the element; the count and hint spans inside a heading set their own.
+ */
+.label-caps {
+  color: var(--heading);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
 }
 
 /* Field labels held to two lines, sitting at the bottom of a two-line space so inputs in a row stay aligned. */

@@ -130,7 +130,7 @@ export function WeeklyFocusBar({ focus }: { focus: string }) {
     });
   return (
     <section className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-border bg-white px-[22px] py-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]" data-testid="weekly-focus">
-      <span className="text-[12.5px] font-medium tracking-[0.09em] whitespace-nowrap text-heading uppercase">Weekly focus</span>
+      <span className="label-caps whitespace-nowrap">Weekly focus</span>
       <div className="relative min-w-0 flex-1 basis-[280px]">
         <input
           value={text}

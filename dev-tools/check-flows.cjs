@@ -4807,6 +4807,42 @@ const expectText = async (page, text) => {
     await page.getByTestId("compose-dialog").waitFor({ state: "hidden" });
   });
 
+  await step("Edit batch B round 2: a reply cut off by the length limit (stop reason max_tokens) is asked again with double the limit; Suggested next steps render as proper items and the answer renders bullets, never a bracket fragment", async () => {
+    await aipost("/__reset");
+    await aipost("/__mode", { cutoff: "once" });
+    const research = await projectByName("Market research");
+    await page.goto(`${BASE}/work/rosara/${research.id}`);
+    await page.getByTestId("project-tasks").waitFor();
+    await page.getByTestId("ask-ai").click();
+    await page.getByTestId("ask-ai-panel").waitFor();
+    // Suggested next steps: the first reply is cut off; the app asks again and shows the three proper items.
+    await page.getByTestId("ask-ai-step").first().waitFor({ timeout: 20000 });
+    if ((await page.getByTestId("ask-ai-step").count()) !== 3) throw new Error(`${await page.getByTestId("ask-ai-step").count()} steps after the retry`);
+    const stepTexts = await page.getByTestId("ask-ai-step").allInnerTexts();
+    if (stepTexts.some((t) => /[{}[\]]|"text"|"reason"/.test(t))) throw new Error(`a bracket fragment rendered as a step: ${stepTexts.join(" | ").slice(0, 160)}`);
+    if (!stepTexts[0].includes("Email the main contact on") || !stepTexts[0].includes("The last contact is the oldest line on the page")) throw new Error(`the first step: ${stepTexts[0]}`);
+    if (await page.getByTestId("ask-ai-steps-error").count()) throw new Error(`an error line after the retry: ${await page.getByTestId("ask-ai-steps-error").innerText()}`);
+    // The answer pill: the first reply is cut off too; the retry gives the bullets, the next action, and the email.
+    await page.getByTestId("ask-ai-pill").first().click();
+    await page.getByTestId("ask-ai-answer").waitFor({ timeout: 20000 });
+    const bullets = await page.getByTestId("ask-ai-answer").locator("li").allInnerTexts();
+    // (innerText of a list item starts with the browser's marker text.)
+    if (bullets.length !== 3 || bullets.some((t) => /[{}[\]]|"bullets"/.test(t)) || !bullets[0].includes("First: Market research comes first")) throw new Error(`answer bullets: ${bullets.join(" | ").slice(0, 160)}`);
+    if (await page.getByTestId("ask-ai-answer-error").count()) throw new Error("an error line under the answer");
+    if (!(await page.getByTestId("ask-ai-make-next").count())) throw new Error("the Make this the next action button");
+    await page.screenshot({ path: path.join(OUT, "flow-work-ask-ai-cutoff.png") });
+    // The mock saw one cut-off reply and one full reply per task, and the retry asked with double the limit.
+    const calls = await aicalls();
+    for (const c of ["next_steps_cut", "ask_page_cut"]) if (!calls.includes(c)) throw new Error(`no ${c}: ${calls.join(",")}`);
+    if (calls.filter((c) => c === "next_steps").length !== 2 || calls.filter((c) => c === "ask_page").length !== 2) throw new Error(`calls: ${calls.join(",")}`);
+    const limits = await (await fetch(`${AIMOCK}/__limits`)).json();
+    const of = (task) => limits.filter((l) => l.task === task).map((l) => l.max_tokens);
+    if (of("next_steps").join(",") !== "1500,3000" || of("ask_page").join(",") !== "1800,3600") throw new Error(`the limits: next_steps ${of("next_steps").join(",")}, ask_page ${of("ask_page").join(",")}`);
+    await page.getByTestId("drawer-close").click();
+    await page.getByTestId("ask-ai-panel").waitFor({ state: "hidden" });
+    await aipost("/__mode", { cutoff: "none" });
+  });
+
   await step("Edit batch B: Suggest tasks reads a plain-text reply (the shared Thinking state meanwhile); an unusable reply shows the AI's text with Try again; Write it reads plain text; Fill from text thinks", async () => {
     await aipost("/__reset");
     const dalton = await dealByName("Dalton Services");

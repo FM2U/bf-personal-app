@@ -160,7 +160,8 @@ export function validateAnswerReply(value: unknown): { ok: true; value: Answer }
   if (!v || typeof v !== "object") return { ok: false, error: "the reply is not an object" };
   // A plain-text reply read as {items} (Edit batch B): its lines are the bullets.
   const raw = Array.isArray(v.bullets) ? v.bullets : typeof v.bullets === "string" ? [v.bullets] : Array.isArray(v.items) ? v.items : typeof v.text === "string" ? [v.text] : [];
-  const bullets = raw.map((b) => str(b, BULLET_MAX_LENGTH).replace(/^[-*•]\s*/, "")).filter(Boolean).slice(0, ANSWER_MAX_BULLETS);
+  // A list mark at the start goes ("- ", "* ", "• "); a bold lead-in ("**First:**") stays for the panel to render in bold.
+  const bullets = raw.map((b) => str(b, BULLET_MAX_LENGTH).replace(/^(?:[-•]|\*(?!\*))\s*/, "")).filter(Boolean).slice(0, ANSWER_MAX_BULLETS);
   if (!bullets.length) return { ok: false, error: 'the reply needs a "bullets" array with at least one line' };
   const next = str(v.next_action ?? v.nextAction, STEP_MAX_LENGTH) || null;
   const e = v.email as { subject?: unknown; body?: unknown } | null;

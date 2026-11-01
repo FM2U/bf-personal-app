@@ -38,7 +38,7 @@ export function PassMenu({ onPick, label = "Pass", pending, tone = "outline", te
       </RowButton>
       {open ? (
         <div role="menu" className={cn("absolute top-full z-20 mt-1 min-w-[230px] rounded-[10px] border border-border bg-white p-1.5 text-left shadow-[0_8px_24px_rgba(15,23,42,0.12)]", align === "right" ? "right-0" : "left-0")} data-testid="pass-menu">
-          <div className="px-2.5 pt-1.5 pb-1 text-[11px] tracking-[0.06em] text-muted-foreground uppercase">Pass because</div>
+          <div className="label-caps px-2.5 pt-1.5 pb-1">Pass because</div>
           {PASS_REASONS.map((r) => (
             <button
               key={r.value}

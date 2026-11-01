@@ -309,7 +309,7 @@ export function PersonFactsCard({ person, records, today }: { person: PersonRow;
           </Fact>
           {records.length ? (
             <div className="col-span-2 flex min-w-0 flex-col gap-0.5" data-testid="pf-records">
-              <span className="text-[11px] font-semibold tracking-[0.06em] text-slate-400 uppercase">Main contact on</span>
+              <span className="label-caps">Main contact on</span>
               <span className="flex flex-wrap gap-x-3 gap-y-1 text-sm font-medium">
                 {records.map((r) => (
                   <a key={r.id} href={r.href} className="text-primary-strong hover:underline">

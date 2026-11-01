@@ -93,7 +93,7 @@ function CallForm({ target, today, tz, onOpenChange, onSaved }: { target: LogCal
           What was said
         </label>
         <textarea id={`${ids}-said`} value={said} onChange={(e) => setSaid(e.target.value)} rows={3} placeholder="Two or three lines are enough" className={cn(INPUT, "h-auto min-h-[76px] py-2 leading-[22px]")} data-testid="call-said" />
-        <div className="mt-2 border-b border-border pb-[7px] text-[12.5px] font-medium tracking-[0.09em] text-heading uppercase sm:col-span-2">Outcome</div>
+        <div className="label-caps mt-2 border-b border-border pb-[7px] sm:col-span-2">Outcome</div>
         <label htmlFor={`${ids}-next`} className={LABEL}>
           {person ? "Next follow-up for" : "Next action"}
         </label>

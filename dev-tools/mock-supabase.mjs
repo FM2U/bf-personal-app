@@ -554,21 +554,38 @@ google.listen(GOOGLE_PORT, () => console.log(`Mock Google listening on http://lo
 //   chat (a request with tools) -> a short bulleted answer
 //   anything else               -> HTTP 400, so morning plans, review drafts, and message drafts use their templates
 // Test controls: POST /__mode {"initiative": "valid" | "invalid_once" | "invalid", "listing": "valid" | "invalid", "todos": "valid" | "plain" | "invalid",
-// "field": "valid" | "plain", "delay": <ms before every AI reply, 0 by default>}; GET /__calls;
+// "field": "valid" | "plain", "cutoff": "none" | "once" (the next next_steps and ask_page replies come back cut off before
+// their JSON closes, with stop_reason max_tokens, once each, like a reply that hit the length limit; the retry with the
+// higher limit gets the full reply), "delay": <ms before every AI reply, 0 by default>}; GET /__calls; GET /__limits (max_tokens per next_steps and ask_page request);
 // GET /__last_chat (the last chat request's system prompt and messages, to check "Ask AI about this" context); POST /__reset.
 import { createRequire } from "node:module";
 const requireCjs = createRequire(import.meta.url);
 const { mealPlanProposal } = requireCjs("./fixtures/meal-plan.cjs");
 const AI_PORT = Number(process.env.MOCK_AI_PORT || 54330);
-let aiMode = { initiative: "valid", listing: "valid", todos: "valid", field: "valid", delay: 0 };
+let aiMode = { initiative: "valid", listing: "valid", todos: "valid", field: "valid", cutoff: "none", delay: 0 };
 let aiCalls = [];
 let invalidSent = false;
+/** The tasks whose cut-off reply went out already under cutoff "once". */
+let cutSent = new Set();
+/** The max_tokens of every next_steps and ask_page request, in order (GET /__limits), to check the retry asks with double the limit. */
+let aiLimits = [];
 let lastChat = null;
 
 const nyToday = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 
-function aiMessage(text) {
-  return { id: `msg_mock_${Date.now().toString(36)}`, type: "message", role: "assistant", model: "mock-model", content: [{ type: "text", text }], stop_reason: "end_turn", stop_sequence: null, usage: { input_tokens: 1500, output_tokens: 900 } };
+function aiMessage(text, stopReason = "end_turn") {
+  return { id: `msg_mock_${Date.now().toString(36)}`, type: "message", role: "assistant", model: "mock-model", content: [{ type: "text", text }], stop_reason: stopReason, stop_sequence: null, usage: { input_tokens: 1500, output_tokens: 900 } };
+}
+
+/** Under cutoff "once": the first reply of a task is its full text cut at about 40%, with stop_reason max_tokens, as the API returns a reply that hit max_tokens. */
+function maybeCut(task, full, body) {
+  aiLimits.push({ task, max_tokens: body.max_tokens });
+  if (aiMode.cutoff !== "once" || cutSent.has(task)) return aiMessage(full);
+  cutSent.add(task);
+  aiCalls.push(`${task}_cut`);
+  const text = full.slice(0, Math.floor(full.length * 0.4));
+  if (process.env.MOCK_DEBUG) console.error("cut-off reply", task, "max_tokens", body.max_tokens, JSON.stringify(text));
+  return aiMessage(text, "max_tokens");
 }
 
 function savingsReply(prompt) {
@@ -590,15 +607,19 @@ const ai = http.createServer(async (req, res) => {
     if (url.pathname === "/__mode" && req.method === "POST") {
       aiMode = { ...aiMode, ...JSON.parse((await readRaw(req)) || "{}") };
       invalidSent = false;
+      cutSent = new Set();
       return send(res, 200, aiMode);
     }
     if (url.pathname === "/__reset" && req.method === "POST") {
-      aiMode = { initiative: "valid", listing: "valid", todos: "valid", field: "valid", delay: 0 };
+      aiMode = { initiative: "valid", listing: "valid", todos: "valid", field: "valid", cutoff: "none", delay: 0 };
       aiCalls = [];
+      aiLimits = [];
       invalidSent = false;
+      cutSent = new Set();
       return send(res, 200, { ok: true });
     }
     if (url.pathname === "/__calls") return send(res, 200, aiCalls);
+    if (url.pathname === "/__limits") return send(res, 200, aiLimits);
     if (url.pathname === "/__last_chat") return send(res, 200, lastChat ?? {});
     if (url.pathname.startsWith("/v1/models")) return send(res, 200, { data: [{ id: "mock-model", type: "model" }], has_more: false });
     if (url.pathname === "/v1/messages" && req.method === "POST") {
@@ -679,7 +700,7 @@ const ai = http.createServer(async (req, res) => {
           { text: `Write the key finding for ${page}`, reason: "Nothing on the page says what decides it yet" },
           { text: "Book 30 minutes to clear the open tasks", reason: "The tasks are short and unblock the next action" },
         ];
-        return send(res, 200, aiMessage("```json\n" + JSON.stringify({ steps }) + "\n```"));
+        return send(res, 200, maybeCut("next_steps", "```json\n" + JSON.stringify({ steps }) + "\n```", body));
       }
       if (text.includes("TASK: ask_page")) {
         aiCalls.push("ask_page");
@@ -692,7 +713,7 @@ const ai = http.createServer(async (req, res) => {
           next_action: `Deal with ${first.trim()} first`,
           email: canEmail ? { subject: `Quick follow-up on ${first.trim()}`, body: `Hi there,\n\nQuick follow-up on ${first.trim()}. Is there an update on timing?\n\nThanks,\nBram` } : null,
         };
-        return send(res, 200, aiMessage(JSON.stringify(reply)));
+        return send(res, 200, maybeCut("ask_page", JSON.stringify(reply), body));
       }
       if (text.includes("TASK: field_draft")) {
         aiCalls.push("field_draft");

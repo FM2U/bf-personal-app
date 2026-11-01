@@ -426,7 +426,7 @@ function linkLabel(url: string): string {
 export function Fact({ label, children, testId }: { label: string; children: React.ReactNode; testId?: string }) {
   return (
     <div className="flex min-w-0 flex-col gap-0.5" data-testid={testId}>
-      <span className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">{label}</span>
+      <span className="label-caps">{label}</span>
       <b className="min-w-0 text-sm font-medium break-words text-slate-900">{children}</b>
     </div>
   );

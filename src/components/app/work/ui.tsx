@@ -13,7 +13,9 @@ import { cn } from "@/lib/utils";
  * Colors (the swatch sheet approved 2026-11-01): structure in slate (headings and card titles charcoal, hairlines,
  * labels, the neutral pill), actions in cobalt (links, outlined buttons; solid only for the one main action per page),
  * soft blue for lane and purpose pills, Follow up, Interested, and the active filter pill, status only in green, amber,
- * and red, purple only for the AI, and #00F0FF only as the stage mark's current segment and the counter bar fill.
+ * and red, purple only for the AI, and #00F0FF only as the stage mark's current segment and the counter bar fill; its
+ * faded tint (--stage-soft) only as the stage pill's fill. Every small-caps label shares one style (.label-caps in
+ * globals.css: charcoal, 11.5px, 0.09em, weight 600); the AI labels keep the same metrics in purple.
  *
  * The alignment rule (Edit batch B, item 5): every row keeps fixed-width columns for its figures and buttons, sized
  * for the longest case ("4 days late", "120 min"), so nothing shifts between rows when text wraps or a value is
@@ -95,8 +97,8 @@ export function WorkCard({ id, title, count, hint, sub, actions, children, class
 export function SectionHeading({ name, count, collapsed, onToggle, hint, title, testId = "section-heading", dataAttrs, className, countRight = false }: { name: string; count: number; collapsed: boolean; onToggle?: () => void; hint?: React.ReactNode; title?: string; testId?: string; dataAttrs?: Record<string, string>; className?: string; /** The count at the right end (the Deals stage headings) instead of next to the name. */ countRight?: boolean }) {
   const empty = count === 0;
   const cls = cn(
-    "group mt-3 mb-1 flex w-full items-center gap-2 border-b py-1.5 pb-[7px] text-left text-[12.5px] font-medium tracking-[0.09em] uppercase select-none",
-    empty ? "cursor-default border-slate-100 text-slate-400" : "cursor-pointer border-rule text-heading",
+    "label-caps group mt-3 mb-1 flex w-full items-center gap-2 border-b py-1.5 pb-[7px] text-left select-none",
+    empty ? "cursor-default border-slate-100" : "cursor-pointer border-rule",
     className,
   );
   const body = (
@@ -236,12 +238,12 @@ export function Stat({ value, label, className, testId, col = "money" }: { value
   return (
     <div className={cn("flex flex-col items-start leading-tight sm:items-end", ROW_COLS[col].cls, className)} data-testid={testId} data-col={col}>
       <b className="tabular truncate text-[13.5px] font-semibold text-slate-900">{value}</b>
-      <span className="mt-0.5 truncate text-[11px] tracking-[0.04em] text-muted-foreground uppercase">{label}</span>
+      <span className="label-caps mt-0.5 truncate">{label}</span>
     </div>
   );
 }
 
-export type PillTone = "gray" | "amber" | "red" | "green" | "blue" | "quiet" | "charcoal";
+export type PillTone = "gray" | "amber" | "red" | "green" | "blue" | "quiet" | "charcoal" | "stage";
 
 const PILL: Record<PillTone, string> = {
   /** The neutral pill: stages, days under the threshold, counts. */
@@ -254,6 +256,8 @@ const PILL: Record<PillTone, string> = {
   /** Soft blue: lane and purpose pills, Interested, what belongs to you but is not a status. */
   blue: "border-primary-border bg-primary-soft text-primary-strong",
   quiet: "border-transparent bg-transparent pl-0 text-slate-400",
+  /** The pipeline stage pill ("Interested · day 2"): very faded cyan, charcoal text, no border; no other element uses the tint. */
+  stage: "border-transparent bg-stage-soft text-heading",
 };
 
 export function Pill({ tone = "gray", children, className, testId, title }: { tone?: PillTone; children: React.ReactNode; className?: string; testId?: string; title?: string }) {
@@ -452,7 +456,7 @@ export function Figure({ value, label, tone = "plain", className, testId, col }:
   return (
     <div className={cn("flex flex-col items-start leading-tight sm:items-end", col ? ROW_COLS[col].cls : "min-w-[72px]", className)} data-testid={testId} data-tone={tone} data-col={col}>
       <b className={cn("tabular max-w-full truncate text-[13.5px] font-semibold whitespace-nowrap", tone === "today" || tone === "amber" ? "text-status-soon" : tone === "over" || tone === "red" ? "text-status-missed" : tone === "none" ? "text-slate-400" : "text-slate-900")}>{value}</b>
-      <span className="mt-0.5 max-w-full truncate text-[11px] tracking-[0.04em] whitespace-nowrap text-muted-foreground uppercase">{label}</span>
+      <span className="label-caps mt-0.5 max-w-full truncate whitespace-nowrap">{label}</span>
     </div>
   );
 }

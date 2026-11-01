@@ -4,9 +4,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { env, isAIConfigured } from "@/lib/env";
 import { fixDashes } from "@/lib/markdown";
 import type { Row } from "@/lib/types";
-import { readAiReply, type ReplyShape } from "@/lib/ai/reply";
+import { AI_REPLY_CUT_OFF, isCutOff, readAiReply, type ReplyShape } from "@/lib/ai/reply";
 
-export { parseJsonFromText, readAiReply, replyLines, replySnippet, type ReplyShape } from "@/lib/ai/reply";
+export { AI_REPLY_CUT_OFF, isCutOff, parseJsonFromText, readAiReply, replyLines, replySnippet, type ReplyShape } from "@/lib/ai/reply";
 
 export class AIUnavailable extends Error {
   constructor(public reason: "not_configured" | "cap_reached" | "error", message: string) {
@@ -110,6 +110,8 @@ export async function callClaude(params: {
   } catch (e) {
     throw new AIUnavailable("error", `The AI request failed: ${e instanceof Error ? e.message : String(e)}`);
   }
+  // The stop reason stays on the message (msg.stop_reason) for the caller; a reply cut off by the limit is logged.
+  if (msg.stop_reason === "max_tokens") console.warn(`AI reply cut off by max_tokens (${params.purpose}, limit ${params.maxTokens ?? 1500})`);
   await params.sb.from("ai_usage").insert({
     owner_id: params.ownerId,
     purpose: params.purpose,
@@ -152,11 +154,16 @@ export async function tryDraft(params: { sb: SupabaseClient; ownerId: string; pu
   }
 }
 
-/** The AI replied, but not with JSON that passes the check, even after one retry. `reply` is the text of the last reply. */
+/**
+ * The AI replied, but not with JSON that passes the check, even after one retry. `reply` is the text of the last
+ * reply. `cutOff`: the reply was cut off by the length limit, even after one retry with double the limit (then the
+ * screen shows AI_REPLY_CUT_OFF and not the fragment).
+ */
 export class AIInvalidReply extends Error {
   constructor(
     message: string,
     public reply = "",
+    public cutOff = false,
   ) {
     super(message);
   }
@@ -166,9 +173,11 @@ export class AIInvalidReply extends Error {
 export const AI_REPLY_UNUSABLE = "The AI answered, but not in a form the app can use.";
 
 /**
- * Asks for JSON and checks it (readAiReply: JSON, a bare string, or plain text as the shape asks). When the value
- * fails the check, asks once more with the problems listed and only JSON accepted; a second failure throws
- * AIInvalidReply with the reply text. Respects the monthly cap (callClaude).
+ * Asks for JSON and checks it (readAiReply: JSON, a bare string, or plain text as the shape asks). When the reply
+ * was cut off by the length limit (stop reason max_tokens, or text that starts with { or [ and does not parse),
+ * asks once more from the start with double the limit and a note to keep it short; a second cut-off throws
+ * AIInvalidReply with cutOff set. When the value fails the check, asks once more with the problems listed and only
+ * JSON accepted; a second failure throws AIInvalidReply with the reply text. Respects the monthly cap (callClaude).
  */
 export async function callForJson<T>(params: {
   sb: SupabaseClient;
@@ -180,18 +189,31 @@ export async function callForJson<T>(params: {
   shape?: ReplyShape;
   validate: (value: unknown) => { ok: true; value: T } | { ok: false; error: string };
 }): Promise<T> {
-  const messages: Anthropic.MessageParam[] = [{ role: "user", content: params.prompt }];
+  const limit = params.maxTokens ?? 3000;
+  let maxTokens = limit;
+  let messages: Anthropic.MessageParam[] = [{ role: "user", content: params.prompt }];
   let lastError = "";
   let lastReply = "";
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const msg = await callClaude({ sb: params.sb, ownerId: params.ownerId, purpose: params.purpose, system: AI_SYSTEM_BASE, messages, maxTokens: params.maxTokens ?? 3000 });
+  let cutOffRetried = false;
+  let invalidRetried = false;
+  for (;;) {
+    const msg = await callClaude({ sb: params.sb, ownerId: params.ownerId, purpose: params.purpose, system: AI_SYSTEM_BASE, messages, maxTokens });
     const raw = textOf(msg);
+    lastReply = raw;
+    if (isCutOff(raw, msg.stop_reason)) {
+      if (cutOffRetried) throw new AIInvalidReply(AI_REPLY_CUT_OFF, raw, true);
+      cutOffRetried = true;
+      maxTokens = limit * 2;
+      messages = [{ role: "user", content: `${params.prompt}\n\nKeep it short: the last reply was cut off by the length limit. Return the complete JSON.` }];
+      continue;
+    }
     const value = readAiReply(raw, params.shape ?? "none");
     const r = value === null ? ({ ok: false, error: "the reply was not valid JSON" } as const) : params.validate(value);
     if (r.ok) return r.value;
     lastError = r.error;
-    lastReply = raw;
-    messages.push({ role: "assistant", content: raw || "(empty reply)" }, { role: "user", content: `Your reply did not match the required JSON: ${r.error}. Return only the corrected JSON object, nothing else.` });
+    if (invalidRetried) break;
+    invalidRetried = true;
+    messages = [...messages, { role: "assistant", content: raw || "(empty reply)" }, { role: "user", content: `Your reply did not match the required JSON: ${r.error}. Return only the corrected JSON object, nothing else.` }];
   }
   throw new AIInvalidReply(`${AI_REPLY_UNUSABLE} (${lastError}). Try again or reword the request.`, lastReply);
 }

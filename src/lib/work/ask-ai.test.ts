@@ -52,8 +52,8 @@ describe("the Ask AI panel", () => {
   });
 
   it("checks the answer reply: bullets required, at most six, an optional next action and email", () => {
-    const r = validateAnswerReply({ bullets: ["- First", "Second", "", "3", "4", "5", "6", "7"], next_action: "Email Mark Reed", email: { subject: "Hi", body: "Hello\r\nthere" } });
-    expect(r.ok && r.value.bullets).toEqual(["First", "Second", "3", "4", "5", "6"]);
+    const r = validateAnswerReply({ bullets: ["- First", "* Second", "", "**Third:** kept bold", "4", "5", "6", "7"], next_action: "Email Mark Reed", email: { subject: "Hi", body: "Hello\r\nthere" } });
+    expect(r.ok && r.value.bullets).toEqual(["First", "Second", "**Third:** kept bold", "4", "5", "6"]);
     expect(r.ok && r.value.nextAction).toBe("Email Mark Reed");
     expect(r.ok && r.value.email).toEqual({ subject: "Hi", body: "Hello\nthere" });
     const bare = validateAnswerReply({ bullets: "One line", email: null });

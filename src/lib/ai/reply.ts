@@ -30,6 +30,26 @@ export function parseJsonFromText<T>(s: string): T | null {
  */
 export type ReplyShape = "text" | "items" | "none";
 
+/** The reply without a leading or trailing code fence (a cut-off reply may have the opening fence and no closing one). */
+function unfence(text: string): string {
+  return text.replace(/^```[a-z]*\s*|```$/g, "").trim();
+}
+
+/**
+ * A reply that was cut off before its JSON closed (Edit batch B round 2, item 1): the text starts with { or [ and
+ * does not parse. Such a reply is never read as lines (the fragments would show as items); the caller asks again
+ * with a higher limit. A stop reason of "max_tokens" from the API counts as cut off whatever the text looks like.
+ */
+export function isCutOff(raw: string, stopReason?: string | null): boolean {
+  if (stopReason === "max_tokens") return true;
+  const text = unfence(String(raw ?? ""));
+  if (!/^[[{]/.test(text)) return false;
+  return parseJsonFromText<unknown>(text) === null;
+}
+
+/** The message every AI feature shows for a reply that was cut off, with Try again. */
+export const AI_REPLY_CUT_OFF = "The AI's answer was cut off. Try again.";
+
 const BULLET = /^\s*(?:[-*\u2022]|\d+[.)])\s+/;
 
 /** A short line ending in a colon between bulleted lines: a group heading ("Ask the broker:"), kept for the grouped readers. */
@@ -52,13 +72,15 @@ export function replyLines(raw: string): string[] {
 /**
  * The AI reply reader, one for every feature. In order: the first JSON value in the reply (fenced or bare); a bare
  * JSON string ("...") read as text; otherwise the plain text as the shape asks: {text} with the whole reply, or
- * {items} with its lines. Returns null only for the "none" shape without JSON. The validators then check the value.
+ * {items} with its lines. Returns null for the "none" shape without JSON, and for a reply cut off before its JSON
+ * closed (isCutOff), which is never read as lines. The validators then check the value.
  */
 export function readAiReply(raw: string, shape: ReplyShape = "none"): unknown {
   const text = String(raw ?? "").trim();
   const parsed = parseJsonFromText<unknown>(text);
   if (parsed !== null && typeof parsed === "object") return parsed;
-  const unfenced = text.replace(/^```[a-z]*\s*|```$/g, "").trim();
+  if (isCutOff(text)) return null;
+  const unfenced = unfence(text);
   if (/^"[^]*"$/.test(unfenced)) {
     try {
       const str = JSON.parse(unfenced) as unknown;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseJsonFromText, readAiReply, replyLines, replySnippet } from "./reply";
+import { isCutOff, parseJsonFromText, readAiReply, replyLines, replySnippet } from "./reply";
 
 describe("the AI reply reader (Edit batch B, item 2)", () => {
   it("reads a fenced JSON object", () => {
@@ -43,6 +43,30 @@ describe("the AI reply reader (Edit batch B, item 2)", () => {
 
   it("falls back to plain text when a brace in the prose is not JSON", () => {
     expect(readAiReply("Use {company} as the name, then call.", "text")).toEqual({ text: "Use {company} as the name, then call." });
+  });
+
+  it("treats JSON cut off before it closes as cut off, never as lines (Edit batch B round 2)", () => {
+    const steps = '{"steps": [\n{"text": "Email the broker today", "reason": "Quiet 6 days"},\n{"text": "Write the key fin';
+    expect(isCutOff(steps)).toBe(true);
+    expect(readAiReply(steps, "items")).toBeNull();
+    const bullets = '{"bullets": ["**Send first:** the Dalton follow-up, then hol';
+    expect(isCutOff(bullets)).toBe(true);
+    expect(readAiReply(bullets, "items")).toBeNull();
+    // An opening fence with no closing one (the fence was cut off too).
+    expect(isCutOff('```json\n{"items": ["Read the CIM", "Call the')).toBe(true);
+    expect(readAiReply('```json\n{"items": ["Read the CIM", "Call the', "items")).toBeNull();
+    // A stop reason of max_tokens counts as cut off whatever the text.
+    expect(isCutOff("- Read the CIM\n- Call the", "max_tokens")).toBe(true);
+    expect(isCutOff("- Read the CIM\n- Call the broker", "end_turn")).toBe(false);
+  });
+
+  it("still parses full JSON and still reads plain text as lines after the cut-off check", () => {
+    const full = '{"steps": [{"text": "Email the broker today", "reason": "Quiet 6 days"}]}';
+    expect(isCutOff(full)).toBe(false);
+    expect(readAiReply(full, "items")).toEqual({ steps: [{ text: "Email the broker today", reason: "Quiet 6 days" }] });
+    expect(isCutOff('```json\n{"items": ["a"]}\n```')).toBe(false);
+    expect(isCutOff("- Read the CIM\n- Call the broker")).toBe(false);
+    expect(readAiReply("- Read the CIM\n- Call the broker", "items")).toEqual({ items: ["Read the CIM", "Call the broker"] });
   });
 
   it("gives the first 300 characters of a reply on one line", () => {

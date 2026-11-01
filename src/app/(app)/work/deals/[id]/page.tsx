@@ -85,7 +85,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
         status={
           <>
             <ProgressMark stage={deal.stageName} />
-            <Pill tone={deal.status === "open" ? "gray" : deal.stageName === "Closed" ? "green" : "charcoal"} testId="deal-stage-pill">
+            <Pill tone={deal.status === "open" ? "stage" : deal.stageName === "Closed" ? "green" : "charcoal"} testId="deal-stage-pill">
               {deal.stageName ?? "No stage"}
               {deal.status === "open" ? ` · day ${deal.dayInStage}` : ""}
             </Pill>

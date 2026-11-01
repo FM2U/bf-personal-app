@@ -7,7 +7,7 @@ import { addDaysISO } from "@/lib/calc/dates";
 import { loadCtx, refreshNextActionAlert, type Ctx } from "@/lib/engine/helpers";
 import { checkCommitments, releaseSupersededNextActions } from "@/lib/engine/tasks";
 import { evaluateConditions } from "@/lib/engine/rules";
-import { AI_REPLY_UNUSABLE, AIInvalidReply, AIUnavailable, callForJson, cleanDeep, replySnippet } from "@/lib/ai/claude";
+import { AI_REPLY_CUT_OFF, AI_REPLY_UNUSABLE, AIInvalidReply, AIUnavailable, callForJson, cleanDeep, replySnippet } from "@/lib/ai/claude";
 import { date as fmtDate } from "@/lib/format";
 import { missingForStage } from "@/lib/pipeline";
 import { DB_UPDATE_NOTICE_0021, isMissingSchemaError } from "@/lib/schema-guard";
@@ -31,7 +31,7 @@ type Fail = { ok: false; error: string; /** The AI's reply (first 300 characters
 const fail = (error: string): Fail => ({ ok: false, error });
 /** The error of an AI call: the cap or setup message, or the unusable reply with its text. */
 const aiFail = (e: unknown): Fail => {
-  if (e instanceof AIInvalidReply) return { ok: false, error: `${AI_REPLY_UNUSABLE} Try again.`, reply: replySnippet(e.reply) };
+  if (e instanceof AIInvalidReply) return e.cutOff ? { ok: false, error: AI_REPLY_CUT_OFF } : { ok: false, error: `${AI_REPLY_UNUSABLE} Try again.`, reply: replySnippet(e.reply) };
   return fail(e instanceof AIUnavailable ? e.message : `The AI request failed: ${e instanceof Error ? e.message : String(e)}`);
 };
 const notSaved = (e: { message?: string | null } | null | undefined) => fail(isMissingSchemaError(e) ? DB_UPDATE_NOTICE_0021 : `Not saved: ${e?.message ?? "try again."}`);
@@ -81,10 +81,10 @@ export async function fillListingFromText(text: string): Promise<{ ok: true; fie
   const body = String(text ?? "").trim();
   if (body.length < 20) return fail("Paste the listing text first (the broker email or the page), then press Fill from text.");
   try {
-    const fields = await callForJson<ListingFields>({ sb: supabase, ownerId, purpose: "listing_fields", prompt: listingPrompt(body), maxTokens: 700, validate: (v) => validateListingReply(cleanDeep(v)) });
+    const fields = await callForJson<ListingFields>({ sb: supabase, ownerId, purpose: "listing_fields", prompt: listingPrompt(body), maxTokens: 1000, validate: (v) => validateListingReply(cleanDeep(v)) });
     return { ok: true, fields };
   } catch (e) {
-    if (e instanceof AIInvalidReply) return { ok: false, error: "The AI answered, but not with the fields. Fill them in by hand, or try again.", reply: replySnippet(e.reply) };
+    if (e instanceof AIInvalidReply) return e.cutOff ? { ok: false, error: AI_REPLY_CUT_OFF } : { ok: false, error: "The AI answered, but not with the fields. Fill them in by hand, or try again.", reply: replySnippet(e.reply) };
     const why = e instanceof AIUnavailable ? e.message : "The AI request failed.";
     return fail(`${why} Fill the fields in by hand.`);
   }
@@ -213,7 +213,7 @@ async function suggestQuestionsFor(sb: SupabaseClient, ctx: Ctx, pipe: WorkPipel
   const item = data as Row | null;
   if (!item) return 0;
   const context = await dealContext(sb, pipe, item);
-  const next = await callForJson<QuestionGroups>({ sb, ownerId: ctx.ownerId, purpose: "open_questions", prompt: questionsPrompt(context), maxTokens: 900, shape: "items", validate: (v) => validateQuestionsReply(cleanDeep(v)) });
+  const next = await callForJson<QuestionGroups>({ sb, ownerId: ctx.ownerId, purpose: "open_questions", prompt: questionsPrompt(context), maxTokens: 1500, shape: "items", validate: (v) => validateQuestionsReply(cleanDeep(v)) });
   const { merged, added } = mergeQuestions(context.existing, next);
   if (!added) return 0;
   const { error } = await sb.from("pipeline_items").update({ open_questions_json: merged }).eq("id", item.id);
@@ -249,7 +249,7 @@ export async function suggestTodos(id: string): Promise<{ ok: true; added: numbe
   try {
     const [context, existing] = await Promise.all([dealContext(sb, pipe, item), loadTodos(sb, ctx, item.id)]);
     const open = openTodos(existing);
-    const items = await callForJson<string[]>({ sb, ownerId: ctx.ownerId, purpose: "deal_todos", prompt: todosPrompt(context, open.map((t) => t.text)), maxTokens: 500, shape: "items", validate: (v) => validateTodosReply(cleanDeep(v)) });
+    const items = await callForJson<string[]>({ sb, ownerId: ctx.ownerId, purpose: "deal_todos", prompt: todosPrompt(context, open.map((t) => t.text)), maxTokens: 1200, shape: "items", validate: (v) => validateTodosReply(cleanDeep(v)) });
     const seen = new Set(existing.map((t) => t.text.toLowerCase()));
     const fresh = items.filter((t) => !seen.has(t.toLowerCase()));
     if (!fresh.length) return { ok: true, added: 0 };

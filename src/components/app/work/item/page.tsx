@@ -90,7 +90,7 @@ export async function ItemPage({ kind, id }: { kind: ItemKind; id: string }) {
             <Pill tone={kind === "job" ? "blue" : "gray"} testId="item-lane-pill">
               {listName}
             </Pill>
-            <Pill tone={item.status === "open" ? "gray" : item.status === "won" ? "green" : "charcoal"} testId="item-stage-pill">
+            <Pill tone={item.status === "open" ? "stage" : item.status === "won" ? "green" : "charcoal"} testId="item-stage-pill">
               {item.stageName ?? "No stage"}
               {item.status === "open" ? ` · day ${item.dayInStage}` : ""}
             </Pill>
