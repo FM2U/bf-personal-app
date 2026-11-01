@@ -29,7 +29,7 @@ import { NextActionRow } from "@/components/app/work/next-action-row";
 import { OutreachActionRow, PurposePills } from "@/components/app/work/person-row";
 import { ProjectActionRow } from "@/components/app/work/project-row";
 import { useSections } from "@/components/app/work/sections";
-import { Due, FilterRow, Line1, Line2, Name, Pill, PinnedBlock, ProgressMark, RowButton, RowButtons, RowLink, RowShell, SectionHeading, TargetBar, Thinking, What, WorkCard } from "@/components/app/work/ui";
+import { Due, Figure, FilterRow, Line1, Line2, Name, Pill, PinnedBlock, ProgressMark, RowButton, RowButtons, RowLink, RowShell, SectionHeading, TargetBar, Thinking, What, WorkCard, type PillTone } from "@/components/app/work/ui";
 import { WaitingRow } from "@/components/app/work/waiting-row";
 import { cn } from "@/lib/utils";
 
@@ -286,6 +286,7 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
             )}
           </WorkCard>
 
+          <TargetsTodayTile tile={data.targets} />
           <OutreachTile outreach={data.outreach} today={today} logged={personLogged} onEmail={setPersonEmail} onCall={setPersonCall} />
           <RosaraTile rosara={data.rosara} today={today} />
           <JobSearchTile pipelines={data.pipelines} today={today} />
@@ -427,6 +428,61 @@ function OutreachTile({ outreach, today, logged, onEmail, onCall }: { outreach: 
           </span>
         ) : null}
       </div>
+    </WorkCard>
+  );
+}
+
+/**
+ * The Targets today tile (batch C, approved 2026-10-31): two or three target lines (the Commitments first) with their
+ * figure, Targets met this week, and End of day with its badge (5:30, Sent, Skipped) and the reasons-left line, then
+ * Open End of day. Before database update 0025 it shows the update notice line.
+ */
+function TargetsTodayTile({ tile }: { tile: HomeData["targets"] }) {
+  const eodTone: PillTone = tile.eod.state === "sent" ? "green" : tile.eod.state === "skipped" ? "gray" : "amber";
+  return (
+    <WorkCard title="Targets today" hint={tile.available ? (tile.lines.length ? "Counted from the app" : "No targets yet") : "Update needed"} testId="home-targets" pinned>
+      {!tile.available ? (
+        <p className="px-[22px] py-3 text-[13px] text-muted-foreground" data-testid="home-targets-notice">
+          {tile.notice ?? "Targets are not available yet."}
+        </p>
+      ) : (
+        <>
+          <div className="flex flex-col pt-1" data-testid="home-targets-rows">
+            {tile.lines.map((l) => (
+              <Link key={l.id} href="/work/targets" className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 border-t border-slate-100 px-[22px] py-[10px] first:border-t-0 hover:bg-[#fbfcfe]" data-testid="home-target-line" data-target={l.name}>
+                <div className="min-w-0">
+                  <span className="text-sm font-semibold text-slate-900">{l.name}</span>
+                  <div className="text-[12.5px] text-slate-600 italic">{l.sub}</div>
+                </div>
+                <Figure value={l.figure} label={l.label} tone={l.tone === "missed" ? "red" : "plain"} className={cn("w-[82px]", l.tone === "met" && "[&>b]:text-status-met")} testId="home-target-figure" />
+              </Link>
+            ))}
+            <Link href="/work/targets" className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 border-t border-slate-100 px-[22px] py-[10px] hover:bg-[#fbfcfe]" data-testid="home-targets-met">
+              <div className="min-w-0">
+                <span className="text-sm font-semibold text-slate-900">Targets met</span>
+                <div className="truncate text-[12.5px] text-slate-600 italic">{tile.met.names}</div>
+              </div>
+              <Figure value={`${tile.met.met} of ${tile.met.total}`} label="This week" className={cn("w-[82px]", tile.met.total && tile.met.met === tile.met.total && "[&>b]:text-status-met")} testId="home-targets-met-figure" />
+            </Link>
+            <Link href="/work/end-of-day" className="flex flex-col gap-0.5 border-t border-slate-100 px-[22px] py-[10px] hover:bg-[#fbfcfe]" data-testid="home-eod" data-state={tile.eod.state}>
+              <span className="flex items-center gap-2.5">
+                <span className="text-sm font-semibold text-slate-900">End of day</span>
+                <Pill tone={eodTone} testId="home-eod-pill">
+                  {tile.eod.badge}
+                </Pill>
+              </span>
+              <span className="text-[12.5px] text-slate-600 italic" data-testid="home-eod-line">
+                {tile.eod.line}
+              </span>
+            </Link>
+          </div>
+          <div className="border-t border-slate-100 px-[22px] pt-2.5 pb-4">
+            <Link href="/work/end-of-day" className="text-[13px] font-medium text-primary-strong hover:underline" data-testid="home-open-eod">
+              Open End of day
+            </Link>
+          </div>
+        </>
+      )}
     </WorkCard>
   );
 }

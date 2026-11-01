@@ -32,7 +32,8 @@ export type SampleSetup = {
 /** Tables sample data writes to, in insert order. Removal deletes in the reverse dependency order (SQL). */
 export const SAMPLE_TABLES = [
   "accounts", "account_balances", "organizations", "contacts", "income_sources", "pipeline_items", "deal_financials",
-  "consulting_details", "transactions", "debts", "partners", "communications", "budget_lines", "daily_outcomes", "notes", "todos", "projects",
+  "consulting_details", "transactions", "debts", "partners", "partner_reports", "communications", "budget_lines", "daily_outcomes", "notes", "todos", "projects",
+  "work_events", "end_of_day",
 ] as const;
 
 /** Software subscriptions in the sample: the last two are never confirmed as used (unused-subscription flags). */
@@ -249,13 +250,16 @@ export function buildSampleData(s: SampleSetup, newId: () => string): { batches:
     { table: "consulting_details", rows: consultingRows },
     { table: "transactions", rows: tx },
     { table: "debts", rows: debts },
-    { table: "partners", rows: partners },
+    { table: "partners", rows: [...partners, ...(work ? work.partners : [])] },
+    { table: "partner_reports", rows: work ? work.partnerReports : [] },
     { table: "communications", rows: comms },
     { table: "budget_lines", rows: budgetLines },
     { table: "daily_outcomes", rows: outcomes },
     { table: "notes", rows: notes },
     { table: "todos", rows: work ? work.personalTodos : [] },
     { table: "projects", rows: work ? work.projects : [] },
+    { table: "work_events", rows: work ? work.workEvents : [] },
+    { table: "end_of_day", rows: work ? work.endOfDay : [] },
   ].filter((b) => b.rows.length);
   const counts = Object.fromEntries(batches.map((b) => [b.table, b.rows.length]));
   return { batches, counts, work: work ? { stageDates: work.stageDates, documents: work.documents, todos: work.todos, noteDates: work.noteDates, noActionItems: work.noActionItems } : null };

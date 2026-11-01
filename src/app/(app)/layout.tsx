@@ -11,6 +11,7 @@ import { WindowProvider } from "@/components/app/window-host";
 import { countToScreen } from "@/lib/work/data";
 import { countOutreachDue } from "@/lib/work/outreach-data";
 import { todayInTz } from "@/lib/calc/dates";
+import { loadEodBadge } from "@/lib/accountability/data";
 
 export default async function AppLayout({ children, modal }: { children: React.ReactNode; modal: React.ReactNode }) {
   const { supabase, user, ownerId } = await requireOwner();
@@ -22,7 +23,9 @@ export default async function AppLayout({ children, modal }: { children: React.R
     supabase.from("owner_profile").select("timezone").eq("owner_id", ownerId).maybeSingle(),
   ]);
   // People due today or overdue on Outreach (the amber badge); null before database update 0022.
-  const outreachDue = await countOutreachDue(supabase, ownerId, todayInTz(String((profile as { timezone?: string | null } | null)?.timezone || "America/New_York")));
+  const today = todayInTz(String((profile as { timezone?: string | null } | null)?.timezone || "America/New_York"));
+  // The End of day badge under Accountability (batch C): 5:30 until the day is closed, then Sent or Skipped; null before database update 0025.
+  const [outreachDue, eodBadge] = await Promise.all([countOutreachDue(supabase, ownerId, today), loadEodBadge(supabase, ownerId, today)]);
   return (
     <WindowProvider>
     <div className="min-h-screen lg:pl-60">
@@ -31,7 +34,7 @@ export default async function AppLayout({ children, modal }: { children: React.R
           <span aria-hidden className="h-2.5 w-2.5 rotate-45 rounded-[2px] bg-primary" />
           BF Personal App
         </Link>
-        <SidebarLinks toScreen={toScreen} outreachDue={outreachDue} />
+        <SidebarLinks toScreen={toScreen} outreachDue={outreachDue} eodBadge={eodBadge} />
         <div className="mt-auto flex flex-col gap-1 border-t border-border pt-3 text-sm">
           <AskAiSidebarButton />
           <Link href="/proposals" className="flex items-center justify-between rounded-md px-3 py-2 text-slate-600 hover:bg-slate-100">

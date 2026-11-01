@@ -3,6 +3,8 @@
 import { useId, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createProject, saveWeeklyFocus, type ProjectInput } from "@/app/actions/projects";
+import { markFocusDone } from "@/app/actions/accountability";
+import { date as fmtDate } from "@/lib/format";
 import { useUnsavedWork } from "@/components/app/unsaved-changes";
 import { addDaysISO } from "@/lib/calc/dates";
 import type { AskContext } from "@/lib/work/ask-ai";
@@ -45,7 +47,7 @@ export function RosaraBoard({ data }: { data: RosaraData }) {
   const open = projects.filter((p) => p.status === "open").length;
   return (
     <div className="flex flex-col gap-[18px]">
-      <WeeklyFocusBar focus={data.focus} />
+      <WeeklyFocusBar focus={data.focus} doneOn={data.focusDoneOn} />
       <WorkCard
         title="Projects"
         count={open}
@@ -106,9 +108,23 @@ export function RosaraBoard({ data }: { data: RosaraData }) {
   );
 }
 
-/** The Weekly focus bar: the label, the text (click to edit, Save), "Shown on Home". One field, so only the star inside the field (Edit batch B, item 3). */
-export function WeeklyFocusBar({ focus }: { focus: string }) {
+/**
+ * The Weekly focus bar: the label, the text (click to edit, Save), "Shown on Home", and Done (batch C: marks the
+ * week's focus done, which the Rosara focus done target counts; then "Done Thursday"). One field, so only the star
+ * inside the field (Edit batch B, item 3).
+ */
+export function WeeklyFocusBar({ focus, doneOn = null }: { focus: string; doneOn?: string | null }) {
   const router = useRouter();
+  const [done, setDone] = useState(doneOn);
+  const [doneError, setDoneError] = useState<string | null>(null);
+  const markDone = () =>
+    start(async () => {
+      setDoneError(null);
+      const r = await markFocusDone();
+      if (!r.ok) return setDoneError(r.error);
+      setDone(new Date().toISOString().slice(0, 10));
+      router.refresh();
+    });
   const [text, setText] = useState(focus);
   const [prev, setPrev] = useState(focus);
   if (prev !== focus) {
@@ -162,6 +178,20 @@ export function WeeklyFocusBar({ focus }: { focus: string }) {
         ) : (
           <span className="text-[13px] text-muted-foreground">Shown on Home</span>
         )}
+        {done ? (
+          <span className="text-[13px] font-medium text-status-met" data-testid="weekly-focus-done">
+            Done {fmtDate(done, "EEEE")}
+          </span>
+        ) : focus.trim() && !dirty ? (
+          <RowButton tone="cobalt" onClick={markDone} disabled={pending} data-testid="weekly-focus-mark-done">
+            Done
+          </RowButton>
+        ) : null}
+        {doneError ? (
+          <span className="text-[13px] text-status-missed" role="alert">
+            {doneError}
+          </span>
+        ) : null}
       </div>
     </section>
   );

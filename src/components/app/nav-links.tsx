@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { MAIN_NAV, mainFor, moduleFor, WORK_TABS, workTabFor } from "@/lib/nav";
+import { ACCOUNTABILITY_TABS, MAIN_NAV, mainFor, moduleFor, WORK_TABS, workTabFor } from "@/lib/nav";
 import { cn } from "@/lib/utils";
 import { ModuleIcon } from "@/components/app/module-icon";
 
@@ -11,6 +11,17 @@ export function CountBadge({ n, className, testId, tone = "gray" }: { n: number 
   return (
     <span className={cn("tabular rounded-full px-2 py-px text-[11px] font-semibold leading-4", tone === "amber" ? "bg-status-soon-bg text-status-soon" : "bg-status-neutral-bg text-status-neutral", className)} data-testid={testId}>
       {n}
+    </span>
+  );
+}
+
+/** The End of day badge (batch C): "5:30" (amber) until the day is closed, then "Sent" (green) or "Skipped" (gray). */
+export type EodBadge = "5:30" | "Sent" | "Skipped" | null;
+export function EodBadgeChip({ badge, testId }: { badge: EodBadge | undefined; testId?: string }) {
+  if (!badge) return null;
+  return (
+    <span className={cn("tabular rounded-full px-2 py-px text-[11px] font-semibold leading-4", badge === "5:30" ? "bg-status-soon-bg text-status-soon" : badge === "Sent" ? "bg-status-met-bg text-status-met" : "bg-status-neutral-bg text-status-neutral")} data-testid={testId} data-badge={badge}>
+      {badge}
     </span>
   );
 }
@@ -26,10 +37,11 @@ function tabBadge(href: string, toScreen: number | null | undefined, outreachDue
  * The main menu: Work, Accountability, More. Under Work (while it is open), its eight screens with the count of
  * listings to screen and the count of people due on Outreach (`toScreen`, `outreachDue`, read by the app layout).
  */
-export function SidebarLinks({ toScreen, outreachDue }: { toScreen?: number | null; outreachDue?: number | null }) {
+export function SidebarLinks({ toScreen, outreachDue, eodBadge }: { toScreen?: number | null; outreachDue?: number | null; eodBadge?: EodBadge }) {
   const path = usePathname();
   const active = mainFor(path).key;
   const tab = workTabFor(path);
+  const accTab = ACCOUNTABILITY_TABS.find((t) => path === t.href || path.startsWith(`${t.href}/`)) ?? null;
   return (
     <nav className="flex flex-col gap-0.5" aria-label="Main menu">
       {MAIN_NAV.map((m) => {
@@ -59,10 +71,50 @@ export function SidebarLinks({ toScreen, outreachDue }: { toScreen?: number | nu
                 ))}
               </div>
             ) : null}
+            {m.key === "accountability" && active === "accountability" ? (
+              <div className="mt-0.5 mb-1.5 ml-3.5 flex flex-col border-l-2 border-rule pl-1.5" data-testid="accountability-subnav">
+                {ACCOUNTABILITY_TABS.map((t) => (
+                  <Link
+                    key={t.href}
+                    href={t.href}
+                    className={cn("flex items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-slate-600 hover:bg-slate-100", accTab?.href === t.href && "font-semibold text-primary-strong")}
+                  >
+                    {t.label}
+                    {t.href === "/work/end-of-day" ? <EodBadgeChip badge={eodBadge} testId="subnav-eod-badge" /> : null}
+                  </Link>
+                ))}
+              </div>
+            ) : null}
           </div>
         );
       })}
     </nav>
+  );
+}
+
+/** The Accountability tabs (batch C): Targets, End of day with its badge, Reports, in the Work tab style. */
+export function AccountabilityTabs({ eodBadge, tight = false }: { eodBadge?: EodBadge; tight?: boolean }) {
+  const path = usePathname();
+  const active = ACCOUNTABILITY_TABS.find((t) => path === t.href || path.startsWith(`${t.href}/`)) ?? null;
+  return (
+    <div className={cn("no-print -mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0", tight ? "mb-0" : "mb-6 border-b border-border")}>
+      <nav className="flex min-w-max gap-1" aria-label="Accountability sections">
+        {ACCOUNTABILITY_TABS.map((t) => (
+          <Link
+            key={t.href}
+            href={t.href}
+            className={cn(
+              "-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium whitespace-nowrap",
+              active?.href === t.href ? "border-primary text-primary-strong" : "border-transparent text-slate-500 hover:text-slate-800",
+            )}
+            data-testid={`acc-tab-${t.href.replace(/\//g, "-").replace(/^-/, "")}`}
+          >
+            {t.label}
+            {t.href === "/work/end-of-day" ? <EodBadgeChip badge={eodBadge} testId="tab-eod-badge" /> : null}
+          </Link>
+        ))}
+      </nav>
+    </div>
   );
 }
 

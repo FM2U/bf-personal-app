@@ -28,7 +28,7 @@ const session = {
 const cookieValue = `base64-${Buffer.from(JSON.stringify(session)).toString("base64url")}`;
 
 const PAGES = (process.env.PAGES || [
-  "/", "/work", "/work/listings", "/work/listings?add=1", "/work/deals", "/work/outreach", "/work/outreach?add=1", "/work/todos", "/work/rosara", "/work/jobs", "/work/jobs?add=1", "/work/consulting", "/work/consulting?add=1", "/today", "/today/close", "/today/close?step=2", "/today/close?step=3", "/more", "/more/old-home", "/plan", "/plan/goals", "/plan/milestones", "/plan/conditions", "/plan/inputs", "/plan/scenarios", "/plan/decisions",
+  "/", "/work", "/work/listings", "/work/listings?add=1", "/work/deals", "/work/outreach", "/work/outreach?add=1", "/work/todos", "/work/rosara", "/work/jobs", "/work/jobs?add=1", "/work/consulting", "/work/consulting?add=1", "/work/targets", "/work/targets?add=1", "/work/end-of-day", "/work/reports", "/work/reports?view=sent", "/today", "/today/close", "/today/close?step=2", "/today/close?step=3", "/more", "/more/old-home", "/plan", "/plan/goals", "/plan/milestones", "/plan/conditions", "/plan/inputs", "/plan/scenarios", "/plan/decisions",
   "/finance", "/finance/balance-sheet", "/finance/expenses", "/finance/import", "/finance/budget", "/finance/debt", "/finance/funding", "/finance/income", "/finance/savings",
   "/opportunities", "/people", "/people/organizations", "/people/communications", "/people/outreach",
   "/productivity", "/productivity/tasks", "/productivity/recurring", "/productivity/calendar", "/productivity/pipeline-actions",
@@ -128,6 +128,8 @@ async function keyPages() {
     if (p === "/work/consulting?add=1") return "work-consulting-add";
     if (p === "/work/listings?add=1") return "work-listings-add";
     if (p === "/work/outreach?add=1") return "work-outreach-add";
+    if (p === "/work/targets?add=1") return "work-targets-add";
+    if (p === "/work/reports?view=sent") return "work-reports-sent";
     if (p.startsWith("/records/contacts/")) return "contact-deal-credit";
     return null;
   };
@@ -140,7 +142,7 @@ async function keyPages() {
     page.on("console", (m) => {
       if (m.type() === "error") errors.push(m.text());
     });
-    const base = vpName === "desktop" ? PAGES : vpName === "phone" ? (process.env.PHONE_PAGES || "/work,/work/listings,/work/deals,/work/outreach,/work/todos,/work/rosara,/work/jobs,/work/consulting,/today,/today/close,/more,/finance/expenses,/finance/balance-sheet,/accountability/report-templates,/opportunities,/plan/inputs,/accountability/targets,/people/outreach,/productivity").split(",") : [];
+    const base = vpName === "desktop" ? PAGES : vpName === "phone" ? (process.env.PHONE_PAGES || "/work,/work/listings,/work/deals,/work/outreach,/work/todos,/work/rosara,/work/jobs,/work/consulting,/work/targets,/work/end-of-day,/work/reports,/today,/today/close,/more,/finance/expenses,/finance/balance-sheet,/accountability/report-templates,/opportunities,/plan/inputs,/accountability/targets,/people/outreach,/productivity").split(",") : [];
     const list = [...new Set([...base, ...KEY])];
     for (const p of list) {
       errors.length = 0;

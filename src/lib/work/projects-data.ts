@@ -1,6 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { addDaysISO } from "@/lib/calc/dates";
+import { addDaysISO, weekBounds } from "@/lib/calc/dates";
 import type { Ctx } from "@/lib/engine/helpers";
 import { date as fmtDate } from "@/lib/format";
 import { compareProjects, rosaraTile } from "@/lib/work/projects";
@@ -78,12 +78,21 @@ export async function loadProjects(sb: SupabaseClient, ownerId: string): Promise
   return rows.map((r) => toProjectRow(r, byProject[String(r.id)] ?? []));
 }
 
-export type RosaraData = { today: string; focus: string; projects: ProjectRow[] };
+export type RosaraData = { today: string; focus: string; projects: ProjectRow[]; /** The weekly focus was marked done this week (batch C: a work event; null before database update 0025). */ focusDoneOn: string | null };
+
+/** The day this week's focus was marked done (a focus_done work event, Monday to Sunday of this week), or null. */
+export async function loadFocusDoneOn(sb: SupabaseClient, ctx: Ctx): Promise<string | null> {
+  const { start, end } = weekBounds(ctx.today);
+  const { data, error } = await sb.from("work_events").select("happened_on").eq("owner_id", ctx.ownerId).eq("kind", "focus_done").gte("happened_on", start).lte("happened_on", end).order("happened_on", { ascending: false }).limit(1);
+  if (error) return null;
+  const r = ((data ?? []) as Row[])[0];
+  return r ? String(r.happened_on).slice(0, 10) : null;
+}
 
 /** The Rosara page: the weekly focus and every project. */
 export async function loadRosara(sb: SupabaseClient, ctx: Ctx): Promise<RosaraData> {
-  const [focus, projects] = await Promise.all([loadWeeklyFocus(sb, ctx.ownerId), loadProjects(sb, ctx.ownerId)]);
-  return { today: ctx.today, focus, projects };
+  const [focus, projects, focusDoneOn] = await Promise.all([loadWeeklyFocus(sb, ctx.ownerId), loadProjects(sb, ctx.ownerId), loadFocusDoneOn(sb, ctx)]);
+  return { today: ctx.today, focus, projects, focusDoneOn };
 }
 
 /** The Rosara tile on Home and the project rows on Next actions. */

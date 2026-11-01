@@ -299,3 +299,14 @@ select:not([multiple]):not([size]) {
   pointer-events: none;
   color: var(--muted-foreground);
 }
+
+/* The End of day report preview and the Sent report drawer (batch C): the email's number tiles (140px wide, inline) sit
+   three to a row in the card and two on the phone; the email itself is sent unchanged. */
+.report-preview [style*="max-width:140px"] {
+  max-width: 33.333% !important;
+}
+@media (max-width: 640px) {
+  .report-preview [style*="max-width:140px"] {
+    max-width: 50% !important;
+  }
+}

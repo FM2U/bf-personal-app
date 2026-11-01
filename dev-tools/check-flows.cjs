@@ -5017,6 +5017,289 @@ const expectText = async (page, text) => {
     if (homeRows < 5) throw new Error(`only ${homeRows} rows on Home`);
   });
 
+  // ---------- Batch C (database update 0025): Targets, End of day, Reports, the Home tile, Ask AI ----------
+  const eodDay = () => nyDate(0);
+  /** Waits (up to 15 s) until a database check passes: the actions save after the page shows the change. */
+  const untilDb = async (check, what) => {
+    for (let i = 0; i < 60; i++) {
+      if (await check()) return;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    throw new Error(what);
+  };
+  const ownerTargets = () => pg.query("select id, name, counts_key, period, minimum_count, is_commitment, archived_at from targets where counts_key is not null order by sort_order").then((r) => r.rows);
+
+  await step("Batch C: Targets: the six defaults counted from the sample's facts, the strip and the marks, the Commitment switch saves, Edit changes number and cadence, Add a target lands on the list, Remove archives it (the row stays)", async () => {
+    await page.goto(`${BASE}/work/targets`);
+    await page.getByTestId("work-targets").waitFor();
+    const sub = (await page.getByTestId("accountability-subnav").locator("a").allInnerTexts()).map((t) => t.trim().split("\n")[0]);
+    if (sub.join("|") !== "Targets|End of day|Reports") throw new Error(`accountability subnav: ${sub.join("|")}`);
+    if ((await page.getByTestId("subnav-eod-badge").innerText()).trim() !== "5:30") throw new Error("End of day badge should read 5:30 before the close");
+    const rows = await page.getByTestId("target-row").evaluateAll((els) => els.map((e) => [e.dataset.target, e.dataset.mark, e.dataset.commitment]));
+    if (rows.map((r) => r[0]).join("|") !== "Listings screened|Brokers contacted|Network outreach|Follow-ups done on time|Deals moved a stage|Rosara focus done") throw new Error(`targets: ${JSON.stringify(rows)}`);
+    const inDb = await ownerTargets();
+    if (inDb.length !== 6 || inDb.filter((t) => t.is_commitment).length !== 2) throw new Error(`db targets: ${JSON.stringify(inDb.map((t) => [t.name, t.is_commitment]))}`);
+    // The strips: five cells for a per-weekday target, eight for a per-week one; the open cell is amber (the "now" state).
+    const strips = await page.getByTestId("target-strip").evaluateAll((els) => els.map((e) => [...e.querySelectorAll("[data-cell]")].map((c) => c.dataset.cell).join(",")));
+    if (strips[0].split(",").length !== 5 || strips[1].split(",").length !== 8) throw new Error(`strips: ${JSON.stringify(strips)}`);
+    if (!strips[1].endsWith("now")) throw new Error("the week's last cell should be open");
+    // The figures and marks sit at the same x on every row (the alignment rule).
+    const xs = await page.getByTestId("target-row").evaluateAll((els) => els.map((e) => [Math.round(e.querySelector("[data-testid=status-mark]").getBoundingClientRect().left), Math.round(e.querySelector("[data-row-right]").getBoundingClientRect().left), Math.round(e.querySelector("[data-col=buttons]").getBoundingClientRect().left)]));
+    for (const x of xs) if (x.join(",") !== xs[0].join(",")) throw new Error(`columns shift between rows: ${JSON.stringify(xs)}`);
+    // The Rosara focus done target counts the sample's focus_done events: last week met.
+    if (!(await page.getByTestId("target-row").nth(5).innerText()).includes("Done")) throw new Error("Rosara focus done should show Done for last week");
+    // The Commitment switch saves.
+    const brokers = page.getByTestId("target-row").nth(1);
+    await brokers.getByTestId("commitment-switch").check({ force: true });
+    await page.waitForFunction(() => document.querySelectorAll("[data-testid=target-row][data-commitment='1']").length === 3);
+    await untilDb(async () => (await one("select is_commitment from targets where name = 'Brokers contacted'")).is_commitment, "the switch did not save");
+    await page.waitForFunction(() => document.querySelector("[data-testid=targets-summary]")?.innerText.includes("3 commitments"));
+    await brokers.getByTestId("commitment-switch").uncheck({ force: true });
+    await page.waitForFunction(() => document.querySelectorAll("[data-testid=target-row][data-commitment='1']").length === 2);
+    // Edit: the number and the cadence.
+    await brokers.getByTestId("target-edit-button").click();
+    await brokers.getByTestId("target-edit-number").fill("4");
+    await brokers.getByTestId("target-edit-cadence").selectOption("day");
+    await brokers.getByTestId("target-edit-save").click();
+    await page.waitForFunction(() => document.querySelectorAll("[data-testid=target-row]")[1]?.innerText.includes("Per weekday · target 4"));
+    const edited = await one("select period, minimum_count from targets where name = 'Brokers contacted'");
+    if (edited.period !== "day" || edited.minimum_count !== 4) throw new Error(`edit: ${JSON.stringify(edited)}`);
+    await page.getByTestId("target-row").nth(1).getByTestId("target-edit-button").click();
+    await page.getByTestId("target-row").nth(1).getByTestId("target-edit-number").fill("5");
+    await page.getByTestId("target-row").nth(1).getByTestId("target-edit-cadence").selectOption("week");
+    await page.getByTestId("target-row").nth(1).getByTestId("target-edit-save").click();
+    await page.waitForFunction(() => document.querySelectorAll("[data-testid=target-row]")[1]?.innerText.includes("Per week · target 5"));
+    // Add a target.
+    await page.getByTestId("add-target-button").click();
+    await page.getByTestId("add-target-name").fill("Calls a day");
+    await page.getByTestId("add-target-counts").selectOption("calls_logged");
+    await page.getByTestId("add-target-cadence").selectOption("day");
+    await page.getByTestId("add-target-number").fill("2");
+    await page.getByTestId("add-target-commitment").check({ force: true });
+    await page.getByTestId("add-target-save").click();
+    await page.waitForFunction(() => document.querySelectorAll("[data-testid=target-row]").length === 7);
+    const added = await one("select counts_key, period, minimum_count, is_commitment, archived_at from targets where name = 'Calls a day'");
+    if (!added || added.counts_key !== "calls_logged" || added.period !== "day" || added.minimum_count !== 2 || !added.is_commitment) throw new Error(`added: ${JSON.stringify(added)}`);
+    const last = page.getByTestId("target-row").nth(6);
+    if (!(await last.innerText()).includes("Calls a day")) throw new Error("the new target should be last");
+    if (!(await last.getByTestId("target-strip").innerText()).includes("Mon to Fri")) throw new Error("a per-weekday target shows the Mon to Fri strip");
+    // Remove archives: the row leaves the list, the table keeps it.
+    await last.getByTestId("target-edit-button").click();
+    await last.getByTestId("target-remove").click();
+    await page.waitForFunction(() => document.querySelectorAll("[data-testid=target-row]").length === 6);
+    const gone = await one("select archived_at from targets where name = 'Calls a day'");
+    if (!gone || !gone.archived_at) throw new Error("Remove should archive, not delete");
+    // Past weeks: four tiles; the legend; Most missed names a target.
+    if ((await page.getByTestId("past-week").count()) !== 4) throw new Error("four past weeks");
+    if ((await page.getByTestId("legend-mark").count()) !== 3) throw new Error("the legend's three marks");
+    // The old Targets page is still reachable under More.
+    await page.goto(`${BASE}/more`);
+    const more = await page.getByTestId("more-links").innerText();
+    for (const t of ["Targets (old)", "Commitments", "Partner reports", "Close the day"]) if (!more.includes(t)) throw new Error(`More is missing ${t}`);
+    await page.goto(`${BASE}/accountability/targets`);
+    await page.waitForLoadState("networkidle");
+  });
+
+  await step("Batch C: End of day: the status line, Today counted from the database, the reason owed from the sample's skipped day, Skip today with a reason (badge Skipped, the tile line), then the day reopened for the send", async () => {
+    await page.goto(`${BASE}/work/end-of-day`);
+    await page.getByTestId("work-end-of-day").waitFor();
+    const status = page.getByTestId("eod-status");
+    const owed = Number(await status.getAttribute("data-owed"));
+    if (owed < 1) throw new Error("the sample's skipped day should leave a reason owed");
+    if (!(await page.getByTestId("eod-step-reasons").innerText()).includes(`${owed} left`)) throw new Error("the status line should count the reasons left");
+    if (!(await page.getByTestId("eod-step-tomorrow").innerText()).includes("empty")) throw new Error("the tomorrow line starts empty");
+    if ((await page.getByTestId("eod-owed").count()) < 1) throw new Error("the owed row from the skipped day is missing");
+    // Today, counted: the figures match the database (calls and emails logged today).
+    const comms = await one("select count(*)::int n from communications where direction <> 'incoming' and method in ('call','meeting','video') and (occurred_at at time zone 'America/New_York')::date = $1", [eodDay()]);
+    const calls = await page.getByTestId("counted-row").nth(2).getByTestId("counted-figure").first().innerText();
+    if (!calls.startsWith(String(comms.n))) throw new Error(`calls counted ${calls} vs ${comms.n} in the database`);
+    // The report card: the partner from the sample (Jake Morgan, report frequency daily), the email with the greeting and the closing lines.
+    if (!(await page.getByTestId("report-meta").innerText()).includes("Jake Morgan")) throw new Error("the report should go to the sample's Jake Morgan");
+    const preview = await page.getByTestId("report-preview").innerText();
+    for (const t of ["Hello Jake,", "Nothing is required from you.", "Thank you,", "Bram", "TODAY", "TARGETS"]) if (!preview.includes(t)) throw new Error(`the preview is missing ${t}`);
+    // Skip today with a reason.
+    await page.getByTestId("skip-today").click();
+    await page.getByTestId("skip-reason").fill("Travel day, Atlanta");
+    await page.getByTestId("skip-confirm").click();
+    await page.getByTestId("skipped-line").waitFor();
+    await page.waitForFunction(() => document.querySelector("[data-testid=tab-eod-badge]")?.dataset.badge === "Skipped");
+    const row = await one("select status, skip_reason, judged from end_of_day where day = $1", [eodDay()]);
+    if (row.status !== "skipped" || row.skip_reason !== "Travel day, Atlanta" || !Array.isArray(row.judged) || !row.judged.length) throw new Error(`skipped row: ${JSON.stringify(row)}`);
+    await page.goto(`${BASE}/work`);
+    if ((await page.getByTestId("home-eod-pill").innerText()).trim() !== "Skipped") throw new Error("the Home tile should say Skipped");
+    if (!(await page.getByTestId("home-eod-line").innerText()).includes("Skipped: Travel day, Atlanta")) throw new Error("the Home tile's End of day line");
+    await page.goto(`${BASE}/work/reports?view=sent`);
+    await page.getByTestId("sent-row").first().waitFor();
+    if ((await page.getByTestId("sent-row").first().getAttribute("data-state")) !== "skipped") throw new Error("the skipped day should be the newest row under Sent reports");
+    // Test only: the day opens again so the send can be checked on the same day.
+    await pg.query("delete from end_of_day where day = $1", [eodDay()]);
+  });
+
+  await step("Batch C: End of day: reasons drafted by the mock AI (Use these), Same reason for all, the tomorrow line (Use this line), the field star, Edit the report in place, Approve and send through the Google stand-in: the sent row under Reports, the badge Sent, the partner report kept", async () => {
+    await aipost("/__reset");
+    await gpost("/__reset");
+    // A weak day on purpose: the demo seed screens several listings "today", so the target is raised for the check.
+    await pg.query("update targets set minimum_count = 50 where name = 'Listings screened'");
+    await page.goto(`${BASE}/work/end-of-day`);
+    await page.getByTestId("work-end-of-day").waitFor();
+    const asks = await page.getByTestId("eod-target").evaluateAll((els) => els.filter((e) => e.dataset.asks === "1").map((e) => e.dataset.target));
+    if (!asks.includes("Listings screened")) throw new Error(`Listings screened should ask for a reason on a weak day: ${asks.join(",")}`);
+    // The card star opens the panel about the reasons and drafts them with the mock AI; Use these fills the boxes.
+    await page.getByTestId("ai-card-star").first().click();
+    await page.getByTestId("ask-ai-panel").waitFor();
+    if (!(await page.getByTestId("ask-ai-title").innerText()).includes("Reasons")) throw new Error("the panel should be about the reasons");
+    await page.getByTestId("ask-ai-reasons-drafts").waitFor({ timeout: 20000 });
+    if ((await page.getByTestId("ask-ai-reason-draft").count()) < 1) throw new Error("no reason draft");
+    if (!(await aicalls()).includes("eod_reasons")) throw new Error("the mock AI was not asked for eod_reasons");
+    await page.getByTestId("ask-ai-use-reasons").click();
+    await page.getByTestId("ask-ai-reasons-note").waitFor();
+    await page.getByTestId("drawer-close").click();
+    const filled = await page.getByTestId("reason-input").evaluateAll((els) => els.map((e) => e.value));
+    if (!filled.some((v) => v.startsWith("Mock reason"))) throw new Error(`the drafts did not fill the boxes: ${JSON.stringify(filled)}`);
+    await page.waitForFunction(() => { const r = document.querySelector("[data-testid=eod-status]"); return r && r.dataset.owed === String(document.querySelectorAll("[data-testid=reason-input]").length - [...document.querySelectorAll("[data-testid=reason-input]")].filter((e) => e.value.trim()).length); }, null, { timeout: 15000 }).catch((e) => { throw new Error(`reasons-left after Use these: ${e.message.split("\n")[0]}`); });
+    // Same reason for all: every box gets the typed line, saved on blur.
+    await page.getByTestId("same-reason-toggle").click();
+    await page.getByTestId("same-reason-input").fill("Site visit in Chattanooga took the day");
+    await page.getByTestId("same-reason-input").blur();
+    await page.waitForFunction(() => document.querySelector("[data-testid=eod-status]")?.dataset.owed === "0", null, { timeout: 15000 }).catch((e) => { throw new Error(`reasons-left after Same reason for all: ${e.message.split("\n")[0]}`); });
+    await untilDb(async () => Object.values((await one("select reasons from end_of_day where day = $1", [eodDay()])).reasons).every((v) => v === "Site visit in Chattanooga took the day"), "the shared reason was not saved to every box");
+    if (!(await page.getByTestId("eod-step-reasons").innerText()).includes("done")) throw new Error("Reasons should read done");
+    // The tomorrow line: the field star writes it with the mock AI, Use this line fills the box.
+    await page.getByTestId("tomorrow-input").focus();
+    await page.getByTestId("ai-field-star").last().click();
+    await page.getByTestId("ask-ai-draft").waitFor({ timeout: 20000 });
+    if ((await page.getByTestId("ask-ai-use").innerText()).trim() !== "Use this line") throw new Error("the button should read Use this line");
+    await page.getByTestId("ask-ai-use").click();
+    await page.waitForFunction(() => document.querySelector("[data-testid=tomorrow-input]")?.value.includes("Meridian model"), null, { timeout: 15000 }).catch((e) => { throw new Error(`tomorrow box after Use this line: ${e.message.split("\n")[0]}`); });
+    await page.waitForFunction(() => document.querySelector("[data-testid=eod-step-tomorrow]")?.dataset.word === "done");
+    await untilDb(async () => String((await one("select tomorrow_line from end_of_day where day = $1", [eodDay()])).tomorrow_line ?? "").includes("Meridian model"), "the tomorrow line was not saved");
+    await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.innerText.includes("Meridian model"));
+    // Edit in place: a typed change lands in the saved HTML and the preview says edited.
+    await page.getByTestId("report-edit").click();
+    await page.getByTestId("report-preview").evaluate((el) => { const p = [...el.querySelectorAll("p")].find((x) => x.textContent.startsWith("Here is my report")); p.textContent = "Here is my report, with one line added by hand."; });
+    await page.getByTestId("report-edit").click();
+    await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.dataset.edited === "1");
+    await untilDb(async () => { const ed = await one("select report_edited, report_html from end_of_day where day = $1", [eodDay()]); return ed.report_edited && ed.report_html.includes("one line added by hand") && !/<script|onerror=/i.test(ed.report_html); }, "the edit was not kept cleanly");
+    if (!(await page.getByTestId("report-hint").innerText()).includes("edited")) throw new Error("the hint should say edited");
+    await page.screenshot({ path: path.join(OUT, "flow-work-end-of-day-ready.png"), fullPage: true });
+    // Approve and send: one email through the Google stand-in to Jake, the row under Reports, the badge Sent.
+    await page.getByTestId("report-send").click();
+    await page.getByTestId("sent-line").waitFor({ timeout: 20000 });
+    await page.waitForFunction(() => document.querySelector("[data-testid=tab-eod-badge]")?.dataset.badge === "Sent");
+    const sent = await gsent();
+    if (sent.length !== 1 || sent[0].to !== "jake.morgan@example.com" || !/^Daily report/.test(sent[0].subject)) throw new Error(`sent: ${JSON.stringify(sent.map((m) => [m.to, m.subject]))}`);
+    if (!sent[0].html.includes("one line added by hand") || !sent[0].body.includes("one line added by hand") || !sent[0].html.includes("Thank you,<br>Bram")) throw new Error("the email should carry the edited text in both parts");
+    if (/<script|<style|onerror=/i.test(sent[0].html.split("gmail_signature")[0])) throw new Error("html not email-safe");
+    // On a Friday the report adds the week and the tomorrow line is Monday's.
+    const friday = new Date(`${nyDate(0)}T12:00:00Z`).getUTCDay() === 5;
+    if (friday && (!sent[0].html.includes("The week, ") || !sent[0].html.includes(">Monday<") || !sent[0].subject.includes("with the week"))) throw new Error("the Friday report should add the week and end with Monday");
+    if (!friday && sent[0].html.includes("The week, ")) throw new Error("a weekday report should not add the week");
+    const day = await one("select status, sent_at, report_id, report_subject from end_of_day where day = $1", [eodDay()]);
+    if (day.status !== "sent" || !day.sent_at || !day.report_id || day.report_subject !== sent[0].subject) throw new Error(`day row: ${JSON.stringify(day)}`);
+    const rep = await one("select status, report_kind, sent_at, gmail_message_id, summary from partner_reports where id = $1", [day.report_id]);
+    if (rep.status !== "finalized" || rep.report_kind !== "end_of_day" || !rep.sent_at || !rep.gmail_message_id || !rep.summary) throw new Error(`report: ${JSON.stringify(rep)}`);
+    const comm = await one("select id, subject from communications where gmail_message_id = $1", [rep.gmail_message_id]);
+    if (!comm) throw new Error("no communication for the send");
+    if (!(await one("select count(*)::int n from record_links where from_id = $1 and to_type = 'partner_reports'", [comm.id])).n) throw new Error("the communication is not linked to the report");
+    if (!(await page.getByTestId("eod-step-send").innerText()).includes("sent")) throw new Error("the status line should say sent");
+    if ((await page.getByTestId("report-hint").innerText()).trim() !== "As sent") throw new Error("the hint should say As sent");
+    if (await page.getByTestId("report-send").count()) throw new Error("Approve and send should be gone after the send");
+    await page.screenshot({ path: path.join(OUT, "flow-work-end-of-day-sent.png"), fullPage: true });
+    // A second press of the same request does not send twice (the page is reloaded; the button is gone).
+    await page.reload();
+    await page.getByTestId("sent-line").waitFor();
+    if ((await gsent()).length !== 1) throw new Error("sent twice");
+    await pg.query("update targets set minimum_count = 5 where name = 'Listings screened'");
+    // Home: the tile says Sent.
+    await page.goto(`${BASE}/work`);
+    if ((await page.getByTestId("home-eod-pill").innerText()).trim() !== "Sent") throw new Error("the Home tile should say Sent");
+    if ((await page.getByTestId("home-target-line").count()) < 2) throw new Error("the tile shows two or three target lines");
+  });
+
+  await step("Batch C: Reports: the week view with its six tiles and four cards, the period pills, Sent reports by week with the sample's reviewed, plain, and skipped rows and today's, Find, Collapse all, a row opens the report as sent with the reply", async () => {
+    await page.goto(`${BASE}/work/reports`);
+    await page.getByTestId("work-reports").waitFor();
+    const labels = await page.getByTestId("week-tile").evaluateAll((els) => els.map((e) => e.dataset.label));
+    if (labels.join("|") !== "Targets met|Deals moved|Listings screened|Network outreach|Follow-ups on time|Days waiting on brokers") throw new Error(`tiles: ${labels.join("|")}`);
+    for (const t of ["report-targets", "report-waits", "report-moves", "report-passed"]) if (!(await page.getByTestId(t).count())) throw new Error(`missing card ${t}`);
+    // Deals moved this week matches the database (stage moves of screened items with an earlier stage this week).
+    const movesShown = Number((await page.getByTestId("report-moves").innerText()).match(/(\d+) moves?/)[1]);
+    const monday = nyDate(-((new Date(`${nyDate(0)}T12:00:00Z`).getUTCDay() + 6) % 7));
+    const movesDb = await one(`select count(*)::int n from stage_history h join pipeline_stages s on s.id = h.stage_id join pipeline_items i on i.id = h.item_id
+      where s.outcome in ('open','won') and (h.entered_at at time zone 'America/New_York')::date >= $1
+        and exists (select 1 from stage_history x where x.item_id = h.item_id and x.stage_id is not null and x.entered_at < h.entered_at)`, [monday]);
+    if (movesShown !== movesDb.n) throw new Error(`deals moved: ${movesShown} shown, ${movesDb.n} in the database`);
+    await page.getByTestId("reports-period-last").click();
+    if ((await page.getByTestId("week-view").getAttribute("data-period")) !== "last") throw new Error("Last week did not switch");
+    if (!(await page.getByTestId("period-lead").innerText()).startsWith("Week of")) throw new Error("the period lead");
+    await page.getByTestId("reports-period-month").click();
+    if (!(await page.getByTestId("report-targets").innerText()).includes("Met on")) throw new Error("the month view rows");
+    await page.getByTestId("reports-period-this").click();
+    // Sent reports.
+    await page.getByTestId("reports-view-sent").click();
+    await page.getByTestId("sent-reports-card").waitFor();
+    const states = await page.getByTestId("sent-row").evaluateAll((els) => els.map((e) => e.dataset.state));
+    if (states[0] !== "sent" || states.filter((s) => s === "skipped").length < 1 || states.length < 4) throw new Error(`sent rows: ${states.join(",")}`);
+    const pills = await page.getByTestId("sent-pill").allInnerTexts();
+    if (!pills.includes("Jake reviewed") || !pills.includes("Sent") || !pills.includes("Skipped")) throw new Error(`pills: ${pills.join(",")}`);
+    if (!(await page.getByTestId("sent-reports-card").innerText()).includes("Jake replied")) throw new Error("the reply pill");
+    // The pills and times sit at the same x on every row.
+    const xs = await page.getByTestId("sent-row").evaluateAll((els) => els.map((e) => [Math.round(e.querySelector("[data-col=sent]").getBoundingClientRect().left), Math.round(e.querySelector("[data-col=pill]").getBoundingClientRect().left)]));
+    for (const x of xs) if (x.join(",") !== xs[0].join(",")) throw new Error(`sent columns shift: ${JSON.stringify(xs)}`);
+    // Open the reviewed report with the reply.
+    const replied = page.getByTestId("sent-row").filter({ hasText: "Jake replied" }).first();
+    await replied.click();
+    await page.getByTestId("sent-report-drawer").waitFor();
+    const drawer = (await page.getByTestId("sent-report-drawer").innerText()).toLowerCase();
+    for (const t of ["jake opened", "jake replied", "pinecrest loi", "hello jake,", "a sent report never changes."]) if (!drawer.includes(t)) throw new Error(`the drawer is missing ${t}`);
+    await page.screenshot({ path: path.join(OUT, "flow-work-reports-open.png"), fullPage: true });
+    await page.getByTestId("drawer-close").click();
+    // Today's sent report opens with the edited line.
+    await page.getByTestId("sent-row").first().click();
+    await page.getByTestId("sent-report-drawer").waitFor();
+    if (!(await page.getByTestId("sent-html").innerText()).includes("one line added by hand")) throw new Error("today's report as sent");
+    await page.getByTestId("drawer-close").click();
+    // Find narrows; Collapse all flips.
+    await page.getByTestId("reports-search").fill("Pinecrest");
+    await page.waitForFunction(() => document.querySelectorAll("[data-testid=sent-row]").length === 1);
+    await page.getByTestId("reports-search").fill("");
+    await page.getByTestId("collapse-all").click();
+    if ((await page.getByTestId("collapse-all").getAttribute("data-state")) !== "collapsed" || (await page.getByTestId("sent-row").count()) !== 0) throw new Error("Collapse all");
+    await page.getByTestId("collapse-all").click();
+  });
+
+  await step("Batch C: Ask AI on Targets (the three questions, an answer from the page), on End of day (the page pill offers the drafts; a sent day says so), on Reports (What changed versus last week), all with the mock AI", async () => {
+    await page.goto(`${BASE}/work/targets`);
+    await page.getByTestId("ask-ai").click();
+    await page.getByTestId("ask-ai-panel").waitFor();
+    const pills = await page.getByTestId("ask-ai-pill").allInnerTexts();
+    if (pills[0] !== "Which target am I missing most often?") throw new Error(`targets questions: ${pills.join("|")}`);
+    await page.getByTestId("ask-ai-pill").first().click();
+    await page.getByTestId("ask-ai-answer").waitFor({ timeout: 20000 });
+    await page.getByTestId("drawer-close").click();
+    await page.goto(`${BASE}/work/end-of-day`);
+    await page.getByTestId("ask-ai").click();
+    await page.getByTestId("ask-ai-panel").waitFor();
+    for (const t of ["ask-ai-reasons", "ask-ai-tomorrow", "ask-ai-short"]) if (!(await page.getByTestId(t).count())) throw new Error(`the End of day panel should offer ${t}`);
+    if (!(await page.getByTestId("ask-ai-short").innerText()).includes("Today is already sent.")) throw new Error("a sent day says so in the panel");
+    const eodPills = await page.getByTestId("ask-ai-pill").allInnerTexts();
+    if (eodPills.join("|") !== "Draft the reasons for the missed commitments|Write tomorrow's line|Make the report shorter") throw new Error(`eod questions: ${eodPills.join("|")}`);
+    await page.getByTestId("drawer-close").click();
+    await page.goto(`${BASE}/work/reports`);
+    await page.getByTestId("ask-ai").click();
+    await page.getByTestId("ask-ai-panel").waitFor();
+    if ((await page.getByTestId("ask-ai-pill").first().innerText()) !== "What changed versus last week?") throw new Error("reports questions");
+    await page.getByTestId("ask-ai-pill").first().click();
+    await page.getByTestId("ask-ai-answer").waitFor({ timeout: 20000 });
+    await page.getByTestId("drawer-close").click();
+    // The screens at 1280 and on the phone, after the send.
+    await shoot3(`${BASE}/work/targets`, "work-targets");
+    await shoot3(`${BASE}/work/end-of-day`, "work-end-of-day");
+    await shoot3(`${BASE}/work/reports`, "work-reports");
+    await shoot3(`${BASE}/work/reports?view=sent`, "work-reports-sent");
+    await shoot3(`${BASE}/work`, "work-now");
+  });
+
   await step("Savings ideas: propose now, shown on Home with a count, Edit, Later, Decline (not proposed again), Approve as a reduction action", async () => {
     await aipost("/__reset");
     await page.goto(`${BASE}/finance/expenses`);

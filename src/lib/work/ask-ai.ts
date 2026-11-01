@@ -9,10 +9,10 @@
  */
 
 /** The pages the panel knows. A record page carries the record's id. */
-export type AskPage = "home" | "listings" | "deals" | "deal" | "outreach" | "person" | "rosara" | "project" | "jobs" | "opportunity" | "consulting" | "consulting_item" | "todos";
+export type AskPage = "home" | "listings" | "deals" | "deal" | "outreach" | "person" | "rosara" | "project" | "jobs" | "opportunity" | "consulting" | "consulting_item" | "todos" | "targets" | "end_of_day" | "reports";
 
 /** The fields a star can fill. */
-export type AskFieldKey = "key_finding" | "next_action" | "email_subject" | "email_body" | "project_note" | "task_text" | "weekly_focus" | "find_out";
+export type AskFieldKey = "key_finding" | "next_action" | "email_subject" | "email_body" | "project_note" | "task_text" | "weekly_focus" | "find_out" | "tomorrow_line" | "eod_reason";
 
 export type AskField = { key: AskFieldKey; label: string; /** What is in the field now (the AI improves it when set). */ current?: string | null; /** Extra lines the field's owner adds (the email's recipient, the record's name). */ extra?: string | null };
 
@@ -68,6 +68,10 @@ export const SUGGESTED_QUESTIONS: Record<AskPage, readonly string[]> = {
   consulting: ["Which lead needs a proposal?", "What is due this week?", "Who should I ask for a referral?"],
   consulting_item: ["What should I do next on this engagement?", "Draft a note to the client", "What is missing before the invoice?"],
   todos: ["What should I do first?", "Which to-dos can wait?", "What can I finish in 15 minutes?"],
+  // Batch C (approved 2026-10-31).
+  targets: ["Which target am I missing most often?", "Is 5 listings a weekday the right number?", "What would make next week 6 of 6?"],
+  end_of_day: ["Draft the reasons for the missed commitments", "Write tomorrow's line", "Make the report shorter"],
+  reports: ["What changed versus last week?", "Which broker waits the longest?", "What did my partner ask about?"],
 };
 
 /** What the AI reads about a page: a title and plain lines (names, stages, next actions, waits, recent timeline). */
@@ -181,6 +185,8 @@ export function fieldPrompt(c: PageContext, field: AskField): string {
     task_text: "one task for this record: a concrete thing to do, starting with a verb (at most 15 words)",
     weekly_focus: "the one thing Rosara should get this week, as one sentence starting with 'This week:' (at most 25 words)",
     find_out: "one question to find out before the next conversation about this opportunity (at most 20 words)",
+    tomorrow_line: "the one line about the next working day for the end-of-day report: what matters most first, from the next actions due and the open waits, in Bram's own voice (at most 30 words, no greeting)",
+    eod_reason: "the one-line reason a missed commitment gets in the end-of-day report: what took the time, from what the day shows, and what carries to the next working day (at most 25 words, first person, no apology)",
   };
   return [
     "TASK: field_draft",
@@ -268,6 +274,13 @@ export function panelSpec(c: AskContext): PanelSpec {
         return { ...base, questions: ["Which of these should I do first?", "Which can wait until tomorrow?", "Which has been overdue the longest?"], suggest: nextSteps };
       case "What to find out":
         return { ...base, questions: ["What should I find out first?", "What is still unknown about this opportunity?", "Which question matters most before the next call?"], suggest: nextSteps };
+      // Batch C: the End of day cards. The drafts are the panel's own sections (reasons, the tomorrow line, the short report).
+      case "Reasons":
+        return { ...base, questions: ["Draft the reasons for the missed commitments", "Which miss matters most?", "What would have met the commitment?"], suggest: null };
+      case "What matters tomorrow":
+        return { ...base, questions: ["Write tomorrow's line", "What is due first tomorrow?", "Which wait should I chase tomorrow?"], suggest: null };
+      case "Report":
+        return { ...base, questions: ["Make the report shorter", "What will my partner notice first?", "Is anything missing from the report?"], suggest: null };
       default:
         return { ...base, questions: [`What matters most in ${c.card}?`, `What should I do next about ${c.card}?`, `What is missing from ${c.card}?`], suggest: record ? nextSteps : null };
     }

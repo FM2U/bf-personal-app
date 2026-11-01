@@ -13,8 +13,10 @@
  * Unlike the rest of the sample data these names come from the approved mockup and do not start with "Sample";
  * every row is still recorded in sample_records, so Remove sample data deletes them (the to-dos go with their deal).
  */
-import { addDaysISO } from "@/lib/calc/dates";
+import { addDaysISO, isWeekday } from "@/lib/calc/dates";
+import { reportInnerHtml, reportSubject, type ReportData } from "@/lib/accountability/report-email";
 import { checkBuyBox, dealSourceTypeFor } from "@/lib/work/buy-box";
+import { weekdayShort } from "@/lib/work/outreach";
 import { STAGE_DEFAULTS } from "@/lib/work/stages";
 
 export type WorkSampleSetup = {
@@ -26,6 +28,8 @@ export type WorkSampleSetup = {
   batchB2?: boolean;
   jobs?: { pipelineId: string; stages: Record<string, string> } | null;
   consulting?: { pipelineId: string; stages: Record<string, string> } | null;
+  /** Database update 0025 is applied: the partner Jake Morgan, the work events, and the End of day rows with three sent reports (batch C). */
+  batchC?: boolean;
 };
 
 type R = Record<string, unknown>;
@@ -53,6 +57,14 @@ export type WorkSample = {
   noActionItems: string[];
   /** The scope and start date of the consulting items (consulting_details). */
   consultingDetails: R[];
+  /** Batch C: the partner the End of day reports go to (Jake Morgan). */
+  partners: R[];
+  /** Batch C: the two sent reports as partner reports (one reviewed with a reply, one not opened). */
+  partnerReports: R[];
+  /** Batch C: the End of day rows (two sent, one skipped on the last weekday before today). */
+  endOfDay: R[];
+  /** Batch C: follow-ups and next actions done, the Rosara focus done, over the last weeks. */
+  workEvents: R[];
 };
 
 /** Every sample name the Work module adds (listings, deals, brokers, firms), so tests can tell them apart. */
@@ -70,6 +82,8 @@ export const WORK_SAMPLE_NAMES = [
   // Batch B2: the projects, the opportunities, and the consulting items of the approved mockup.
   "Rosara platform", "KarmaKare (working name)", "Business model", "Market research", "Competition", "Customer segments", "Dementia caregiving", "Adjacent business ideas", "Resource sourcing", "Website first draft",
   "Harbor Health Partners", "Lumen Industrial Holdings", "Crestline Services", "Atlas Freight", "Riverbend Health", "Georgia Home Care Association", "Sunrise Home Care", "Bain, Atlanta", "Alvarez Advisory",
+  // Batch C: the accountability partner of the approved mockup.
+  "Jake Morgan",
 ];
 
 /** The nine starting projects (approved 2026-10-31, decisions on v4), in the order of the Rosara page. */
@@ -341,5 +355,110 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
     }
   }
 
-  return { organizations, contacts, items, financials, communications, notes, stageDates, documents, todos, personalTodos, projects, consultingDetails, noteDates, noActionItems };
+  // Batch C (database update 0025): the partner, three End of day rows (two sent, one skipped), and the work events.
+  const partners: R[] = [];
+  const partnerReports: R[] = [];
+  const endOfDay: R[] = [];
+  const workEvents: R[] = [];
+  if (s.batchC) {
+    const jake = newId();
+    partners.push({ id: jake, name: "Jake Morgan", is_pseudonym: false, email: "jake.morgan@example.com", sections: ["commitments"], schedule: "weekly", delivery_methods: ["email"], report_frequency: "daily", next_report_on: ahead(7), is_active: true, notes: "Gets the End of day report by email, weekdays at 5:30." });
+    // The last three weekdays before today (newest first).
+    const weekdays: string[] = [];
+    for (let i = 1; weekdays.length < 3 && i < 12; i++) if (isWeekday(ago(i))) weekdays.push(ago(i));
+    const [d1, d2, d3] = weekdays;
+    const c = buildSampleReports({ d2, d3, partnerFirst: "Jake" });
+    // New York clock readings (Eastern Standard Time) as UTC timestamps.
+    const at = (day: string, hour: number, minute: number) => new Date(`${day}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00-05:00`).toISOString();
+    // d2: sent, reviewed, with a reply. d3: sent, not opened.
+    const r2 = newId();
+    const r3 = newId();
+    partnerReports.push(
+      { id: r2, partner_id: jake, period_start: d2, period_end: d2, status: "finalized", snapshot: { end_of_day: true, day: d2, sample: true }, summary: c.summary2, summary_source: "owner", finalized_at: at(d2, 17, 38), delivered_via: ["gmail_sent"], report_kind: "end_of_day", sent_at: at(d2, 17, 38), reviewed_at: at(d2, 19, 5), partner_comment: "Thanks. Is the Pinecrest LOI still at 3.2x? Let me know what Dana says.", comment_at: at(d2, 19, 5) },
+      { id: r3, partner_id: jake, period_start: d3, period_end: d3, status: "finalized", snapshot: { end_of_day: true, day: d3, sample: true }, summary: c.summary3, summary_source: "owner", finalized_at: at(d3, 17, 35), delivered_via: ["gmail_sent"], report_kind: "end_of_day", sent_at: at(d3, 17, 35) },
+    );
+    const judgedSkipped = [
+      { targetId: "sample-listings", name: "Listings screened", key: "listings_screened", cadence: "day", number: 5, commitment: true, value: 2, met: false, figure: "2 of 5", line: "Per weekday · target 5 · this week 12 of 20", detail: "2 passed", judged: true },
+      { targetId: "sample-outreach", name: "Network outreach", key: "outreach_contacts", cadence: "week", number: 10, commitment: true, value: 4, met: false, figure: "4 of 10", line: "Per week · target 10", detail: "", judged: weekdayShort(d1) === "Fri" },
+    ];
+    endOfDay.push(
+      { id: newId(), day: d1, status: "skipped", reasons: {}, skip_reason: "Travel day, Chattanooga site visit", skipped_at: at(d1, 17, 10), judged: judgedSkipped },
+      { id: newId(), day: d2, status: "sent", reasons: { "sample-listings": "The Rosara investor call and the Sunbelt coffee took the morning; 3 listings carry to tomorrow." }, tomorrow_line: c.tomorrow2, sent_at: at(d2, 17, 38), report_id: r2, report_subject: c.subject2, report_html: c.html2, report_edited: true, judged: c.judged2 },
+      { id: newId(), day: d3, status: "sent", reasons: {}, tomorrow_line: c.tomorrow3, sent_at: at(d3, 17, 35), report_id: r3, report_subject: c.subject3, report_html: c.html3, report_edited: false, judged: c.judged3 },
+    );
+    // Work events over the last eight weeks: follow-ups done (a few late), next actions done, the Rosara focus done most weeks.
+    const ev = (kind: string, daysAgo: number, label: string, more: R = {}) => workEvents.push({ id: newId(), kind, record_type: more.record_type ?? null, record_id: null, label, happened_on: ago(daysAgo), happened_at: `${ago(daysAgo)}T15:00:00Z`, on_time: more.on_time ?? null, meta: more.meta ?? {} });
+    const followUps: [number, string, boolean][] = [[1, "Priya Natarajan", true], [2, "Dana Whitfield", true], [3, "Mark Reed", false], [4, "Tom Alvarez", true], [8, "Carla Jenkins", true], [9, "Luis Ortega", true], [10, "Priya Natarajan", false], [15, "Denise Walker", true], [16, "Maria Santos", true], [17, "Rachel Kim", true], [22, "Mark Reed", false], [23, "Jamal Whitaker", true], [29, "Dana Whitfield", true], [30, "Kevin O'Brien", true], [36, "Rita Caldwell", true], [37, "Sam Patel", true], [43, "Priya Natarajan", true], [44, "Tom Alvarez", false], [50, "Lena Fischer", true]];
+    for (const [days, name, onTime] of followUps) ev("follow_up_done", days, name, { record_type: "contacts", on_time: onTime });
+    const actions: [number, string, string][] = [[1, "Meridian Industrial Coatings", "Start the 7-year model"], [1, "Market research", "Call two agency owners"], [2, "Dalton Services", "Ask the broker for the CIM"], [2, "Harbor Health Partners", "Prepare for the COO call"], [3, "BrightPath Home Care", "Sign the NDA"], [4, "Pinecrest Landscaping", "Submit the LOI"], [8, "Coastal Fleet Maintenance", "Ask for the seller call"], [9, "Summit Logistics Group", "Read the CIM"], [10, "Rosara platform", "Write the onboarding flow"], [15, "Oakline Dental Lab", "Sign the NDA"], [16, "Ridgeline Commercial Roofing", "Book the partner meeting"], [22, "Meridian Industrial Coatings", "Ask for tax returns"], [23, "Business model", "Draft the pricing page"], [29, "Pinecrest Landscaping", "Finish the model"], [36, "Dalton Services", "Sign the NDA"], [43, "Valley Print Group", "Seller call"]];
+    for (const [days, name, action] of actions) ev("next_action_done", days, name, { record_type: "pipeline_items", meta: { action } });
+    // The focus done on the Thursday of most past weeks (not this week, not three weeks ago).
+    const dow = new Date(`${today}T12:00:00Z`).getUTCDay();
+    const monday = addDaysISO(today, -(dow === 0 ? 6 : dow - 1));
+    for (const weeksBack of [1, 2, 4, 5, 6, 7]) {
+      const thu = addDaysISO(monday, -7 * weeksBack + 3);
+      workEvents.push({ id: newId(), kind: "focus_done", record_type: "inputs", record_id: null, label: "This week: ten agency owner conversations", happened_on: thu, happened_at: `${thu}T15:00:00Z`, on_time: null, meta: {} });
+    }
+  }
+
+  return { organizations, contacts, items, financials, communications, notes, stageDates, documents, todos, personalTodos, projects, consultingDetails, noteDates, noActionItems, partners, partnerReports, endOfDay, workEvents };
 }
+
+/** The two sample sent reports (batch C): the email as sent, built the way End of day builds it, from fixed numbers. */
+function buildSampleReports(i: { d2: string; d3: string; partnerFirst: string }) {
+  const long = (d: string) => `${DAY_LONG[weekdayShort(d)]}, ${MONTHS[Number(d.slice(5, 7)) - 1]} ${Number(d.slice(8, 10))}, ${d.slice(0, 4)}`;
+  const short = (d: string) => `${DAY_LONG[weekdayShort(d)]}, ${MONTHS[Number(d.slice(5, 7)) - 1]} ${Number(d.slice(8, 10))}`;
+  const judged2 = [
+    { targetId: "sample-listings", name: "Listings screened", key: "listings_screened", cadence: "day", number: 5, commitment: true, value: 2, met: false, figure: "2 of 5", line: "Per weekday · target 5 · this week 7 of 10", detail: "2 passed", judged: true },
+    { targetId: "sample-brokers", name: "Brokers contacted", key: "brokers_contacted", cadence: "week", number: 5, commitment: false, value: 3, met: false, figure: "3 of 5", line: "Per week · target 5", detail: "Rachel Kim, Dana Whitfield, Luis Ortega", judged: false },
+    { targetId: "sample-outreach", name: "Network outreach", key: "outreach_contacts", cadence: "week", number: 10, commitment: true, value: 3, met: false, figure: "3 of 10", line: "Per week · target 10", detail: "", judged: false },
+  ];
+  const judged3 = [{ targetId: "sample-listings", name: "Listings screened", key: "listings_screened", cadence: "day", number: 5, commitment: true, value: 5, met: true, figure: "5 of 5", line: "Per weekday · target 5 · this week 5 of 5", detail: "3 passed, 2 Interested", judged: true }];
+  const tomorrow2 = "Screen the 5 listings first; Meridian seller call at 11.";
+  const tomorrow3 = "Sunbelt coffee with Dana at 9; Maria Santos call at 1.";
+  const data2: ReportData = {
+    partnerName: "Jake Morgan", partnerFirst: i.partnerFirst, dateLong: long(i.d2), dateShort: short(i.d2), withWeek: false,
+    pill: { text: "Listings screened missed", status: "missed" },
+    today: [
+      { label: "Listings screened", value: "2", small: "of 5", note: "2 passed", status: "missed", pct: 40 },
+      { label: "Deals moved", value: "0", note: "", status: "neutral", pct: null },
+      { label: "Next actions done", value: "4", note: "Dalton, Harbor Health and 2 more", status: "neutral", pct: null },
+      { label: "Calls", value: "2", note: "Maria Santos, Dana Whitfield", status: "neutral", pct: null },
+      { label: "Emails", value: "2", note: "", status: "neutral", pct: null },
+      { label: "Network outreach", value: "1", note: "3 of 10 this week", status: "missed", pct: 30 },
+    ],
+    deals: ["Pinecrest Landscaping: Dana Whitfield expects the seller's answer on the LOI by Friday."],
+    targets: [
+      { met: false, judged: true, line: "Listings screened 2 of 5 today, 7 of 10 this week", commitment: true, reason: "The Rosara investor call and the Sunbelt coffee took the morning; 3 listings carry to tomorrow." },
+      { met: false, judged: false, line: "Brokers contacted 3 of 5", commitment: false, reason: null },
+      { met: false, judged: false, line: "Network outreach 3 of 10", commitment: true, reason: null },
+    ],
+    owed: [],
+    week: null,
+    tomorrow: { label: "Tomorrow", text: tomorrow2 },
+  };
+  const data3: ReportData = {
+    ...data2,
+    dateLong: long(i.d3), dateShort: short(i.d3),
+    pill: { text: "Listings screened met", status: "met" },
+    today: [
+      { label: "Listings screened", value: "5", small: "of 5", note: "3 passed, 2 Interested", status: "met", pct: 100 },
+      { label: "Deals moved", value: "1", note: "BrightPath to NDA signed", status: "neutral", pct: null },
+      { label: "Next actions done", value: "4", note: "BrightPath, Pinecrest and 2 more", status: "neutral", pct: null },
+      { label: "Calls", value: "1", note: "Rachel Kim", status: "neutral", pct: null },
+      { label: "Emails", value: "5", note: "1 to a broker", status: "neutral", pct: null },
+      { label: "Network outreach", value: "0", note: "0 of 10 this week", status: "missed", pct: 0 },
+    ],
+    deals: ["BrightPath Home Care moved to NDA signed. Key finding: Caregiver retention is the question."],
+    targets: [{ met: true, judged: true, line: "Listings screened 5 of 5 today, 5 of 5 this week", commitment: true, reason: null }],
+    tomorrow: { label: "Tomorrow", text: tomorrow3 },
+  };
+  return {
+    judged2, judged3, tomorrow2, tomorrow3,
+    subject2: reportSubject(data2), html2: reportInnerHtml(data2), summary2: "Listings screened 2 of 5 · Dana Whitfield coffee · Maria Santos call",
+    subject3: reportSubject(data3), html3: reportInnerHtml(data3), summary3: "Listings screened 5 of 5 · BrightPath to NDA signed · Rachel Kim email",
+  };
+}
+
+const DAY_LONG: Record<string, string> = { Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday", Fri: "Friday", Sat: "Saturday", Sun: "Sunday" };
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];

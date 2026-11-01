@@ -4,11 +4,13 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Mail } from "lucide-react";
 import { addTaskFromAi, askAboutPage, askAiSetup, draftField, setNextActionFromAi, suggestNextSteps, suggestQuestionsFromAi, suggestTasks, type AskSetup } from "@/app/actions/ask-ai";
+import { draftReasons } from "@/app/actions/accountability";
+import type { ReasonDraft } from "@/lib/accountability/ask-ai";
 import { ComposeEmailDialog } from "@/components/app/compose-email";
 import type { ComposeSetup } from "@/lib/compose-email";
 import { panelSpec, type Answer, type AskContext, type AskField, type NextStep } from "@/lib/work/ask-ai";
 import { Drawer } from "@/components/app/work/drawer";
-import { AiButton, RowButton, Thinking } from "@/components/app/work/ui";
+import { AiButton, ROW_BUTTON_BASE, ROW_BUTTON_TONE, RowButton, Thinking } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
 
 /**
@@ -32,14 +34,35 @@ export function AiStar({ className }: { className?: string }) {
   );
 }
 
+/**
+ * The End of day drafts (batch C): "Draft the reasons for the missed commitments" with Use these, "Write tomorrow's
+ * line" with Use this line, "Make the report shorter" with Use the short version. The page pill, the card stars, and
+ * the matching suggested questions all lead here.
+ */
+export type EodExtras = {
+  day: string;
+  /** "Use these": fills the reason boxes. */
+  onUseReasons?: (drafts: ReasonDraft[]) => void;
+  /** "Use this line": fills the tomorrow box. */
+  onUseTomorrow?: (text: string) => void;
+  /** "Use the short version": the short report goes into the preview. */
+  onUseShort?: () => Promise<string | null> | void;
+  /** The tomorrow field's current text (for the draft). */
+  tomorrow?: string;
+  /** No draft can be used once the day is sent or skipped. */
+  closed?: "sent" | "skipped" | null;
+};
+
 export type AskAiProps = {
   context: AskContext;
   /** The email setup for "Open in email" (record pages with a contact; Home with a typed address). */
   compose?: ComposeSetup | null;
+  /** The End of day drafts (batch C). */
+  extras?: EodExtras | null;
 };
 
 /** The page-level pill in every Work page header. */
-export function AskAiPill({ context, compose, className }: AskAiProps & { className?: string }) {
+export function AskAiPill({ context, compose, extras, className }: AskAiProps & { className?: string }) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -47,7 +70,7 @@ export function AskAiPill({ context, compose, className }: AskAiProps & { classN
         <AiStar />
         Ask AI
       </button>
-      {open ? <AskAiPanel context={context} compose={compose} open={open} onOpenChange={setOpen} /> : null}
+      {open ? <AskAiPanel context={context} compose={compose} extras={extras} open={open} onOpenChange={setOpen} /> : null}
     </>
   );
 }
@@ -56,14 +79,14 @@ export function AskAiPill({ context, compose, className }: AskAiProps & { classN
 const STAR_CIRCLE = "inline-flex shrink-0 items-center justify-center rounded-full border border-violet-rule bg-violet-soft hover:border-violet/40 hover:bg-[#f3ecff]";
 
 /** The purple star at the right of a card header (21px, in a 34px faint circle; hover shows "Ask AI"); opens the panel about that card. */
-export function AiCardStar({ context, compose, className, testId = "ai-card-star" }: AskAiProps & { className?: string; testId?: string }) {
+export function AiCardStar({ context, compose, extras, className, testId = "ai-card-star" }: AskAiProps & { className?: string; testId?: string }) {
   const [open, setOpen] = useState(false);
   return (
     <>
       <button type="button" onClick={() => setOpen(true)} title="Ask AI" aria-label={`Ask AI about ${context.card ?? context.label}`} className={cn(STAR_CIRCLE, "h-[34px] w-[34px]", className)} data-testid={testId} data-card={context.card ?? undefined}>
         <AiStar className="h-[21px] w-[21px]" />
       </button>
-      {open ? <AskAiPanel context={context} compose={compose} open={open} onOpenChange={setOpen} /> : null}
+      {open ? <AskAiPanel context={context} compose={compose} extras={extras} open={open} onOpenChange={setOpen} /> : null}
     </>
   );
 }
@@ -137,9 +160,54 @@ const VIOLET_BUTTON = "inline-flex h-[30px] items-center justify-center rounded-
 const SOFT_BUTTON = "inline-flex h-[30px] items-center justify-center rounded-[7px] border border-violet-rule bg-violet-soft px-[11px] text-[12.5px] font-medium whitespace-nowrap text-violet hover:bg-[#f3ecff] disabled:pointer-events-none disabled:opacity-50";
 const INPUT = "h-9 w-full min-w-0 rounded-[7px] border border-input bg-white px-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
 
-export function AskAiPanel({ context, compose, open, onOpenChange, onUse }: { context: AskContext; compose?: ComposeSetup | null; open: boolean; onOpenChange: (open: boolean) => void; /** A field star: "Use this" fills the field. */ onUse?: (text: string) => void }) {
+export function AskAiPanel({ context, compose, extras, open, onOpenChange, onUse }: { context: AskContext; compose?: ComposeSetup | null; extras?: EodExtras | null; open: boolean; onOpenChange: (open: boolean) => void; /** A field star: "Use this" fills the field. */ onUse?: (text: string) => void }) {
   const router = useRouter();
   const spec = panelSpec(context);
+  // The End of day drafts (batch C): which of the three the panel shows, by the card it was opened from (all three from the page pill).
+  const eod = extras && !context.field ? extras : null;
+  const showReasons = !!eod?.onUseReasons && (!context.card || context.card === "Reasons");
+  const showTomorrow = !!eod?.onUseTomorrow && (!context.card || context.card === "What matters tomorrow");
+  const showShort = !!eod?.onUseShort && (!context.card || context.card === "Report");
+  const [reasons, setReasons] = useState<ReasonDraft[] | null>(null);
+  const [reasonsError, setReasonsError] = useState<FailState>(null);
+  const [reasonsBusy, setReasonsBusy] = useState(false);
+  const [reasonsNote, setReasonsNote] = useState<string | null>(null);
+  const [tomorrowDraft, setTomorrowDraft] = useState<string | null>(null);
+  const [tomorrowError, setTomorrowError] = useState<FailState>(null);
+  const [tomorrowBusy, setTomorrowBusy] = useState(false);
+  const [tomorrowNote, setTomorrowNote] = useState<string | null>(null);
+  const [shortNote, setShortNote] = useState<string | null>(null);
+  const [shortBusy, setShortBusy] = useState(false);
+  const closedWord = eod?.closed ? `Today is already ${eod.closed}.` : null;
+  const loadReasons = async () => {
+    if (!eod) return;
+    setReasons(null);
+    setReasonsError(null);
+    setReasonsNote(null);
+    setReasonsBusy(true);
+    const r = await draftReasons(eod.day);
+    setReasonsBusy(false);
+    if (!r.ok) return setReasonsError({ error: r.error, reply: r.reply });
+    setReasons(r.drafts);
+  };
+  const loadTomorrow = async () => {
+    if (!eod) return;
+    setTomorrowDraft(null);
+    setTomorrowError(null);
+    setTomorrowNote(null);
+    setTomorrowBusy(true);
+    const r = await draftField({ ...context, card: null, field: { key: "tomorrow_line", label: "What matters tomorrow", current: eod.tomorrow ?? null } });
+    setTomorrowBusy(false);
+    if (!r.ok) return setTomorrowError({ error: r.error, reply: r.reply });
+    setTomorrowDraft(r.text);
+  };
+  const applyShort = async () => {
+    if (!eod?.onUseShort) return;
+    setShortBusy(true);
+    const r = await eod.onUseShort();
+    setShortBusy(false);
+    setShortNote(r === null ? "The short version could not be made." : "In the preview. Edit still works on it.");
+  };
   const [setup, setSetup] = useState<AskSetup | null>(null);
   const [setupError, setSetupError] = useState<string | null>(null);
   const [steps, setSteps] = useState<NextStep[] | null>(null);
@@ -195,6 +263,9 @@ export function AskAiPanel({ context, compose, open, onOpenChange, onUse }: { co
       // which change the deal and wait for the button.
       if (suggest && suggest.kind !== "questions" && r.ready) await loadSuggestions();
       if (field && r.ready) writeField();
+      // The End of day drafts load on their own when the panel is about one card (the page pill waits for a pill).
+      if (r.ready && context.card === "Reasons" && showReasons) await loadReasons();
+      if (r.ready && context.card === "What matters tomorrow" && showTomorrow) await loadTomorrow();
     })();
     return () => {
       alive = false;
@@ -205,6 +276,10 @@ export function AskAiPanel({ context, compose, open, onOpenChange, onUse }: { co
   const ask = (q: string) => {
     const text = q.trim();
     if (!text) return;
+    // The three End of day questions are the panel's own drafts, not a question to the AI.
+    if (showReasons && /^draft the reasons/i.test(text)) return void loadReasons();
+    if (showTomorrow && /^write (tomorrow|monday)'?s line/i.test(text)) return void loadTomorrow();
+    if (showShort && /^make the report shorter/i.test(text)) return void applyShort();
     setAsked(text);
     setAnswer(null);
     setAnswerError(null);
@@ -281,7 +356,7 @@ export function AskAiPanel({ context, compose, open, onOpenChange, onUse }: { co
               <p className="text-sm whitespace-pre-wrap text-slate-800">{draft}</p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <button type="button" onClick={() => onUse?.(draft)} className={VIOLET_BUTTON} data-testid="ask-ai-use">
-                  Use this
+                  {field.key === "tomorrow_line" ? "Use this line" : "Use this"}
                 </button>
               </div>
             </div>
@@ -323,6 +398,85 @@ export function AskAiPanel({ context, compose, open, onOpenChange, onUse }: { co
               {setNote}
             </p>
           ) : null}
+        </section>
+      ) : null}
+
+      {showReasons ? (
+        <section className="mb-6" data-testid="ask-ai-reasons">
+          <PanelHeading
+            right={
+              <AiButton busy={reasonsBusy} onClick={loadReasons} disabled={!ready || !!closedWord} className="h-7 px-2.5 text-xs" data-testid="ask-ai-reasons-again">
+                {reasons ? "Draft them again" : "Draft the reasons"}
+              </AiButton>
+            }
+          >
+            Reasons for the missed commitments
+          </PanelHeading>
+          {closedWord ? <p className="text-[13px] text-muted-foreground">{closedWord}</p> : null}
+          {reasonsBusy ? <Thinking className="text-[13px] text-muted-foreground" label="Reading today and thinking" /> : null}
+          {reasonsError ? <AiFailLine error={reasonsError.error} reply={reasonsError.reply} onRetry={loadReasons} testId="ask-ai-reasons-error" /> : null}
+          {reasons ? (
+            <div className="rounded-lg border border-violet-rule bg-violet-soft px-4 py-3.5" data-testid="ask-ai-reasons-drafts">
+              {reasons.map((d) => (
+                <div key={d.targetId} className="border-b border-violet-rule py-2 first:pt-0 last:border-b-0 last:pb-0" data-testid="ask-ai-reason-draft">
+                  <span className="block text-xs text-muted-foreground">{d.name}</span>
+                  <p className="text-sm text-slate-800">{d.reason}</p>
+                </div>
+              ))}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button type="button" onClick={() => { eod?.onUseReasons?.(reasons); setReasonsNote("Filled in. Change them on the page."); }} disabled={!!closedWord} className={VIOLET_BUTTON} data-testid="ask-ai-use-reasons">
+                  Use these
+                </button>
+                <button type="button" onClick={() => onOpenChange(false)} className={cn(ROW_BUTTON_BASE, ROW_BUTTON_TONE.outline)}>
+                  Not now
+                </button>
+              </div>
+              {reasonsNote ? <p className="mt-2 text-[13px] text-status-met" role="status" data-testid="ask-ai-reasons-note">{reasonsNote}</p> : null}
+            </div>
+          ) : null}
+          {!reasons && !reasonsBusy && !reasonsError && !closedWord ? <p className="text-[13px] text-muted-foreground">One line per missed commitment, from what today shows.{estimate ? ` ${estimate}` : ""}</p> : null}
+        </section>
+      ) : null}
+
+      {showTomorrow ? (
+        <section className="mb-6" data-testid="ask-ai-tomorrow">
+          <PanelHeading
+            right={
+              <AiButton busy={tomorrowBusy} onClick={loadTomorrow} disabled={!ready || !!closedWord} className="h-7 px-2.5 text-xs" data-testid="ask-ai-tomorrow-again">
+                {tomorrowDraft ? "Write it again" : "Write the line"}
+              </AiButton>
+            }
+          >
+            What matters tomorrow
+          </PanelHeading>
+          {tomorrowBusy ? <Thinking className="text-[13px] text-muted-foreground" label="Reading tomorrow's actions and thinking" /> : null}
+          {tomorrowError ? <AiFailLine error={tomorrowError.error} reply={tomorrowError.reply} onRetry={loadTomorrow} testId="ask-ai-tomorrow-error" /> : null}
+          {tomorrowDraft ? (
+            <div className="rounded-lg border border-violet-rule bg-violet-soft px-4 py-3.5" data-testid="ask-ai-tomorrow-draft">
+              <p className="text-sm whitespace-pre-wrap text-slate-800">{tomorrowDraft}</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button type="button" onClick={() => { eod?.onUseTomorrow?.(tomorrowDraft); setTomorrowNote("Set as the line. Edit it on the page."); }} disabled={!!closedWord} className={VIOLET_BUTTON} data-testid="ask-ai-use-tomorrow">
+                  Use this line
+                </button>
+              </div>
+              {tomorrowNote ? <p className="mt-2 text-[13px] text-status-met" role="status" data-testid="ask-ai-tomorrow-note">{tomorrowNote}</p> : null}
+            </div>
+          ) : null}
+          {!tomorrowDraft && !tomorrowBusy && !tomorrowError ? <p className="text-[13px] text-muted-foreground">One line about the next working day, from the next actions due and the open waits.</p> : null}
+        </section>
+      ) : null}
+
+      {showShort ? (
+        <section className="mb-6" data-testid="ask-ai-short">
+          <PanelHeading>A shorter report</PanelHeading>
+          <p className="text-[13px] text-slate-700">The short version keeps the header, the Targets list with the reasons, the week tiles on a Friday, and the tomorrow line. It drops the Today tiles and the Deals bullets, which the daily reports already carry.</p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button type="button" onClick={applyShort} disabled={shortBusy || !!closedWord} className={VIOLET_BUTTON} data-testid="ask-ai-use-short">
+              {shortBusy ? <Thinking /> : "Use the short version"}
+            </button>
+            {shortNote ? <span className="text-[13px] text-status-met" role="status" data-testid="ask-ai-short-note">{shortNote}</span> : null}
+            {closedWord ? <span className="text-[13px] text-muted-foreground">{closedWord}</span> : null}
+          </div>
         </section>
       ) : null}
 

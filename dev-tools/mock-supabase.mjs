@@ -720,6 +720,9 @@ const ai = http.createServer(async (req, res) => {
         const what = (text.match(/^Write (.+?)\.\n/m) || [])[1] || "the text";
         const page = (text.match(/^Page: ([^\n]+)/m) || [])[1] || "this page";
         const drafts = [
+          // Batch C: the tomorrow line and a missed commitment's reason.
+          [/next working day/, "Finish the Meridian model before 10, then chase Mark Reed on the Summit seller call"],
+          [/missed commitment/, "The Dalton CIM review and the broker calls took the screening block; 2 listings carry to tomorrow"],
           [/subject line/, `Next step on ${page}`],
           [/email message/, `Hi there,\n\nQuick note about ${page}: what is the next step on your side?\n\nThanks,\nBram`],
           [/key finding/, `Mock finding: ${page} turns on one number the page does not show yet`],
@@ -733,6 +736,13 @@ const ai = http.createServer(async (req, res) => {
         if (aiMode.field === "plain") return send(res, 200, aiMessage(hit ? hit[1] : `Mock text for ${page}`));
         return send(res, 200, aiMessage(JSON.stringify({ text: hit ? hit[1] : `Mock text for ${page}` })));
       }
+      if (text.includes("TASK: eod_reasons")) {
+        aiCalls.push("eod_reasons");
+        // "Name (figure; id <id>)" per missed commitment.
+        const asked = [...text.matchAll(/([A-Za-z' -]+?) \(([^;)]+); id ([^)]+)\)/g)].map((m) => ({ name: m[1].trim(), figure: m[2], id: m[3] }));
+        const reasons = asked.map((a, i) => ({ target_id: a.id, reason: i === 0 ? `Mock reason: the ${a.name.toLowerCase()} block went to the Dalton CIM; ${a.figure} and the rest carries to tomorrow` : `Mock reason: deal work filled the afternoons; ${a.name.toLowerCase()} ${a.figure}, the rest moves to next week` }));
+        return send(res, 200, maybeCut("eod_reasons", JSON.stringify({ reasons }), body));
+      }
       if (text.includes("TASK: ai_order")) {
         aiCalls.push("ai_order");
         const keys = [...text.matchAll(/^- key=([^ |]+)/gm)].map((m) => m[1]);
@@ -745,7 +755,7 @@ const ai = http.createServer(async (req, res) => {
         return send(res, 200, aiMessage("- **Runway:** this is the local test AI. It answers without reading your data.\n- **Next step:** ask again on the live app."));
       }
       aiCalls.push("other");
-      return send(res, 400, { type: "error", error: { type: "invalid_request_error", message: "The local AI stand-in answers only initiative, savings, listing, question, to-do, Ask AI, order, and chat requests." } });
+      return send(res, 400, { type: "error", error: { type: "invalid_request_error", message: "The local AI stand-in answers only initiative, savings, listing, question, to-do, Ask AI, order, End of day reasons, and chat requests." } });
     }
     return send(res, 404, { type: "error", error: { type: "not_found_error", message: `Not in the AI mock: ${req.method} ${url.pathname}` } });
   } catch (e) {
