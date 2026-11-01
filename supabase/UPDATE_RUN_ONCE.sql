@@ -1,4 +1,4 @@
--- BF Personal App: database update (0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019, 0020, 0021, and 0022).
+-- BF Personal App: database update (0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019, 0020, 0021, 0022, and 0023).
 --   0008: Daily Targets and Outreach Queue.
 --   0009: Stage task lists, stage time limits, required details, stalled items, deal source (proprietary or brokered),
 --         deal-source contacts, and the Deals sourced and Deals advanced targets.
@@ -20,7 +20,8 @@
 --         (deal_todos), "Chase" renamed "Follow up" in the stage defaults, and a check function.
 --   0022: Batch B: Outreach fields on contacts, call fields and incoming replies on communications, personal to-dos, the outreach
 --         target setting, tasks on any record, Rosara projects, the Job search and Consulting stages, opportunity fields, the AI order cache.
--- For a database that already has 0001 to 0007 (or 0001 to 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019, 0020, or 0021). Paste this whole file into the
+--   0023: Batch B2: findings with a source link on the timeline (notes.kind, notes.source_url) and the pay range of a job opportunity.
+-- For a database that already has 0001 to 0007 (or 0001 to 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019, 0020, 0021, or 0022). Paste this whole file into the
 -- Supabase SQL Editor and press Run. Safe to run more than once: nothing is duplicated.
 -- Generated from supabase/migrations by supabase/build_combined.py.
 
@@ -3715,3 +3716,35 @@ as $$ select true $$;
 
 revoke execute on function public.schema_has_0022() from public, anon;
 grant execute on function public.schema_has_0022() to authenticated, service_role;
+
+-- ===== supabase/migrations/0023_batch_b2.sql =====
+-- 0023: Batch B2 of the Work module (Rosara projects, Job search, Consulting, the Ask AI panel, the AI order on Home).
+-- Almost everything B2 needs was created by 0022 (projects, tasks on any record, the Job search and Consulting stages,
+-- opportunity fields, the AI order cache, the weekly focus setting). This update adds the three small things that were
+-- still missing. Nothing is deleted or changed; it only adds empty columns and a check function. Safe to run twice.
+--   1. notes.kind ('note' or 'finding') and notes.source_url: a note on a project can be marked as a Finding with a
+--      source link (the project page timeline shows a Finding pill and the source).
+--   2. pipeline_items.pay_range: the pay range of a job opportunity as typed ("$150K to $170K").
+--   3. schema_has_0023().
+
+-- 1. Findings on the timeline
+alter table public.notes add column if not exists kind text not null default 'note';
+alter table public.notes add column if not exists source_url text;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'notes_kind_check') then
+    alter table public.notes add constraint notes_kind_check check (kind in ('note', 'finding'));
+  end if;
+end $$;
+
+-- 2. The pay range of a job opportunity
+alter table public.pipeline_items add column if not exists pay_range text;
+
+-- 3. Check function
+create or replace function public.schema_has_0023()
+returns boolean
+language sql
+stable
+as $$ select true $$;
+
+revoke execute on function public.schema_has_0023() from public, anon;
+grant execute on function public.schema_has_0023() to authenticated, service_role;

@@ -27,7 +27,7 @@ export default async function ScreenListingsPage({ searchParams }: { searchParam
         right={
           <>
             {d.available ? <AddListingButton open={adding} /> : null}
-            <AskAiPill context="Screen listings" />
+            <AskAiPill context={{ page: "listings", label: "Screen listings" }} />
           </>
         }
       />

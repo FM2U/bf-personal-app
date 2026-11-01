@@ -1,5 +1,5 @@
 -- BF Personal App: database update 0022 (batch B: Outreach, calls and emails logged, To-dos, and what batch B2 needs).
--- For the live database, which has 0001 to 0021. Paste this whole file into the Supabase SQL Editor and press Run.
+-- For a database that has 0001 to 0021 (the live database with 0001 to 0022 uses UPDATE_0023_RUN_ONCE.sql). Paste this whole file into the Supabase SQL Editor and press Run.
 -- Expected result: "Success. No rows returned". Safe to run more than once: nothing is duplicated. No contact, communication,
 -- deal, opportunity, or consulting item is deleted; four consulting stages go away after their items move (see below).
 -- What it changes:

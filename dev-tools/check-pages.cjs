@@ -28,7 +28,7 @@ const session = {
 const cookieValue = `base64-${Buffer.from(JSON.stringify(session)).toString("base64url")}`;
 
 const PAGES = (process.env.PAGES || [
-  "/", "/work", "/work/listings", "/work/listings?add=1", "/work/deals", "/work/outreach", "/work/outreach?add=1", "/work/todos", "/work/rosara", "/work/jobs", "/work/consulting", "/today", "/today/close", "/today/close?step=2", "/today/close?step=3", "/more", "/more/old-home", "/plan", "/plan/goals", "/plan/milestones", "/plan/conditions", "/plan/inputs", "/plan/scenarios", "/plan/decisions",
+  "/", "/work", "/work/listings", "/work/listings?add=1", "/work/deals", "/work/outreach", "/work/outreach?add=1", "/work/todos", "/work/rosara", "/work/jobs", "/work/jobs?add=1", "/work/consulting", "/work/consulting?add=1", "/today", "/today/close", "/today/close?step=2", "/today/close?step=3", "/more", "/more/old-home", "/plan", "/plan/goals", "/plan/milestones", "/plan/conditions", "/plan/inputs", "/plan/scenarios", "/plan/decisions",
   "/finance", "/finance/balance-sheet", "/finance/expenses", "/finance/import", "/finance/budget", "/finance/debt", "/finance/funding", "/finance/income", "/finance/savings",
   "/opportunities", "/people", "/people/organizations", "/people/communications", "/people/outreach",
   "/productivity", "/productivity/tasks", "/productivity/recurring", "/productivity/calendar", "/productivity/pipeline-actions",
@@ -76,6 +76,13 @@ async function keyPages() {
     // The person page of the Work module (Mark Reed from the sample data, otherwise any contact).
     const person = (await one("select id from contacts where name = 'Mark Reed' limit 1").catch(() => null)) ?? (await one("select id from contacts order by created_at limit 1").catch(() => null));
     if (person) out.push(`/work/outreach/${person}`);
+    // Batch B2: a project, an opportunity, and a consulting item (the sample's when loaded, otherwise any).
+    const project = (await one("select id from projects where name = 'Market research' limit 1").catch(() => null)) ?? (await one("select id from projects order by created_at limit 1").catch(() => null));
+    if (project) out.push(`/work/rosara/${project}`);
+    const opp = (await one("select id from pipeline_items where name = 'Harbor Health Partners' limit 1").catch(() => null)) ?? (await one("select i.id from pipeline_items i join pipelines p on p.id = i.pipeline_id where p.kind = 'job' order by i.created_at limit 1").catch(() => null));
+    if (opp) out.push(`/work/jobs/${opp}`);
+    const conItem = (await one("select i.id from pipeline_items i join pipelines p on p.id = i.pipeline_id where p.kind = 'consulting' and i.name = 'Sullivan Wickley' order by i.created_at limit 1").catch(() => null)) ?? (await one("select i.id from pipeline_items i join pipelines p on p.id = i.pipeline_id where p.kind = 'consulting' order by i.created_at limit 1").catch(() => null));
+    if (conItem) out.push(`/work/consulting/${conItem}`);
     return [...out, "/accountability/targets", "/people/outreach", "/finance/income", "/records/contacts/new", "/records/organizations/new", "/finance/import"];
   } catch {
     return [];
@@ -103,6 +110,11 @@ async function keyPages() {
     if (p.startsWith("/records/pipeline_items/")) return "consulting-item";
     if (p.startsWith("/work/deals/")) return "work-deal";
     if (p.startsWith("/work/outreach/")) return "work-person";
+    if (p.startsWith("/work/rosara/")) return "work-project";
+    if (p.startsWith("/work/jobs/")) return "work-opportunity";
+    if (p.startsWith("/work/consulting/")) return "work-consulting-item";
+    if (p === "/work/jobs?add=1") return "work-jobs-add";
+    if (p === "/work/consulting?add=1") return "work-consulting-add";
     if (p === "/work/listings?add=1") return "work-listings-add";
     if (p === "/work/outreach?add=1") return "work-outreach-add";
     if (p.startsWith("/records/contacts/")) return "contact-deal-credit";
@@ -117,7 +129,7 @@ async function keyPages() {
     page.on("console", (m) => {
       if (m.type() === "error") errors.push(m.text());
     });
-    const base = vpName === "desktop" ? PAGES : vpName === "phone" ? (process.env.PHONE_PAGES || "/work,/work/listings,/work/deals,/work/outreach,/work/todos,/today,/today/close,/more,/finance/expenses,/finance/balance-sheet,/accountability/report-templates,/opportunities,/plan/inputs,/accountability/targets,/people/outreach,/productivity").split(",") : [];
+    const base = vpName === "desktop" ? PAGES : vpName === "phone" ? (process.env.PHONE_PAGES || "/work,/work/listings,/work/deals,/work/outreach,/work/todos,/work/rosara,/work/jobs,/work/consulting,/today,/today/close,/more,/finance/expenses,/finance/balance-sheet,/accountability/report-templates,/opportunities,/plan/inputs,/accountability/targets,/people/outreach,/productivity").split(",") : [];
     const list = [...new Set([...base, ...KEY])];
     for (const p of list) {
       errors.length = 0;

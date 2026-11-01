@@ -543,6 +543,10 @@ google.listen(GOOGLE_PORT, () => console.log(`Mock Google listening on http://lo
 //                                  shows the reply after its retry)
 //   "TASK: open_questions"      -> three groups of questions built from the deal name in the request (Interested, Suggest questions)
 //   "TASK: deal_todos"          -> three to-do lines built from the deal name (Suggest on Also to do)
+//   "TASK: next_steps"          -> three suggested next steps built from the page title (the Ask AI panel, batch B2)
+//   "TASK: ask_page"            -> a bulleted answer to the question with a next action and an email draft (Ask about this page)
+//   "TASK: field_draft"         -> one line for the field named in the request (the star inside a field; "Use this")
+//   "TASK: ai_order"            -> the rows of the request in reverse order with one reason each (By the AI on Home)
 //   chat (a request with tools) -> a short bulleted answer
 //   anything else               -> HTTP 400, so morning plans, review drafts, and message drafts use their templates
 // Test controls: POST /__mode {"initiative": "valid" | "invalid_once" | "invalid", "listing": "valid" | "invalid"}; GET /__calls;
@@ -658,13 +662,59 @@ const ai = http.createServer(async (req, res) => {
         const todos = [`Read the CIM of ${deal} end to end`, `Ask for the customer list of ${deal}`, `Compare ${deal} with the last two deals passed on`].filter((t) => !listed.toLowerCase().includes(t.toLowerCase()));
         return send(res, 200, aiMessage(JSON.stringify({ todos })));
       }
+      if (text.includes("TASK: next_steps")) {
+        aiCalls.push("next_steps");
+        const page = (text.match(/^Page: ([^\n]+)/m) || [])[1] || "this record";
+        const steps = [
+          { text: `Email the main contact on ${page} today`, reason: "The last contact is the oldest line on the page" },
+          { text: `Write the key finding for ${page}`, reason: "Nothing on the page says what decides it yet" },
+          { text: "Book 30 minutes to clear the open tasks", reason: "The tasks are short and unblock the next action" },
+        ];
+        return send(res, 200, aiMessage("```json\n" + JSON.stringify({ steps }) + "\n```"));
+      }
+      if (text.includes("TASK: ask_page")) {
+        aiCalls.push("ask_page");
+        const q = (text.match(/Bram asks about this page: "([^"]*)"/) || [])[1] || "your question";
+        const page = (text.match(/^Page: ([^\n]+)/m) || [])[1] || "this page";
+        const first = (text.match(/^- (?:deal|person|project|opportunity|consulting): ([^|]+?) \|/m) || [])[1] || "the first record";
+        const canEmail = !text.includes("Set email to null");
+        const reply = {
+          bullets: [`**First:** ${first.trim()} comes first on ${page}.`, `**Then:** the rest of the page in due order (you asked: ${q}).`, "**Watch:** anything waiting over 5 days."],
+          next_action: `Deal with ${first.trim()} first`,
+          email: canEmail ? { subject: `Quick follow-up on ${first.trim()}`, body: `Hi there,\n\nQuick follow-up on ${first.trim()}. Is there an update on timing?\n\nThanks,\nBram` } : null,
+        };
+        return send(res, 200, aiMessage(JSON.stringify(reply)));
+      }
+      if (text.includes("TASK: field_draft")) {
+        aiCalls.push("field_draft");
+        const what = (text.match(/^Write (.+?)\.\n/m) || [])[1] || "the text";
+        const page = (text.match(/^Page: ([^\n]+)/m) || [])[1] || "this page";
+        const drafts = [
+          [/subject line/, `Next step on ${page}`],
+          [/email message/, `Hi there,\n\nQuick note about ${page}: what is the next step on your side?\n\nThanks,\nBram`],
+          [/key finding/, `Mock finding: ${page} turns on one number the page does not show yet`],
+          [/one thing Rosara/, "This week: finish the agency hub onboarding flow and send the deck to two investors"],
+          [/one task/, `Ask about the next step on ${page}`],
+          [/short note/, `Mock note: the page ${page} was reviewed by the local test AI`],
+          [/one question/, `What decides ${page}, and who makes that call?`],
+          [/next action/, `Call the main contact about ${page}`],
+        ];
+        const hit = drafts.find(([re]) => re.test(what));
+        return send(res, 200, aiMessage(JSON.stringify({ text: hit ? hit[1] : `Mock text for ${page}` })));
+      }
+      if (text.includes("TASK: ai_order")) {
+        aiCalls.push("ai_order");
+        const keys = [...text.matchAll(/^- key=([^ |]+)/gm)].map((m) => m[1]);
+        const order = keys.slice().reverse().map((key, i) => ({ key, reason: i === 0 ? "Mock: the local test AI puts the last row first" : `Mock reason ${i + 1} for ${key.split(":")[0]}` }));
+        return send(res, 200, aiMessage("```json\n" + JSON.stringify({ order }) + "\n```"));
+      }
       if (Array.isArray(body.tools) && body.tools.length) {
         aiCalls.push("chat");
         lastChat = { system: typeof body.system === "string" ? body.system : JSON.stringify(body.system ?? ""), messages: body.messages ?? [] };
         return send(res, 200, aiMessage("- **Runway:** this is the local test AI. It answers without reading your data.\n- **Next step:** ask again on the live app."));
       }
       aiCalls.push("other");
-      return send(res, 400, { type: "error", error: { type: "invalid_request_error", message: "The local AI stand-in answers only initiative, savings, and chat requests." } });
+      return send(res, 400, { type: "error", error: { type: "invalid_request_error", message: "The local AI stand-in answers only initiative, savings, listing, question, to-do, Ask AI, order, and chat requests." } });
     }
     return send(res, 404, { type: "error", error: { type: "not_found_error", message: `Not in the AI mock: ${req.method} ${url.pathname}` } });
   } catch (e) {

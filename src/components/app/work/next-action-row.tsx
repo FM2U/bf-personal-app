@@ -8,6 +8,7 @@ import { addDaysISO } from "@/lib/calc/dates";
 import { date as fmtDate } from "@/lib/format";
 import { dueLabel } from "@/lib/work/stages";
 import type { DealRow } from "@/lib/work/data";
+import { AiReason } from "@/components/app/work/project-row";
 import { Confirm, Due, Line1, Line2, Name, Pill, ProgressMark, RowButton, RowShell, What } from "@/components/app/work/ui";
 
 /**
@@ -18,7 +19,7 @@ import { Confirm, Due, Line1, Line2, Name, Pill, ProgressMark, RowButton, RowShe
  * (due tomorrow); a typed action with to-dos offers that too instead of clearing at once. Later: Tomorrow, or a
  * date. Every save goes through a server action; the page re-reads after it.
  */
-export function NextActionRow({ deal, today, compact = false }: { deal: DealRow; today: string; compact?: boolean }) {
+export function NextActionRow({ deal, today, compact = false, reason }: { deal: DealRow; today: string; compact?: boolean; /** The AI's one-line reason under the row (By the AI, batch B2). */ reason?: string | null }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [state, setState] = useState<{ kind: "idle" } | { kind: "ask" } | { kind: "later" } | { kind: "done"; text: string } | { kind: "error"; text: string }>({ kind: "idle" });
@@ -101,6 +102,7 @@ export function NextActionRow({ deal, today, compact = false }: { deal: DealRow;
         </What>
       </Line1>
       <Line2 className="text-slate-900">{deal.nextAction}</Line2>
+      {reason ? <AiReason text={reason} /> : null}
       {state.kind === "ask" ? <AskMove deal={deal} pending={pending} onYes={() => finish(true)} onNo={() => finish(false)} onTodo={(id) => finish(false, id)} /> : null}
       {state.kind === "later" ? <LaterChoice today={today} pending={pending} onPick={later} onCancel={() => setState({ kind: "idle" })} /> : null}
     </RowShell>

@@ -11,6 +11,7 @@ import { hasUpdate0019 } from "@/lib/update-0019";
 import { hasUpdate0020 } from "@/lib/update-0020";
 import { hasUpdate0021 } from "@/lib/update-0021";
 import { hasUpdate0022 } from "@/lib/update-0022";
+import { hasUpdate0023 } from "@/lib/update-0023";
 import { addDaysISO } from "@/lib/calc/dates";
 import { documentPath } from "@/lib/documents";
 import { loadWorkPipeline } from "@/lib/work/data";
@@ -52,7 +53,7 @@ export async function loadSampleData(fd: FormData) {
   if (real.total > 0 && fd.get("confirm_real") !== "on") back(`You have ${real.total} real records. Check "Load sample data next to my real records" to continue.`);
 
   const ctx = await loadCtx(supabase, ownerId);
-  const [{ data: entities }, { data: cats }, { data: budgets }, { data: lines }, { data: pipes }, { data: stages }, { data: inits }, has0019, has0020, has0022] = await Promise.all([
+  const [{ data: entities }, { data: cats }, { data: budgets }, { data: lines }, { data: pipes }, { data: stages }, { data: inits }, has0019, has0020, has0022, has0023] = await Promise.all([
     supabase.from("entities").select("id,kind,is_default"),
     supabase.from("categories").select("id,name"),
     supabase.from("budgets").select("id").eq("is_active", true).order("created_at").limit(1),
@@ -63,6 +64,7 @@ export async function loadSampleData(fd: FormData) {
     hasUpdate0019(supabase),
     hasUpdate0020(supabase),
     hasUpdate0022(supabase),
+    hasUpdate0023(supabase),
   ]);
   const ent = (entities ?? []) as Row[];
   const workPipe = has0020 ? await loadWorkPipeline(supabase, ownerId) : null;
@@ -87,7 +89,7 @@ export async function loadSampleData(fd: FormData) {
       reportTemplateId: ((detailedTemplate as Row | null)?.id as string | undefined) ?? null,
       dailyReports: await hasUpdate0018(supabase),
       initiatives: has0019 ? Object.fromEntries(((inits ?? []) as Row[]).map((i) => [String(i.name), String(i.id)])) : null,
-      work: workPipe ? { pipelineId: workPipe.id, stages: Object.fromEntries(workPipe.stages.map((st) => [st.name, st.id])), batchB: has0022 } : null,
+      work: workPipe ? { pipelineId: workPipe.id, stages: Object.fromEntries(workPipe.stages.map((st) => [st.name, st.id])), batchB: has0022, batchB2: has0022 && has0023, jobs: pipeOf("job"), consulting: pipeOf("consulting") } : null,
     },
     () => randomUUID(),
   );
@@ -118,7 +120,9 @@ export async function loadSampleData(fd: FormData) {
     const usedIds = seriesRows.filter((s) => !unused.includes(s.merchant_name)).map((s) => s.id);
     if (usedIds.length) await supabase.from("recurring_series").update({ review_status: "in_use" }).in("id", usedIds);
   }
-  if (work && workPipe) await finishWorkSample(supabase, ownerId, ctx.today, work, Object.fromEntries(workPipe.stages.map((st) => [st.name, st.id])), await hasUpdate0021(supabase));
+  // The stage ids by name of every Work pipeline (the acquisition stages, then the Job search and Consulting ones).
+  const allStages = Object.fromEntries(((stages ?? []) as Row[]).map((s) => [String(s.name), String(s.id)]));
+  if (work && workPipe) await finishWorkSample(supabase, ownerId, ctx.today, work, { ...allStages, ...Object.fromEntries(workPipe.stages.map((st) => [st.name, st.id])) }, await hasUpdate0021(supabase));
   await evaluateConditions(ctx).catch(() => null);
   revalidatePath("/", "layout");
   const total = Object.values(counts).reduce((s, n) => s + n, 0);
@@ -131,9 +135,13 @@ export async function loadSampleData(fd: FormData) {
  * the Tasks items (deals; batch B adds tasks on people, which carry record_type contacts). Sample removal deletes
  * stage history, documents, and tasks with the sample deals and people, so nothing here needs its own marker.
  */
-async function finishWorkSample(sb: SupabaseClient, ownerId: string, today: string, work: Pick<WorkSample, "stageDates" | "documents" | "todos">, stageIds: Record<string, string>, has0021: boolean) {
+async function finishWorkSample(sb: SupabaseClient, ownerId: string, today: string, work: Pick<WorkSample, "stageDates" | "documents" | "todos" | "noteDates" | "noActionItems">, stageIds: Record<string, string>, has0021: boolean) {
   const at = (daysAgo: number, hour: number) => `${addDaysISO(today, -daysAgo)}T${String(hour).padStart(2, "0")}:00:00.000Z`;
   if (has0021 && work.todos.length) await sb.from("deal_todos").insert(work.todos.map((t) => ({ ...t, owner_id: ownerId })));
+  // The notes and findings on the sample projects carry their dates (batch B2).
+  for (const n of work.noteDates) await sb.from("notes").update({ created_at: at(n.daysAgo, 15) }).eq("id", n.noteId);
+  // An item meant to start without a next action (the stage trigger filled the default on insert).
+  if (work.noActionItems.length) await sb.from("pipeline_items").update({ next_action: null, next_action_due: null }).in("id", work.noActionItems);
   for (const d of work.stageDates) {
     await sb.from("pipeline_items").update({ stage_entered_at: at(d.enteredDaysAgo, 14) }).eq("id", d.itemId);
     await sb.from("stage_history").update({ entered_at: at(d.enteredDaysAgo, 14) }).eq("item_id", d.itemId).is("exited_at", null);

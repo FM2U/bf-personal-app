@@ -32,7 +32,7 @@ export type SampleSetup = {
 /** Tables sample data writes to, in insert order. Removal deletes in the reverse dependency order (SQL). */
 export const SAMPLE_TABLES = [
   "accounts", "account_balances", "organizations", "contacts", "income_sources", "pipeline_items", "deal_financials",
-  "consulting_details", "transactions", "debts", "partners", "communications", "budget_lines", "daily_outcomes", "notes", "todos",
+  "consulting_details", "transactions", "debts", "partners", "communications", "budget_lines", "daily_outcomes", "notes", "todos", "projects",
 ] as const;
 
 /** Software subscriptions in the sample: the last two are never confirmed as used (unused-subscription flags). */
@@ -57,7 +57,7 @@ function rng(seed: string) {
   };
 }
 
-export function buildSampleData(s: SampleSetup, newId: () => string): { batches: Batch[]; counts: Record<string, number>; work: Pick<WorkSample, "stageDates" | "documents" | "todos"> | null } {
+export function buildSampleData(s: SampleSetup, newId: () => string): { batches: Batch[]; counts: Record<string, number>; work: Pick<WorkSample, "stageDates" | "documents" | "todos" | "noteDates" | "noActionItems"> | null } {
   const rand = rng(`sample:${s.today.slice(0, 7)}`);
   const vary = (base: number, pct: number) => Math.round(base * (1 + (rand() * 2 - 1) * pct) * 100) / 100;
   const cat = (name: string) => s.categories[name] ?? null;
@@ -205,6 +205,7 @@ export function buildSampleData(s: SampleSetup, newId: () => string): { batches:
     contacts.push(...(work.contacts as typeof contacts));
     items.push(...work.items);
     financials.push(...work.financials);
+    consultingRows.push(...work.consultingDetails);
   }
 
   const comms: Record<string, unknown>[] = [
@@ -254,9 +255,10 @@ export function buildSampleData(s: SampleSetup, newId: () => string): { batches:
     { table: "daily_outcomes", rows: outcomes },
     { table: "notes", rows: notes },
     { table: "todos", rows: work ? work.personalTodos : [] },
+    { table: "projects", rows: work ? work.projects : [] },
   ].filter((b) => b.rows.length);
   const counts = Object.fromEntries(batches.map((b) => [b.table, b.rows.length]));
-  return { batches, counts, work: work ? { stageDates: work.stageDates, documents: work.documents, todos: work.todos } : null };
+  return { batches, counts, work: work ? { stageDates: work.stageDates, documents: work.documents, todos: work.todos, noteDates: work.noteDates, noActionItems: work.noActionItems } : null };
 }
 
 /** Fields that hold a display name in sample rows (each must start with "Sample"). */
@@ -271,4 +273,5 @@ export const SAMPLE_NAME_FIELDS: Record<string, string> = {
   transactions: "merchant_name",
   communications: "subject",
   daily_outcomes: "title",
+  projects: "name",
 };

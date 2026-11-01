@@ -36,7 +36,7 @@ export default async function OutreachPage({ searchParams }: { searchParams: Pro
                 {adding ? "Close the form" : "Add a person"}
               </Link>
             ) : null}
-            <AskAiPill context="Outreach" />
+            <AskAiPill context={{ page: "outreach", label: "Outreach" }} />
           </>
         }
       />

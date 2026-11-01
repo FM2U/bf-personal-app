@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildWorkSample, WORK_SAMPLE_NAMES } from "./sample";
+import { buildWorkSample, SAMPLE_PROJECT_NAMES, WORK_SAMPLE_NAMES } from "./sample";
 import { checkBuyBox } from "./buy-box";
 import { STAGE_DEFAULTS, WORK_STAGES } from "./stages";
 import { outreachSections, parsePurposes } from "./outreach";
@@ -117,5 +117,70 @@ describe("the Outreach sample (batch B)", () => {
     expect(b.todos.filter((t) => t.deal_id)).toHaveLength(5);
     expect(b.personalTodos.map((t) => t.due_on)).toEqual(["2026-10-30", null, "2026-11-04", "2026-11-03", "2026-11-13"]);
     expect(b.notes.filter((n) => n.record_type === "contacts")).toHaveLength(2);
+  });
+});
+
+describe("the batch B2 sample (projects, opportunities, consulting)", () => {
+  let k = 0;
+  const jobs = { pipelineId: "p-job", stages: Object.fromEntries(["Contact", "Conversation", "Interview", "Offer", "Accepted", "Declined", "Not chosen"].map((n, i) => [n, `j-${i}`])) };
+  const consulting = { pipelineId: "p-con", stages: Object.fromEntries(["Lead", "Proposal", "Engagement", "Paid", "Done", "Lost"].map((n, i) => [n, `c-${i}`])) };
+  const b = buildWorkSample({ pipelineId: "p-acq", stages, batchB: true, batchB2: true, jobs, consulting }, () => `00000000-0000-4000-8000-${String(++k).padStart(12, "0")}`, "2026-10-30");
+
+  it("has the nine starting projects open (one without a next action, one due today) and one closed, with tasks, notes, and two findings", () => {
+    const open = b.projects.filter((p) => p.status === "open");
+    expect(open.map((p) => p.name)).toEqual([...SAMPLE_PROJECT_NAMES]);
+    expect(b.projects.filter((p) => p.status === "closed")).toHaveLength(1);
+    expect(open.filter((p) => !p.next_action).map((p) => p.name)).toEqual(["Competition"]);
+    expect(open.filter((p) => p.next_action_due === "2026-10-30").map((p) => p.name)).toEqual(["Market research"]);
+    const tasks = b.todos.filter((t) => t.record_type === "projects");
+    expect(tasks.length).toBeGreaterThanOrEqual(25);
+    const research = b.projects.find((p) => p.name === "Market research")!;
+    expect(tasks.filter((t) => t.record_id === research.id)).toHaveLength(5);
+    const notes = b.notes.filter((n) => n.record_type === "projects");
+    expect(notes).toHaveLength(4);
+    expect(notes.filter((n) => n.kind === "finding")).toHaveLength(2);
+    expect(notes.filter((n) => n.kind === "finding").every((n) => String(n.source_url).startsWith("https://"))).toBe(true);
+    expect(b.noteDates).toHaveLength(4);
+  });
+
+  it("has five open opportunities across the four stages plus three closed, with one waiting and one without a next action", () => {
+    const opps = b.items.filter((i) => i.pipeline_id === "p-job");
+    const open = opps.filter((i) => ["j-0", "j-1", "j-2", "j-3"].includes(String(i.stage_id)));
+    expect(open).toHaveLength(5);
+    expect(new Set(open.map((i) => i.stage_id)).size).toBe(4);
+    expect(opps.filter((i) => i.stage_id === jobs.stages.Declined)).toHaveLength(2);
+    expect(opps.filter((i) => i.stage_id === jobs.stages["Not chosen"])).toHaveLength(1);
+    expect(open.filter((i) => !i.next_action).map((i) => i.name)).toEqual(["Peachtree Logistics"]);
+    expect(b.noActionItems).toEqual([opps.find((i) => i.name === "Peachtree Logistics")!.id]);
+    expect(open.filter((i) => i.waiting_on)).toHaveLength(1);
+    const harbor = opps.find((i) => i.name === "Harbor Health Partners")!;
+    expect(harbor.next_action_due).toBe("2026-10-30");
+    expect(harbor.pay_range).toBe("$150K to $170K");
+    expect((harbor.open_questions_json as { self: string[] }).self).toHaveLength(3);
+    expect(b.communications.filter((c) => c.pipeline_item_id === harbor.id)).toHaveLength(2);
+    expect(open.every((i) => i.role_title && i.contact_name)).toBe(true);
+  });
+
+  it("has four open consulting items, one per stage, plus Lost and Done, with fees, scopes, and start dates", () => {
+    const cons = b.items.filter((i) => i.pipeline_id === "p-con");
+    const open = cons.filter((i) => ["c-0", "c-1", "c-2", "c-3"].includes(String(i.stage_id)));
+    expect(open).toHaveLength(4);
+    expect(new Set(open.map((i) => i.stage_id)).size).toBe(4);
+    expect(cons.filter((i) => i.stage_id === consulting.stages.Lost)).toHaveLength(1);
+    expect(cons.filter((i) => i.stage_id === consulting.stages.Done)).toHaveLength(1);
+    expect(open.every((i) => Number(i.fee) > 0 && i.what_it_does && i.contact_name)).toBe(true);
+    expect(b.consultingDetails).toHaveLength(4);
+    expect(b.consultingDetails.every((d) => d.scope_notes)).toBe(true);
+    const proposal = cons.find((i) => i.stage_id === consulting.stages.Proposal)!;
+    expect(proposal.next_action).toBe("Send the scope and fee");
+    expect(b.stageDates.filter((d) => cons.some((i) => i.id === d.itemId))).toHaveLength(6);
+  });
+
+  it("adds nothing of batch B2 without the update, and every name is listed", () => {
+    expect(w.projects).toHaveLength(0);
+    expect(w.consultingDetails).toHaveLength(0);
+    for (const r of [...b.items, ...b.projects]) expect(WORK_SAMPLE_NAMES).toContain(r.name);
+    const ids = [...b.items, ...b.projects, ...b.notes, ...b.todos, ...b.consultingDetails, ...b.communications].map((r) => r.id);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });

@@ -7,7 +7,7 @@ import { Figure, Figures, WorkHeader } from "@/components/app/work/ui";
  * the left and the labeled figures at the right (next action due or next follow-up, open tasks, last contact or
  * waiting), 28px apart with the label under each figure. Every record page uses it; only the names change.
  */
-export function RecordHeader({ crumb, title, under, actions, status, figures, testId }: { crumb: React.ReactNode; title: React.ReactNode; under?: React.ReactNode; actions?: React.ReactNode; /** The type pill and the status line. */ status: React.ReactNode; figures: HeaderFigure[]; testId?: string }) {
+export function RecordHeader({ crumb, title, under, actions, status, figures, testId, before }: { crumb: React.ReactNode; title: React.ReactNode; under?: React.ReactNode; actions?: React.ReactNode; /** The type pill and the status line. */ status: React.ReactNode; figures: HeaderFigure[]; testId?: string; /** A figure before the three (the consulting FEE). */ before?: React.ReactNode }) {
   return (
     <>
       <WorkHeader title={title} under={under} crumb={crumb} right={actions} />
@@ -16,6 +16,7 @@ export function RecordHeader({ crumb, title, under, actions, status, figures, te
           {status}
         </div>
         <Figures className="shrink-0" testId="record-figures">
+          {before}
           {figures.map((f) => (
             <Figure key={f.key} value={f.value} label={f.label} tone={f.tone} testId={`figure-${f.key}`} />
           ))}

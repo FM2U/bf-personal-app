@@ -16,6 +16,8 @@ import { prepareEmailMessage } from "@/lib/calc/sent-email";
 import { emailBodyHtmlToText, textToEditorHtml } from "@/lib/email-body";
 import { EmailEditor, type EmailEditorApi } from "@/components/app/email-editor";
 import type { ComposeSetup } from "@/lib/compose-email";
+import type { AskContext } from "@/lib/work/ask-ai";
+import { AiFieldStar } from "@/components/app/work/ask-ai";
 import { STATUS_BOX, STATUS_TEXT } from "@/lib/status";
 import { cn } from "@/lib/utils";
 
@@ -33,6 +35,7 @@ export function ComposeEmailDialog({
   onOpenChange,
   initial,
   onSent,
+  ask,
 }: {
   setup: ComposeSetup;
   open: boolean;
@@ -41,6 +44,8 @@ export function ComposeEmailDialog({
   initial?: { subject: string; body: string } | null;
   /** Called once after Gmail accepted the email (the Follow up button resets the wait). */
   onSent?: () => void | Promise<void>;
+  /** The Work page the email is written from (batch B2): the purple star in Subject and Message writes them from that page. */
+  ask?: AskContext | null;
 }) {
   const router = useRouter();
   const ids = useId();
@@ -58,6 +63,9 @@ export function ComposeEmailDialog({
   const [askDiscard, setAskDiscard] = useState(false);
   const editorApi = useRef<EmailEditorApi | null>(null);
   const aiRef = useRef<HTMLInputElement>(null);
+  const [subjectFocused, setSubjectFocused] = useState(false);
+  const [bodyFocused, setBodyFocused] = useState(false);
+  const toName = chosenName(to, setup);
   // "Send to" is shown when there is a choice to make: several people, or one person on an organization or item page.
   const showChooser = setup.recipients.length > 1 || (setup.recipients.length === 1 && !setup.contactId);
 
@@ -228,9 +236,15 @@ export function ComposeEmailDialog({
           <label htmlFor={`${ids}-subject`} className={LABEL}>
             Subject
           </label>
-          <Input id={`${ids}-subject`} value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={200} data-testid="compose-subject" />
+          <div className="relative min-w-0">
+            <Input id={`${ids}-subject`} value={subject} onChange={(e) => setSubject(e.target.value)} onFocus={() => setSubjectFocused(true)} onBlur={() => setSubjectFocused(false)} maxLength={200} className={ask ? "pr-8" : undefined} data-testid="compose-subject" />
+            {ask ? <AiFieldStar context={ask} field={{ key: "email_subject", label: "Subject", current: subject, extra: `The email goes to ${toName}.${body.trim() ? ` The message so far: ${body.slice(0, 300)}` : ""}` }} visible={!subject.trim() || subjectFocused} onUse={setSubject} /> : null}
+          </div>
         </div>
-        <EmailEditor label="Message" labelClassName={LABEL} value={bodyHtml} onChange={setBodyHtml} apiRef={editorApi} testId="compose-body" />
+        <div className="relative min-w-0" onFocusCapture={() => setBodyFocused(true)} onBlurCapture={() => setBodyFocused(false)}>
+          <EmailEditor label="Message" labelClassName={LABEL} value={bodyHtml} onChange={setBodyHtml} apiRef={editorApi} testId="compose-body" />
+          {ask ? <AiFieldStar context={ask} field={{ key: "email_body", label: "Message", current: body, extra: `The email goes to ${toName}.${subject.trim() ? ` Subject: ${subject}` : ""}` }} visible={!body.trim() || bodyFocused} onUse={(t) => setBodyHtml(textToEditorHtml(t))} className="top-auto right-2 bottom-2 translate-y-0" /> : null}
+        </div>
 
         <SendOrSaveButtons
           permission={setup.permission}
@@ -268,6 +282,11 @@ export function ComposeEmailDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+/** The name of the person the email goes to ("Mark Reed", or the typed address). */
+function chosenName(to: string, setup: ComposeSetup): string {
+  return matchRecipient(to, setup.recipients)?.name ?? (to.trim() || "the person");
 }
 
 /** The "Email" button on contact, organization, and pipeline item pages. Opens the compose box. */

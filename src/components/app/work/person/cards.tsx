@@ -9,11 +9,13 @@ import { useUnsavedWork } from "@/components/app/unsaved-changes";
 import type { ComposeSetup } from "@/lib/compose-email";
 import { addDaysISO } from "@/lib/calc/dates";
 import { date as fmtDate } from "@/lib/format";
+import { personAsk } from "@/lib/work/ask-ai";
 import { followUpHint, lastContactLabel, nextDateChoices, purposesText } from "@/lib/work/outreach";
 import type { IncomingReply, PersonRecordLink, PersonRow } from "@/lib/work/outreach-data";
 import type { TimelineEvent } from "@/lib/work/timeline";
 import type { DealTodo } from "@/lib/work/todos";
 import { PersonFactsForm } from "@/components/app/work/add-person";
+import { AiFieldStar } from "@/components/app/work/ask-ai";
 import { Fact, GrowingTextarea, SaveLine, useSave, useSynced } from "@/components/app/work/deal/cards";
 import { LogCallDrawer } from "@/components/app/work/log-call-drawer";
 import { PurposePills } from "@/components/app/work/person-row";
@@ -63,6 +65,7 @@ export function PersonHeaderActions({ person, compose, today, tz }: { person: Pe
           setup={compose}
           open={emailOpen}
           onOpenChange={setEmailOpen}
+          ask={personAsk(person)}
           onSent={() => {
             setNote("Email sent and logged on the timeline.");
             router.refresh();
@@ -116,6 +119,7 @@ export function NextFollowUpCard({ person, today }: { person: PersonRow; today: 
   const [acting, start] = useTransition();
   const [result, setResult] = useState<{ tone: "blue" | "warn"; text: string } | null>(null);
   const [typed, setTyped] = useState("");
+  const [focused, setFocused] = useState(false);
   const dirty = date !== (person.nextFollowUp ?? "") || what !== (person.followUpFor ?? "");
   useUnsavedWork(dirty, "The next follow-up is not saved yet.");
   const hint = followUpHint(person.nextFollowUp, today, (d) => fmtDate(d, "MMM d"));
@@ -146,7 +150,10 @@ export function NextFollowUpCard({ person, today }: { person: PersonRow; today: 
         <label htmlFor={`${ids}-w`} className={LABEL}>
           What for
         </label>
-        <input id={`${ids}-w`} value={what} onChange={(e) => setWhat(e.target.value)} placeholder="What the follow-up is for" className={INPUT} data-testid="fu-what" />
+        <div className="relative min-w-0">
+          <input id={`${ids}-w`} value={what} onChange={(e) => setWhat(e.target.value)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} placeholder="What the follow-up is for" className={cn(INPUT, "pr-8")} data-testid="fu-what" />
+          <AiFieldStar context={personAsk(person)} field={{ key: "next_action", label: "What for", current: what }} visible={!what.trim() || focused} onUse={setWhat} />
+        </div>
         <SaveLine state={dirty ? { kind: "idle" } : state}>
           {dirty ? (
             <RowButton tone="primary" disabled={pending} onClick={() => run(() => saveFollowUp(person.id, { date, what }))} data-testid="fu-save">
@@ -228,6 +235,7 @@ export function PersonTasksCard({ person, tasks }: { person: PersonRow; tasks: D
       placeholder={`Something to do with ${person.name.split(" ")[0]}`}
       emptyText="Nothing yet. Add what else needs doing with this person; Make this the next action turns one into the next follow-up."
       testId="person-tasks"
+      ai={personAsk(person)}
     />
   );
 }

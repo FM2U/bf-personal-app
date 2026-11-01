@@ -18,7 +18,7 @@ export default async function TodosPage() {
   const tabs = await loadTabCounts(supabase, ownerId, ctx.today);
   const header = (
     <PinnedBlock testId="todos-sticky">
-      <WorkHeader title="To-dos" right={<AskAiPill context="To-dos" />} />
+      <WorkHeader title="To-dos" right={<AskAiPill context={{ page: "todos", label: "To-dos" }} />} />
       <WorkTabs toScreen={tabs.toScreen} outreachDue={tabs.outreachDue} tight />
     </PinnedBlock>
   );

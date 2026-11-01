@@ -220,3 +220,17 @@ export const COLUMNS_0022: Record<string, string[]> = {
   deal_todos: ["record_type", "record_id"],
   pipeline_items: ["role_title", "contact_name", "fee"],
 };
+
+/**
+ * Database update 0023 (batch B2): notes.kind ('note' or 'finding') and notes.source_url (a finding with its source
+ * on a project's timeline), pipeline_items.pay_range (a job opportunity), and schema_has_0023(). Before it, every
+ * Work screen shows DB_UPDATE_NOTICE_0023 instead of its content, and every other screen and both scheduled jobs
+ * keep working.
+ */
+export const DB_UPDATE_FILE_0023 = "supabase/UPDATE_0023_RUN_ONCE.sql";
+export const DB_UPDATE_NOTICE_0023 = `Database update needed: paste ${DB_UPDATE_FILE_0023} into the Supabase SQL Editor and run it.`;
+export const PROBE_0023 = "schema_has_0023";
+export const COLUMNS_0023: Record<string, string[]> = {
+  notes: ["kind", "source_url"],
+  pipeline_items: ["pay_range"],
+};

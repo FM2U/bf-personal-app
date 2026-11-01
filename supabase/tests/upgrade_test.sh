@@ -20,8 +20,9 @@
 #   (s) 0001 to 0020 (the live database on 2026-10-31, evening) plus a deal on the Chase default with typed open questions, then UPDATE_0021_RUN_ONCE.sql twice
 #   (t) 0001 to 0021 (the live database on 2026-11-01) plus contacts with communications, consulting items in the old stages, a job item,
 #       and deal to-dos, then UPDATE_0022_RUN_ONCE.sql twice
+#   (u) 0001 to 0022 (the live database on 2026-11-01, evening) plus a project with a note and a job item, then UPDATE_0023_RUN_ONCE.sql twice
 # Paths b, c, d (UPDATE_RUN_ONCE.sql) and j, k, l also check 0014: tables, policies, functions, sample removal, and reset.
-# UPDATE_RUN_ONCE.sql now ends with 0022, so on paths b, c, d the acquisition, job, and consulting stages are the new ones (the checks allow both).
+# UPDATE_RUN_ONCE.sql now ends with 0023, so on paths b, c, d the acquisition, job, and consulting stages are the new ones (the checks allow both).
 # Every UPDATE_RUN_ONCE.sql path also checks 0012 and 0013.
 # Usage: bash supabase/tests/upgrade_test.sh
 set -euo pipefail
@@ -848,10 +849,63 @@ select '0022 checks passed' as result;
 SQL
 for f in UPDATE_RUN_ONCE ALL_MIGRATIONS_RUN_ONCE; do grep -q "schema_has_0022" "$DIR/$f.sql" || { echo "$f.sql is missing 0022"; exit 1; }; done
 
+# (u) Live state on 2026-11-01 (evening): 0001 to 0022 applied, a project with a note and a job opportunity, then
+# UPDATE_0023_RUN_ONCE.sql twice. Nothing is deleted or changed: the note reads as a plain note, the new columns exist, a
+# finding with a source saves, a note with another kind is refused, and the pay range saves.
+setup bf_upgrade_u 0022
+su postgres -c "$PSQL -d bf_upgrade_u" <<'SQL'
+\set ON_ERROR_STOP 1
+insert into public.projects (owner_id, name, milestone, next_action, next_action_due) values ('00000000-0000-0000-0000-000000000001', 'Existing project', 'First milestone', 'Do the first thing', current_date);
+insert into public.notes (owner_id, record_type, record_id, body) select owner_id, 'projects', id, 'An older note' from public.projects where name = 'Existing project';
+insert into public.pipeline_items (owner_id, pipeline_id, stage_id, name, role_title, contact_name)
+select p.owner_id, p.id, s.id, 'Existing opportunity', 'COO', 'A recruiter' from public.pipelines p join public.pipeline_stages s on s.pipeline_id = p.id where p.kind = 'job' and s.name = 'Conversation';
+create table public.upgrade_u_before as select (select count(*) from public.notes) as notes, (select count(*) from public.projects) as projects, (select count(*) from public.pipeline_items) as items;
+SQL
+for run in 1 2; do
+  echo "[bf_upgrade_u] Applying UPDATE_0023_RUN_ONCE.sql (run $run)"
+  su postgres -c "$PSQL -d bf_upgrade_u -f $DIR/UPDATE_0023_RUN_ONCE.sql"
+done
+su postgres -c "$PSQL -d bf_upgrade_u" <<'SQL'
+\set ON_ERROR_STOP 1
+do $$
+declare v_notes bigint; v_projects bigint; v_items bigint;
+begin
+  select notes, projects, items into v_notes, v_projects, v_items from public.upgrade_u_before;
+  assert to_regprocedure('public.schema_has_0023()') is not null, '0023 check function';
+  assert (select count(*) from public.notes) = v_notes, 'no note deleted';
+  assert (select count(*) from public.projects) = v_projects, 'no project deleted';
+  assert (select count(*) from public.pipeline_items) = v_items, 'no item deleted';
+  assert (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'notes' and column_name in ('kind', 'source_url')) = 2, 'the note columns';
+  assert (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'pipeline_items' and column_name = 'pay_range') = 1, 'the pay range column';
+  assert (select kind from public.notes where body = 'An older note') = 'note', 'an older note reads as a note';
+  assert (select source_url from public.notes where body = 'An older note') is null, 'no source on an older note';
+  assert (select count(*) from pg_constraint where conname = 'notes_kind_check') = 1, 'the kind check once';
+  assert (select pay_range from public.pipeline_items where name = 'Existing opportunity') is null, 'pay range empty until typed';
+end $$;
+-- A finding with a source saves; another kind is refused; the pay range saves.
+insert into public.notes (owner_id, record_type, record_id, body, kind, source_url) select owner_id, 'projects', id, 'Owners schedule on paper', 'finding', 'https://www.example.com/survey' from public.projects where name = 'Existing project';
+do $$ begin
+  assert (select count(*) from public.notes where kind = 'finding' and source_url like 'https://%') = 1, 'the finding saved with its source';
+  begin
+    insert into public.notes (owner_id, record_type, record_id, body, kind) select owner_id, 'projects', id, 'Bad kind', 'memo' from public.projects where name = 'Existing project';
+    raise exception 'a note with kind memo was accepted';
+  exception when check_violation then null;
+  end;
+end $$;
+update public.pipeline_items set pay_range = '$150K to $170K' where name = 'Existing opportunity';
+do $$ begin
+  assert (select pay_range from public.pipeline_items where name = 'Existing opportunity') = '$150K to $170K', 'the pay range saved';
+end $$;
+drop table public.upgrade_u_before;
+select '0023 checks passed' as result;
+SQL
+for f in UPDATE_RUN_ONCE ALL_MIGRATIONS_RUN_ONCE; do grep -q "schema_has_0023" "$DIR/$f.sql" || { echo "$f.sql is missing 0023"; exit 1; }; done
+
 echo "Upgrade paths passed: 0001-0007 + update twice, 0001-0008 + update, 0001-0009 + update twice, 0001-0010 + 0011 update twice,"
 echo "0001-0010 + 0011_0012 update twice, 0001-0011 + 0011_0012 update twice, 0001-0011 + 0012 update twice (edited text kept),"
 echo "0001-0012 + 0013 update twice, 0001-0012 + 0013_0014 update twice, 0001-0013 + 0013_0014 update twice, 0001-0013 + 0014 update twice,"
 echo "0001-0014 + 0015 update twice, 0001-0015 + 0016 update twice (future owner too), 0001-0016 + 0017 update twice (future owner too),"
 echo "0001-0017 + 0018 update twice, 0001-0018 + 0019 update twice, 0001-0019 + 0020 update twice (future owner too),"
 echo "0001-0020 + 0021 update twice (defaults renamed, questions converted once, to-dos go with the deal, future owner too),"
-echo "0001-0021 + 0022 update twice (last contact filled, to-dos read as deal tasks, consulting and job stages reshaped, future owner too)."
+echo "0001-0021 + 0022 update twice (last contact filled, to-dos read as deal tasks, consulting and job stages reshaped, future owner too),"
+echo "0001-0022 + 0023 update twice (older notes read as notes, a finding saves with its source, the pay range saves)."

@@ -8,11 +8,13 @@ import { ComposeEmailDialog } from "@/components/app/compose-email";
 import { useUnsavedWork } from "@/components/app/unsaved-changes";
 import type { ComposeSetup } from "@/lib/compose-email";
 import { date as fmtDate } from "@/lib/format";
+import { dealAsk } from "@/lib/work/ask-ai";
 import { LISTING_SOURCES, moneyShort, type PassReason } from "@/lib/work/buy-box";
 import type { DealRow, Stage, TimelineEvent } from "@/lib/work/data";
 import { QUESTION_GROUPS, questionsEmailDraft, type QuestionGroupKey, type QuestionGroups } from "@/lib/work/questions";
 import { dueLabel } from "@/lib/work/stages";
 import type { DealTodo } from "@/lib/work/todos";
+import { AiCardStar, AiFieldStar } from "@/components/app/work/ask-ai";
 import { NextActionRow } from "@/components/app/work/next-action-row";
 import { TasksCard } from "@/components/app/work/tasks-card";
 import { TimelineEvents } from "@/components/app/work/timeline-list";
@@ -152,7 +154,7 @@ export function DealHeaderActions({ deal, compose, advanceTo, today, tz }: { dea
           {callNote}
         </span>
       ) : null}
-      {compose && emailOpen ? <ComposeEmailDialog setup={compose} open={emailOpen} onOpenChange={setEmailOpen} /> : null}
+      {compose && emailOpen ? <ComposeEmailDialog setup={compose} open={emailOpen} onOpenChange={setEmailOpen} ask={dealAsk(deal)} /> : null}
       <LogCallDrawer
         target={{ contactId: deal.contactId, dealId: deal.id, who: deal.contactName ?? deal.brokerName ?? "", from: `From ${deal.name}`, currentDate: deal.nextActionDue }}
         today={today}
@@ -178,6 +180,7 @@ export function NextActionCard({ deal, today }: { deal: DealRow; today: string }
   const [minutes, setMinutes] = useSynced(deal.nextActionMinutes ? String(deal.nextActionMinutes) : "");
   const [waitingOn, setWaitingOn] = useSynced(deal.waitingOn ?? "");
   const [since, setSince] = useSynced(deal.waitingSince ?? today);
+  const [focused, setFocused] = useState(false);
   const dirty = action !== (deal.nextAction ?? "") || due !== (deal.nextActionDue ?? "") || minutes !== (deal.nextActionMinutes ? String(deal.nextActionMinutes) : "") || waitingOn !== (deal.waitingOn ?? "") || (waitingOn !== "" && since !== (deal.waitingSince ?? today));
   useUnsavedWork(dirty, "The next action is not saved yet.");
   const d = deal.nextAction ? dueLabel(deal.nextActionDue, today, (x) => fmtDate(x, "MMM d")) : null;
@@ -188,7 +191,10 @@ export function NextActionCard({ deal, today }: { deal: DealRow; today: string }
         <label htmlFor={`${ids}-a`} className={LABEL}>
           Action
         </label>
-        <input id={`${ids}-a`} value={action} onChange={(e) => setAction(e.target.value)} placeholder="What you do next on this deal" className={INPUT} data-testid="na-action" />
+        <div className="relative min-w-0">
+          <input id={`${ids}-a`} value={action} onChange={(e) => setAction(e.target.value)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} placeholder="What you do next on this deal" className={cn(INPUT, "pr-8")} data-testid="na-action" />
+          <AiFieldStar context={dealAsk(deal)} field={{ key: "next_action", label: "Next action", current: action }} visible={!action.trim() || focused} onUse={setAction} />
+        </div>
         <label htmlFor={`${ids}-d`} className={LABEL}>
           Due
         </label>
@@ -257,6 +263,7 @@ export function FindingsCard({ deal, compose }: { deal: DealRow; compose: Compos
   const [suggestNote, setSuggestNote] = useState<{ tone: "ok" | "warn"; text: string } | null>(null);
   const [emailOpen, setEmailOpen] = useState(false);
   const [focusLine, setFocusLine] = useState<string | null>(null);
+  const [keyFocused, setKeyFocused] = useState(false);
   const dirty = key !== (deal.keyFinding ?? "") || !sameQuestions(questions, baseline);
   useUnsavedWork(dirty, "The findings are not saved yet.");
 
@@ -287,12 +294,15 @@ export function FindingsCard({ deal, compose }: { deal: DealRow; compose: Compos
   const draft = questionsEmailDraft({ dealName: deal.name, toName: compose?.recipients.find((r) => r.email === compose.defaultTo)?.name ?? null, questions });
   const emailable = questions.seller.some((l) => l.trim()) || questions.broker.some((l) => l.trim());
   return (
-    <WorkCard title="Findings" testId="deal-findings">
+    <WorkCard title="Findings" actions={<AiCardStar context={{ ...dealAsk(deal), card: "Open questions" }} />} testId="deal-findings">
       <div className="flex flex-col gap-2.5 px-[22px] pt-3 pb-5" data-testid="findings-form">
         <label htmlFor={`${ids}-k`} className={LABEL}>
           Key finding
         </label>
-        <GrowingTextarea id={`${ids}-k`} value={key} onChange={setKey} placeholder="The one line that matters most" data-testid="key-finding" />
+        <div className="relative min-w-0">
+          <GrowingTextarea id={`${ids}-k`} value={key} onChange={setKey} onFocus={() => setKeyFocused(true)} onBlur={() => setKeyFocused(false)} placeholder="The one line that matters most" className="pr-8" data-testid="key-finding" />
+          <AiFieldStar context={dealAsk(deal)} field={{ key: "key_finding", label: "Key finding", current: key }} visible={!key.trim() || keyFocused} onUse={setKey} className="top-[18px]" />
+        </div>
         <div className={cn(LABEL, "pt-1")}>Open questions</div>
         <div className="flex flex-col gap-1" data-testid="open-questions">
           {QUESTION_GROUPS.map((g) => (
@@ -358,7 +368,7 @@ export function FindingsCard({ deal, compose }: { deal: DealRow; compose: Compos
           </RowButton>
         </SaveLine>
       </div>
-      {compose && emailOpen ? <ComposeEmailDialog setup={compose} open={emailOpen} onOpenChange={setEmailOpen} initial={draft} /> : null}
+      {compose && emailOpen ? <ComposeEmailDialog setup={compose} open={emailOpen} onOpenChange={setEmailOpen} initial={draft} ask={dealAsk(deal)} /> : null}
     </WorkCard>
   );
 }
@@ -381,6 +391,7 @@ export function TodosCard({ deal, todos }: { deal: DealRow; todos: DealTodo[] })
       placeholder="Something else to do on this deal"
       emptyText="Nothing else yet. Add what else needs doing on this deal, or let the AI suggest a few."
       testId="deal-todos"
+      ai={dealAsk(deal)}
     />
   );
 }

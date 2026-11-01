@@ -6,8 +6,10 @@
  * Shop, Jacksonville", company Coastal Fleet Maintenance), open questions in three groups on three deals, and Also to
  * do items on two. Batch B (2026-10-31, update 0022): the four brokers and twelve more people on Outreach with roles,
  * purposes, next follow-ups, and notes across every section, calls and emails on their timelines, three incoming
- * replies not yet logged (two on Mark Reed), tasks on two people, and five personal to-dos. Pure: dates are relative
- * to `today`; tested in src/lib/work/sample.test.ts.
+ * replies not yet logged (two on Mark Reed), tasks on two people, and five personal to-dos. Batch B2 (database
+ * update 0023): nine Rosara projects (plus one closed) with milestones, next actions, tasks, notes, and two
+ * findings; five job opportunities across the stages plus three closed; four consulting items plus two closed. Pure:
+ * dates are relative to `today`; tested in src/lib/work/sample.test.ts.
  * Unlike the rest of the sample data these names come from the approved mockup and do not start with "Sample";
  * every row is still recorded in sample_records, so Remove sample data deletes them (the to-dos go with their deal).
  */
@@ -15,7 +17,16 @@ import { addDaysISO } from "@/lib/calc/dates";
 import { checkBuyBox, dealSourceTypeFor } from "@/lib/work/buy-box";
 import { STAGE_DEFAULTS } from "@/lib/work/stages";
 
-export type WorkSampleSetup = { pipelineId: string; stages: Record<string, string>; /** Database update 0022 is applied: the Outreach people, their calls, emails, and replies, tasks on people, and the personal to-dos. */ batchB?: boolean };
+export type WorkSampleSetup = {
+  pipelineId: string;
+  stages: Record<string, string>;
+  /** Database update 0022 is applied: the Outreach people, their calls, emails, and replies, tasks on people, and the personal to-dos. */
+  batchB?: boolean;
+  /** Database update 0023 is applied: the projects, opportunities, and consulting items of batch B2 (with the Job search and Consulting pipelines by stage name). */
+  batchB2?: boolean;
+  jobs?: { pipelineId: string; stages: Record<string, string> } | null;
+  consulting?: { pipelineId: string; stages: Record<string, string> } | null;
+};
 
 type R = Record<string, unknown>;
 
@@ -34,6 +45,14 @@ export type WorkSample = {
   todos: { id: string; deal_id?: string; record_type?: string; record_id?: string; text: string; position: number }[];
   /** The personal To-dos (table todos, database update 0022): two due today, two in the next 7 days, one later. */
   personalTodos: R[];
+  /** The Rosara projects (batch B2). */
+  projects: R[];
+  /** Note dates to set after the insert (the insert stamps "now"): note id to days ago. */
+  noteDates: { noteId: string; daysAgo: number }[];
+  /** Items that start without a next action (the stage trigger fills the default on insert; these are cleared after it). */
+  noActionItems: string[];
+  /** The scope and start date of the consulting items (consulting_details). */
+  consultingDetails: R[];
 };
 
 /** Every sample name the Work module adds (listings, deals, brokers, firms), so tests can tell them apart. */
@@ -48,7 +67,13 @@ export const WORK_SAMPLE_NAMES = [
   "Rita Caldwell", "Kevin O'Brien", "Sam Patel", "Nina Reyes",
   "Truist", "Southern Staffing Group", "Alvarez Advisory", "Sunrise Home Care", "Sullivan Wickley", "Atlanta Ventures", "Bain, Atlanta",
   "GA Home Care Association", "Pathway Search Partners", "Peachtree Logistics", "Korn Ferry, Atlanta",
+  // Batch B2: the projects, the opportunities, and the consulting items of the approved mockup.
+  "Rosara platform", "KarmaKare (working name)", "Business model", "Market research", "Competition", "Customer segments", "Dementia caregiving", "Adjacent business ideas", "Resource sourcing", "Website first draft",
+  "Harbor Health Partners", "Lumen Industrial Holdings", "Crestline Services", "Atlas Freight", "Riverbend Health", "Georgia Home Care Association", "Sunrise Home Care", "Bain, Atlanta", "Alvarez Advisory",
 ];
+
+/** The nine starting projects (approved 2026-10-31, decisions on v4), in the order of the Rosara page. */
+export const SAMPLE_PROJECT_NAMES = ["Rosara platform", "KarmaKare (working name)", "Business model", "Market research", "Competition", "Customer segments", "Dementia caregiving", "Adjacent business ideas", "Resource sourcing"] as const;
 
 export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: string): WorkSample {
   const ago = (n: number) => addDaysISO(today, -n);
@@ -160,6 +185,10 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
 
   // ---------- Outreach (batch B, database update 0022): the people of the approved mockup ----------
   const personalTodos: R[] = [];
+  const projects: R[] = [];
+  const consultingDetails: R[] = [];
+  const noteDates: WorkSample["noteDates"] = [];
+  const noActionItems: string[] = [];
   if (s.batchB) {
     const o = { truist: newId(), ssg: newId(), alvarez: newId(), sunrise: newId(), sw: newId(), av: newId(), bain: newId(), gahca: newId(), pathway: newId(), peachtree: newId(), kf: newId() };
     organizations.push(
@@ -233,7 +262,84 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
       { id: newId(), text: "Pick up the dry cleaning", due_on: ahead(4), position: 4 },
       { id: newId(), text: "Read the SBA 7(a) rule change", due_on: ahead(14), position: 5 },
     );
+
+    // ---------- Batch B2 (database update 0023): Rosara projects, Job search, Consulting ----------
+    if (s.batchB2) {
+      // Nine open projects (one without a next action) and one closed.
+      const project = (name: string, goal: string, milestone: string, next: { action: string; due: string; minutes?: number } | null, tasks: string[], position: number, closedDaysAgo: number | null = null) => {
+        const id = newId();
+        projects.push({ id, name, goal, milestone, status: closedDaysAgo === null ? "open" : "closed", closed_at: closedDaysAgo === null ? null : `${ago(closedDaysAgo)}T16:00:00Z`, next_action: next?.action ?? null, next_action_due: next?.due ?? null, next_action_minutes: next?.minutes ?? null, position });
+        tasks.forEach((text, i) => todos.push({ id: newId(), record_type: "projects", record_id: id, text, position: i + 1 }));
+        return id;
+      };
+      project("Rosara platform", "One connected platform: the agency hub, the caregiver hub, and the family hub together", "Agency hub onboarding flow", { action: "Write the intake screens spec", due: ahead(4), minutes: 90 }, ["Map the five onboarding steps", "List the fields the intake needs", "Draft the caregiver invite email", "Sketch the family hub home screen", "Decide the first integration (scheduling or billing)", "Write the data model for clients and visits"], 1);
+      project("KarmaKare (working name)", "A standalone family caregiving app: a separate startup from the platform", "Family app prototype", { action: "Review the care-plan screens with Denise Walker", due: ahead(6) }, ["Finish the care-plan screen", "Write the three family test scripts", "Pick the working name or keep KarmaKare", "Price check: free, $9, or $19 a month"], 2);
+      project("Business model", "Know the price and the plan an agency under 50 caregivers will pay for", "Pricing for agencies under 50 caregivers", { action: "Compare per-client and per-caregiver pricing", due: ahead(5) }, ["Build the two pricing sheets", "Ask three owners which they would pick", "Write the pricing page copy"], 3);
+      const research = project("Market research", "Know what ten agency owners would pay for, and how much", "Ten agency owner conversations", { action: "Call Rita Caldwell about the member survey", due: today, minutes: 30 }, ["Summarize the three calls so far", "Ask Denise Walker for two more owner intros", "Draft the ten questions", "Book two calls for next week", "Write the findings note"], 4);
+      project("Competition", "A clear view of the four platforms agencies already use and what they charge", "Feature and price table for the four platforms", null, ["Fill the table for the two biggest platforms", "Find the price pages of the other two"], 5);
+      project("Customer segments", "Know how private-pay and Medicaid intake differ, and which to build first", "Private-pay versus Medicaid intake needs", { action: "Draft the two intake flows side by side", due: ahead(10) }, ["List the Medicaid intake documents", "List the private-pay intake documents", "Ask Denise which takes longer"], 6);
+      project("Dementia caregiving", "Know who pays for dementia training and tools in home care", "Who pays for training and tools", { action: "Read the Georgia training rules", due: ahead(7) }, ["Read the Georgia training rules", "Ask TimeSlips which agencies buy training"], 7);
+      project("Adjacent business ideas", "A shortlist of three ideas worth a week each, with a one-page note on each", "Shortlist of three ideas worth a week each", { action: "Write the one-page note on rural scheduling service", due: ahead(12) }, ["Write the rural scheduling note"], 8);
+      project("Resource sourcing", "A co-founder and a first investor who both believe in the platform", "Co-founder and first investor conversations", { action: "Send the deck to Maria Santos", due: ahead(5) }, ["Finish the deck", "Write the equity split memo for Lena", "List five more investors to ask", "Ask Jamal who in his network invests in care"], 9);
+      project("Website first draft", "A one-page site that says what Rosara is", "One page live", null, [], 10, 9);
+      // Notes and findings on Market research (the project page of the mockup).
+      const note = (projectId: string, daysAgo: number, body: string, finding = false, source: string | null = null) => {
+        const id = newId();
+        notes.push({ id, record_type: "projects", record_id: projectId, body, kind: finding ? "finding" : "note", source_url: source });
+        noteDates.push({ noteId: id, daysAgo });
+      };
+      note(research, 1, "Rita said the association member survey could carry three of my questions in January.");
+      note(research, 3, "Owners under 20 caregivers still schedule on paper or a spreadsheet\nThree of the three calls so far.", true, "https://www.example.com/ga-home-care-member-survey-2025");
+      note(research, 8, "Scheduling changes and call-outs cost owners 8 to 10 hours a week\nDenise Walker's estimate for her own agency.", true, "https://www.example.com/call-with-denise-walker");
+      note(research, 11, "Goal set: ten owner conversations by the end of next month. Three done so far.");
+
+      // Five open opportunities across the stages, plus three closed. The company is the item name.
+      if (s.jobs) {
+        const js = s.jobs;
+        const opp = (row: R, enteredDaysAgo: number, history: { stageName: string; daysAgo: number }[] = []) => {
+          const id = newId();
+          items.push({ id, pipeline_id: js.pipelineId, screened: true, ...row });
+          entered(id, enteredDaysAgo, history);
+          return id;
+        };
+        opp({ name: "Southern Staffing Group", stage_id: js.stages.Contact, role_title: "VP Operations", contact_name: "Carla Jenkins", primary_contact_id: p.carla, organization_id: o.ssg, location: "Atlanta, GA", what_it_does: "Staffing for light industrial employers", source: "A former colleague", next_action: "Ask Carla for the hiring manager's name", next_action_due: ahead(3), notes: "Portfolio company of a PE firm; open since September" }, 4);
+        noActionItems.push(opp({ name: "Peachtree Logistics", stage_id: js.stages.Contact, role_title: "Chief of Staff", contact_name: "Sam Patel", primary_contact_id: p.sam, organization_id: o.peachtree, location: "Atlanta, GA", what_it_does: "Regional trucking and warehousing", source: "A former colleague", next_action: null, next_action_due: null, notes: "Sam mentioned it; nothing confirmed" }, 2));
+        const harbor = opp({ name: "Harbor Health Partners", stage_id: js.stages.Conversation, role_title: "Director of Operations", contact_name: "Nina Reyes, Korn Ferry", primary_contact_id: p.nina, organization_id: o.kf, location: "Charlotte, NC, on site", what_it_does: "Multi-site home health", source: "Recruiter", pay_range: "$150K to $170K", listing_url: "https://www.example.com/harbor-health-partners", next_action: "Prepare for the call with the COO", next_action_due: today, next_action_minutes: 90, notes: "They want someone who has run scheduling across sites",
+          open_questions_json: { seller: [], broker: [], self: ["How many sites and caregivers, and who runs scheduling today?", "Why is the role open, and how long has it been open?", "Pay range and whether the role could lead to COO."] } }, 4, [{ stageName: "Contact", daysAgo: 6 }]);
+        opp({ name: "Lumen Industrial Holdings", stage_id: js.stages.Interview, role_title: "General Manager", contact_name: "Jamal Whitaker", primary_contact_id: p.jamal, organization_id: o.bain, location: "Atlanta, GA", what_it_does: "Holding company with four industrial businesses", source: "A former colleague", next_action: "Second interview with the partners", next_action_due: ahead(5), waiting_on: "Jamal Whitaker", waiting_since: ago(3), notes: "Holding company with four industrial businesses" }, 3, [{ stageName: "Contact", daysAgo: 20 }, { stageName: "Conversation", daysAgo: 12 }]);
+        opp({ name: "Crestline Services", stage_id: js.stages.Offer, role_title: "COO", contact_name: "Kevin O'Brien", primary_contact_id: p.kevin, organization_id: o.pathway, location: "Birmingham, AL", what_it_does: "Commercial cleaning and facilities services", source: "Recruiter", pay_range: "$185K base", next_action: "Reply to the offer", next_action_due: ahead(7), notes: "$185K base; read the equity terms with a lawyer" }, 2, [{ stageName: "Contact", daysAgo: 30 }, { stageName: "Conversation", daysAgo: 24 }, { stageName: "Interview", daysAgo: 14 }]);
+        opp({ name: "Atlas Freight", stage_id: js.stages.Declined, role_title: "VP Operations", contact_name: "A recruiter", location: "Memphis, TN", source: "Recruiter", notes: "Declined: the move to Memphis does not work" }, 6, [{ stageName: "Contact", daysAgo: 16 }, { stageName: "Conversation", daysAgo: 10 }]);
+        opp({ name: "Riverbend Health", stage_id: js.stages["Not chosen"], role_title: "COO", contact_name: "Pathway Search Partners", location: "Nashville, TN", source: "Recruiter", notes: "They chose an internal candidate" }, 12, [{ stageName: "Contact", daysAgo: 40 }, { stageName: "Conversation", daysAgo: 32 }, { stageName: "Interview", daysAgo: 20 }]);
+        opp({ name: "Valley Print Group", stage_id: js.stages.Declined, role_title: "General Manager", contact_name: "Luis Ortega", location: "Roanoke, VA", source: "A broker", notes: "Declined: the owner wanted a buyer, not a manager" }, 20, [{ stageName: "Contact", daysAgo: 26 }]);
+        communications.push(
+          { id: newId(), occurred_at: `${ago(2)}T14:00:00Z`, method: "email", direction: "incoming", contact_id: p.nina, organization_id: o.kf, subject: "Email received from Nina Reyes", summary: "COO call confirmed for Friday at 2:00; brief attached.", is_outreach: false, purpose: "general", pipeline_item_id: harbor },
+          { id: newId(), occurred_at: `${ago(4)}T16:00:00Z`, method: "call", direction: "outgoing", contact_id: p.nina, organization_id: o.kf, subject: "Call with Nina Reyes", summary: "They want someone who has run scheduling across sites. Pay $150K to $170K.", is_outreach: true, purpose: "general", pipeline_item_id: harbor, call_minutes: 20 },
+        );
+      }
+
+      // Four open consulting items (one per stage), plus two closed. The client is the item name, the project is what_it_does.
+      if (s.consulting) {
+        const cs = s.consulting;
+        const con = (row: R, enteredDaysAgo: number, history: { stageName: string; daysAgo: number }[] = [], details: { scope: string; start: string | null } | null = null) => {
+          const id = newId();
+          items.push({ id, pipeline_id: cs.pipelineId, screened: true, ...row });
+          entered(id, enteredDaysAgo, history);
+          if (details) consultingDetails.push({ id: newId(), item_id: id, rate_type: "project", rate: row.fee ?? null, scope_notes: details.scope, start_date: details.start });
+          return id;
+        };
+        con({ name: "Georgia Home Care Association", stage_id: cs.stages.Lead, what_it_does: "Member survey", contact_name: "Rita Caldwell", primary_contact_id: p.rita, organization_id: o.gahca, fee: 12000, next_action: "Call Rita about the scope", next_action_due: ahead(13), notes: "Would run January to March" }, 10, [], { scope: "Design and run the member survey; a findings memo for the board", start: ahead(66) });
+        const sw = con({ name: "Sullivan Wickley", stage_id: cs.stages.Proposal, what_it_does: "Q1 site selection", contact_name: "Greg Thornton, Partner", primary_contact_id: p.greg, organization_id: o.sw, fee: 18000, next_action: "Send the scope and fee", next_action_due: ahead(4), notes: "Greg wants it before his partners meet Nov 10" }, 4, [{ stageName: "Lead", daysAgo: 9 }], { scope: "Market screen, site visits, and a comparison memo for three retail locations in Cobb County", start: ahead(67) });
+        con({ name: "Sullivan Wickley", stage_id: cs.stages.Engagement, what_it_does: "Marietta lease review", contact_name: "Greg Thornton, Partner", primary_contact_id: p.greg, organization_id: o.sw, fee: 6000, next_action: "Deliver the comparison memo", next_action_due: ahead(7), notes: "Two of three leases read" }, 12, [{ stageName: "Lead", daysAgo: 30 }, { stageName: "Proposal", daysAgo: 22 }], { scope: "Read the three Marietta leases and write a comparison memo", start: ago(12) });
+        con({ name: "Sunrise Home Care", stage_id: cs.stages.Paid, what_it_does: "Scheduling review", contact_name: "Denise Walker", primary_contact_id: p.denise, organization_id: o.sunrise, fee: 4500, next_action: "Send thanks and ask for a referral", next_action_due: ahead(3), notes: "Paid Oct 28; then mark Done" }, 3, [{ stageName: "Lead", daysAgo: 45 }, { stageName: "Proposal", daysAgo: 40 }, { stageName: "Engagement", daysAgo: 33 }], { scope: "Review the scheduling process and write five fixes", start: ago(33) });
+        con({ name: "Bain, Atlanta", stage_id: cs.stages.Lost, what_it_does: "Ops diagnostic for a portfolio company", contact_name: "Jamal Whitaker", primary_contact_id: p.jamal, organization_id: o.bain, fee: 25000, notes: "They used their own team" }, 15, [{ stageName: "Lead", daysAgo: 35 }, { stageName: "Proposal", daysAgo: 25 }]);
+        con({ name: "Alvarez Advisory", stage_id: cs.stages.Done, what_it_does: "Deal screen help", contact_name: "Tom Alvarez", primary_contact_id: p.tom, organization_id: o.alvarez, fee: 3000, notes: "Paid and wrapped up" }, 20, [{ stageName: "Lead", daysAgo: 60 }, { stageName: "Proposal", daysAgo: 55 }, { stageName: "Engagement", daysAgo: 48 }, { stageName: "Paid", daysAgo: 28 }]);
+        communications.push(
+          { id: newId(), occurred_at: `${ago(2)}T15:00:00Z`, method: "call", direction: "outgoing", contact_id: p.greg, organization_id: o.sw, subject: "Call with Greg Thornton", summary: "Wants the scope and fee before his partners meet Nov 10. Three sites, all in Cobb County.", is_outreach: true, purpose: "consulting", pipeline_item_id: sw, call_minutes: 20 },
+          { id: newId(), occurred_at: `${ago(9)}T11:00:00Z`, method: "email", direction: "incoming", contact_id: p.greg, organization_id: o.sw, subject: "Email received from Greg Thornton", summary: "Could you look at Q1 site selection for the Cobb County expansion?", is_outreach: false, purpose: "consulting", pipeline_item_id: sw },
+        );
+      }
+    }
   }
 
-  return { organizations, contacts, items, financials, communications, notes, stageDates, documents, todos, personalTodos };
+  return { organizations, contacts, items, financials, communications, notes, stageDates, documents, todos, personalTodos, projects, consultingDetails, noteDates, noActionItems };
 }

@@ -9,6 +9,9 @@ export type PhaseKey = "early" | "evaluate" | "decide";
 
 export type Phase = { key: PhaseKey; name: string; tagline: string; stages: readonly WorkStageName[] };
 
+/** A phase of any pipeline (the Job search page reuses the columns with its own two phases; batch B2). */
+export type PhaseDef = { key: string; name: string; tagline: string; stages: readonly string[] };
+
 /** Early: get the CIM. Evaluate: decide whether to bid. Decide: bid and close. */
 export const PHASES: readonly Phase[] = [
   { key: "early", name: "Early", tagline: "Get the CIM", stages: ["Interested", "NDA signed", "Broker call"] },
@@ -16,16 +19,17 @@ export const PHASES: readonly Phase[] = [
   { key: "decide", name: "Decide", tagline: "Bid and close", stages: ["Partner presentation", "IOI or LOI", "Diligence"] },
 ] as const;
 
-/** Groups the stage groups (the nine, in order) under their phase; a stage not in any phase is left out. */
-export function groupByPhase<G extends { stage: { name: string }; deals: unknown[] }>(groups: readonly G[]): { phase: Phase; groups: G[]; count: number }[] {
-  return PHASES.map((phase) => {
+/** Groups the stage groups (the nine, in order) under their phase; a stage not in any phase is left out. Another pipeline passes its own phases. */
+export function groupByPhase<G extends { stage: { name: string }; deals: unknown[] }, P extends PhaseDef = Phase>(groups: readonly G[], phases: readonly P[] = PHASES as unknown as readonly P[]): { phase: P; groups: G[]; count: number }[] {
+  return phases.map((phase) => {
     const own = phase.stages.map((name) => groups.find((g) => g.stage.name === name)).filter((g): g is G => !!g);
     return { phase, groups: own, count: own.reduce((s, g) => s + g.deals.length, 0) };
   });
 }
 
-/** "4 deals", "1 deal", "No deals". */
-export function dealsLabel(n: number): string {
+/** "4 deals", "1 deal", "No deals" (or "3 open", "1 open", "None open" for the Job search columns). */
+export function dealsLabel(n: number, noun: "deal" | "open" = "deal"): string {
+  if (noun === "open") return n === 0 ? "None open" : `${n} open`;
   return n === 0 ? "No deals" : `${n} ${n === 1 ? "deal" : "deals"}`;
 }
 
@@ -63,10 +67,10 @@ export function matchesFilter(d: FilterableDeal, filter: DealFilter, today: stri
   return true;
 }
 
-/** "Find a deal": the name holds the typed text, any letter case; an empty box matches everything. */
-export function matchesSearch(d: FilterableDeal, query: string): boolean {
+/** "Find a deal": the name holds the typed text, any letter case; an empty box matches everything. Other pages add more text to search (the role, the contact). */
+export function matchesSearch(d: FilterableDeal & { searchText?: string | null }, query: string): boolean {
   const q = query.trim().toLowerCase();
-  return !q || d.name.toLowerCase().includes(q);
+  return !q || d.name.toLowerCase().includes(q) || String(d.searchText ?? "").toLowerCase().includes(q);
 }
 
 /** The counts on the filter pills. */

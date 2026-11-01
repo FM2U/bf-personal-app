@@ -15,8 +15,7 @@ export const MAIN_NAV: NavModule[] = [
 
 /**
  * The Work tabs (batch B, 2026-10-31, the final menu): Home, Screen listings, Deals, Outreach, Rosara, Job search,
- * Consulting, To-dos. Rosara, Job search, and Consulting are pages with their heading and "Comes with the next
- * update" until batch B2 fills them.
+ * Consulting, To-dos (Rosara, Job search, and Consulting filled in batch B2).
  */
 export const WORK_TABS: NavTab[] = [
   { href: "/work", label: "Home" },

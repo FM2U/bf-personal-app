@@ -78,7 +78,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
         actions={
           <>
             <DealHeaderActions deal={deal} compose={d.compose} advanceTo={deal.status === "open" ? d.advanceTo : null} today={d.today} tz={d.tz} />
-            <AskAiPill context={`${deal.name}, ${deal.stageName ?? "no stage"}`} />
+            <AskAiPill context={{ page: "deal", recordId: deal.id, label: deal.name }} compose={d.compose} />
           </>
         }
         testId="deal-status-line"

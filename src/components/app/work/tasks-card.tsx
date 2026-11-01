@@ -4,7 +4,9 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Sparkles } from "lucide-react";
 import { useUnsavedWork } from "@/components/app/unsaved-changes";
+import type { AskContext } from "@/lib/work/ask-ai";
 import { sortTodos, todosLabel, type DealTodo } from "@/lib/work/todos";
+import { AiCardStar, AiFieldStar } from "@/components/app/work/ask-ai";
 import { RowButton, WorkCard } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
 
@@ -17,10 +19,13 @@ type Result = { ok: true } | { ok: false; error: string };
  * its one next action (they do not show on Home). Each item has a checkbox (done), a faint x (delete), and "Make
  * this the next action" (the text becomes the next action or follow-up and the item leaves the list; the old one
  * is kept as an item). "+ Add" adds a typed item; "Suggest" (deals) asks the AI for up to 5. The same card serves
- * deals and people; the actions come from the page.
+ * deals, people, projects, opportunities, and consulting items; the actions come from the page. Batch B2: the purple
+ * star in the header opens the Ask AI panel with this card as context; the star inside the add box writes one task.
  */
-export function TasksCard({ tasks, open, actions, placeholder, emptyText, testId = "deal-todos" }: {
+export function TasksCard({ tasks, open, actions, placeholder, emptyText, testId = "deal-todos", ai }: {
   tasks: DealTodo[];
+  /** The Ask AI context of the page (the card star and the field star), when the page has one. */
+  ai?: AskContext | null;
   /** The record is open (closed records show the list without the add and move controls). */
   open: boolean;
   actions: {
@@ -37,6 +42,7 @@ export function TasksCard({ tasks, open, actions, placeholder, emptyText, testId
   const router = useRouter();
   const [text, setText] = useState("");
   const [adding, setAdding] = useState(false);
+  const [focused, setFocused] = useState(false);
   const [pending, start] = useTransition();
   const [note, setNote] = useState<{ tone: "ok" | "warn"; text: string } | null>(null);
   // The checkbox shows the click at once; the saved state arrives with the page re-read.
@@ -82,7 +88,10 @@ export function TasksCard({ tasks, open, actions, placeholder, emptyText, testId
                 <Sparkles className="mr-1 h-3 w-3" /> Suggest
               </RowButton>
             ) : null}
+            {ai ? <AiCardStar context={{ ...ai, card: "Tasks" }} /> : null}
           </>
+        ) : ai ? (
+          <AiCardStar context={{ ...ai, card: "Tasks" }} />
         ) : undefined
       }
       testId={testId}
@@ -119,24 +128,29 @@ export function TasksCard({ tasks, open, actions, placeholder, emptyText, testId
         {!list.length && !adding ? <p className="py-2 text-[13px] text-muted-foreground">{emptyText}</p> : null}
         {adding ? (
           <div className="flex items-center gap-2 pt-2">
-            <input
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  add();
-                }
-                if (e.key === "Escape") {
-                  setAdding(false);
-                  setText("");
-                }
-              }}
-              autoFocus
-              placeholder={placeholder}
-              className={INPUT}
-              data-testid="todo-input"
-            />
+            <div className="relative min-w-0 flex-1">
+              <input
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                onFocus={() => setFocused(true)}
+                onBlur={() => setFocused(false)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    add();
+                  }
+                  if (e.key === "Escape") {
+                    setAdding(false);
+                    setText("");
+                  }
+                }}
+                autoFocus
+                placeholder={placeholder}
+                className={cn(INPUT, ai && "pr-8")}
+                data-testid="todo-input"
+              />
+              {ai ? <AiFieldStar context={ai} field={{ key: "task_text", label: "Task", current: text }} visible={!text.trim() || focused} onUse={setText} /> : null}
+            </div>
             <RowButton tone={text.trim() ? "primary" : "outline"} onClick={add} disabled={pending || !text.trim()} data-testid="todo-save">
               Add
             </RowButton>

@@ -30,7 +30,7 @@ export default async function DealsPage({ searchParams }: { searchParams: Promis
         right={
           <>
             <span data-testid="deals-summary">{summary}</span>
-            <AskAiPill context="Deals" />
+            <AskAiPill context={{ page: "deals", label: "Deals" }} />
           </>
         }
       />

@@ -9,6 +9,7 @@ import { date as fmtDate } from "@/lib/format";
 import { lastContactLabel, nextDateChoices, nextFollowUpLabel, orgRoleLine, purposeLabel, purposeTone } from "@/lib/work/outreach";
 import type { PersonRow as PersonRowData } from "@/lib/work/outreach-data";
 import { dueLabel } from "@/lib/work/stages";
+import { AiReason } from "@/components/app/work/project-row";
 import { Confirm, Due, Figure, Figures, LanePill, Line1, Line2, Line3, Name, Pill, RowButton, RowShell, What } from "@/components/app/work/ui";
 
 /** The purpose pills of a person (Off-market deals gold, Job search blue, Consulting gray, Rosara gold). */
@@ -145,7 +146,7 @@ export function FollowUpDoneAsk({ person, today, pending, what, setWhat, onPick,
  * A person due today or overdue on Home's Next actions: the Outreach lane pill, the name, the organization and
  * role, what the follow-up is for; at the right the due date and Done (the same date choices) and Later.
  */
-export function OutreachActionRow({ person, today }: { person: PersonRowData; today: string }) {
+export function OutreachActionRow({ person, today, reason }: { person: PersonRowData; today: string; /** The AI's one-line reason under the row (By the AI, batch B2). */ reason?: string | null }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [state, setState] = useState<{ kind: "idle" } | { kind: "ask" } | { kind: "later" } | { kind: "done"; text: string } | { kind: "error"; text: string }>({ kind: "idle" });
@@ -207,6 +208,7 @@ export function OutreachActionRow({ person, today }: { person: PersonRowData; to
         {line ? <What>{line}</What> : null}
       </Line1>
       <Line2 className="text-slate-900">{person.followUpFor ?? "Follow up"}</Line2>
+      {reason ? <AiReason text={reason} /> : null}
       {state.kind === "ask" ? <FollowUpDoneAsk person={person} today={today} pending={pending} what={what} setWhat={setWhat} onPick={finish} onCancel={() => setState({ kind: "idle" })} /> : null}
       {state.kind === "later" ? (
         <Confirm tone="blue" className="mt-2" testId="next-action-later-choice">

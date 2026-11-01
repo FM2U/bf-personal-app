@@ -5,10 +5,11 @@ import { loadCtx, type Ctx } from "@/lib/engine/helpers";
 import { date as fmtDate } from "@/lib/format";
 import { loadDocuments, type DocumentItem } from "@/lib/record-panels-data";
 import { loadComposeSetup, type ComposeSetup } from "@/lib/compose-email";
-import { DB_UPDATE_NOTICE_0020, DB_UPDATE_NOTICE_0021, DB_UPDATE_NOTICE_0022 } from "@/lib/schema-guard";
+import { DB_UPDATE_NOTICE_0020, DB_UPDATE_NOTICE_0021, DB_UPDATE_NOTICE_0022, DB_UPDATE_NOTICE_0023 } from "@/lib/schema-guard";
 import { hasUpdate0020 } from "@/lib/update-0020";
 import { hasUpdate0021 } from "@/lib/update-0021";
 import { hasUpdate0022 } from "@/lib/update-0022";
+import { hasUpdate0023 } from "@/lib/update-0023";
 import { countOutreachDue, loadOutreachHome, type OutreachHome } from "@/lib/work/outreach-data";
 import { askingMultiple, checkBuyBox, earningsOf, passReasonLabel } from "@/lib/work/buy-box";
 import { glanceCounts, type GlanceCounts } from "@/lib/work/home";
@@ -24,16 +25,17 @@ import type { Row } from "@/lib/types";
  * Everything the Work screens read (Home, Screen listings, Deals, the deal page). One pipeline: the owner's
  * acquisition pipeline (kind acquisition). Listings are its items with screened = false and no stage; deals are its
  * screened items. Nothing here writes; the actions are in src/app/actions/work.ts. Every loader first checks database
- * updates 0020, 0021, and 0022; before them `available` is false and `notice` names the file to run.
+ * updates 0020 to 0023; before them `available` is false and `notice` names the file to run.
  */
 
 export type WorkCtx = Ctx & { threshold: number };
 
-/** The "Database update needed" line for the first update that is missing, or null when all three are applied. */
+/** The "Database update needed" line for the first update that is missing, or null when all four are applied. */
 export async function workUpdateNotice(sb: SupabaseClient): Promise<string | null> {
   if (!(await hasUpdate0020(sb))) return DB_UPDATE_NOTICE_0020;
   if (!(await hasUpdate0021(sb))) return DB_UPDATE_NOTICE_0021;
   if (!(await hasUpdate0022(sb))) return DB_UPDATE_NOTICE_0022;
+  if (!(await hasUpdate0023(sb))) return DB_UPDATE_NOTICE_0023;
   return null;
 }
 
@@ -104,7 +106,12 @@ export async function loadWorkCtx(sb: SupabaseClient, ownerId: string): Promise<
 
 /** The acquisition pipeline with its stages and each stage's default next action. Null when there is none. */
 export async function loadWorkPipeline(sb: SupabaseClient, ownerId: string): Promise<WorkPipeline | null> {
-  const { data: pipes } = await sb.from("pipelines").select("id,name,kind,sort_order,created_at").eq("owner_id", ownerId).eq("kind", "acquisition").order("sort_order").order("created_at").limit(1);
+  return loadPipelineOfKind(sb, ownerId, "acquisition");
+}
+
+/** A pipeline by kind (acquisition, job, consulting) with its stages and each stage's default next action. Null when there is none. */
+export async function loadPipelineOfKind(sb: SupabaseClient, ownerId: string, kind: "acquisition" | "job" | "consulting"): Promise<WorkPipeline | null> {
+  const { data: pipes } = await sb.from("pipelines").select("id,name,kind,sort_order,created_at").eq("owner_id", ownerId).eq("kind", kind).order("sort_order").order("created_at").limit(1);
   const pipe = ((pipes ?? []) as Row[])[0];
   if (!pipe) return null;
   const [{ data: stageRows }, { data: taskRows }] = await Promise.all([

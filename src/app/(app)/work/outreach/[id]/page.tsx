@@ -8,6 +8,7 @@ import { loadPersonPage } from "@/lib/work/outreach-data";
 import { headerFigures } from "@/lib/work/record-page";
 import { openTodos } from "@/lib/work/todos";
 import { AskAiPill } from "@/components/app/work/ask-ai";
+import { personAsk } from "@/lib/work/ask-ai";
 import { IncomingCard, NextFollowUpCard, PersonDecisionCard, PersonFactsCard, PersonHeaderActions, PersonTasksCard, PersonTimelineCard, WhyInTouchCard } from "@/components/app/work/person/cards";
 import { PurposePills } from "@/components/app/work/person-row";
 import { RecordHeader } from "@/components/app/work/record-header";
@@ -77,7 +78,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
         actions={
           <>
             <PersonHeaderActions person={person} compose={d.compose} today={d.today} tz={d.tz} />
-            <AskAiPill context={`${person.name}${person.organization ? `, ${person.organization}` : ""}`} />
+            <AskAiPill context={personAsk(person)} compose={d.compose} />
           </>
         }
         testId="person-status-line"
