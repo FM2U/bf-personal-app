@@ -4,6 +4,7 @@ import { loadWorkCtx, loadWorkNow, type WorkNowData } from "@/lib/work/data";
 import type { AiOrder } from "@/lib/work/lanes";
 import { loadPipelinesHome, type PipelinesHome } from "@/lib/work/pipelines-data";
 import { loadRosaraHome, type RosaraHome } from "@/lib/work/projects-data";
+import { loadTargetsTile, type TargetsTile } from "@/lib/accountability/data";
 import type { Row } from "@/lib/types";
 
 /**
@@ -18,6 +19,8 @@ export type HomeData = WorkNowData & {
   aiOrder: AiOrder | null;
   /** The hour of the day in the owner's time zone (for "Ordered by the AI this morning"). */
   hourLocal: number;
+  /** The Targets today tile (batch C): two or three target lines, Targets met, End of day with the reasons-left line. */
+  targets: TargetsTile;
 };
 
 /** The AI's order for a day, from the cache, or null. */
@@ -38,10 +41,11 @@ export async function loadHome(sb: SupabaseClient, ownerId: string): Promise<Hom
     pipelines: { jobs: [], consulting: [], tile: { nextConversation: null, nextInterview: null, open: 0, needsAction: 0, waiting: 0 } },
     aiOrder: null,
     hourLocal: 9,
+    targets: { available: false, notice: null, today: now.today, lines: [], met: { met: 0, total: 0, names: "" }, eod: { state: "open", badge: "5:30", line: "" } },
   };
   if (!now.available) return empty;
   const ctx = await loadWorkCtx(sb, ownerId);
-  const [rosara, pipelines, aiOrder] = await Promise.all([loadRosaraHome(sb, ctx), loadPipelinesHome(sb, ctx), loadAiOrder(sb, ownerId, ctx.today)]);
+  const [rosara, pipelines, aiOrder, targets] = await Promise.all([loadRosaraHome(sb, ctx), loadPipelinesHome(sb, ctx), loadAiOrder(sb, ownerId, ctx.today), loadTargetsTile(sb, ctx)]);
   const hourLocal = Number(new Intl.DateTimeFormat("en-US", { timeZone: ctx.tz, hour: "numeric", hour12: false }).format(new Date())) || 0;
-  return { ...empty, rosara, pipelines, aiOrder, hourLocal: hourLocal % 24 };
+  return { ...empty, rosara, pipelines, aiOrder, hourLocal: hourLocal % 24, targets };
 }

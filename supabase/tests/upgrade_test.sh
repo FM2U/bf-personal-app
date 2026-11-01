@@ -23,8 +23,10 @@
 #   (u) 0001 to 0022 (the live database on 2026-11-01, evening) plus a project with a note and a job item, then UPDATE_0023_RUN_ONCE.sql twice
 #   (v) 0001 to 0023 (the live database on 2026-11-01, night) plus deals at NDA signed on the old default, at Broker call, and at CIM review,
 #       then UPDATE_0024_RUN_ONCE.sql twice
+#   (w) 0001 to 0024 (the live database on 2026-11-02) plus the 0008 and 0016 targets, a partner, a daily report, and sample rows,
+#       then UPDATE_0025_RUN_ONCE.sql twice
 # Paths b, c, d (UPDATE_RUN_ONCE.sql) and j, k, l also check 0014: tables, policies, functions, sample removal, and reset.
-# UPDATE_RUN_ONCE.sql now ends with 0024, so on paths b, c, d the acquisition, job, and consulting stages are the new ones (the checks allow both).
+# UPDATE_RUN_ONCE.sql now ends with 0025, so on paths b, c, d the acquisition, job, and consulting stages are the new ones (the checks allow both).
 # Every UPDATE_RUN_ONCE.sql path also checks 0012 and 0013.
 # Usage: bash supabase/tests/upgrade_test.sh
 set -euo pipefail
@@ -962,6 +964,80 @@ select '0024 checks passed' as result;
 SQL
 for f in UPDATE_RUN_ONCE ALL_MIGRATIONS_RUN_ONCE; do grep -q "schema_has_0024" "$DIR/$f.sql" || { echo "$f.sql is missing 0024"; exit 1; }; done
 
+# (w) Live state on 2026-11-02: 0001 to 0024 applied, the targets of 0008 and 0016 (Network outreach, Listings screened),
+# a partner with a finalized daily report, then UPDATE_0025_RUN_ONCE.sql twice. Nothing is deleted: every target and report
+# stays, the new columns and tables exist, report_kind allows end_of_day, the seed turns the old target rows into the batch C
+# ones for a future owner, and the batch functions accept the new tables.
+setup bf_upgrade_w 0024
+su postgres -c "$PSQL -d bf_upgrade_w" <<'SQL'
+\set ON_ERROR_STOP 1
+insert into public.partners (owner_id, name, email, report_frequency) values ('00000000-0000-0000-0000-000000000001', 'Upgrade partner', 'upgrade-partner@example.com', 'daily');
+insert into public.partner_reports (owner_id, partner_id, period_start, period_end, status, report_kind, finalized_at)
+select owner_id, id, current_date - 1, current_date - 1, 'finalized', 'daily', now() from public.partners where name = 'Upgrade partner';
+create table public.upgrade_w_before as
+  select (select count(*) from public.targets) as targets, (select count(*) from public.partner_reports) as reports,
+         (select id from public.targets where name = 'Network outreach') as outreach_id, (select id from public.targets where name = 'Listings screened') as listings_id;
+SQL
+for run in 1 2; do
+  echo "[bf_upgrade_w] Applying UPDATE_0025_RUN_ONCE.sql (run $run)"
+  su postgres -c "$PSQL -d bf_upgrade_w -f $DIR/UPDATE_0025_RUN_ONCE.sql"
+done
+su postgres -c "$PSQL -d bf_upgrade_w" <<'SQL'
+\set ON_ERROR_STOP 1
+do $$
+declare v_targets bigint; v_reports bigint; v_outreach uuid; v_listings uuid;
+begin
+  select targets, reports, outreach_id, listings_id into v_targets, v_reports, v_outreach, v_listings from public.upgrade_w_before;
+  assert to_regprocedure('public.schema_has_0025()') is not null, '0025 check function';
+  assert (select count(*) from public.targets) = v_targets, 'no target deleted';
+  assert (select count(*) from public.partner_reports) = v_reports, 'no report deleted';
+  assert (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'targets' and column_name in ('counts_key', 'archived_at')) = 2, 'the target columns';
+  assert to_regclass('public.work_events') is not null and to_regclass('public.end_of_day') is not null, 'the new tables';
+  assert (select count(*) from public.targets where counts_key is not null) = 0, 'existing targets are untouched until the app seeds';
+  assert (select count(*) from pg_constraint where conname = 'targets_counts_key_check') = 1, 'the counts_key check once';
+  assert (select count(*) from pg_policies where schemaname = 'public' and tablename in ('work_events', 'end_of_day') and policyname = 'owner_only') = 2, 'owner-only policies';
+  assert (select prosrc from pg_proc where proname = 'insert_record_batch') like '%''work_events'', ''end_of_day'', ''partner_reports''%', 'the batch accepts the new tables';
+  assert (select prosrc from pg_proc where proname = 'reset_all_data') like '%''end_of_day'', ''work_events''%', 'reset lists the new tables';
+  assert (select prosrc from pg_proc where proname = 'remove_sample_data') like '%''end_of_day'', ''work_events'', ''partner_reports''%', 'sample removal lists the new tables';
+end $$;
+-- An End of day report saves as a partner report; another kind is refused; a work event and an End of day row save.
+insert into public.partner_reports (owner_id, partner_id, period_start, period_end, status, report_kind, finalized_at)
+select owner_id, id, current_date, current_date, 'finalized', 'end_of_day', now() from public.partners where name = 'Upgrade partner';
+do $$ begin
+  begin
+    insert into public.partner_reports (owner_id, partner_id, period_start, period_end, report_kind) select owner_id, id, current_date, current_date, 'nightly' from public.partners where name = 'Upgrade partner';
+    raise exception 'report_kind nightly was accepted';
+  exception when check_violation then null;
+  end;
+end $$;
+insert into public.work_events (owner_id, kind, label, happened_on, on_time) values ('00000000-0000-0000-0000-000000000001', 'follow_up_done', 'Existing contact', current_date, true);
+insert into public.end_of_day (owner_id, day, status, reasons, tomorrow_line) values ('00000000-0000-0000-0000-000000000001', current_date, 'open', '{}'::jsonb, 'Monday: the model');
+do $$ begin
+  assert (select count(*) from public.work_events) = 1, 'the work event saved';
+  assert (select status from public.end_of_day where day = current_date) = 'open', 'the End of day row saved';
+  begin
+    insert into public.end_of_day (owner_id, day) values ('00000000-0000-0000-0000-000000000001', current_date);
+    raise exception 'two rows for one day were accepted';
+  exception when unique_violation then null;
+  end;
+end $$;
+-- The seed for a future owner reuses the old target rows by name (Network outreach from 0008, Listings screened from 0016).
+select public.seed_owner_batch_c('00000000-0000-0000-0000-000000000001');
+do $$
+declare v_outreach uuid; v_listings uuid;
+begin
+  select outreach_id, listings_id into v_outreach, v_listings from public.upgrade_w_before;
+  assert (select counts_key from public.targets where id = v_outreach) = 'outreach_contacts', 'Network outreach keeps its row and counts outreach';
+  assert (select period from public.targets where id = v_outreach) = 'week', 'Network outreach is per week';
+  assert (select counts_key from public.targets where id = v_listings) = 'listings_screened' and (select minimum_count from public.targets where id = v_listings) = 5, 'Listings screened keeps its row at 5 per weekday';
+  assert (select count(*) from public.targets where counts_key is not null) = 6, 'six batch C targets';
+  assert (select count(*) from public.targets where name = 'CIMs reviewed') = 1, 'the other old targets stay';
+end $$;
+drop table public.upgrade_w_before;
+select '0025 checks passed' as result;
+SQL
+for f in UPDATE_RUN_ONCE ALL_MIGRATIONS_RUN_ONCE; do grep -q "schema_has_0025" "$DIR/$f.sql" || { echo "$f.sql is missing 0025"; exit 1; }; done
+
 echo "Upgrade paths passed: 0001-0007 + update twice, 0001-0008 + update, 0001-0009 + update twice, 0001-0010 + 0011 update twice,"
 echo "0001-0010 + 0011_0012 update twice, 0001-0011 + 0011_0012 update twice, 0001-0011 + 0012 update twice (edited text kept),"
 echo "0001-0012 + 0013 update twice, 0001-0012 + 0013_0014 update twice, 0001-0013 + 0013_0014 update twice, 0001-0013 + 0014 update twice,"
@@ -970,4 +1046,5 @@ echo "0001-0017 + 0018 update twice, 0001-0018 + 0019 update twice, 0001-0019 + 
 echo "0001-0020 + 0021 update twice (defaults renamed, questions converted once, to-dos go with the deal, future owner too),"
 echo "0001-0021 + 0022 update twice (last contact filled, to-dos read as deal tasks, consulting and job stages reshaped, future owner too),"
 echo "0001-0022 + 0023 update twice (older notes read as notes, a finding saves with its source, the pay range saves),"
-echo "0001-0023 + 0024 update twice (CIM review before Broker call, ids and deals kept, the NDA signed default renamed, a future owner)."
+echo "0001-0023 + 0024 update twice (CIM review before Broker call, ids and deals kept, the NDA signed default renamed, a future owner),"
+echo "0001-0024 + 0025 update twice (targets and reports kept, the new columns and tables, end_of_day reports, the seed reuses the old target rows)."

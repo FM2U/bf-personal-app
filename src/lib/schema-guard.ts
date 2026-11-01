@@ -245,3 +245,18 @@ export const COLUMNS_0023: Record<string, string[]> = {
 export const DB_UPDATE_FILE_0024 = "supabase/UPDATE_0024_RUN_ONCE.sql";
 export const DB_UPDATE_NOTICE_0024 = `Database update needed: paste ${DB_UPDATE_FILE_0024} into the Supabase SQL Editor and run it.`;
 export const PROBE_0024 = "schema_has_0024";
+
+/**
+ * Database update 0025 (batch C: Targets, End of day, Reports): targets.counts_key and archived_at, the work_events
+ * and end_of_day tables, partner_reports.report_kind 'end_of_day', and schema_has_0025(). Before it, Targets, End of
+ * day, Reports, and the Targets today tile on Home show DB_UPDATE_NOTICE_0025 instead of their content, Done on a
+ * next action or a follow-up records no work event (nothing else changes), and every other screen and both scheduled
+ * jobs keep working.
+ */
+export const DB_UPDATE_FILE_0025 = "supabase/UPDATE_0025_RUN_ONCE.sql";
+export const DB_UPDATE_NOTICE_0025 = `Database update needed: paste ${DB_UPDATE_FILE_0025} into the Supabase SQL Editor and run it.`;
+export const PROBE_0025 = "schema_has_0025";
+export const TABLES_0025 = ["work_events", "end_of_day"];
+export const COLUMNS_0025: Record<string, string[]> = {
+  targets: ["counts_key", "archived_at"],
+};

@@ -299,3 +299,28 @@ select:not([multiple]):not([size]) {
   pointer-events: none;
   color: var(--muted-foreground);
 }
+
+/* The End of day report preview and the Sent report drawer (batch C): the email's number tiles (140px wide, inline) sit
+   three to a row in the card and two on the phone; the email itself is sent unchanged. */
+.report-preview [style*="max-width:140px"],
+.report-preview [style*="max-width: 140px"] {
+  max-width: 33.333% !important;
+}
+@media (max-width: 640px) {
+  .report-preview [style*="max-width:140px"],
+  .report-preview [style*="max-width: 140px"] {
+    max-width: 50% !important;
+  }
+  /* On the phone the status pill moves under the date instead of running past the card's edge. */
+  .report-preview td[align="right"],
+  .report-preview td:has(> span[style*="999px"]) {
+    display: block;
+    text-align: left;
+    padding-top: 6px;
+  }
+}
+/* The tile row's negative margin would hang 4px past the card on the right. */
+.report-preview [style*="margin:0 -4px"],
+.report-preview [style*="margin: 0 -4px"] {
+  margin: 0 !important;
+}

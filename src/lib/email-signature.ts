@@ -33,6 +33,8 @@ const STYLE_PROPS = new Set([
   "border", "border-top", "border-right", "border-bottom", "border-left", "border-color", "border-width", "border-style", "border-collapse", "border-spacing", "border-radius",
 ]);
 
+const EMPTY_SET: ReadonlySet<string> = new Set();
+
 const NAMED: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: "\u00a0", copy: "\u00a9", reg: "\u00ae", middot: "\u00b7", bull: "\u2022", ndash: "\u2013", mdash: "\u2014", hellip: "\u2026", trade: "\u2122" };
 
 /** Decodes HTML character references (&amp;, &#106;, &#x6a;, and common named ones). */
@@ -81,14 +83,14 @@ export function safeImageSrc(raw: string): string | null {
 const SAFE_COLOR = /^(#[0-9a-f]{3,8}|[a-z]{3,20}|rgba?\(\s*[\d.%\s,]+\)|hsla?\(\s*[\d.%\s,deg]+\))$/i;
 
 /** Keeps only allowed inline style properties with plain values (no url(), expression(), or escapes). */
-export function sanitizeStyle(style: string): string {
+export function sanitizeStyle(style: string, extraProps: ReadonlySet<string> = EMPTY_SET): string {
   const out: string[] = [];
   for (const decl of decodeEntities(style).split(";")) {
     const i = decl.indexOf(":");
     if (i < 0) continue;
     const prop = decl.slice(0, i).trim().toLowerCase();
     let value = decl.slice(i + 1).trim().replace(/\s*!important$/i, "");
-    if (!STYLE_PROPS.has(prop) || !value) continue;
+    if ((!STYLE_PROPS.has(prop) && !extraProps.has(prop)) || !value) continue;
     const lower = value.toLowerCase();
     if (/url\s*\(|expression|javascript|vbscript|@import|behavior|binding|[\\<>{}]|\/\*/.test(lower)) continue;
     if (!/^[#a-z0-9\s.,%'"()\-+]+$/i.test(value)) continue;
@@ -102,7 +104,7 @@ export function sanitizeStyle(style: string): string {
   return out.join("; ");
 }
 
-function attrValue(tag: string, name: string, raw: string): string | null {
+function attrValue(tag: string, name: string, raw: string, styleProps: ReadonlySet<string> = EMPTY_SET): string | null {
   const v = decodeEntities(raw).trim();
   switch (name) {
     case "href":
@@ -110,7 +112,7 @@ function attrValue(tag: string, name: string, raw: string): string | null {
     case "src":
       return safeImageSrc(raw);
     case "style": {
-      const s = sanitizeStyle(raw);
+      const s = sanitizeStyle(raw, styleProps);
       return s || null;
     }
     case "target":
@@ -167,12 +169,13 @@ export function sanitizeSignatureHtml(input: string): string {
 }
 
 /** Extra tags and attributes for a sanitizer built on the signature rules (the email message adds lists). */
-export type SanitizeOptions = { extraTags?: string[]; extraAttrs?: Record<string, string[]>; maxLength?: number };
+export type SanitizeOptions = { extraTags?: string[]; extraAttrs?: Record<string, string[]>; /** Style properties kept besides the signature set (the report email's display and overflow). */ extraStyleProps?: string[]; maxLength?: number };
 
 /** The signature sanitizer with optional extra tags (used by the email message editor: ul, ol, li). */
 export function sanitizeHtml(input: string, opts: SanitizeOptions = {}): string {
   const html = String(input ?? "").slice(0, (opts.maxLength ?? SIGNATURE_MAX_LENGTH) * 2);
   const allowedTags = opts.extraTags?.length ? new Set([...ALLOWED_TAGS, ...opts.extraTags]) : ALLOWED_TAGS;
+  const styleProps: ReadonlySet<string> = opts.extraStyleProps?.length ? new Set(opts.extraStyleProps) : EMPTY_SET;
   const out: string[] = [];
   const stack: string[] = [];
   let dropping: string | null = null;
@@ -227,7 +230,7 @@ export function sanitizeHtml(input: string, opts: SanitizeOptions = {}): string 
     let hasSrc = false;
     for (const [name, raw] of parseAttrs(m[3].replace(/\/\s*$/, ""))) {
       if (!allowed.has(name) || seen.has(name)) continue;
-      const v = attrValue(tag, name, raw);
+      const v = attrValue(tag, name, raw, styleProps);
       if (v === null) continue;
       seen.add(name);
       if (name === "src") hasSrc = true;

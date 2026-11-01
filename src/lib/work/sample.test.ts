@@ -184,3 +184,38 @@ describe("the batch B2 sample (projects, opportunities, consulting)", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 });
+
+describe("the batch C sample (Jake, End of day rows, work events)", () => {
+  let k = 0;
+  // Friday, Oct 30, 2026: the four weekdays before it are Thu Oct 29 (skipped), Wed 28, Tue 27, Mon 26 (sent).
+  const c = buildWorkSample({ pipelineId: "p-acq", stages, batchB: true, batchB2: true, batchC: true }, () => `00000000-0000-4000-8000-${String(++k).padStart(12, "0")}`, "2026-10-30");
+
+  it("has Jake as the daily partner, three sent reports and one skipped day, newest first", () => {
+    expect(c.partners.map((p) => [p.name, p.report_frequency])).toEqual([["Jake Morgan", "daily"]]);
+    expect(c.endOfDay.map((r) => [r.day, r.status])).toEqual([["2026-10-29", "skipped"], ["2026-10-28", "sent"], ["2026-10-27", "sent"], ["2026-10-26", "sent"]]);
+    expect(c.partnerReports).toHaveLength(3);
+    expect(c.partnerReports.every((r) => r.report_kind === "end_of_day" && r.status === "finalized" && r.sent_at)).toBe(true);
+    expect(c.partnerReports.filter((r) => r.reviewed_at)).toHaveLength(2);
+    expect(c.partnerReports.filter((r) => r.partner_comment)).toHaveLength(1);
+    const sent = c.endOfDay.filter((r) => r.status === "sent");
+    expect(sent.every((r) => String(r.report_html).includes("Hello Jake,") && String(r.report_html).includes("Thank you,<br>Bram") && c.partnerReports.some((p) => p.id === r.report_id))).toBe(true);
+    expect(sent.every((r) => !/#(c9a227|b8860b|d4a017|daa520|caa53d)/i.test(String(r.report_html)))).toBe(true);
+  });
+
+  it("the skipped day keeps its judgment, so the reason it owes is asked on the next End of day", () => {
+    const skipped = c.endOfDay.find((r) => r.status === "skipped")!;
+    expect(skipped.skip_reason).toBe("Travel day, Chattanooga site visit");
+    const judged = skipped.judged as { judged: boolean; met: boolean; commitment: boolean }[];
+    expect(judged.some((j) => j.judged && !j.met && j.commitment)).toBe(true);
+  });
+
+  it("has work events over the past weeks and nothing of batch C without the update", () => {
+    expect(c.workEvents.filter((e) => e.kind === "follow_up_done").length).toBeGreaterThan(10);
+    expect(c.workEvents.filter((e) => e.kind === "follow_up_done" && e.on_time === false).length).toBeGreaterThan(0);
+    expect(c.workEvents.filter((e) => e.kind === "focus_done")).toHaveLength(6);
+    expect(c.workEvents.every((e) => String(e.happened_on) < "2026-10-30")).toBe(true);
+    expect(w.partners).toHaveLength(0);
+    expect(w.endOfDay).toHaveLength(0);
+    expect(w.workEvents).toHaveLength(0);
+  });
+});

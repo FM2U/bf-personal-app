@@ -1,6 +1,6 @@
 /**
  * "Reset all data" (Settings, Sample data and reset). The database function public.reset_all_data('RESET')
- * (supabase/migrations/0022_batch_b.sql; first written in 0014, daily outcomes added in 0019, deal to-dos in 0021, to-dos, projects, and the AI order cache in 0022) deletes the tables in RESET_DELETE_TABLES, in this order,
+ * (supabase/migrations/0025_batch_c.sql; first written in 0014, daily outcomes added in 0019, deal to-dos in 0021, to-dos, projects, and the AI order cache in 0022, End of day rows and work events in 0025) deletes the tables in RESET_DELETE_TABLES, in this order,
  * in one transaction, and keeps RESET_KEEP_TABLES. src/lib/reset.test.ts checks that these lists match the SQL
  * function and that every table in the app is in exactly one list.
  */
@@ -8,7 +8,7 @@
 /** Deleted completely, in this order (children before parents). */
 export const RESET_DELETE_TABLES = [
   "ai_messages", "ai_proposals", "ai_conversations", "ai_order_cache", "initiative_drafts", "savings_ideas",
-  "checklist_items", "checklists", "plan_documents", "sample_records",
+  "checklist_items", "checklists", "plan_documents", "sample_records", "end_of_day", "work_events",
   "record_links", "notes", "documents", "alerts", "calendar_events", "daily_outcomes", "daily_plans",
   "missed_commitments", "commitments", "reviews", "target_entries", "target_misses",
   "partner_links", "partner_reports", "partners", "tasks", "todos",
@@ -65,6 +65,8 @@ export const RESET_TABLE_LABELS: Record<string, string> = {
   todos: "To-dos",
   projects: "Projects",
   ai_order_cache: "AI orders of the day",
+  end_of_day: "End of day rows",
+  work_events: "Work events (next actions and follow-ups done, the Rosara focus done)",
   diligence_items: "Diligence items",
   job_details: "Job details",
   investor_details: "Investor details",

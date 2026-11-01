@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireOwner } from "@/lib/auth";
+import { recordWorkEvent } from "@/lib/accountability/events";
 import { addDaysISO } from "@/lib/calc/dates";
 import { loadCtx, refreshNextActionAlert, type Ctx } from "@/lib/engine/helpers";
 import { checkCommitments, releaseSupersededNextActions } from "@/lib/engine/tasks";
@@ -371,6 +372,8 @@ export async function completeNextAction(id: string, move: boolean, todoId: stri
   const item = await dealOf(sb, ctx, pipe, id);
   if (isFail(item)) return item;
   await completeActionTask(sb, ctx, item);
+  // Counted on Targets (batch C): a next action marked Done.
+  if (item.next_action) await recordWorkEvent(sb, ctx.ownerId, { kind: "next_action_done", recordType: "pipeline_items", recordId: String(item.id), label: String(item.company_name || item.name), on: ctx.today, meta: { action: String(item.next_action) } });
   if (todoId) {
     const todo = await todoOf(sb, ctx, todoId);
     if (isFail(todo)) return todo;

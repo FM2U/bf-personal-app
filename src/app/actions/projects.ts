@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireOwner } from "@/lib/auth";
+import { recordWorkEvent } from "@/lib/accountability/events";
 import { addDaysISO } from "@/lib/calc/dates";
 import { loadCtx, type Ctx } from "@/lib/engine/helpers";
 import { DB_UPDATE_NOTICE_0023, isMissingSchemaError } from "@/lib/schema-guard";
@@ -177,6 +178,8 @@ export async function completeProjectAction(id: string, taskId: string | null = 
   const { sb, ctx } = s;
   const p = await projectOf(sb, ctx, id);
   if (isFail(p)) return p;
+  // Counted on Targets (batch C): a next action marked Done.
+  if (p.next_action) await recordWorkEvent(sb, ctx.ownerId, { kind: "next_action_done", recordType: "projects", recordId: String(p.id), label: String(p.name), on: ctx.today, meta: { action: String(p.next_action) } });
   if (taskId) {
     const task = await projectTaskOf(sb, ctx, taskId);
     if (isFail(task)) return task;

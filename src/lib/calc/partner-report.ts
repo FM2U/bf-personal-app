@@ -465,10 +465,10 @@ export function escapeHtml(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
-const FONT = "font-family:Arial,Helvetica,sans-serif";
+export const FONT = "font-family:Arial,Helvetica,sans-serif";
 
 /** A progress bar as two table cells (filled and empty) with background colors: works in every email app. */
-function barHtml(pct: number | null, status: TileStatus): string {
+export function barHtml(pct: number | null, status: TileStatus): string {
   const p = pct === null ? 0 : clampPct(pct);
   const fill = p > 0 ? `<td width="${p}%" style="width:${p}%;height:4px;line-height:4px;font-size:0;background-color:${EMAIL_COLORS.bar[status]};border-radius:2px">&nbsp;</td>` : "";
   const rest = p < 100 ? `<td style="height:4px;line-height:4px;font-size:0;background-color:${EMAIL_COLORS.track}">&nbsp;</td>` : "";
@@ -480,24 +480,24 @@ function barHtml(pct: number | null, status: TileStatus): string {
  * row wraps to 2 tiles on a phone (Gmail on a phone narrows the email). The label and note keep a fixed height (2
  * lines each), so tiles in a row line up.
  */
-function tileHtml(t: Tile): string {
+export function tileHtml(t: Pick<Tile, "label" | "value" | "pct" | "status" | "note"> & { /** A small gray part after the value ("of 5"). */ small?: string }): string {
   return (
     `<div style="display:inline-block;width:100%;max-width:140px;vertical-align:top;padding:4px;box-sizing:border-box;text-align:left">` +
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;border:1px solid ${EMAIL_COLORS.border};border-radius:8px;background-color:#ffffff"><tr><td style="padding:8px 10px;${FONT}">` +
     `<div style="height:32px;overflow:hidden;font-size:12px;line-height:16px;color:${EMAIL_COLORS.muted}">${escapeHtml(t.label)}</div>` +
-    `<div style="font-size:20px;line-height:26px;font-weight:bold;white-space:nowrap;color:${t.status === "neutral" || t.status === "met" ? EMAIL_COLORS.ink : EMAIL_COLORS.text[t.status]}">${escapeHtml(t.value)}</div>` +
+    `<div style="font-size:20px;line-height:26px;font-weight:bold;white-space:nowrap;color:${t.status === "neutral" || t.status === "met" ? EMAIL_COLORS.ink : EMAIL_COLORS.text[t.status]}">${escapeHtml(t.value)}${t.small ? ` <span style="font-size:12px;font-weight:normal;color:${EMAIL_COLORS.muted}">${escapeHtml(t.small)}</span>` : ""}</div>` +
     barHtml(t.pct, t.status) +
     `<div style="height:30px;overflow:hidden;font-size:11px;line-height:15px;color:${EMAIL_COLORS.muted}">${escapeHtml(t.note)}</div>` +
     `</td></tr></table></div>`
   );
 }
 
-function tilesGridHtml(tiles: Tile[]): string {
+export function tilesGridHtml(tiles: Tile[]): string {
   // font-size:0 removes the gaps between inline-block tiles.
   return `<div style="font-size:0;line-height:0;text-align:left">${tiles.map(tileHtml).join("")}</div>`;
 }
 
-function pillHtml(o: Overall): string {
+export function pillHtml(o: Pick<Overall, "status" | "text">): string {
   return `<span style="display:inline-block;padding:4px 10px;border-radius:999px;background-color:${EMAIL_COLORS.tint[o.status]};border:1px solid ${EMAIL_COLORS.bar[o.status]};color:${EMAIL_COLORS.text[o.status]};font-size:13px;line-height:18px;font-weight:bold;white-space:nowrap;${FONT}"><span style="color:${EMAIL_COLORS.bar[o.status]}">&#9679;</span>&nbsp;${escapeHtml(o.text)}</span>`;
 }
 

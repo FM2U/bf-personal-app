@@ -14,6 +14,8 @@ import { loadProjectPage, loadRosara, loadRosaraHome, type ProjectRow } from "@/
 import { openTodos, type DealTodo } from "@/lib/work/todos";
 import type { TimelineEvent } from "@/lib/work/timeline";
 import { QUESTION_GROUPS } from "@/lib/work/questions";
+import { loadEndOfDay, loadReportsPage, loadTargetsPage } from "@/lib/accountability/data";
+import { endOfDayLines, reportsLines, targetsLines } from "@/lib/accountability/ask-ai";
 
 /**
  * What the AI reads for the Ask AI panel (batch B2): only the records of the page the panel was opened from, as
@@ -62,6 +64,9 @@ const CARD_TAGS: Record<string, string[]> = {
   "What to find out": ["question:"],
   "Weekly focus": ["focus:", "project:"],
   "Suggested next steps": [],
+  Reasons: ["target:", "listings screened:", "deals moved:", "calls:", "network outreach:", "next actions done:", "waiting on broker:"],
+  "What matters tomorrow": ["tomorrow line:", "deals moved:", "waiting on broker:", "next actions done:", "target:"],
+  Report: [],
 };
 
 export async function buildPageContext(sb: SupabaseClient, ownerId: string, c: AskContext): Promise<PageContext> {
@@ -158,6 +163,25 @@ export async function buildPageContext(sb: SupabaseClient, ownerId: string, c: A
         head = [itemLine(d.item, today), `facts: ${[d.item.location, d.item.payRange ? `pay ${d.item.payRange}` : null, d.item.source ? `source ${d.item.source}` : null, d.item.scope ? `scope: ${d.item.scope}` : null, d.item.startDate ? `start ${d.item.startDate}` : null].filter(Boolean).join(" | ")}`];
         lines = [...d.item.findOut.map((q) => `question: ${q}`), ...taskLines(d.todos), ...timelineLines(d.timeline)];
       }
+      break;
+    }
+    // Batch C: Targets, End of day, Reports read their own pages' numbers.
+    case "targets": {
+      const d = await loadTargetsPage(sb, ctx);
+      title = `Targets, ${d.weekLabel}`;
+      lines = targetsLines(d);
+      break;
+    }
+    case "end_of_day": {
+      const d = await loadEndOfDay(sb, ctx);
+      title = `End of day, ${d.dateLabel}`;
+      lines = endOfDayLines(d);
+      break;
+    }
+    case "reports": {
+      const d = await loadReportsPage(sb, ctx);
+      title = `Reports, ${d.periods[0]?.lead ?? ""}`;
+      lines = reportsLines(d);
       break;
     }
     case "todos": {

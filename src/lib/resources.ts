@@ -1424,7 +1424,7 @@ export const EXPORT_TABLES = [
   "stage_tasks", "pipeline_item_stage_extensions", "projects",
   "task_templates", "tasks", "todos", "calendar_events", "daily_plans", "daily_outcomes",
   "commitments", "missed_commitments", "reviews", "partners", "partner_links", "partner_reports",
-  "targets", "target_entries", "target_misses",
+  "targets", "target_entries", "target_misses", "end_of_day", "work_events",
   "ai_conversations", "ai_messages", "ai_proposals", "ai_usage", "ai_order_cache",
   "google_connections", "plaid_items",
   "plan_documents", "checklists", "checklist_items", "savings_ideas", "initiative_drafts", "sample_records",

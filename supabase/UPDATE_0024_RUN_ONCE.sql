@@ -1,5 +1,5 @@
 -- BF Personal App: database update 0024 (Edit batch B: Broker call after CIM review, the NDA signed default).
--- For the live database, which has 0001 to 0023. Paste this whole file into the Supabase SQL Editor and press Run.
+-- For a database that has 0001 to 0023 (the live database with 0001 to 0024 uses UPDATE_0025_RUN_ONCE.sql). Paste this whole file into the Supabase SQL Editor and press Run.
 -- Expected result: "Success. No rows returned". Safe to run more than once. Nothing is deleted: stage rows keep their ids
 -- and every deal keeps its stage. What it changes, by UPDATE only:
 --   In the acquisition pipeline, CIM review takes position 3 and Broker call position 4 (the order becomes Interested,

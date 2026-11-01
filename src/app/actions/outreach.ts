@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireOwner } from "@/lib/auth";
+import { recordWorkEvent } from "@/lib/accountability/events";
 import { addDaysISO } from "@/lib/calc/dates";
 import { loadCtx, refreshNextActionAlert, type Ctx } from "@/lib/engine/helpers";
 import { checkCommitments, releaseSupersededNextActions } from "@/lib/engine/tasks";
@@ -173,6 +174,9 @@ export async function completeFollowUp(id: string, input: { date: string | null;
   const { error } = await sb.from("contacts").update({ follow_up_date: date, follow_up_note: what ?? (date ? (person.follow_up_note as string | null) : null) }).eq("id", person.id);
   if (error) return notSaved(error);
   await settleFollowUpTask(sb, ctx, person, "done", null);
+  // Counted on Targets (batch C): a follow-up done, on time when done on or before its date (no date: on time).
+  const due = person.follow_up_date ? String(person.follow_up_date).slice(0, 10) : null;
+  await recordWorkEvent(sb, ctx.ownerId, { kind: "follow_up_done", recordType: "contacts", recordId: String(person.id), label: String(person.name), on: ctx.today, onTime: !due || ctx.today <= due, meta: { due, what: person.follow_up_note ?? null } });
   doneQuietly();
   return { ok: true, date };
 }
