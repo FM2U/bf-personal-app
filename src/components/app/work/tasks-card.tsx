@@ -2,25 +2,26 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Sparkles } from "lucide-react";
 import { useUnsavedWork } from "@/components/app/unsaved-changes";
 import type { AskContext } from "@/lib/work/ask-ai";
 import { sortTodos, todosLabel, type DealTodo } from "@/lib/work/todos";
 import { AiCardStar, AiFieldStar } from "@/components/app/work/ask-ai";
-import { RowButton, WorkCard } from "@/components/app/work/ui";
+import { AiButton, RowButton, WorkCard } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
 
 const INPUT = "h-9 w-full min-w-0 rounded-[7px] border border-input bg-white px-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
 
-type Result = { ok: true } | { ok: false; error: string };
+type Result = { ok: true } | { ok: false; error: string; /** The AI's reply (first 300 characters) when it could not be used. */ reply?: string };
 
 /**
  * Tasks (the record-page rule, batch B; the deal's "Also to do" renamed): other things to do on this record, outside
  * its one next action (they do not show on Home). Each item has a checkbox (done), a faint x (delete), and "Make
  * this the next action" (the text becomes the next action or follow-up and the item leaves the list; the old one
- * is kept as an item). "+ Add" adds a typed item; "Suggest" (deals) asks the AI for up to 5. The same card serves
- * deals, people, projects, opportunities, and consulting items; the actions come from the page. Batch B2: the purple
- * star in the header opens the Ask AI panel with this card as context; the star inside the add box writes one task.
+ * is kept as an item). "+ Add" adds a typed item; "Suggest tasks" (deals) asks the AI for up to 5 and shares the one
+ * thinking state of every AI button; when the reply cannot be used the note shows it with Try again (Edit batch B).
+ * The same card serves deals, people, projects, opportunities, and consulting items; the actions come from the page.
+ * Batch B2: the purple star in the header opens the Ask AI panel about this card; the star inside the add box writes
+ * one task.
  */
 export function TasksCard({ tasks, open, actions, placeholder, emptyText, testId = "deal-todos", ai }: {
   tasks: DealTodo[];
@@ -44,7 +45,8 @@ export function TasksCard({ tasks, open, actions, placeholder, emptyText, testId
   const [adding, setAdding] = useState(false);
   const [focused, setFocused] = useState(false);
   const [pending, start] = useTransition();
-  const [note, setNote] = useState<{ tone: "ok" | "warn"; text: string } | null>(null);
+  const [note, setNote] = useState<{ tone: "ok" | "warn"; text: string; reply?: string | null; retry?: () => void } | null>(null);
+  const [suggesting, setSuggesting] = useState(false);
   // The checkbox shows the click at once; the saved state arrives with the page re-read.
   const [ticked, setTicked] = useState<Record<string, boolean>>({});
   const [prevTasks, setPrevTasks] = useState(tasks);
@@ -54,14 +56,23 @@ export function TasksCard({ tasks, open, actions, placeholder, emptyText, testId
   }
   const list = sortTodos(tasks);
   const openCount = list.filter((t) => !t.doneAt).length;
-  const act = <R extends Result>(fn: () => Promise<R>, after?: (r: Extract<R, { ok: true }>) => void) =>
+  const act = <R extends Result>(fn: () => Promise<R>, after?: (r: Extract<R, { ok: true }>) => void, retry?: () => void) =>
     start(async () => {
       setNote(null);
       const r = await fn();
-      if (r.ok === false) return setNote({ tone: "warn", text: (r as { ok: false; error: string }).error });
+      if (r.ok === false) return setNote({ tone: "warn", text: (r as { ok: false; error: string }).error, reply: (r as { ok: false; reply?: string }).reply, retry });
       after?.(r as Extract<R, { ok: true }>);
       router.refresh();
     });
+  const suggest = () => {
+    if (!actions.suggest) return;
+    setSuggesting(true);
+    act(
+      () => actions.suggest!().finally(() => setSuggesting(false)),
+      (r) => setNote({ tone: "ok", text: r.added ? `${r.added} suggested.` : "Nothing new to add." }),
+      () => suggest(),
+    );
+  };
   useUnsavedWork(text.trim() !== "", "The task you typed is not added yet.");
   const add = () => {
     if (!text.trim()) return;
@@ -84,9 +95,9 @@ export function TasksCard({ tasks, open, actions, placeholder, emptyText, testId
               + Add
             </button>
             {actions.suggest ? (
-              <RowButton onClick={() => act(() => actions.suggest!(), (r) => setNote({ tone: "ok", text: r.added ? `${r.added} suggested.` : "Nothing new to add." }))} disabled={pending} className="h-7 px-2.5 text-xs" data-testid="todo-suggest">
-                <Sparkles className="mr-1 h-3 w-3" /> Suggest
-              </RowButton>
+              <AiButton busy={suggesting} onClick={suggest} disabled={pending} className="h-7 px-2.5 text-xs" data-testid="todo-suggest">
+                Suggest tasks
+              </AiButton>
             ) : null}
             {ai ? <AiCardStar context={{ ...ai, card: "Tasks" }} /> : null}
           </>
@@ -146,7 +157,7 @@ export function TasksCard({ tasks, open, actions, placeholder, emptyText, testId
                 }}
                 autoFocus
                 placeholder={placeholder}
-                className={cn(INPUT, ai && "pr-8")}
+                className={cn(INPUT, ai && "pr-9")}
                 data-testid="todo-input"
               />
               {ai ? <AiFieldStar context={ai} field={{ key: "task_text", label: "Task", current: text }} visible={!text.trim() || focused} onUse={setText} /> : null}
@@ -169,6 +180,20 @@ export function TasksCard({ tasks, open, actions, placeholder, emptyText, testId
         {note ? (
           <p className={cn("pt-2 text-[13px]", note.tone === "ok" ? "text-status-met" : "text-status-missed")} role="status" data-testid="todo-note">
             {note.text}
+            {note.reply ? (
+              <>
+                {" "}
+                Its reply: <q className="text-slate-700 italic" data-testid="todo-note-reply">{note.reply}</q>
+              </>
+            ) : null}
+            {note.retry ? (
+              <>
+                {" "}
+                <button type="button" onClick={note.retry} className="font-medium text-primary-strong hover:underline" data-testid="todo-note-retry">
+                  Try again
+                </button>
+              </>
+            ) : null}
           </p>
         ) : null}
       </div>

@@ -57,7 +57,7 @@ describe("the Work module's sample data", () => {
     expect(w.documents.filter((d) => d.itemId === dalton.id).map((d) => d.fileName)).toEqual(["Dalton_CIM.pdf", "Dalton_PL_2023_2025.csv"]);
     const dates = w.stageDates.find((d) => d.itemId === dalton.id)!;
     expect(dates.enteredDaysAgo).toBe(3);
-    expect(dates.history.map((h) => h.stageName)).toEqual(["Interested", "NDA signed", "Broker call"]);
+    expect(dates.history.map((h) => h.stageName)).toEqual(["Interested", "NDA signed", "CIM review"]);
   });
 
   it("has one listing with a placeholder name and no company name, and one deal with both names", () => {

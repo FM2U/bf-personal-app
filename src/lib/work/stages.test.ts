@@ -2,23 +2,27 @@ import { describe, expect, it } from "vitest";
 import { followUpDraft, dayInStage, daysLabel, daysShort, daysWaiting, doneOutcome, dueLabel, nextStageName, progressSegments, STAGE_DEFAULTS, stageIndex, waitLevel, WORK_STAGES } from "./stages";
 
 describe("the nine stages", () => {
-  it("are in the approved order with a default next action each", () => {
-    expect(WORK_STAGES).toEqual(["Interested", "NDA signed", "Broker call", "CIM review", "Seller call", "Model", "Partner presentation", "IOI or LOI", "Diligence"]);
+  it("are in the approved order (Broker call after CIM review since Edit batch B) with a default next action each", () => {
+    expect(WORK_STAGES).toEqual(["Interested", "NDA signed", "CIM review", "Broker call", "Seller call", "Model", "Partner presentation", "IOI or LOI", "Diligence"]);
     for (const s of WORK_STAGES) expect(STAGE_DEFAULTS[s].title.length).toBeGreaterThan(5);
     expect(STAGE_DEFAULTS.Interested).toMatchObject({ title: "Sign the NDA and ask the broker for a call", dueInDays: 1 });
+    expect(STAGE_DEFAULTS["NDA signed"]).toMatchObject({ title: "Ask the broker for the CIM", dueInDays: 3 });
+    expect(STAGE_DEFAULTS["Broker call"]).toMatchObject({ title: "Ask for the seller call", dueInDays: 2 });
     expect(STAGE_DEFAULTS["IOI or LOI"].dueInDays).toBe(7);
     expect(STAGE_DEFAULTS.Diligence.dueInDays).toBe(14);
   });
 
-  it("progress mark: done before, gold on the current one, gray after; all gray for Passed", () => {
-    expect(progressSegments("CIM review")).toEqual(["done", "done", "done", "current", "todo", "todo", "todo", "todo", "todo"]);
+  it("progress mark: done before, current on the current one, todo after; all todo for Passed", () => {
+    expect(progressSegments("Broker call")).toEqual(["done", "done", "done", "current", "todo", "todo", "todo", "todo", "todo"]);
+    expect(progressSegments("CIM review")).toEqual(["done", "done", "current", "todo", "todo", "todo", "todo", "todo", "todo"]);
     expect(progressSegments("Interested")[0]).toBe("current");
     expect(progressSegments("Passed").every((s) => s === "todo")).toBe(true);
     expect(stageIndex("Lost")).toBe(-1);
   });
 
   it("knows the next stage", () => {
-    expect(nextStageName("CIM review")).toBe("Seller call");
+    expect(nextStageName("CIM review")).toBe("Broker call");
+    expect(nextStageName("Broker call")).toBe("Seller call");
     expect(nextStageName("Diligence")).toBeNull();
     expect(nextStageName("Passed")).toBeNull();
   });

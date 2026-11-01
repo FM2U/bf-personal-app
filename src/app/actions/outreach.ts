@@ -234,7 +234,11 @@ export async function logCall(input: LogCallInput): Promise<{ ok: true; commId: 
   if (!who) return fail("Say who the call was with.");
   const minutesRaw = Number(String(input.minutes ?? "").replace(/[^\d.]/g, ""));
   const minutes = Number.isFinite(minutesRaw) && minutesRaw > 0 ? Math.min(1440, Math.round(minutesRaw)) : null;
-  const when = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(String(input.when ?? "")) ? localToInstant(String(input.when), ctx.tz) : new Date().toISOString();
+  // The drawer's time is to the minute. A call logged in the current minute is logged as of now (to the second), so it
+  // comes after an email sent moments earlier and the last contact reads as the call.
+  const typedWhen = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(String(input.when ?? "")) ? localToInstant(String(input.when), ctx.tz) : null;
+  const nowIso = new Date().toISOString();
+  const when = typedWhen && typedWhen.slice(0, 16) !== nowIso.slice(0, 16) ? typedWhen : nowIso;
   const said = cleanText(input.said, 4000);
   const next = clean(input.nextAction, 300);
   const row: Row = {

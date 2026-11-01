@@ -68,7 +68,7 @@ export function AddOpportunityCard({ today, onClose }: { today: string; onClose:
         <Field id={`${ids}-nextAction`} label="First next action" wide>
           <div className="flex flex-wrap items-center gap-x-3.5 gap-y-2">
             <div className="relative min-w-0 flex-1 basis-[240px]">
-              <input id={`${ids}-nextAction`} value={f.nextAction} onChange={set("nextAction")} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} placeholder="Leave empty for the stage default: ask for an introduction or a first conversation" className={cn(INPUT, "pr-8")} data-testid="opp-nextAction" />
+              <input id={`${ids}-nextAction`} value={f.nextAction} onChange={set("nextAction")} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} placeholder="Leave empty for the stage default: ask for an introduction or a first conversation" className={cn(INPUT, "pr-9")} data-testid="opp-nextAction" />
               <AiFieldStar context={ask} field={{ key: "next_action", label: "First next action", current: f.nextAction, extra: f.company ? `The opportunity: ${f.role || "a role"} at ${f.company}${f.contact ? `, contact ${f.contact}` : ""}.` : null }} visible={!f.nextAction.trim() || focused} onUse={(t) => setF((x) => ({ ...x, nextAction: t }))} />
             </div>
             <div className="flex items-center gap-2">
@@ -138,7 +138,7 @@ export function AddLeadCard({ today, onClose }: { today: string; onClose: () => 
         <Field id={`${ids}-nextAction`} label="First next action" wide>
           <div className="flex flex-wrap items-center gap-x-3.5 gap-y-2">
             <div className="relative min-w-0 flex-1 basis-[240px]">
-              <input id={`${ids}-nextAction`} value={f.nextAction} onChange={set("nextAction")} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} placeholder="Leave empty for the stage default: find out what they need and who decides" className={cn(INPUT, "pr-8")} data-testid="lead-nextAction" />
+              <input id={`${ids}-nextAction`} value={f.nextAction} onChange={set("nextAction")} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} placeholder="Leave empty for the stage default: find out what they need and who decides" className={cn(INPUT, "pr-9")} data-testid="lead-nextAction" />
               <AiFieldStar context={ask} field={{ key: "next_action", label: "First next action", current: f.nextAction, extra: f.client ? `The lead: ${f.project || "a project"} for ${f.client}${f.contact ? `, contact ${f.contact}` : ""}.` : null }} visible={!f.nextAction.trim() || focused} onUse={(t) => setF((x) => ({ ...x, nextAction: t }))} />
             </div>
             <div className="flex items-center gap-2">

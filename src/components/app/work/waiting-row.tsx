@@ -29,7 +29,7 @@ export function WaitingRow({ deal, followedUp, onFollowUp }: { deal: DealRow; fo
               Followed up. The wait starts again today.
             </Pill>
           ) : (
-            <RowButton tone="gold" onClick={onFollowUp} className="ml-auto" data-testid="follow-up-button">
+            <RowButton tone="soft" onClick={onFollowUp} className="ml-auto" data-testid="follow-up-button">
               Follow up
             </RowButton>
           )}

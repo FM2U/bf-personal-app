@@ -156,10 +156,10 @@ describe("partner report email", () => {
     expect(html).not.toMatch(/<style|<script|<img|class=|<link|javascript:/i);
     expect(html).toContain("max-width:600px");
   });
-  it("has the header with the period, the overall pill, and the gold line under it", () => {
+  it("has the header with the period, the overall pill, and the hairline under it", () => {
     expect(html).toContain("Oct 23 to Oct 29, 2026");
-    expect(html).toContain("background-color:#d9bd84");
-    expect(html.indexOf("Oct 23 to Oct 29, 2026")).toBeLessThan(html.indexOf("#d9bd84"));
+    expect(html).toContain("background-color:#d5dbe3");
+    expect(html.indexOf("Oct 23 to Oct 29, 2026")).toBeLessThan(html.indexOf("#d5dbe3"));
     const overall = combinedOverall(reportSections(input));
     expect(html).toContain(overall.text);
   });
@@ -272,10 +272,10 @@ describe("daily report content (the focused version: outcomes, progress by initi
     expect(body).toContain("- Commitments met: 2 (of 3 due)");
   });
 
-  it("the HTML keeps the tile styling, the gold line, colored outcome dots, and stays email-safe", () => {
+  it("the HTML keeps the tile styling, the hairline, colored outcome dots, and stays email-safe", () => {
     const html = reportEmailHtml(input(STARTER_TEMPLATES[1]));
     expect(html).toContain("Daily accountability report");
-    expect(html).toContain(`background-color:${EMAIL_COLORS.gold}`);
+    expect(html).toContain(`background-color:${EMAIL_COLORS.rule}`);
     expect(html).toContain("Planned outcomes");
     expect(html).toContain("Progress by initiative");
     expect(html).toContain("Changes in plan");

@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 /** "1 Outcomes, 2 Changes, 3 Report" across the top of Close the day; the current step is cobalt, earlier steps are links. */
 export function StepsBar({ current }: { current: CloseStep }) {
   return (
-    <ol className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-gold-rule pb-3" data-testid="close-steps">
+    <ol className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-rule pb-3" data-testid="close-steps">
       {CLOSE_STEPS.map((s) => {
         const active = s.step === current;
         const done = s.step < current;

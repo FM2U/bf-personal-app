@@ -542,20 +542,25 @@ google.listen(GOOGLE_PORT, () => console.log(`Mock Google listening on http://lo
 //                                  with {"listing": "invalid"} a plain sentence instead (never the fields, so the app
 //                                  shows the reply after its retry)
 //   "TASK: open_questions"      -> three groups of questions built from the deal name in the request (Interested, Suggest questions)
-//   "TASK: deal_todos"          -> three to-do lines built from the deal name (Suggest on Also to do)
-//   "TASK: next_steps"          -> three suggested next steps built from the page title (the Ask AI panel, batch B2)
+//   "TASK: deal_todos"          -> three task lines built from the deal name (Suggest tasks); with {"todos": "plain"} the same
+//                                  three lines as plain bulleted text (no JSON); with {"todos": "invalid"} a JSON object
+//                                  without a list, so the app shows the reply after its retry
+//   "TASK: next_steps"          -> three suggested next steps built from the page title (the Ask AI panel, batch B2; also
+//                                  the suggested tasks of the Tasks card star)
 //   "TASK: ask_page"            -> a bulleted answer to the question with a next action and an email draft (Ask about this page)
-//   "TASK: field_draft"         -> one line for the field named in the request (the star inside a field; "Use this")
+//   "TASK: field_draft"         -> one line for the field named in the request (the star inside a field; "Use this");
+//                                  with {"field": "plain"} the line as plain text (no JSON)
 //   "TASK: ai_order"            -> the rows of the request in reverse order with one reason each (By the AI on Home)
 //   chat (a request with tools) -> a short bulleted answer
 //   anything else               -> HTTP 400, so morning plans, review drafts, and message drafts use their templates
-// Test controls: POST /__mode {"initiative": "valid" | "invalid_once" | "invalid", "listing": "valid" | "invalid"}; GET /__calls;
+// Test controls: POST /__mode {"initiative": "valid" | "invalid_once" | "invalid", "listing": "valid" | "invalid", "todos": "valid" | "plain" | "invalid",
+// "field": "valid" | "plain", "delay": <ms before every AI reply, 0 by default>}; GET /__calls;
 // GET /__last_chat (the last chat request's system prompt and messages, to check "Ask AI about this" context); POST /__reset.
 import { createRequire } from "node:module";
 const requireCjs = createRequire(import.meta.url);
 const { mealPlanProposal } = requireCjs("./fixtures/meal-plan.cjs");
 const AI_PORT = Number(process.env.MOCK_AI_PORT || 54330);
-let aiMode = { initiative: "valid", listing: "valid" };
+let aiMode = { initiative: "valid", listing: "valid", todos: "valid", field: "valid", delay: 0 };
 let aiCalls = [];
 let invalidSent = false;
 let lastChat = null;
@@ -588,7 +593,7 @@ const ai = http.createServer(async (req, res) => {
       return send(res, 200, aiMode);
     }
     if (url.pathname === "/__reset" && req.method === "POST") {
-      aiMode = { initiative: "valid", listing: "valid" };
+      aiMode = { initiative: "valid", listing: "valid", todos: "valid", field: "valid", delay: 0 };
       aiCalls = [];
       invalidSent = false;
       return send(res, 200, { ok: true });
@@ -598,6 +603,8 @@ const ai = http.createServer(async (req, res) => {
     if (url.pathname.startsWith("/v1/models")) return send(res, 200, { data: [{ id: "mock-model", type: "model" }], has_more: false });
     if (url.pathname === "/v1/messages" && req.method === "POST") {
       const body = JSON.parse((await readRaw(req)) || "{}");
+      // A delay before the reply (the checks look at the Thinking state while the AI works).
+      if (Number(aiMode.delay) > 0) await new Promise((r) => setTimeout(r, Number(aiMode.delay)));
       const text = (body.messages ?? []).map((m) => (typeof m.content === "string" ? m.content : (m.content ?? []).map((b) => b.text ?? "").join("\n"))).join("\n");
       if (text.includes("TASK: initiative_proposal")) {
         aiCalls.push("initiative_proposal");
@@ -660,7 +667,9 @@ const ai = http.createServer(async (req, res) => {
         const deal = (text.match(/^Deal: ([^\n]+)/m) || [])[1] || "this deal";
         const listed = (text.match(/Items already listed \(do not repeat\): ([^\n]+)/) || [])[1] || "";
         const todos = [`Read the CIM of ${deal} end to end`, `Ask for the customer list of ${deal}`, `Compare ${deal} with the last two deals passed on`].filter((t) => !listed.toLowerCase().includes(t.toLowerCase()));
-        return send(res, 200, aiMessage(JSON.stringify({ todos })));
+        if (aiMode.todos === "invalid") return send(res, 200, aiMessage(JSON.stringify({ note: "Nothing to add for this deal." })));
+        if (aiMode.todos === "plain") return send(res, 200, aiMessage(`Here are a few things to do:\n${todos.map((t) => `- ${t}`).join("\n")}`));
+        return send(res, 200, aiMessage(JSON.stringify({ items: todos })));
       }
       if (text.includes("TASK: next_steps")) {
         aiCalls.push("next_steps");
@@ -700,6 +709,7 @@ const ai = http.createServer(async (req, res) => {
           [/next action/, `Call the main contact about ${page}`],
         ];
         const hit = drafts.find(([re]) => re.test(what));
+        if (aiMode.field === "plain") return send(res, 200, aiMessage(hit ? hit[1] : `Mock text for ${page}`));
         return send(res, 200, aiMessage(JSON.stringify({ text: hit ? hit[1] : `Mock text for ${page}` })));
       }
       if (text.includes("TASK: ai_order")) {

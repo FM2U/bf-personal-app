@@ -21,8 +21,10 @@
 #   (t) 0001 to 0021 (the live database on 2026-11-01) plus contacts with communications, consulting items in the old stages, a job item,
 #       and deal to-dos, then UPDATE_0022_RUN_ONCE.sql twice
 #   (u) 0001 to 0022 (the live database on 2026-11-01, evening) plus a project with a note and a job item, then UPDATE_0023_RUN_ONCE.sql twice
+#   (v) 0001 to 0023 (the live database on 2026-11-01, night) plus deals at NDA signed on the old default, at Broker call, and at CIM review,
+#       then UPDATE_0024_RUN_ONCE.sql twice
 # Paths b, c, d (UPDATE_RUN_ONCE.sql) and j, k, l also check 0014: tables, policies, functions, sample removal, and reset.
-# UPDATE_RUN_ONCE.sql now ends with 0023, so on paths b, c, d the acquisition, job, and consulting stages are the new ones (the checks allow both).
+# UPDATE_RUN_ONCE.sql now ends with 0024, so on paths b, c, d the acquisition, job, and consulting stages are the new ones (the checks allow both).
 # Every UPDATE_RUN_ONCE.sql path also checks 0012 and 0013.
 # Usage: bash supabase/tests/upgrade_test.sh
 set -euo pipefail
@@ -110,7 +112,7 @@ update public.pipeline_items set stage_id = (
   select s.id from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.name = 'Acquisitions' and s.name = 'NDA signed'
 ) where name = 'Existing deal';
 do $$
-declare v_title text := case when to_regprocedure('public.schema_has_0021()') is not null then 'Follow up with the broker for the CIM and the call' when to_regprocedure('public.schema_has_0020()') is null then 'Request CIM and financials' else 'Chase the broker for the CIM and the call' end;
+declare v_title text := case when to_regprocedure('public.schema_has_0024()') is not null then 'Ask the broker for the CIM' when to_regprocedure('public.schema_has_0021()') is not null then 'Follow up with the broker for the CIM and the call' when to_regprocedure('public.schema_has_0020()') is null then 'Request CIM and financials' else 'Chase the broker for the CIM and the call' end;
 begin
   assert (select count(*) from public.tasks where title = 'Existing deal: ' || v_title) = 1, 'stage task created on move';
   assert (select next_action from public.pipeline_items where name = 'Existing deal') = v_title, 'next action set on move';
@@ -130,7 +132,7 @@ do $$ begin
   assert (select status from public.commitments where title = 'Complete the daily close') = 'open', 'daily close commitment kept';
   assert (select status from public.commitments where title = 'Hand-marked task') = 'open', 'hand-marked commitment kept';
   assert (select count(*) from public.commitments c where c.title like 'Existing deal: %' and c.status not in ('open', 'released')) = 0, 'no deal commitment missed';
-  assert (select count(*) from public.commitments where title in ('Existing deal: Request CIM and financials', 'Existing deal: Chase the broker for the CIM and the call', 'Existing deal: Follow up with the broker for the CIM and the call') and status = 'open') = 1, 'next-action commitment for NDA signed';
+  assert (select count(*) from public.commitments where title in ('Existing deal: Request CIM and financials', 'Existing deal: Chase the broker for the CIM and the call', 'Existing deal: Follow up with the broker for the CIM and the call', 'Existing deal: Ask the broker for the CIM') and status = 'open') = 1, 'next-action commitment for NDA signed';
   assert (select count(*) from public.commitments c join public.tasks t on t.id = c.record_id join public.stage_tasks st on st.id::text = split_part(t.source_key, ':', 3)
           where t.title like 'Existing deal: %' and c.status = 'open' and not st.is_next_action_default) = 0, 'no open commitment on a task that is not the next action';
   assert (select count(*) from public.commitments where title = 'Existing deal: Request CIM' and status = 'open') = 0, 'non next-action stage task is not an open commitment';
@@ -901,6 +903,65 @@ select '0023 checks passed' as result;
 SQL
 for f in UPDATE_RUN_ONCE ALL_MIGRATIONS_RUN_ONCE; do grep -q "schema_has_0023" "$DIR/$f.sql" || { echo "$f.sql is missing 0023"; exit 1; }; done
 
+# (v) Live state on 2026-11-01 (night): 0001 to 0023 applied, deals at NDA signed (on the old default and on a typed
+# action), at Broker call, and at CIM review, then UPDATE_0024_RUN_ONCE.sql twice. Nothing is deleted: the stage ids and
+# every deal's stage stay, CIM review takes position 3 and Broker call 4, the NDA signed default and the deal on it read
+# "Ask the broker for the CIM", the typed action stays, and a future owner gets the new order.
+setup bf_upgrade_v 0023
+su postgres -c "$PSQL -d bf_upgrade_v" <<'SQL'
+\set ON_ERROR_STOP 1
+insert into public.pipeline_items (owner_id, pipeline_id, stage_id, name, screened, next_action, next_action_due)
+select p.owner_id, p.id, s.id, v.name, true, v.action, current_date + 2
+  from public.pipelines p join public.pipeline_stages s on s.pipeline_id = p.id
+  join (values ('Upgrade NDA default', 'NDA signed', 'Follow up with the broker for the CIM and the call'), ('Upgrade NDA typed', 'NDA signed', 'Send the signed NDA back'),
+               ('Upgrade broker call', 'Broker call', 'Ask for the seller call'), ('Upgrade CIM review', 'CIM review', 'Read the CIM')) as v (name, stage, action) on v.stage = s.name
+ where p.kind = 'acquisition';
+create table public.upgrade_v_before as
+  select (select count(*) from public.pipeline_items) as items, (select count(*) from public.pipeline_stages) as stages, (select count(*) from public.stage_tasks) as tasks,
+         (select s.id from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.kind = 'acquisition' and s.name = 'Broker call') as broker_id,
+         (select s.id from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.kind = 'acquisition' and s.name = 'CIM review') as cim_id;
+SQL
+for run in 1 2; do
+  echo "[bf_upgrade_v] Applying UPDATE_0024_RUN_ONCE.sql (run $run)"
+  su postgres -c "$PSQL -d bf_upgrade_v -f $DIR/UPDATE_0024_RUN_ONCE.sql"
+done
+su postgres -c "$PSQL -d bf_upgrade_v" <<'SQL'
+\set ON_ERROR_STOP 1
+do $$
+declare v_items bigint; v_stages bigint; v_tasks bigint; v_broker uuid; v_cim uuid;
+begin
+  select items, stages, tasks, broker_id, cim_id into v_items, v_stages, v_tasks, v_broker, v_cim from public.upgrade_v_before;
+  assert to_regprocedure('public.schema_has_0024()') is not null, '0024 check function';
+  assert (select count(*) from public.pipeline_items) = v_items, 'no deal deleted';
+  assert (select count(*) from public.pipeline_stages) = v_stages, 'no stage deleted';
+  assert (select count(*) from public.stage_tasks) = v_tasks, 'no stage task deleted';
+  assert (select id from public.pipeline_stages where id = v_broker and name = 'Broker call' and position = 4) is not null, 'Broker call keeps its id at position 4';
+  assert (select id from public.pipeline_stages where id = v_cim and name = 'CIM review' and position = 3) is not null, 'CIM review keeps its id at position 3';
+  assert (select string_agg(s.name, ',' order by s.position) from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.kind = 'acquisition' and s.outcome = 'open')
+         = 'Interested,NDA signed,CIM review,Broker call,Seller call,Model,Partner presentation,IOI or LOI,Diligence', 'the nine stages in the new order';
+  assert (select count(*) from public.stage_tasks where title = 'Follow up with the broker for the CIM and the call') = 0, 'the old NDA signed default is gone';
+  assert (select count(*) from public.stage_tasks st join public.pipeline_stages s on s.id = st.pipeline_stage_id where s.name = 'NDA signed' and st.title = 'Ask the broker for the CIM' and st.is_next_action_default and st.due_in_days = 3) = 1, 'the NDA signed default once, due in 3 days';
+  assert (select count(*) from public.stage_tasks st join public.pipeline_stages s on s.id = st.pipeline_stage_id where s.name = 'Broker call' and st.title = 'Ask for the seller call' and st.is_next_action_default) = 1, 'the Broker call default stays';
+  assert (select next_action from public.pipeline_items where name = 'Upgrade NDA default') = 'Ask the broker for the CIM', 'the deal on the old default gets the new text';
+  assert (select next_action_due from public.pipeline_items where name = 'Upgrade NDA default') = current_date + 2, 'its due date stays';
+  assert (select next_action from public.pipeline_items where name = 'Upgrade NDA typed') = 'Send the signed NDA back', 'a typed action stays';
+  assert (select s.name from public.pipeline_items i join public.pipeline_stages s on s.id = i.stage_id where i.name = 'Upgrade broker call') = 'Broker call', 'the Broker call deal keeps its stage';
+  assert (select s.name from public.pipeline_items i join public.pipeline_stages s on s.id = i.stage_id where i.name = 'Upgrade CIM review') = 'CIM review', 'the CIM review deal keeps its stage';
+  assert (select prosrc from pg_proc where proname = 'seed_owner_work_module') like '%(''CIM review'', 3, ''open''), (''Broker call'', 4, ''open'')%', 'the seed has the new order';
+end $$;
+-- A future owner gets the new order and the new default (the app allows one owner, so the existing one goes first).
+delete from auth.users where id = '00000000-0000-0000-0000-000000000001';
+insert into auth.users (id, email) values ('00000000-0000-0000-0000-000000000003', 'next-owner@example.com');
+do $$ begin
+  assert (select string_agg(s.name, ',' order by s.position) from public.pipeline_stages s join public.pipelines p on p.id = s.pipeline_id where p.owner_id = '00000000-0000-0000-0000-000000000003' and p.kind = 'acquisition' and s.outcome = 'open')
+         = 'Interested,NDA signed,CIM review,Broker call,Seller call,Model,Partner presentation,IOI or LOI,Diligence', 'future owner stage order';
+  assert (select count(*) from public.stage_tasks st join public.pipeline_stages s on s.id = st.pipeline_stage_id join public.pipelines p on p.id = s.pipeline_id where p.owner_id = '00000000-0000-0000-0000-000000000003' and s.name = 'NDA signed' and st.title = 'Ask the broker for the CIM') = 1, 'future owner NDA default';
+end $$;
+drop table public.upgrade_v_before;
+select '0024 checks passed' as result;
+SQL
+for f in UPDATE_RUN_ONCE ALL_MIGRATIONS_RUN_ONCE; do grep -q "schema_has_0024" "$DIR/$f.sql" || { echo "$f.sql is missing 0024"; exit 1; }; done
+
 echo "Upgrade paths passed: 0001-0007 + update twice, 0001-0008 + update, 0001-0009 + update twice, 0001-0010 + 0011 update twice,"
 echo "0001-0010 + 0011_0012 update twice, 0001-0011 + 0011_0012 update twice, 0001-0011 + 0012 update twice (edited text kept),"
 echo "0001-0012 + 0013 update twice, 0001-0012 + 0013_0014 update twice, 0001-0013 + 0013_0014 update twice, 0001-0013 + 0014 update twice,"
@@ -908,4 +969,5 @@ echo "0001-0014 + 0015 update twice, 0001-0015 + 0016 update twice (future owner
 echo "0001-0017 + 0018 update twice, 0001-0018 + 0019 update twice, 0001-0019 + 0020 update twice (future owner too),"
 echo "0001-0020 + 0021 update twice (defaults renamed, questions converted once, to-dos go with the deal, future owner too),"
 echo "0001-0021 + 0022 update twice (last contact filled, to-dos read as deal tasks, consulting and job stages reshaped, future owner too),"
-echo "0001-0022 + 0023 update twice (older notes read as notes, a finding saves with its source, the pay range saves)."
+echo "0001-0022 + 0023 update twice (older notes read as notes, a finding saves with its source, the pay range saves),"
+echo "0001-0023 + 0024 update twice (CIM review before Broker call, ids and deals kept, the NDA signed default renamed, a future owner)."

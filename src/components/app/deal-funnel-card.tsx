@@ -80,7 +80,7 @@ function StepCell({ step, index, counted }: { step: FunnelStep; index: number; c
       data-testid={`funnel-${step.key}`}
     >
       {index > 0 ? (
-        <ChevronRight aria-hidden className={cn("absolute -left-2 top-1/2 hidden size-4 -translate-y-1/2 rounded-full bg-white text-gold", index % 3 !== 0 && "sm:block", index === 3 && "xl:block")} />
+        <ChevronRight aria-hidden className={cn("absolute -left-2 top-1/2 hidden size-4 -translate-y-1/2 rounded-full bg-white text-slate-400", index % 3 !== 0 && "sm:block", index === 3 && "xl:block")} />
       ) : null}
       <span className="clamp-2 text-xs font-medium leading-4 text-slate-700 sm:min-h-8">{step.label}</span>
       <span className="tabular row-span-2 text-right text-2xl font-semibold leading-tight text-slate-900 sm:mt-1 sm:text-left" data-testid="funnel-count">
@@ -99,7 +99,7 @@ function StepCell({ step, index, counted }: { step: FunnelStep; index: number; c
       </span>
       {step.split ? (
         <span className="col-span-2 text-[11px] leading-4 text-slate-600 sm:col-span-1">
-          <span className="tabular font-medium text-gold-strong">{step.split.proprietary}</span> proprietary,{" "}
+          <span className="tabular font-medium text-primary-strong">{step.split.proprietary}</span> proprietary,{" "}
           <span className="tabular font-medium text-slate-800">{step.split.brokered}</span> brokered
           {step.split.notSet ? `, ${step.split.notSet} not set` : ""}
         </span>
@@ -113,9 +113,9 @@ function StepCell({ step, index, counted }: { step: FunnelStep; index: number; c
 /** "Suggested targets: With 2 hours a day: ..." plus how long the current targets take, with links to change them. */
 export function SuggestedTargets({ plan, className }: { plan: DealPlan; className?: string }) {
   return (
-    <div className={cn("flex flex-col gap-0.5 rounded-lg border border-gold-border bg-gold-soft/60 px-3 py-2 text-sm", className)} data-testid="suggested-targets">
+    <div className={cn("flex flex-col gap-0.5 rounded-lg border border-primary-border bg-primary-soft px-3 py-2 text-sm", className)} data-testid="suggested-targets">
       <p className="text-slate-900">
-        <span className="font-semibold text-gold-strong">Suggested targets:</span> {suggestionText(plan.suggestion)}
+        <span className="font-semibold text-primary-strong">Suggested targets:</span> {suggestionText(plan.suggestion)}
       </p>
       <p className="text-xs leading-5 text-slate-700">
         {targetTimeText(plan.suggestion)} Change the hours and minutes in{" "}

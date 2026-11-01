@@ -8,7 +8,7 @@ import { addDaysISO } from "@/lib/calc/dates";
 import { date as fmtDate } from "@/lib/format";
 import type { ProjectRow as ProjectRowData } from "@/lib/work/projects-data";
 import { dueLabel } from "@/lib/work/stages";
-import { Confirm, Due, Figure, Figures, LanePill, Line1, Line2, Name, Pill, RowButton, RowShell, What } from "@/components/app/work/ui";
+import { ActionFigures, Confirm, Due, Figure, Figures, LanePill, Line1, Line2, Name, Pill, ROW_COLS, RowButton, RowButtons, RowLink, RowShell, What } from "@/components/app/work/ui";
 
 /**
  * A project's next action with Done and Later (batch B2): on the Rosara rows, on Home with a Rosara lane pill, and
@@ -45,7 +45,7 @@ function AskDone({ project, pending, onTask, onClear }: { project: ProjectRowDat
     <Confirm tone="blue" className="mt-2" testId="next-action-ask">
       <span>Done. What is next on {project.name}?</span>
       {project.topTask ? (
-        <RowButton tone="primary" disabled={pending} onClick={() => onTask(project.topTask!.id)} className="max-w-full" title={project.topTask.text} data-testid="next-action-todo">
+        <RowButton tone="cobalt" disabled={pending} onClick={() => onTask(project.topTask!.id)} className="max-w-full" title={project.topTask.text} data-testid="next-action-todo">
           <span className="truncate">Next: {project.topTask.text}</span>
         </RowButton>
       ) : null}
@@ -61,7 +61,7 @@ function LaterChoice({ today, pending, onPick, onCancel }: { today: string; pend
   return (
     <Confirm tone="blue" className="mt-2" testId="next-action-later-choice">
       <span>Later:</span>
-      <RowButton tone="primary" disabled={pending} onClick={() => onPick(addDaysISO(today, 1))} data-testid="later-tomorrow">
+      <RowButton tone="cobalt" disabled={pending} onClick={() => onPick(addDaysISO(today, 1))} data-testid="later-tomorrow">
         Tomorrow
       </RowButton>
       <span className="flex items-center gap-1.5">
@@ -79,14 +79,14 @@ function LaterChoice({ today, pending, onPick, onCancel }: { today: string; pend
 
 function Buttons({ pending, onDone, onLater }: { pending: boolean; onDone: () => void; onLater: () => void }) {
   return (
-    <div className="flex gap-1.5">
-      <RowButton tone="primary" disabled={pending} onClick={onDone} data-testid="next-action-done">
-        {pending ? "Saving..." : "Done"}
+    <RowButtons pair>
+      <RowButton tone="cobalt" disabled={pending} onClick={onDone} className={ROW_COLS.button.cls} data-testid="next-action-done">
+        {pending ? "Saving" : "Done"}
       </RowButton>
-      <RowButton disabled={pending} onClick={onLater} data-testid="next-action-later">
+      <RowButton disabled={pending} onClick={onLater} className={ROW_COLS.button.cls} data-testid="next-action-later">
         Later
       </RowButton>
-    </div>
+    </RowButtons>
   );
 }
 
@@ -133,16 +133,20 @@ export function ProjectListRow({ project, today }: { project: ProjectRowData; to
       dataAttrs={{ "data-project": project.id }}
       right={
         <>
-          <Figures className="gap-x-6">
-            <Figure value={project.openTasks} label="Tasks" className="min-w-[48px]" testId="project-tasks" />
-            <Figure value={closed ? "Closed" : project.nextAction ? due!.text : "None"} label="Next" tone={closed || !project.nextAction ? "none" : due!.tone} className="min-w-[84px]" testId="project-next" />
+          <Figures className="gap-x-6" testId="project-figures">
+            <Figure value={project.openTasks} label="Tasks" col="count" testId="project-tasks" />
+            <Figure value={closed ? "Closed" : project.nextAction ? due!.text : "None"} label="Next" tone={closed || !project.nextAction ? "none" : due!.tone} col="nextDate" testId="project-next" />
           </Figures>
-          {closed ? null : project.nextAction ? (
+          {closed ? (
+            <RowButtons pair aria-hidden />
+          ) : project.nextAction ? (
             <Buttons pending={pending} onDone={() => (project.topTask ? setState({ kind: "ask" }) : finish())} onLater={() => setState(state.kind === "later" ? { kind: "idle" } : { kind: "later" })} />
           ) : (
-            <Link href={`/work/rosara/${project.id}#next-action`} className="inline-flex h-[30px] items-center rounded-[7px] border border-input bg-white px-[11px] text-[12.5px] font-medium whitespace-nowrap text-slate-800 hover:bg-slate-50" data-testid="set-next-action">
-              Set the next action
-            </Link>
+            <RowButtons pair>
+              <RowLink href={`/work/rosara/${project.id}#next-action`} tone="cobalt" className="w-full" data-testid="set-next-action">
+                Set the next action
+              </RowLink>
+            </RowButtons>
           )}
         </>
       }
@@ -196,9 +200,11 @@ export function ProjectActionRow({ project, today, reason }: { project: ProjectR
         testId="needs-action-row"
         dataAttrs={{ "data-project": project.id }}
         right={
-          <Link href={`/work/rosara/${project.id}#next-action`} className="inline-flex h-[30px] items-center rounded-[7px] border border-primary bg-primary px-[11px] text-[12.5px] font-medium whitespace-nowrap text-white hover:border-primary-hover hover:bg-primary-hover" data-testid="set-next-action">
-            Set next action
-          </Link>
+          <RowButtons pair>
+            <RowLink href={`/work/rosara/${project.id}#next-action`} tone="cobalt" className="w-full" data-testid="set-next-action">
+              Set next action
+            </RowLink>
+          </RowButtons>
         }
       >
         <Line1>
@@ -217,13 +223,9 @@ export function ProjectActionRow({ project, today, reason }: { project: ProjectR
       testId="project-action-row"
       dataAttrs={{ "data-project": project.id }}
       right={
-        <>
-          <Due text={due.text} tone={due.tone} testId="next-action-due" />
-          <Pill tone="quiet" className="tabular min-w-[52px] justify-end">
-            {project.nextActionMinutes ? `${project.nextActionMinutes} min` : ""}
-          </Pill>
+        <ActionFigures due={due} minutes={project.nextActionMinutes}>
           <Buttons pending={pending} onDone={() => (project.topTask ? setState({ kind: "ask" }) : finish())} onLater={() => setState(state.kind === "later" ? { kind: "idle" } : { kind: "later" })} />
-        </>
+        </ActionFigures>
       }
     >
       <Line1>

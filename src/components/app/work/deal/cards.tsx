@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Mail, Phone, Sparkles } from "lucide-react";
+import { Mail, Phone } from "lucide-react";
 import { addDealNote, addTodo, advanceDeal, deleteTodo, makeTodoNextAction, markLost, passDeal, saveFacts, saveFindings, saveNextAction, setTodoDone, suggestQuestions, suggestTodos, type FactsInput } from "@/app/actions/work";
 import { ComposeEmailDialog } from "@/components/app/compose-email";
 import { useUnsavedWork } from "@/components/app/unsaved-changes";
@@ -20,7 +20,7 @@ import { TasksCard } from "@/components/app/work/tasks-card";
 import { TimelineEvents } from "@/components/app/work/timeline-list";
 import { PassMenu } from "@/components/app/work/listing-row";
 import { LogCallDrawer } from "@/components/app/work/log-call-drawer";
-import { Pill, RowButton, WorkCard } from "@/components/app/work/ui";
+import { AiButton, Pill, RowButton, WorkCard } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
 
 /**
@@ -138,7 +138,7 @@ export function DealHeaderActions({ deal, compose, advanceTo, today, tz }: { dea
           <Phone className="mr-1.5 h-3.5 w-3.5" /> Log a call
         </RowButton>
         {open && advanceTo ? (
-          <RowButton tone="gold" onClick={() => act(() => advanceDeal(deal.id))} disabled={pending} className="h-9 px-3.5 text-[13px]" data-testid="deal-advance">
+          <RowButton tone="cobalt" onClick={() => act(() => advanceDeal(deal.id))} disabled={pending} className="h-9 px-3.5 text-[13px]" data-testid="deal-advance">
             {pending ? "Moving..." : `Advance to ${advanceTo.name}`}
           </RowButton>
         ) : null}
@@ -192,7 +192,7 @@ export function NextActionCard({ deal, today }: { deal: DealRow; today: string }
           Action
         </label>
         <div className="relative min-w-0">
-          <input id={`${ids}-a`} value={action} onChange={(e) => setAction(e.target.value)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} placeholder="What you do next on this deal" className={cn(INPUT, "pr-8")} data-testid="na-action" />
+          <input id={`${ids}-a`} value={action} onChange={(e) => setAction(e.target.value)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} placeholder="What you do next on this deal" className={cn(INPUT, "pr-9")} data-testid="na-action" />
           <AiFieldStar context={dealAsk(deal)} field={{ key: "next_action", label: "Next action", current: action }} visible={!action.trim() || focused} onUse={setAction} />
         </div>
         <label htmlFor={`${ids}-d`} className={LABEL}>
@@ -260,7 +260,7 @@ export function FindingsCard({ deal, compose }: { deal: DealRow; compose: Compos
     setQuestions(deal.openQuestions);
   }
   const [suggesting, startSuggest] = useTransition();
-  const [suggestNote, setSuggestNote] = useState<{ tone: "ok" | "warn"; text: string } | null>(null);
+  const [suggestNote, setSuggestNote] = useState<{ tone: "ok" | "warn"; text: string; reply?: string | null } | null>(null);
   const [emailOpen, setEmailOpen] = useState(false);
   const [focusLine, setFocusLine] = useState<string | null>(null);
   const [keyFocused, setKeyFocused] = useState(false);
@@ -277,7 +277,7 @@ export function FindingsCard({ deal, compose }: { deal: DealRow; compose: Compos
     setSuggestNote(null);
     startSuggest(async () => {
       const r = await suggestQuestions(deal.id);
-      if (!r.ok) return setSuggestNote({ tone: "warn", text: r.error });
+      if (!r.ok) return setSuggestNote({ tone: "warn", text: r.error, reply: r.reply });
       // Lines typed here and not saved yet stay; the AI's new lines (saved on the deal already) join them.
       setBaseline(r.questions);
       setQuestions((q) => {
@@ -300,7 +300,7 @@ export function FindingsCard({ deal, compose }: { deal: DealRow; compose: Compos
           Key finding
         </label>
         <div className="relative min-w-0">
-          <GrowingTextarea id={`${ids}-k`} value={key} onChange={setKey} onFocus={() => setKeyFocused(true)} onBlur={() => setKeyFocused(false)} placeholder="The one line that matters most" className="pr-8" data-testid="key-finding" />
+          <GrowingTextarea id={`${ids}-k`} value={key} onChange={setKey} onFocus={() => setKeyFocused(true)} onBlur={() => setKeyFocused(false)} placeholder="The one line that matters most" className="pr-9" data-testid="key-finding" />
           <AiFieldStar context={dealAsk(deal)} field={{ key: "key_finding", label: "Key finding", current: key }} visible={!key.trim() || keyFocused} onUse={setKey} className="top-[18px]" />
         </div>
         <div className={cn(LABEL, "pt-1")}>Open questions</div>
@@ -316,7 +316,7 @@ export function FindingsCard({ deal, compose }: { deal: DealRow; compose: Compos
               {questions[g.key].length ? (
                 questions[g.key].map((line, i) => (
                   <div key={`${g.key}-${i}`} className="flex items-start gap-1.5 border-t border-slate-100 py-0.5" data-testid="question-line">
-                    <span className="mt-[13px] h-1.5 w-1.5 shrink-0 rounded-full bg-gold" aria-hidden />
+                    <span className="mt-[13px] h-1.5 w-1.5 shrink-0 rounded-full bg-status-neutral-solid" aria-hidden />
                     <GrowingTextarea
                       value={line}
                       onChange={(v) => setLine(g.key, i, v.replace(/\n/g, " "))}
@@ -348,9 +348,9 @@ export function FindingsCard({ deal, compose }: { deal: DealRow; compose: Compos
         </div>
         <p className="text-xs text-muted-foreground">Filled by the AI when a listing becomes Interested. Edit anything.</p>
         <div className="flex flex-wrap items-center gap-2">
-          <RowButton onClick={suggest} disabled={suggesting || pending} data-testid="suggest-questions">
-            <Sparkles className="mr-1.5 h-3.5 w-3.5" /> {suggesting ? "Thinking..." : "Suggest questions"}
-          </RowButton>
+          <AiButton busy={suggesting} onClick={suggest} disabled={pending} data-testid="suggest-questions">
+            Suggest questions
+          </AiButton>
           {compose ? (
             <RowButton onClick={() => setEmailOpen(true)} disabled={!emailable} title={emailable ? undefined : "Add a seller or broker question first"} data-testid="email-questions">
               <Mail className="mr-1.5 h-3.5 w-3.5" /> Email these questions
@@ -359,6 +359,20 @@ export function FindingsCard({ deal, compose }: { deal: DealRow; compose: Compos
           {suggestNote ? (
             <span className={cn("text-[13px]", suggestNote.tone === "ok" ? "text-status-met" : "text-status-missed")} role="status" data-testid="suggest-note">
               {suggestNote.text}
+              {suggestNote.reply ? (
+                <>
+                  {" "}
+                  Its reply: <q className="text-slate-700 italic" data-testid="suggest-note-reply">{suggestNote.reply}</q>
+                </>
+              ) : null}
+              {suggestNote.tone === "warn" ? (
+                <>
+                  {" "}
+                  <button type="button" onClick={suggest} className="font-medium text-primary-strong hover:underline" data-testid="suggest-note-retry">
+                    Try again
+                  </button>
+                </>
+              ) : null}
             </span>
           ) : null}
         </div>
@@ -412,7 +426,7 @@ function linkLabel(url: string): string {
 export function Fact({ label, children, testId }: { label: string; children: React.ReactNode; testId?: string }) {
   return (
     <div className="flex min-w-0 flex-col gap-0.5" data-testid={testId}>
-      <span className="text-[11px] font-semibold tracking-[0.06em] text-slate-400 uppercase">{label}</span>
+      <span className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">{label}</span>
       <b className="min-w-0 text-sm font-medium break-words text-slate-900">{children}</b>
     </div>
   );
@@ -601,7 +615,7 @@ export function DecisionCard({ deal, advanceTo }: { deal: DealRow; advanceTo: St
       <div className="flex flex-col gap-2 px-[22px] pt-3 pb-5">
         <div className="flex flex-wrap items-center gap-2">
           {advanceTo ? (
-            <RowButton tone="gold" onClick={() => act(() => advanceDeal(deal.id))} disabled={pending} className="h-9 px-3.5 text-[13px]" data-testid="decision-advance">
+            <RowButton tone="cobalt" onClick={() => act(() => advanceDeal(deal.id))} disabled={pending} className="h-9 px-3.5 text-[13px]" data-testid="decision-advance">
               {pending ? "Moving..." : `Advance to ${advanceTo.name}`}
             </RowButton>
           ) : null}

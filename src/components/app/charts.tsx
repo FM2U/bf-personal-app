@@ -65,7 +65,7 @@ export function Progress({ value, tone = "primary" }: { value: number | null; to
 }
 
 /**
- * Runway trend (Home runway card): months of runway at each month end, with the target as a dashed gold line.
+ * Runway trend (Home runway card): months of runway at each month end, with the target as a dashed sky line.
  * Cobalt line; a month with no runway number (cash not decreasing, or no balance yet) is a gap.
  */
 export function RunwayTrendChart({ data, target, height = 132 }: { data: { label: string; months: number | null; now?: boolean }[]; target: number | null; height?: number }) {
@@ -80,7 +80,7 @@ export function RunwayTrendChart({ data, target, height = 132 }: { data: { label
           <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#64748b" }} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={10} />
           <YAxis domain={[0, max]} tickCount={4} allowDecimals={false} tick={{ fontSize: 10, fill: "#64748b" }} tickLine={false} axisLine={false} width={40} />
           <Tooltip formatter={(v) => (typeof v === "number" ? `${v} months` : "Not decreasing")} labelFormatter={(l) => String(l)} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-          {target ? <ReferenceLine y={target} stroke={CHART_SERIES[1]} strokeDasharray="5 4" strokeWidth={1.5} label={{ value: `Target ${target}`, position: "insideTopRight", fontSize: 10, fill: "#7a5714" }} /> : null}
+          {target ? <ReferenceLine y={target} stroke={CHART_SERIES[1]} strokeDasharray="5 4" strokeWidth={1.5} label={{ value: `Target ${target}`, position: "insideTopRight", fontSize: 10, fill: "#0369a1" }} /> : null}
           <Line type="monotone" dataKey="months" name="Runway (months)" stroke={CHART_SERIES[0]} strokeWidth={2} dot={{ r: 2, fill: CHART_SERIES[0] }} activeDot={{ r: 4 }} connectNulls={false} isAnimationActive={false} />
         </LineChart>
       </ResponsiveContainer>

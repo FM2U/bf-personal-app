@@ -138,7 +138,7 @@ function LinesTile({ title, icon: Icon, items, today, empty, action, testId }: {
   return (
     <section className="flex min-w-0 flex-col rounded-xl border border-border bg-white px-4 pb-3 pt-3.5" data-testid={testId}>
       <h3 className="mb-1.5 flex items-center gap-2 text-sm font-semibold text-slate-900">
-        <Icon aria-hidden className="h-4 w-4 text-gold" strokeWidth={1.75} />
+        <Icon aria-hidden className="h-4 w-4 text-slate-500" strokeWidth={1.75} />
         {title}
         <span className="ml-auto text-xs font-normal text-muted-foreground tabular">{items.length || ""}</span>
       </h3>
@@ -662,7 +662,7 @@ function PipelineWindow({ d, reload }: { d: Extract<OverviewData, { kind: "pipel
             {d.people.length ? (
               <section className="rounded-xl border border-border bg-white px-4 pb-3 pt-3.5">
                 <h3 className="mb-1.5 flex items-center gap-2 text-sm font-semibold text-slate-900">
-                  <Users aria-hidden className="h-4 w-4 text-gold" strokeWidth={1.75} /> People
+                  <Users aria-hidden className="h-4 w-4 text-slate-500" strokeWidth={1.75} /> People
                 </h3>
                 <ul className="flex flex-col">
                   {d.people.map((p) => (

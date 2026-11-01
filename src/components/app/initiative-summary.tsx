@@ -31,7 +31,7 @@ function Section({ title, icon: Icon, count, children, className }: { title: str
   return (
     <section className={cn("flex min-w-0 flex-col rounded-xl border border-border bg-white px-4 pb-3 pt-3.5", className)}>
       <h3 className="mb-1.5 flex items-center gap-2 text-sm font-semibold text-slate-900">
-        <Icon aria-hidden className="h-4 w-4 text-gold" strokeWidth={1.75} />
+        <Icon aria-hidden className="h-4 w-4 text-slate-500" strokeWidth={1.75} />
         {title}
         {count ? <span className="ml-auto text-xs font-normal text-muted-foreground tabular">{count}</span> : null}
       </h3>
@@ -72,12 +72,12 @@ export function SummaryContent({ s, pick, aside }: { s: InitiativeSummary; pick:
     tiles.push(
       <Section key="milestones" title="Milestones" icon={CalendarDays} count={String(s.milestones.length)}>
         <ol className="relative">
-          <span aria-hidden className="absolute bottom-3 left-[4.6rem] top-3 w-px bg-gold-border" />
+          <span aria-hidden className="absolute bottom-3 left-[4.6rem] top-3 w-px bg-border" />
           {s.milestones.map((m, i) => (
             <li key={i}>
               <Line r={m.ref} pick={pick} className="grid grid-cols-[4rem_0.75rem_minmax(0,1fr)] items-start gap-2">
                 <span className="tabular pt-px text-xs font-medium text-slate-600">{m.due ? fmtDate(m.due, "MMM d") : "No date"}</span>
-                <span aria-hidden className="relative z-10 mt-1 h-2.5 w-2.5 rounded-full border-2 border-gold bg-white" />
+                <span aria-hidden className="relative z-10 mt-1 h-2.5 w-2.5 rounded-full border-2 border-primary bg-white" />
                 <span className="clamp-2 text-sm text-slate-900">{m.title}</span>
               </Line>
             </li>

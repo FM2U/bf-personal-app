@@ -31,7 +31,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         right={
           <>
             {!notice ? (
-              <Link href={adding ? "/work/jobs" : "/work/jobs?add=1"} className={cn("inline-flex h-9 items-center rounded-[7px] border px-3.5 text-[13px] font-medium", adding ? "border-input bg-white text-slate-800 hover:bg-slate-50" : "border-primary bg-primary text-white hover:bg-primary-hover")} data-testid="add-opportunity-button">
+              <Link href={adding ? "/work/jobs" : "/work/jobs?add=1"} className={cn("inline-flex h-9 items-center rounded-[7px] border px-3.5 text-[13px] font-medium", adding ? "border-input bg-white text-slate-800 hover:bg-slate-50" : "border-primary-solid bg-primary-solid text-white hover:border-primary-solid-hover hover:bg-primary-solid-hover")} data-testid="add-opportunity-button">
                 {adding ? "Close the form" : "Add an opportunity"}
               </Link>
             ) : null}

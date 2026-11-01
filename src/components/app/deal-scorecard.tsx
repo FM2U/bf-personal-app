@@ -18,7 +18,7 @@ export function DealScorecard({ card, className }: { card: Scorecard; className?
     <section className={cn("rounded-xl border border-border bg-white px-4 pb-3 pt-3.5", className)} data-testid="deal-scorecard" aria-label="Deal scorecard">
       <div className="mb-2 flex items-center justify-between gap-2">
         <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-          <Gauge aria-hidden className="h-4 w-4 text-gold" strokeWidth={1.75} /> Deal scorecard
+          <Gauge aria-hidden className="h-4 w-4 text-slate-500" strokeWidth={1.75} /> Deal scorecard
         </h3>
         {card.open ? (
           <span className={cn("inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-semibold", STATUS_BOX[SCORE_STATUS[card.overall]], STATUS_TEXT[SCORE_STATUS[card.overall]])} data-testid="scorecard-overall" data-color={card.overall}>

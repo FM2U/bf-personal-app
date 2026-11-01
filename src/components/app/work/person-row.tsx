@@ -10,14 +10,14 @@ import { lastContactLabel, nextDateChoices, nextFollowUpLabel, orgRoleLine, purp
 import type { PersonRow as PersonRowData } from "@/lib/work/outreach-data";
 import { dueLabel } from "@/lib/work/stages";
 import { AiReason } from "@/components/app/work/project-row";
-import { Confirm, Due, Figure, Figures, LanePill, Line1, Line2, Line3, Name, Pill, RowButton, RowShell, What } from "@/components/app/work/ui";
+import { ActionFigures, Confirm, Figure, Figures, LanePill, Line1, Line2, Line3, Name, Pill, ROW_COLS, RowButton, RowButtons, RowShell, What } from "@/components/app/work/ui";
 
-/** The purpose pills of a person (Off-market deals gold, Job search blue, Consulting gray, Rosara gold). */
+/** The purpose pills of a person: Off-market deals, Job search, Consulting, Rosara, all in the one soft blue. */
 export function PurposePills({ purposes, className }: { purposes: readonly string[]; className?: string }) {
   return (
     <>
       {purposes.map((p) => (
-        <Pill key={p} tone={purposeTone(p)} className={className} testId="purpose-pill">
+        <Pill key={p} tone={purposeTone()} className={className} testId="purpose-pill">
           {purposeLabel(p)}
         </Pill>
       ))}
@@ -66,21 +66,21 @@ export function PersonRow({ person, today, onEmail, onCall, done: doneText }: { 
       right={
         asking ? undefined : (
         <>
-          <Figures className="mr-1">
-            <Figure value={last} label="Last contact" testId="person-last-contact" />
-            <Figure value={next.text} label="Next follow-up" tone={next.tone} testId="person-next-follow-up" />
+          <Figures className="mr-1" testId="person-figures">
+            <Figure value={last} label="Last contact" col="lastContact" testId="person-last-contact" />
+            <Figure value={next.text} label="Next follow-up" tone={next.tone} col="nextDate" testId="person-next-follow-up" />
           </Figures>
-          <div className="flex gap-1.5">
-            <RowButton onClick={() => onEmail(person)} data-testid="row-email">
+          <RowButtons>
+            <RowButton onClick={() => onEmail(person)} className={ROW_COLS.button.cls} data-testid="row-email">
               Email
             </RowButton>
             <RowButton onClick={() => onCall(person)} data-testid="row-log-call">
               Log a call
             </RowButton>
-            <RowButton tone="soft" disabled={pending} onClick={() => setState(asking ? { kind: "idle" } : { kind: "ask" })} data-testid="row-done">
+            <RowButton tone="cobalt" disabled={pending} onClick={() => setState(asking ? { kind: "idle" } : { kind: "ask" })} className={ROW_COLS.button.cls} data-testid="row-done">
               Done
             </RowButton>
-          </div>
+          </RowButtons>
         </>
         )
       }
@@ -116,7 +116,7 @@ export function FollowUpDoneAsk({ person, today, pending, what, setWhat, onPick,
         Done. Next follow-up with <b>{person.name}</b>:
       </span>
       {choices.map((c) => (
-        <RowButton key={c.date} tone="soft" disabled={pending} onClick={() => onPick(c.date)} data-testid="person-done-choice" data-date={c.date}>
+        <RowButton key={c.date} tone="cobalt" disabled={pending} onClick={() => onPick(c.date)} data-testid="person-done-choice" data-date={c.date}>
           {c.label((d) => fmtDate(d, "MMM d"))}
         </RowButton>
       ))}
@@ -186,17 +186,16 @@ export function OutreachActionRow({ person, today, reason }: { person: PersonRow
       dataAttrs={{ "data-person": person.id }}
       right={
         asking ? undefined : (
-        <>
-          <Due text={next.tone === "over" ? overdueText(person.nextFollowUp!, today) : next.text} tone={next.tone} testId="next-action-due" />
-          <div className="flex gap-1.5">
-            <RowButton tone="primary" disabled={pending} onClick={() => setState(asking ? { kind: "idle" } : { kind: "ask" })} data-testid="next-action-done">
-              Done
-            </RowButton>
-            <RowButton disabled={pending} onClick={() => setState(state.kind === "later" ? { kind: "idle" } : { kind: "later" })} data-testid="next-action-later">
-              Later
-            </RowButton>
-          </div>
-        </>
+          <ActionFigures due={{ text: next.tone === "over" ? overdueText(person.nextFollowUp!, today) : next.text, tone: next.tone }} minutes={null}>
+            <RowButtons pair>
+              <RowButton tone="cobalt" disabled={pending} onClick={() => setState(asking ? { kind: "idle" } : { kind: "ask" })} className={ROW_COLS.button.cls} data-testid="next-action-done">
+                Done
+              </RowButton>
+              <RowButton disabled={pending} onClick={() => setState(state.kind === "later" ? { kind: "idle" } : { kind: "later" })} className={ROW_COLS.button.cls} data-testid="next-action-later">
+                Later
+              </RowButton>
+            </RowButtons>
+          </ActionFigures>
         )
       }
     >
@@ -213,7 +212,7 @@ export function OutreachActionRow({ person, today, reason }: { person: PersonRow
       {state.kind === "later" ? (
         <Confirm tone="blue" className="mt-2" testId="next-action-later-choice">
           <span>Later:</span>
-          <RowButton tone="primary" disabled={pending} onClick={() => later(addDaysISO(today, 1))} data-testid="later-tomorrow">
+          <RowButton tone="cobalt" disabled={pending} onClick={() => later(addDaysISO(today, 1))} data-testid="later-tomorrow">
             Tomorrow
           </RowButton>
           <span className="flex items-center gap-1.5">

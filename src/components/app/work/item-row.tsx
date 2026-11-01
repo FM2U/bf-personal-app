@@ -12,7 +12,7 @@ import { daysLabel, daysShort, dueLabel } from "@/lib/work/stages";
 import { ColumnAction, ColumnCard } from "@/components/app/work/deal-columns";
 import { shortName } from "@/components/app/work/deal-list-row";
 import { AiReason } from "@/components/app/work/project-row";
-import { Confirm, Due, LanePill, Line1, Line2, Line3, Name, Pill, RowButton, RowShell, Stat, waitTone, What } from "@/components/app/work/ui";
+import { ActionFigures, Confirm, LanePill, Line1, Line2, Line3, Name, Pill, ROW_COLS, RowButton, RowButtons, RowLink, RowShell, Stat, waitTone, What } from "@/components/app/work/ui";
 
 /**
  * The rows of Job search and Consulting items (batch B2): the card in a column (opportunity: company and role, the
@@ -82,7 +82,7 @@ export function ConsultingCard({ item, today, hidden }: { item: ItemRow; today: 
 /** One item in the closed bar: name and title, the outcome with its date, the note; the fee or the location at the right. */
 export function ItemListRow({ item }: { item: ItemRow }) {
   return (
-    <RowShell href={itemHref(item)} testId="item-row" dataAttrs={{ "data-deal": item.id }} right={<Stat value={item.kind === "consulting" ? feeLabel(item.fee, item.stageName) : (item.payRange ?? "No pay range")} label={item.kind === "consulting" ? "Fee" : (item.location ?? "No location")} />}>
+    <RowShell href={itemHref(item)} testId="item-row" dataAttrs={{ "data-deal": item.id }} right={<Stat value={item.kind === "consulting" ? feeLabel(item.fee, item.stageName) : (item.payRange ?? "No pay range")} label={item.kind === "consulting" ? "Fee" : (item.location ?? "No location")} col="lastContact" />}>
       <Line1>
         <Name>{item.name}</Name>
         {item.title ? <What>{item.title}</What> : null}
@@ -134,12 +134,12 @@ function AskMove({ item, nextStage, pending, onYes, onNo, onTask }: { item: Item
         <span>Done. What is next on {item.name}?</span>
       )}
       {move ? (
-        <RowButton tone="primary" disabled={pending} onClick={onYes} data-testid="next-action-yes">
+        <RowButton tone="cobalt" disabled={pending} onClick={onYes} data-testid="next-action-yes">
           Yes
         </RowButton>
       ) : null}
       {item.topTodo ? (
-        <RowButton tone={move ? "soft" : "primary"} disabled={pending} onClick={() => onTask(item.topTodo!.id)} className="max-w-full" title={item.topTodo.text} data-testid="next-action-todo">
+        <RowButton tone={move ? "soft" : "cobalt"} disabled={pending} onClick={() => onTask(item.topTodo!.id)} className="max-w-full" title={item.topTodo.text} data-testid="next-action-todo">
           <span className="truncate">Next: {item.topTodo.text}</span>
         </RowButton>
       ) : null}
@@ -155,7 +155,7 @@ function LaterChoice({ today, pending, onPick, onCancel }: { today: string; pend
   return (
     <Confirm tone="blue" className="mt-2" testId="next-action-later-choice">
       <span>Later:</span>
-      <RowButton tone="primary" disabled={pending} onClick={() => onPick(addDaysISO(today, 1))} data-testid="later-tomorrow">
+      <RowButton tone="cobalt" disabled={pending} onClick={() => onPick(addDaysISO(today, 1))} data-testid="later-tomorrow">
         Tomorrow
       </RowButton>
       <span className="flex items-center gap-1.5">
@@ -173,14 +173,14 @@ function LaterChoice({ today, pending, onPick, onCancel }: { today: string; pend
 
 function Buttons({ pending, onDone, onLater }: { pending: boolean; onDone: () => void; onLater: () => void }) {
   return (
-    <div className="flex gap-1.5">
-      <RowButton tone="primary" disabled={pending} onClick={onDone} data-testid="next-action-done">
-        {pending ? "Saving..." : "Done"}
+    <RowButtons pair>
+      <RowButton tone="cobalt" disabled={pending} onClick={onDone} className={ROW_COLS.button.cls} data-testid="next-action-done">
+        {pending ? "Saving" : "Done"}
       </RowButton>
-      <RowButton disabled={pending} onClick={onLater} data-testid="next-action-later">
+      <RowButton disabled={pending} onClick={onLater} className={ROW_COLS.button.cls} data-testid="next-action-later">
         Later
       </RowButton>
-    </div>
+    </RowButtons>
   );
 }
 
@@ -228,9 +228,11 @@ export function ItemActionRow({ item, today, reason }: { item: ItemRow; today: s
         testId="needs-action-row"
         dataAttrs={{ "data-deal": item.id }}
         right={
-          <Link href={`${itemHref(item)}#next-action`} className="inline-flex h-[30px] items-center rounded-[7px] border border-primary bg-primary px-[11px] text-[12.5px] font-medium whitespace-nowrap text-white hover:border-primary-hover hover:bg-primary-hover" data-testid="set-next-action">
-            Set next action
-          </Link>
+          <RowButtons pair>
+            <RowLink href={`${itemHref(item)}#next-action`} tone="cobalt" className="w-full" data-testid="set-next-action">
+              Set next action
+            </RowLink>
+          </RowButtons>
         }
       >
         <Line1>
@@ -250,13 +252,9 @@ export function ItemActionRow({ item, today, reason }: { item: ItemRow; today: s
       testId="item-action-row"
       dataAttrs={{ "data-deal": item.id }}
       right={
-        <>
-          <Due text={due.text} tone={due.tone} testId="next-action-due" />
-          <Pill tone="quiet" className="tabular min-w-[52px] justify-end">
-            {item.nextActionMinutes ? `${item.nextActionMinutes} min` : ""}
-          </Pill>
+        <ActionFigures due={due} minutes={item.nextActionMinutes}>
           <Buttons pending={pending} onDone={() => (asks ? setState({ kind: "ask" }) : finish(false))} onLater={() => setState(state.kind === "later" ? { kind: "idle" } : { kind: "later" })} />
-        </>
+        </ActionFigures>
       }
     >
       <Line1>

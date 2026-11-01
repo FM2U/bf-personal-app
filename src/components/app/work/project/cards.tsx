@@ -84,7 +84,7 @@ export function ProjectNextActionCard({ project, today }: { project: ProjectRow;
           Action
         </label>
         <div className="relative min-w-0">
-          <input id={`${ids}-a`} value={action} onChange={(e) => setAction(e.target.value)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} placeholder="What you do next on this project" className={cn(INPUT, "pr-8")} data-testid="na-action" />
+          <input id={`${ids}-a`} value={action} onChange={(e) => setAction(e.target.value)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} placeholder="What you do next on this project" className={cn(INPUT, "pr-9")} data-testid="na-action" />
           <AiFieldStar context={projectAsk(project)} field={{ key: "next_action", label: "Next action", current: action }} visible={!action.trim() || focused} onUse={setAction} />
         </div>
         <label htmlFor={`${ids}-d`} className={LABEL}>
@@ -209,7 +209,7 @@ export function ProjectTimelineCard({ project, events }: { project: ProjectRow; 
       <div className="flex flex-col gap-2 px-[22px] pt-2 pb-4" data-testid="note-form">
         <div className="flex items-start gap-2">
           <div className="relative min-w-0 flex-1">
-            <GrowingTextarea id="project-note" value={note} onChange={setNote} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} minRows={1} placeholder={finding ? "The finding: one or two lines" : "Add a note or a finding"} className="pr-8" data-testid="project-note" />
+            <GrowingTextarea id="project-note" value={note} onChange={setNote} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} minRows={1} placeholder={finding ? "The finding: one or two lines" : "Add a note or a finding"} className="pr-9" data-testid="project-note" />
             <AiFieldStar context={projectAsk(project)} field={{ key: "project_note", label: "Note", current: note }} visible={!note.trim() || focused} onUse={setNote} className="top-[18px]" />
           </div>
           <RowButton tone={note.trim() ? "primary" : "outline"} disabled={pending || !note.trim()} onClick={() => run(() => addProjectNote(project.id, { body: note, finding, source }), () => { setNote(""); setSource(""); setFinding(false); })} className="h-9 shrink-0" data-testid="note-save">

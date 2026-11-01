@@ -39,7 +39,7 @@ export function TaskList({ tasks, today, showDue = true, dealTypes }: { tasks: R
             {t.status !== "done" && movedNote(t.times_moved) ? <span className="block text-xs text-status-soon">{movedNote(t.times_moved)}</span> : null}
           </div>
           <span className="flex shrink-0 items-center gap-1">
-            {dealTypes && t.pipeline_item_id && dealTypes[t.pipeline_item_id] === "proprietary" ? <Badge variant="gold">Proprietary</Badge> : null}
+            {dealTypes && t.pipeline_item_id && dealTypes[t.pipeline_item_id] === "proprietary" ? <Badge variant="soft">Proprietary</Badge> : null}
             {t.priority === 1 ? <Badge variant="warning">High</Badge> : null}
             {showDue && t.due_date ? (
               <span className={`w-20 text-right text-xs ${dueClass(t.due_date, today, t.status === "done") || "text-muted-foreground"}`}>{t.due_date === today ? "Due today" : fmtDate(t.due_date, "MMM d")}</span>

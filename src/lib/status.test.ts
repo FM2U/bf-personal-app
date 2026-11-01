@@ -63,16 +63,17 @@ describe("palette and progress helpers", () => {
     expect(progressPct(1, 0)).toBe(0);
     expect(progressPct(-1, 3)).toBe(0);
   });
-  it("chart series start cobalt then gold and wrap; every chart color equals a token in globals.css", async () => {
+  it("chart series start cobalt then sky and wrap; every chart color equals a token in globals.css; no gold token remains", async () => {
     const { seriesColor, CHART_SERIES, CHART_BASELINE, CHART_STATUS, ACCENT_HEX, MODULE_ACCENT, ACCENT_TEXT } = await import("./status");
     const fs = await import("node:fs");
     const css = fs.readFileSync(new URL("../app/globals.css", import.meta.url), "utf8").toLowerCase();
     expect(seriesColor(0)).toBe(ACCENT_HEX.cobalt);
-    expect(seriesColor(1)).toBe(ACCENT_HEX.gold);
+    expect(seriesColor(1)).toBe(ACCENT_HEX.sky);
     expect(seriesColor(5)).toBe(seriesColor(0));
     expect(seriesColor(-1)).toBe(CHART_SERIES[4]);
     expect(css).toContain(`--primary: ${ACCENT_HEX.cobalt};`);
-    expect(css).toContain(`--gold: ${ACCENT_HEX.gold};`);
+    expect(css).toContain(`--sky: ${ACCENT_HEX.sky};`);
+    expect(css).not.toMatch(/--gold|#b8862b|#7a5714|#fbf4e2|#e8d29a|#d9bd84|#92400e|#fcd34d/);
     expect(css).toContain(`--violet: ${ACCENT_HEX.violet};`);
     expect(css).toContain(`--cyan: ${ACCENT_HEX.cyan};`);
     expect(css).toContain(`--coral: ${ACCENT_HEX.coral};`);

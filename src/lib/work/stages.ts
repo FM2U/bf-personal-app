@@ -2,20 +2,21 @@
  * The acquisition stages of the Work module (pure, tested in src/lib/work/stages.test.ts): the nine working stages in
  * order, the progress mark, the wait thresholds, what Done means for a deal, and the Follow up email draft. The stage rows
  * themselves live in the database (pipeline_stages, set by database update 0020; the two defaults that said "Chase"
- * say "Follow up" since update 0021); these helpers read them by name.
+ * say "Follow up" since update 0021; Broker call moved after CIM review and the NDA signed default became "Ask the
+ * broker for the CIM" in update 0024, Edit batch B); these helpers read them by name.
  */
 import { daysBetween } from "@/lib/calc/dates";
 
 /** The nine working stages, in order. Passed, Lost, and Closed come after them and are not part of the progress mark. */
-export const WORK_STAGES = ["Interested", "NDA signed", "Broker call", "CIM review", "Seller call", "Model", "Partner presentation", "IOI or LOI", "Diligence"] as const;
+export const WORK_STAGES = ["Interested", "NDA signed", "CIM review", "Broker call", "Seller call", "Model", "Partner presentation", "IOI or LOI", "Diligence"] as const;
 export type WorkStageName = (typeof WORK_STAGES)[number];
 
-/** The default next action per stage (also in database updates 0020 and 0021; shown as the hint on the Deals stage headings). */
+/** The default next action per stage (also in database updates 0020, 0021, and 0024; shown as the hint on the Deals stage headings). */
 export const STAGE_DEFAULTS: Record<WorkStageName, { title: string; dueInDays: number; hint: string }> = {
   Interested: { title: "Sign the NDA and ask the broker for a call", dueInDays: 1, hint: "sign the NDA and ask the broker for a call" },
-  "NDA signed": { title: "Follow up with the broker for the CIM and the call", dueInDays: 3, hint: "follow up with the broker for the CIM and the call in 3 days" },
-  "Broker call": { title: "Ask for the seller call", dueInDays: 2, hint: "ask for the seller call" },
+  "NDA signed": { title: "Ask the broker for the CIM", dueInDays: 3, hint: "ask the broker for the CIM" },
   "CIM review": { title: "Write the key finding, research the market if interested, request 3 years of financials and unit economics", dueInDays: 3, hint: "key finding, market research, request 3 years of financials and unit economics" },
+  "Broker call": { title: "Ask for the seller call", dueInDays: 2, hint: "ask for the seller call" },
   "Seller call": { title: "Ask for tax returns and start the model", dueInDays: 3, hint: "ask for tax returns, start the model" },
   Model: { title: "Book the partner meeting", dueInDays: 5, hint: "book the partner meeting" },
   "Partner presentation": { title: "Submit the IOI or LOI", dueInDays: 5, hint: "submit the IOI or LOI" },
@@ -30,7 +31,7 @@ export function stageIndex(name: string | null | undefined): number {
   return (WORK_STAGES as readonly string[]).indexOf(String(name ?? ""));
 }
 
-/** The nine segments of the progress mark: "done" (cobalt) before the current stage, "current" (gold), "todo" (gray). */
+/** The nine segments of the progress mark: "done" (cobalt) before the current stage, "current" (#00F0FF with a cobalt outline), "todo" (light gray). */
 export function progressSegments(stageName: string | null | undefined): ("done" | "current" | "todo")[] {
   const i = stageIndex(stageName);
   return WORK_STAGES.map((_, n) => (i < 0 ? "todo" : n < i ? "done" : n === i ? "current" : "todo"));

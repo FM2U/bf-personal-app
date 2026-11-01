@@ -6,7 +6,7 @@ import { markInterested, passDeal } from "@/app/actions/work";
 import { date as fmtDate } from "@/lib/format";
 import { moneyShort, PASS_REASONS, type PassReason } from "@/lib/work/buy-box";
 import type { ListingRow as ListingRowData } from "@/lib/work/data";
-import { Confirm, Line1, Line2, Line3, Name, Pill, RowButton, RowShell, Stat } from "@/components/app/work/ui";
+import { Confirm, Line1, Line2, Line3, Name, Pill, ROW_COLS, RowButton, RowButtons, RowShell, Stat } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
 
 /**
@@ -62,7 +62,7 @@ export function PassMenu({ onPick, label = "Pass", pending, tone = "outline", te
 
 /**
  * One listing to screen: name and the buy box pill, what it does, source, broker and location, the three figures,
- * Pass (reason menu) and Interested (soft blue). After either the row shows one line, then leaves the list.
+ * Pass (reason menu) and Interested (soft blue), each figure in a fixed column. After either the row shows one line, then leaves the list.
  * `hidden` keeps the row in the page but out of sight (the filter pills and Find on Screen listings).
  */
 export function ListingRow({ listing, hidden = false }: { listing: ListingRowData; hidden?: boolean }) {
@@ -108,12 +108,12 @@ export function ListingRow({ listing, hidden = false }: { listing: ListingRowDat
           <Stat value={moneyShort(listing.revenue)} label="Revenue" testId="listing-revenue-stat" />
           <Stat value={listing.earnings === null ? "Not stated" : moneyShort(listing.earnings)} label={listing.earningsLabel ?? "EBITDA"} testId="listing-earnings-stat" />
           <Stat value={moneyShort(listing.askingPrice)} label="Asking" testId="listing-asking-stat" />
-          <div className="flex gap-1.5">
+          <RowButtons>
             <PassMenu onPick={pass} pending={pending} />
-            <RowButton tone="soft" onClick={interested} disabled={pending} data-testid="interested-button">
-              {pending ? "Saving..." : "Interested"}
+            <RowButton tone="soft" onClick={interested} disabled={pending} className={ROW_COLS.wideButton.cls} data-testid="interested-button">
+              {pending ? "Saving" : "Interested"}
             </RowButton>
-          </div>
+          </RowButtons>
         </>
       }
     >

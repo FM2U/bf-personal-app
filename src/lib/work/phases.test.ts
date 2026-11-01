@@ -7,21 +7,22 @@ const TODAY = "2026-10-30";
 const deal = (name: string, o: Partial<FilterableDeal> = {}): FilterableDeal => ({ name, status: "open", nextAction: "Do the thing", nextActionDue: "2026-11-03", waitLevel: "none", ...o });
 
 describe("the three phases", () => {
-  it("cover the nine stages in order, three each, with the approved names and taglines", () => {
+  it("cover the nine stages in order (Early two, Evaluate four with Broker call after CIM review, Decide three) with the approved names and taglines", () => {
     expect(PHASES.map((p) => p.name)).toEqual(["Early", "Evaluate", "Decide"]);
     expect(PHASES.map((p) => p.tagline)).toEqual(["Get the CIM", "Decide whether to bid", "Bid and close"]);
     expect(PHASES.flatMap((p) => p.stages)).toEqual([...WORK_STAGES]);
-    for (const p of PHASES) expect(p.stages).toHaveLength(3);
+    expect(PHASES.map((p) => [...p.stages])).toEqual([["Interested", "NDA signed"], ["CIM review", "Broker call", "Seller call", "Model"], ["Partner presentation", "IOI or LOI", "Diligence"]]);
   });
 
   it("group the stage groups under their phase and count the deals per phase", () => {
     const groups = WORK_STAGES.map((name, i) => ({ stage: { name }, deals: Array.from({ length: i % 3 }, (_, k) => `${name}-${k}`) }));
     const phased = groupByPhase(groups);
     expect(phased.map((p) => p.phase.key)).toEqual(["early", "evaluate", "decide"]);
-    expect(phased[0].groups.map((g) => g.stage.name)).toEqual(["Interested", "NDA signed", "Broker call"]);
+    expect(phased[0].groups.map((g) => g.stage.name)).toEqual(["Interested", "NDA signed"]);
+    expect(phased[1].groups.map((g) => g.stage.name)).toEqual(["CIM review", "Broker call", "Seller call", "Model"]);
     expect(phased[2].groups.map((g) => g.stage.name)).toEqual(["Partner presentation", "IOI or LOI", "Diligence"]);
-    // 0 + 1 + 2 deals in each phase
-    expect(phased.map((p) => p.count)).toEqual([3, 3, 3]);
+    // The deals per stage are 0, 1, 2, 0, 1, 2, 0, 1, 2: Early 1, Evaluate 5, Decide 3.
+    expect(phased.map((p) => p.count)).toEqual([1, 5, 3]);
   });
 
   it("leave out a stage that is not one of the nine and keep going when a stage is missing", () => {

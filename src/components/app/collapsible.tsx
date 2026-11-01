@@ -148,8 +148,8 @@ export function CollapsibleCard({
     <section
       className={cn(
         "relative flex break-inside-avoid flex-col rounded-xl border border-border bg-card text-card-foreground shadow-sm",
-        // Open: a 2px gold bar on the left (README UI rules, gold lines).
-        open && "before:absolute before:inset-y-3 before:-left-px before:w-0.5 before:rounded-full before:bg-gold",
+        // Open: a 2px cobalt bar on the left (README UI rules).
+        open && "before:absolute before:inset-y-3 before:-left-px before:w-0.5 before:rounded-full before:bg-primary",
         className,
       )}
       data-testid={testId ?? "collapsible-card"}

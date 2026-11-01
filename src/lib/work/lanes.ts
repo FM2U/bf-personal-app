@@ -117,10 +117,20 @@ export function validateAiOrderReply(value: unknown, keys: readonly string[]): {
   const order: string[] = [];
   const reasons: Record<string, string> = {};
   for (const item of raw as unknown[]) {
-    const key = typeof item === "string" ? item : typeof (item as { key?: unknown })?.key === "string" ? String((item as { key: string }).key) : "";
+    // A plain-text line (the reader's {items}, Edit batch B) names its key somewhere; the rest of the line is the reason.
+    const line = typeof item === "string" ? item : "";
+    const inLine = line ? keys.find((k) => line.includes(k)) : undefined;
+    const key = inLine ?? (typeof (item as { key?: unknown })?.key === "string" ? String((item as { key: string }).key) : line);
     if (!known.has(key) || order.includes(key)) continue;
     order.push(key);
-    const reason = typeof (item as { reason?: unknown })?.reason === "string" ? String((item as { reason: string }).reason).replace(/\s+/g, " ").trim().slice(0, AI_REASON_MAX_LENGTH) : "";
+    const lineReason = inLine
+      ? line
+          .replace(inLine, "")
+          .replace(/^\s*(?:\d+[.)])?\s*(?:key=)?[\s:|,.)-]*/i, "")
+          .replace(/^(?:reason:?)\s*/i, "")
+          .replace(/[\s:|,.-]+$/g, "")
+      : "";
+    const reason = (typeof (item as { reason?: unknown })?.reason === "string" ? String((item as { reason: string }).reason) : lineReason).replace(/\s+/g, " ").trim().slice(0, AI_REASON_MAX_LENGTH);
     if (reason) reasons[key] = reason;
   }
   if (!order.length) return { ok: false, error: "no key in the reply matches a row on the page" };

@@ -443,10 +443,10 @@ export function reportEmailText(input: ReportInput): { subject: string; body: st
 /** Status colors for email (the same values as the app's status tokens). */
 export const EMAIL_COLORS = {
   bar: { met: "#16a34a", soon: "#f59e0b", missed: "#dc2626", neutral: "#94a3b8" } as Record<TileStatus, string>,
-  text: { met: "#15803d", soon: "#92400e", missed: "#b91c1c", neutral: "#475569" } as Record<TileStatus, string>,
-  tint: { met: "#f0fdf4", soon: "#fffbeb", missed: "#fef2f2", neutral: "#f8fafc" } as Record<TileStatus, string>,
+  text: { met: "#15803d", soon: "#b45309", missed: "#b91c1c", neutral: "#334155" } as Record<TileStatus, string>,
+  tint: { met: "#ecfdf5", soon: "#fffbeb", missed: "#fef2f2", neutral: "#f8fafc" } as Record<TileStatus, string>,
   track: "#e2e8f0",
-  gold: "#d9bd84",
+  rule: "#d5dbe3",
   ink: "#0f172a",
   muted: "#64748b",
   border: "#e2e8f0",
@@ -502,7 +502,7 @@ function pillHtml(o: Overall): string {
 }
 
 /**
- * The visual report email: a compact header (period and the overall color with the score), the thin gold line under it,
+ * The visual report email: a compact header (period and the overall color with the score), the thin hairline under it,
  * one tile grid per template (number, label, a small progress bar, a short note; 4 per row, 2 on a phone), a short list of misses, the summary,
  * and the link to the full report. At most 600px wide; tables and inline styles only, so Gmail on a phone shows it.
  */
@@ -524,8 +524,8 @@ export function reportEmailHtml(input: ReportInput): string {
       `<td valign="middle" align="right" style="${FONT}">${pillHtml(overall)}</td>` +
       `</tr></table></td></tr>`,
   );
-  // The thin gold line under the header (the app's rule for title dividers).
-  parts.push(`<tr><td style="padding:0 20px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="height:1px;line-height:1px;font-size:0;background-color:${EMAIL_COLORS.gold}">&nbsp;</td></tr></table></td></tr>`);
+  // The thin hairline under the header (the app's rule for title dividers).
+  parts.push(`<tr><td style="padding:0 20px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="height:1px;line-height:1px;font-size:0;background-color:${EMAIL_COLORS.rule}">&nbsp;</td></tr></table></td></tr>`);
   parts.push(`<tr><td style="padding:14px 20px 4px 20px">${p(`Hello ${escapeHtml(input.partnerName)},`)}${p(`Here is my accountability report for ${escapeHtml(period)}.`)}</td></tr>`);
   for (const s of sections) {
     parts.push(
@@ -677,7 +677,7 @@ function dailyEmailHtml(input: ReportInput, sections: ReportSection[], day: DayD
       `<td valign="middle" align="right" style="${FONT}">${pillHtml(overall)}</td>` +
       `</tr></table></td></tr>`,
   );
-  parts.push(`<tr><td style="padding:0 20px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="height:1px;line-height:1px;font-size:0;background-color:${EMAIL_COLORS.gold}">&nbsp;</td></tr></table></td></tr>`);
+  parts.push(`<tr><td style="padding:0 20px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="height:1px;line-height:1px;font-size:0;background-color:${EMAIL_COLORS.rule}">&nbsp;</td></tr></table></td></tr>`);
   parts.push(`<tr><td style="padding:14px 20px 0 20px">${p(`Hello ${escapeHtml(input.partnerName)},`)}${p(`Here is my daily report for ${escapeHtml(period)}.${day.focusedHours !== null && day.focusedHours !== undefined ? ` Focused hours: ${escapeHtml(String(day.focusedHours))}.` : ""}`)}</td></tr>`);
   // Planned outcomes: a colored dot, the status word, the title, the block, and the result line.
   const outcomeRows = day.outcomes

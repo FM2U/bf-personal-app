@@ -3,7 +3,7 @@ import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf
 import { combinedOverall, dailyLevel, dayDetailOf, EMAIL_COLORS, initiativeTiles, outcomeLine, outcomesOverall, periodText, reportSections, summaryLines, type ReportInput, type Tile } from "@/lib/calc/partner-report";
 
 /**
- * The partner report as a PDF (the optional "Attach a PDF" choice when sending): the same header, gold line, tiles,
+ * The partner report as a PDF (the optional "Attach a PDF" choice when sending): the same header, hairline, tiles,
  * misses, and summary as the email. Made with pdf-lib (plain JavaScript, built-in Helvetica, no browser), so it runs
  * in a Vercel serverless function. Letter size, one or more pages.
  */
@@ -72,7 +72,7 @@ export async function reportPdf(input: ReportInput): Promise<Uint8Array> {
   const text = (s: string, x: number, size: number, opts: { font?: PDFFont; color?: string } = {}) =>
     page.drawText(pdfSafe(s), { x, y, size, font: opts.font ?? regular, color: hex(opts.color ?? EMAIL_COLORS.ink) });
 
-  // Header: label, period, overall result on the right, then the thin gold line.
+  // Header: label, period, overall result on the right, then the thin hairline.
   text(day ? "Daily accountability report" : "Accountability report", M, 10, { color: EMAIL_COLORS.muted });
   y -= 20;
   text(day ? periodText(day.date, day.date) : sections[0]?.period ?? "", M, 18, { font: bold });
@@ -82,7 +82,7 @@ export async function reportPdf(input: ReportInput): Promise<Uint8Array> {
   page.drawCircle({ x: W - M - pw + 11, y: y + 4.5, size: 4, color: hex(EMAIL_COLORS.bar[overall.status]) });
   page.drawText(pill, { x: W - M - pw + 20, y: y + 1, size: 11, font: bold, color: hex(EMAIL_COLORS.text[overall.status]) });
   y -= 16;
-  page.drawLine({ start: { x: M, y }, end: { x: W - M, y }, thickness: 1, color: hex(EMAIL_COLORS.gold) });
+  page.drawLine({ start: { x: M, y }, end: { x: W - M, y }, thickness: 1, color: hex(EMAIL_COLORS.rule) });
   y -= 22;
   text(`For ${input.partnerName}`, M, 11);
   y -= 22;

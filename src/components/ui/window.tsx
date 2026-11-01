@@ -121,8 +121,8 @@ export function WindowLayout({
     "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-accent hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
   return (
     <>
-      {/* The divider under the window title is a thin gold line (README UI rules). */}
-      <div className="flex shrink-0 items-start gap-3 border-b border-gold-rule bg-white px-4 py-3 sm:px-6">
+      {/* The divider under the window title is a thin hairline (README UI rules). */}
+      <div className="flex shrink-0 items-start gap-3 border-b border-rule bg-white px-4 py-3 sm:px-6">
         {onBack ? (
           <button
             type="button"

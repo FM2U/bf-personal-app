@@ -223,7 +223,7 @@ export default async function HomePage() {
                         </span>
                         {target ? (
                           <span className="flex items-center gap-1">
-                            <span aria-hidden className="h-0 w-3 border-t-2 border-dashed border-gold" /> Target
+                            <span aria-hidden className="h-0 w-3 border-t-2 border-dashed border-sky" /> Target
                           </span>
                         ) : null}
                       </span>

@@ -149,10 +149,47 @@ ${existing}
 Return only JSON: {"seller": ["..."], "broker": ["..."], "self": ["..."]}`;
 }
 
-/** The strict check of the AI reply for callForJson: an object with the three lists of short strings, at least one question. */
+/**
+ * A plain-text reply (the reader's {items}: its lines) as the three groups: a line that names a group ("Ask the
+ * seller", "Broker:", "Find out myself") opens that group; the lines after it belong to it; lines before any
+ * heading go to Ask the seller.
+ */
+export function questionsFromLines(lines: readonly string[]): QuestionGroups {
+  const out = emptyQuestions();
+  let group: QuestionGroupKey = "seller";
+  for (const raw of lines) {
+    const line = String(raw ?? "").trim();
+    if (!line) continue;
+    const head = line.replace(/[:.]+$/, "").toLowerCase();
+    if (head.length <= 24 && /seller|owner/.test(head)) {
+      group = "seller";
+      continue;
+    }
+    if (head.length <= 24 && /broker/.test(head)) {
+      group = "broker";
+      continue;
+    }
+    if (head.length <= 24 && /myself|self|find out/.test(head)) {
+      group = "self";
+      continue;
+    }
+    out[group].push(line);
+  }
+  return cleanQuestions(out);
+}
+
+/**
+ * The strict check of the AI reply for callForJson: an object with the three lists of short strings, at least one
+ * question. A plain-text reply read as {items} (Edit batch B) is grouped by its headings (questionsFromLines).
+ */
 export function validateQuestionsReply(value: unknown): { ok: true; value: QuestionGroups } | { ok: false; error: string } {
   if (!value || typeof value !== "object" || Array.isArray(value)) return { ok: false, error: "the reply is not a JSON object with seller, broker, and self lists" };
   const v = value as Record<string, unknown>;
+  if (Array.isArray(v.items) && v.seller === undefined && v.broker === undefined && v.self === undefined) {
+    const grouped = questionsFromLines((v.items as unknown[]).map((x) => (typeof x === "string" ? x : "")));
+    if (!countQuestions(grouped)) return { ok: false, error: "every list is empty; give at least one question" };
+    return { ok: true, value: grouped };
+  }
   const problems: string[] = [];
   for (const g of QUESTION_GROUPS) {
     const list = v[g.key];
@@ -175,17 +212,16 @@ Bram is buying a small business. List up to 5 other things to do on this deal be
 ${contextBlock(c)}
 Open questions on the deal: ${QUESTION_GROUPS.map((g) => c.existing[g.key].join("; ")).filter(Boolean).join(" | ") || "(none)"}
 Items already listed (do not repeat): ${existing}
-Return only JSON: {"todos": ["..."]}`;
+Return only JSON: {"items": ["..."]}`;
 }
 
 export const TODO_MAX_LENGTH = 200;
 
-/** The strict check of the to-do reply: {"todos": [1 to 5 short lines]}. */
+/** The strict check of the task reply: {"items": [up to 5 short lines]} (an older "todos" key or a bare list is read too); an empty list means nothing to add. */
 export function validateTodosReply(value: unknown): { ok: true; value: string[] } | { ok: false; error: string } {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return { ok: false, error: "the reply is not a JSON object with a todos list" };
-  const list = (value as Record<string, unknown>).todos;
-  if (!Array.isArray(list)) return { ok: false, error: '"todos" is missing or not a list' };
-  if (list.some((x) => typeof x !== "string")) return { ok: false, error: '"todos" holds something that is not text' };
+  const list = Array.isArray(value) ? value : value && typeof value === "object" ? ((value as Record<string, unknown>).items ?? (value as Record<string, unknown>).todos) : undefined;
+  if (!Array.isArray(list)) return { ok: false, error: 'the reply needs an "items" list of short lines' };
+  if (list.some((x) => typeof x !== "string")) return { ok: false, error: '"items" holds something that is not text' };
   const seen = new Set<string>();
   const out: string[] = [];
   for (const x of list as string[]) {
@@ -195,7 +231,6 @@ export function validateTodosReply(value: unknown): { ok: true; value: string[] 
     out.push(t);
     if (out.length === 5) break;
   }
-  if (!out.length) return { ok: false, error: "the todos list is empty; give at least one item" };
   return { ok: true, value: out };
 }
 

@@ -29,7 +29,7 @@ import { NextActionRow } from "@/components/app/work/next-action-row";
 import { OutreachActionRow, PurposePills } from "@/components/app/work/person-row";
 import { ProjectActionRow } from "@/components/app/work/project-row";
 import { useSections } from "@/components/app/work/sections";
-import { Due, FilterRow, Line1, Line2, Name, Pill, PinnedBlock, ProgressMark, RowButton, RowShell, SectionHeading, TargetBar, What, WorkCard } from "@/components/app/work/ui";
+import { Due, FilterRow, Line1, Line2, Name, Pill, PinnedBlock, ProgressMark, RowButton, RowButtons, RowLink, RowShell, SectionHeading, TargetBar, Thinking, What, WorkCard } from "@/components/app/work/ui";
 import { WaitingRow } from "@/components/app/work/waiting-row";
 import { cn } from "@/lib/utils";
 
@@ -73,12 +73,12 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
     if (data.aiOrder) setAiOrder(data.aiOrder);
   }
   const [ordering, startOrder] = useTransition();
-  const [orderError, setOrderError] = useState<string | null>(null);
+  const [orderError, setOrderError] = useState<{ error: string; reply?: string | null } | null>(null);
   const askOrder = (force: boolean) => {
     setOrderError(null);
     startOrder(async () => {
       const r = await aiOrderToday(force);
-      if (!r.ok) return setOrderError(r.error);
+      if (!r.ok) return setOrderError({ error: r.error, reply: r.reply });
       setAiOrder(r.order);
     });
   };
@@ -209,15 +209,25 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
                   <span className="text-[12.5px] font-medium tracking-[0.09em] text-violet uppercase">{aiOrder ? orderedAtLabel(aiOrder.createdAt, today, data.hourLocal) : ordering ? "Asking the AI for the order..." : "By the AI"}</span>
                   <span className="flex items-center gap-3 text-xs text-slate-400">
                     {aiOrder ? <span className="hidden sm:inline">One reason under each row</span> : null}
-                    <button type="button" onClick={() => askOrder(true)} disabled={ordering} className="font-medium text-violet hover:underline disabled:opacity-50" data-testid="ai-order-again">
-                      {ordering ? "Ordering..." : aiOrder ? "Order again" : "Ask now"}
+                    <button type="button" onClick={() => askOrder(true)} disabled={ordering} className="font-medium text-violet hover:underline disabled:text-slate-400 disabled:no-underline" data-testid="ai-order-again">
+                      {ordering ? <Thinking /> : aiOrder ? "Order again" : "Ask now"}
                     </button>
                   </span>
                 </div>
               ) : null}
               {order === "ai" && orderError ? (
                 <p className="rounded-lg border border-status-missed-border bg-status-missed-bg px-3.5 py-2 text-[13px] text-status-missed" role="alert" data-testid="ai-order-error">
-                  {orderError} Showing soonest first.
+                  {orderError.error}
+                  {orderError.reply ? (
+                    <>
+                      {" "}
+                      Its reply: <q className="text-slate-700 italic" data-testid="ai-order-error-reply">{orderError.reply}</q>
+                    </>
+                  ) : null}{" "}
+                  Showing soonest first.{" "}
+                  <button type="button" onClick={() => askOrder(true)} disabled={ordering} className="font-medium text-primary-strong hover:underline" data-testid="ai-order-retry">
+                    Try again
+                  </button>
                 </p>
               ) : null}
               {byAi ? (
@@ -342,10 +352,12 @@ function NeedsActionRow({ deal }: { deal: DealRow }) {
       dataAttrs={{ "data-deal": deal.id }}
       right={
         <>
-          {def ? <span className="text-xs text-muted-foreground">Stage default: {def}</span> : null}
-          <Link href={`/work/deals/${deal.id}`} className="inline-flex h-[30px] items-center rounded-[7px] border border-primary bg-primary px-[11px] text-[12.5px] font-medium whitespace-nowrap text-white hover:border-primary-hover hover:bg-primary-hover" data-testid="set-next-action">
-            Set next action
-          </Link>
+          {def ? <span className="max-w-[260px] truncate text-xs text-muted-foreground" title={def}>Stage default: {def}</span> : null}
+          <RowButtons pair>
+            <RowLink href={`/work/deals/${deal.id}`} tone="cobalt" className="w-full" data-testid="set-next-action">
+              Set next action
+            </RowLink>
+          </RowButtons>
         </>
       }
     >
@@ -364,7 +376,7 @@ function NeedsActionRow({ deal }: { deal: DealRow }) {
   );
 }
 
-/** The Outreach tile (batch B): the weekly counter with its gold bar, up to three people due today with Email and Log a call, the link, and the overdue count. */
+/** The Outreach tile (batch B): the weekly counter with its bar, up to three people due today with Email and Log a call, the link, and the overdue count. */
 function OutreachTile({ outreach, today, logged, onEmail, onCall }: { outreach: WorkNowData["outreach"]; today: string; logged: Record<string, string>; onEmail: (p: PersonRowData) => void; onCall: (p: PersonRowData) => void }) {
   return (
     <WorkCard title="Outreach" hint={`${outreach.due.length} due`} testId="home-outreach" pinned>

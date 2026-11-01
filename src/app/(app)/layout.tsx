@@ -28,7 +28,7 @@ export default async function AppLayout({ children, modal }: { children: React.R
     <div className="min-h-screen lg:pl-60">
       <aside className="no-print fixed inset-y-0 left-0 hidden w-60 flex-col border-r border-border bg-white px-3 py-4 lg:flex">
         <Link href="/" className="mb-6 flex items-center gap-2 px-3 text-base font-semibold tracking-tight text-slate-900">
-          <span aria-hidden className="h-2.5 w-2.5 rotate-45 rounded-[2px] bg-gold" />
+          <span aria-hidden className="h-2.5 w-2.5 rotate-45 rounded-[2px] bg-primary" />
           BF Personal App
         </Link>
         <SidebarLinks toScreen={toScreen} outreachDue={outreachDue} />
@@ -52,7 +52,7 @@ export default async function AppLayout({ children, modal }: { children: React.R
       <header className="no-print sticky top-0 z-30 border-b border-border bg-white/95 pt-3 backdrop-blur lg:hidden">
         <div className="mb-2 flex items-center justify-between px-4">
           <Link href="/" className="flex items-center gap-2 text-base font-semibold">
-            <span aria-hidden className="h-2 w-2 rotate-45 rounded-[1px] bg-gold" />
+            <span aria-hidden className="h-2 w-2 rotate-45 rounded-[1px] bg-primary" />
             BF Personal App
           </Link>
           <div className="flex items-center gap-3 text-xs">

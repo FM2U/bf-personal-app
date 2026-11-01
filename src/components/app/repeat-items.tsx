@@ -216,7 +216,7 @@ export function RepeatItem({
       className={cn(
         "@container/item relative rounded-xl border border-border bg-card shadow-sm transition-opacity",
         !included && "opacity-60",
-        open && "border-slate-300 before:absolute before:inset-y-3 before:-left-px before:w-0.5 before:rounded-full before:bg-gold",
+        open && "border-slate-300 before:absolute before:inset-y-3 before:-left-px before:w-0.5 before:rounded-full before:bg-primary",
       )}
       data-testid={testId ?? "repeat-item"}
       data-repeat-item=""

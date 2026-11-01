@@ -66,7 +66,7 @@ export function ItemHeaderActions({ item, compose, advanceTo, closeTo, today, tz
           <Phone className="mr-1.5 h-3.5 w-3.5" /> Log a call
         </RowButton>
         {open && advanceTo ? (
-          <RowButton tone="gold" onClick={() => act(() => advanceItem(item.kind, item.id))} disabled={pending} className="h-9 px-3.5 text-[13px]" data-testid="item-advance">
+          <RowButton tone="cobalt" onClick={() => act(() => advanceItem(item.kind, item.id))} disabled={pending} className="h-9 px-3.5 text-[13px]" data-testid="item-advance">
             {pending ? "Moving..." : `Advance to ${advanceTo.name}`}
           </RowButton>
         ) : null}
@@ -173,7 +173,7 @@ export function ItemNextActionCard({ item, today }: { item: ItemRow; today: stri
           Action
         </label>
         <div className="relative min-w-0">
-          <input id={`${ids}-a`} value={action} onChange={(e) => setAction(e.target.value)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} placeholder={item.kind === "job" ? "What you do next on this opportunity" : "What you do next for this client"} className={cn(INPUT, "pr-8")} data-testid="na-action" />
+          <input id={`${ids}-a`} value={action} onChange={(e) => setAction(e.target.value)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} placeholder={item.kind === "job" ? "What you do next on this opportunity" : "What you do next for this client"} className={cn(INPUT, "pr-9")} data-testid="na-action" />
           <AiFieldStar context={itemAsk(item)} field={{ key: "next_action", label: "Next action", current: action }} visible={!action.trim() || focused} onUse={setAction} />
         </div>
         <label htmlFor={`${ids}-d`} className={LABEL}>
@@ -239,7 +239,7 @@ export function FindOutCard({ item }: { item: ItemRow }) {
         {lines.length ? (
           lines.map((line, i) => (
             <div key={i} className="relative flex items-start gap-1.5 border-t border-slate-100 py-0.5 first:border-t-0" data-testid="find-out-line">
-              <span className="mt-[13px] h-1.5 w-1.5 shrink-0 rounded-full bg-gold" aria-hidden />
+              <span className="mt-[13px] h-1.5 w-1.5 shrink-0 rounded-full bg-status-neutral-solid" aria-hidden />
               <div className="relative min-w-0 flex-1">
                 <GrowingTextarea
                   value={line}
@@ -556,7 +556,7 @@ export function ItemDecisionCard({ item, advanceTo, closeTo }: { item: ItemRow; 
       <div className="flex flex-col gap-2 px-[22px] pt-3 pb-5">
         <div className="flex flex-wrap items-center gap-2">
           {advanceTo ? (
-            <RowButton tone="gold" onClick={() => act(() => advanceItem(item.kind, item.id))} disabled={pending} className="h-9 px-3.5 text-[13px]" data-testid="decision-advance">
+            <RowButton tone="cobalt" onClick={() => act(() => advanceItem(item.kind, item.id))} disabled={pending} className="h-9 px-3.5 text-[13px]" data-testid="decision-advance">
               {pending ? "Moving..." : `Advance to ${advanceTo.name}`}
             </RowButton>
           ) : null}

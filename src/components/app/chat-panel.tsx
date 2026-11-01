@@ -180,7 +180,7 @@ export function ChatPanel({ aiReady }: { aiReady: boolean }) {
       </div>
       {context ? (
         <div className="flex items-center gap-2 border-b border-border bg-primary-soft/60 px-4 py-2 text-xs" data-testid="ai-chat-context">
-          <Sparkles aria-hidden className="h-3.5 w-3.5 shrink-0 text-gold" />
+          <Sparkles aria-hidden className="h-3.5 w-3.5 shrink-0 text-violet" />
           <span className="clamp-1 min-w-0 flex-1 text-slate-800">
             About: <span className="font-medium">{context.label}</span>
           </span>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanQuestions, countQuestions, emptyQuestions, mergeQuestions, parseOpenQuestions, QUESTION_GROUPS, questionsEmailDraft, questionsPrompt, todosPrompt, validateQuestionsReply, validateTodosReply, type DealContext } from "./questions";
+import { cleanQuestions, countQuestions, emptyQuestions, mergeQuestions, parseOpenQuestions, QUESTION_GROUPS, questionsEmailDraft, questionsFromLines, questionsPrompt, todosPrompt, validateQuestionsReply, validateTodosReply, type DealContext } from "./questions";
 
 const ctx: DealContext = {
   name: "Dalton Services",
@@ -73,15 +73,25 @@ describe("open questions", () => {
     expect(validateQuestionsReply({ seller: [1], broker: [], self: [] })).toMatchObject({ ok: false, error: expect.stringContaining("not text") });
   });
 
+  it("reads a plain-text reply (the reader's items) by its group headings; lines before any heading go to the seller", () => {
+    const r = validateQuestionsReply({ items: ["Why sell now?", "Ask the broker:", "Can we get 3 years of financials?", "Are there other bidders?", "Find out myself", "Who are the local competitors?"] });
+    expect(r).toEqual({ ok: true, value: { seller: ["Why sell now?"], broker: ["Can we get 3 years of financials?", "Are there other bidders?"], self: ["Who are the local competitors?"] } });
+    expect(questionsFromLines(["Seller", "A?", "Broker", "B?"])).toEqual({ seller: ["A?"], broker: ["B?"], self: [] });
+    expect(validateQuestionsReply({ items: [] })).toMatchObject({ ok: false });
+  });
+
   it("asks for up to 5 to-dos and checks that reply too", () => {
     const p = todosPrompt(ctx, ["Ask for the customer list"]);
     expect(p).toContain("TASK: deal_todos");
     expect(p).toContain('"Ask for the customer list"');
     expect(p).toContain("Why sell now at 58?");
-    expect(validateTodosReply({ todos: ["A", " a ", "B", "C", "D", "E", "F"] })).toEqual({ ok: true, value: ["A", "B", "C", "D", "E"] });
-    expect(validateTodosReply({ todos: [] })).toMatchObject({ ok: false });
-    expect(validateTodosReply({ items: ["A"] })).toMatchObject({ ok: false, error: expect.stringContaining('"todos"') });
-    expect(validateTodosReply("A")).toMatchObject({ ok: false });
+    expect(p).toContain('{"items": ["..."]}');
+    expect(validateTodosReply({ items: ["A", " a ", "B", "C", "D", "E", "F"] })).toEqual({ ok: true, value: ["A", "B", "C", "D", "E"] });
+    expect(validateTodosReply({ todos: ["Older key"] })).toEqual({ ok: true, value: ["Older key"] });
+    expect(validateTodosReply(["Bare list"])).toEqual({ ok: true, value: ["Bare list"] });
+    expect(validateTodosReply({ items: [] })).toEqual({ ok: true, value: [] });
+    expect(validateTodosReply({ items: [1] })).toMatchObject({ ok: false, error: expect.stringContaining("not text") });
+    expect(validateTodosReply("A")).toMatchObject({ ok: false, error: expect.stringContaining('"items"') });
   });
 
   it("drafts the email with the seller and broker groups as bullets under bold headings, to the first name", () => {

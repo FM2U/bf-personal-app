@@ -336,7 +336,7 @@ function DealSourceStrip({ items, stages, tz, today, available }: { items: Row[]
       <CardHeader className="flex-row flex-wrap items-baseline justify-between gap-x-6 gap-y-1 pb-2">
         <CardTitle>Deal source</CardTitle>
         <p className="text-sm text-slate-700">
-          Proprietary share of active deals: <span className="tabular font-semibold text-gold-strong">{share === null ? "No active deals" : `${share}%`}</span>
+          Proprietary share of active deals: <span className="tabular font-semibold text-primary-strong">{share === null ? "No active deals" : `${share}%`}</span>
         </p>
       </CardHeader>
       <CardContent>

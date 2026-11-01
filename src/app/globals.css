@@ -2,12 +2,18 @@
 
 /* Light mode only. Colors follow the shadcn/ui variable names. */
 /*
- * Palette (light mode only). Every color is a token here; components use the Tailwind names in @theme below.
- * - Blue (primary, #1e40af since 2026-10-31): buttons, links, active navigation, focus rings, the Next required action card;
- *   hover and pressed #14297b.
- * - Gold (secondary accent): Proprietary badges, highlights, small accent rules, the second chart series.
- * - Status: green = met or done, amber = due soon or warnings, red = missed or overdue, gray = neutral.
- * - Accents (violet, cyan, coral): module icons and chart series only, one per module or series.
+ * Palette (light mode only; the color system approved 2026-11-01, Edit batch B). Every color is a token here;
+ * components use the Tailwind names in @theme below.
+ * - Structure, slate: headings and card titles #334155 (--heading), hairlines #d5dbe3 (--rule), labels #64748b
+ *   (--muted-foreground), the neutral pill #f1f5f9 with #334155 text, quiet marks #94a3b8 (--status-neutral-solid).
+ * - Action, cobalt: links, button text and outlines, the active tab, focus rings #1e40af (--primary); solid buttons and
+ *   the solid active menu item rest #14297b (--primary-solid) and brighten to #1e40af on hover (--primary-solid-hover).
+ * - Soft blue (option A): #eaf2ff fill, #1e40af text, #cfe0ff edge (--primary-soft, --primary-border) for lane and
+ *   purpose pills, Follow up, Interested, the active filter pill, Done on hover.
+ * - #00F0FF (--electric) only as the stage mark's current segment and the counter bar fill.
+ * - Status, only where it carries meaning: green = met or done, amber = waiting or in progress, red = overdue or urgent.
+ * - AI, purple only: the star, Ask AI, By the AI, suggestion pills, the panel (--violet, --violet-soft, --violet-rule).
+ * - Accents (sky, cyan, coral): module icons and chart series only, one per module or series. No gold, no brown.
  * Text colors pass WCAG AA (4.5:1) on white and on their own tint. "-solid" colors are for icons, bars, dots, and filled cells.
  */
 :root {
@@ -15,12 +21,18 @@
   --foreground: #0f172a;
   --card: #ffffff;
   --card-foreground: #0f172a;
-  --primary: #1e40af; /* the main blue: 8.7:1 with white text */
+  --primary: #1e40af; /* cobalt: links, outlines, the active tab, focus rings, done stage segments (8.7:1 with white text) */
   --primary-foreground: #ffffff;
-  --primary-hover: #14297b; /* hover and pressed */
-  --primary-strong: #1e40af; /* text links and active menu items: the main blue (hover darkens to --primary-hover) */
-  --primary-soft: #eef3fe;
-  --primary-border: #c7d5fb;
+  --primary-hover: #14297b; /* links and outlined controls darken on hover */
+  --primary-strong: #1e40af; /* text links and active menu items: cobalt (hover darkens to --primary-hover) */
+  --primary-solid: #14297b; /* solid buttons and the solid active menu item at rest */
+  --primary-solid-hover: #1e40af; /* solid buttons brighten on hover */
+  --primary-soft: #eaf2ff; /* soft blue A: the fill */
+  --primary-border: #cfe0ff; /* soft blue A: the edge */
+  --primary-soft-hover: #dbe8ff; /* a soft blue control on hover */
+  --electric: #00f0ff; /* only the stage mark's current segment and the counter bar fill */
+  --heading: #334155; /* section headings and card titles, small caps; the text of the neutral pill */
+  --rule: #d5dbe3; /* the hairline under card titles and section headings, the sidebar sub-menu line */
   --secondary: #f1f5f9;
   --secondary-foreground: #0f172a;
   --muted: #f1f5f9;
@@ -32,16 +44,13 @@
   --border: #e2e8f0;
   --input: #cbd5e1;
   --ring: #1e40af;
-  /* Gold: graphics use --gold (3.2:1, never for text); text uses --gold-strong (6.0:1 on --gold-soft). */
-  --gold: #b8862b;
-  --gold-strong: #7a5714;
-  --gold-soft: #fbf4e2;
-  --gold-border: #e8d29a;
-  /* Thin gold lines: the divider under window and section titles, the rules between filter columns (graphics only). */
-  --gold-rule: #d9bd84;
+  /* AI purple: the star, Ask AI, By the AI, the panel (text 5.9:1 on white); soft and rule for its fills and lines. */
+  --violet: #7c3aed;
+  --violet-soft: #fcfaff;
+  --violet-rule: #f0e8fe;
   /* Additional accents: module icons and chart series. */
-  --violet: #6d28d9;
-  --violet-soft: #f3eefd;
+  --sky: #0284c7;
+  --sky-soft: #e0f2fe;
   --cyan: #0e7c86;
   --cyan-soft: #e6f6f7;
   --coral: #e0603f;
@@ -53,22 +62,22 @@
    * missed = missed, overdue, critical (red); neutral = not started, neutral (gray).
    */
   --status-met: #15803d;
-  --status-met-bg: #f0fdf4;
+  --status-met-bg: #ecfdf5;
   --status-met-border: #bbf7d0;
   --status-met-solid: #16a34a;
-  --status-soon: #92400e;
+  --status-soon: #b45309;
   --status-soon-bg: #fffbeb;
-  --status-soon-border: #fcd34d;
+  --status-soon-border: #fde68a;
   --status-soon-solid: #f59e0b;
   --status-missed: #b91c1c;
   --status-missed-bg: #fef2f2;
   --status-missed-border: #fecaca;
   --status-missed-solid: #dc2626;
-  --status-neutral: #475569;
+  --status-neutral: #334155;
   --status-neutral-bg: #f1f5f9;
   --status-neutral-border: #e2e8f0;
   --status-neutral-solid: #94a3b8;
-  /* Next required action card: a 4px cobalt line on the left of a very light cobalt tint (gold would read as "due soon"). */
+  /* Next required action card: a 4px cobalt line on the left of a very light cobalt tint. */
   --action-stripe: #1e40af;
   --action-bg: #f4f7fe;
   color-scheme: light;
@@ -83,15 +92,19 @@
   --color-primary-foreground: var(--primary-foreground);
   --color-primary-hover: var(--primary-hover);
   --color-primary-strong: var(--primary-strong);
+  --color-primary-solid: var(--primary-solid);
+  --color-primary-solid-hover: var(--primary-solid-hover);
   --color-primary-soft: var(--primary-soft);
   --color-primary-border: var(--primary-border);
-  --color-gold: var(--gold);
-  --color-gold-strong: var(--gold-strong);
-  --color-gold-soft: var(--gold-soft);
-  --color-gold-border: var(--gold-border);
-  --color-gold-rule: var(--gold-rule);
+  --color-primary-soft-hover: var(--primary-soft-hover);
+  --color-electric: var(--electric);
+  --color-heading: var(--heading);
+  --color-rule: var(--rule);
   --color-violet: var(--violet);
   --color-violet-soft: var(--violet-soft);
+  --color-violet-rule: var(--violet-rule);
+  --color-sky: var(--sky);
+  --color-sky-soft: var(--sky-soft);
   --color-cyan: var(--cyan);
   --color-cyan-soft: var(--cyan-soft);
   --color-coral: var(--coral);

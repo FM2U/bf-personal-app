@@ -9,7 +9,7 @@ import { date as fmtDate } from "@/lib/format";
 import { dueLabel } from "@/lib/work/stages";
 import type { DealRow } from "@/lib/work/data";
 import { AiReason } from "@/components/app/work/project-row";
-import { Confirm, Due, Line1, Line2, Name, Pill, ProgressMark, RowButton, RowShell, What } from "@/components/app/work/ui";
+import { ActionFigures, Confirm, Line1, Line2, Name, ProgressMark, ROW_COLS, RowButton, RowButtons, RowShell, What } from "@/components/app/work/ui";
 
 /**
  * One next action on Home (and the Done and Later buttons of the deal page's Next action card, through `compact`).
@@ -57,14 +57,14 @@ export function NextActionRow({ deal, today, compact = false, reason }: { deal: 
   }
 
   const buttons = (
-    <div className="flex gap-1.5">
-      <RowButton tone="primary" disabled={pending} onClick={() => (asks ? setState({ kind: "ask" }) : finish(false))} data-testid="next-action-done">
-        {pending ? "Saving..." : "Done"}
+    <RowButtons pair>
+      <RowButton tone="cobalt" disabled={pending} onClick={() => (asks ? setState({ kind: "ask" }) : finish(false))} className={ROW_COLS.button.cls} data-testid="next-action-done">
+        {pending ? "Saving" : "Done"}
       </RowButton>
-      <RowButton disabled={pending} onClick={() => setState(state.kind === "later" ? { kind: "idle" } : { kind: "later" })} data-testid="next-action-later">
+      <RowButton disabled={pending} onClick={() => setState(state.kind === "later" ? { kind: "idle" } : { kind: "later" })} className={ROW_COLS.button.cls} data-testid="next-action-later">
         Later
       </RowButton>
-    </div>
+    </RowButtons>
   );
 
   if (compact) {
@@ -82,13 +82,9 @@ export function NextActionRow({ deal, today, compact = false, reason }: { deal: 
       testId="next-action-row"
       dataAttrs={{ "data-deal": deal.id }}
       right={
-        <>
-          <Due text={due.text} tone={due.tone} testId="next-action-due" />
-          <Pill tone="quiet" className="tabular min-w-[52px] justify-end">
-            {deal.nextActionMinutes ? `${deal.nextActionMinutes} min` : ""}
-          </Pill>
+        <ActionFigures due={due} minutes={deal.nextActionMinutes}>
           {buttons}
-        </>
+        </ActionFigures>
       }
     >
       <Line1>
@@ -126,12 +122,12 @@ function AskMove({ deal, pending, onYes, onNo, onTodo }: { deal: DealRow; pendin
         <span>Done. What is next on {deal.name}?</span>
       )}
       {move ? (
-        <RowButton tone="primary" disabled={pending} onClick={onYes} data-testid="next-action-yes">
+        <RowButton tone="cobalt" disabled={pending} onClick={onYes} data-testid="next-action-yes">
           Yes
         </RowButton>
       ) : null}
       {todo ? (
-        <RowButton tone={move ? "soft" : "primary"} disabled={pending} onClick={() => onTodo(todo.id)} className="max-w-full" title={todo.text} data-testid="next-action-todo">
+        <RowButton tone={move ? "soft" : "cobalt"} disabled={pending} onClick={() => onTodo(todo.id)} className="max-w-full" title={todo.text} data-testid="next-action-todo">
           <span className="truncate">Next: {todo.text}</span>
         </RowButton>
       ) : null}
@@ -147,7 +143,7 @@ function LaterChoice({ today, pending, onPick, onCancel }: { today: string; pend
   return (
     <Confirm tone="blue" className="mt-2" testId="next-action-later-choice">
       <span>Later:</span>
-      <RowButton tone="primary" disabled={pending} onClick={() => onPick(addDaysISO(today, 1))} data-testid="later-tomorrow">
+      <RowButton tone="cobalt" disabled={pending} onClick={() => onPick(addDaysISO(today, 1))} data-testid="later-tomorrow">
         Tomorrow
       </RowButton>
       <span className="flex items-center gap-1.5">

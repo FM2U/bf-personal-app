@@ -12,11 +12,11 @@ import type { WaitingRow } from "@/lib/calc/today";
 import type { Row } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-/** A section of Today: a short title with the thin gold line under it, then its rows. */
+/** A section of Today: a short title with the thin hairline under it, then its rows. */
 export function TodaySection({ title, meta, children, testId }: { title: string; meta?: React.ReactNode; children: React.ReactNode; testId?: string }) {
   return (
     <section className="flex flex-col gap-3" data-testid={testId}>
-      <h2 className="flex items-baseline justify-between gap-3 border-b border-gold-rule pb-1.5 text-sm font-semibold text-slate-900">
+      <h2 className="flex items-baseline justify-between gap-3 border-b border-rule pb-1.5 text-sm font-semibold text-slate-900">
         <span>{title}</span>
         {meta ? <span className="text-xs font-normal text-muted-foreground">{meta}</span> : null}
       </h2>

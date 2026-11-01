@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 /**
  * Screen listings (mockup v6, approved 2026-10-31): the title with Add a listing, the Work tabs, and the filter row
  * (All, Fits buy box, Does not fit, Passed, Find, Collapse all) stay at the top; the page scrolls as one. Two cards
- * with gold small-caps headings that collapse: "To screen" (the buy box line at the right, Pass and Interested on
+ * with charcoal small-caps headings that collapse: "To screen" (the buy box line at the right, Pass and Interested on
  * each row) and "Passed" (kept so no business is screened twice; collapsed by default, up to 200 rows). A filter
  * shows only the matching rows, opens the section with matches and collapses the other; Find narrows both by name.
  */

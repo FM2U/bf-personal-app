@@ -4,14 +4,14 @@ import { cn } from "@/lib/utils";
 import { STATUS_BADGE, STATUS_DOT, STATUS_TEXT, dueStatus, dueWord, type Status } from "@/lib/status";
 
 /**
- * Badge colors: default = cobalt (app color, labels such as Commitment); gold = the secondary accent (Proprietary);
+ * Badge colors: default = cobalt (app color, labels such as Commitment); soft = soft blue with its edge (Proprietary);
  * the rest are the four status colors (success = met or done, warning = due soon or today, danger = missed or overdue, neutral = gray).
  */
 const badgeVariants = cva("inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap", {
   variants: {
     variant: {
       default: "border-transparent bg-primary-soft text-primary-strong",
-      gold: "border-gold-border bg-gold-soft text-gold-strong",
+      soft: "border-primary-border bg-primary-soft text-primary-strong",
       neutral: STATUS_BADGE.neutral,
       success: STATUS_BADGE.met,
       warning: STATUS_BADGE.soon,

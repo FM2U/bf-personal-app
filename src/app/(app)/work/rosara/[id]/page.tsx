@@ -74,7 +74,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         testId="project-status-line"
         status={
           <>
-            <Pill tone={project.status === "closed" ? "charcoal" : "gold"} testId="project-pill">
+            <Pill tone={project.status === "closed" ? "charcoal" : "gray"} testId="project-pill">
               {project.status === "closed" ? "Closed" : "Rosara"}
             </Pill>
             <What>

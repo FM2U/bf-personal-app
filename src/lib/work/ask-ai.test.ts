@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { answerPrompt, contextLabel, estimateCents, estimateLabel, fieldPrompt, isRecordPage, nextStepsPrompt, SUGGESTED_QUESTIONS, trimContext, validateAnswerReply, validateFieldReply, validateNextStepsReply } from "./ask-ai";
+import { answerPrompt, contextLabel, estimateCents, estimateLabel, fieldPrompt, isRecordPage, nextStepsPrompt, panelSpec, recordNoun, splitStepLine, SUGGESTED_QUESTIONS, tasksPrompt, trimContext, validateAnswerReply, validateFieldReply, validateNextStepsReply } from "./ask-ai";
 
 describe("the Ask AI panel", () => {
   it("has three suggested questions per page and knows the record pages", () => {
@@ -38,6 +38,17 @@ describe("the Ask AI panel", () => {
     expect(validateNextStepsReply({ steps: [] }).ok).toBe(false);
     expect(validateNextStepsReply({ nope: 1 }).ok).toBe(false);
     expect(validateNextStepsReply(["Plain line"]).ok && (validateNextStepsReply(["Plain line"]) as { value: { text: string }[] }).value[0].text).toBe("Plain line");
+    // A plain-text reply read as {items}: "step: reason" and "step (reason)" split; a bare line is a step without a reason.
+    const plain = validateNextStepsReply({ items: ["Email Mark Reed: he has been quiet for 11 days", "Book the seller call (the CIM is read)", "Write the key finding"] });
+    expect(plain.ok && plain.value).toEqual([{ text: "Email Mark Reed", reason: "he has been quiet for 11 days" }, { text: "Book the seller call", reason: "the CIM is read" }, { text: "Write the key finding", reason: "" }]);
+    expect(splitStepLine("See https://example.com")).toEqual({ text: "See https://example.com", reason: "" });
+  });
+
+  it("reads a plain-text answer (the reader's items or text) as the bullets", () => {
+    const r = validateAnswerReply({ items: ["Meridian first", "Then Dalton"] });
+    expect(r.ok && r.value.bullets).toEqual(["Meridian first", "Then Dalton"]);
+    const t = validateAnswerReply({ text: "Nothing is due." });
+    expect(t.ok && t.value).toEqual({ bullets: ["Nothing is due."], nextAction: null, email: null });
   });
 
   it("checks the answer reply: bullets required, at most six, an optional next action and email", () => {
@@ -62,5 +73,55 @@ describe("the Ask AI panel", () => {
     expect(contextLabel({ label: "Work on now", card: "Next actions" })).toBe("Context: Next actions, Work on now");
     expect(contextLabel({ label: "Rosara", field: { key: "weekly_focus", label: "Weekly focus" } })).toBe("Context: the Weekly focus field, Rosara");
     expect(contextLabel({ label: "Deals" })).toBe("Context: Deals");
+  });
+});
+
+describe("the panel about a card or a field (Edit batch B, item 3)", () => {
+  const deal = { page: "deal" as const, recordId: "11111111-1111-4111-8111-111111111111", label: "Dalton Services" };
+
+  it("from the page pill: the page's questions, next steps only on a record page", () => {
+    const home = panelSpec({ page: "home", label: "Work on now" });
+    expect(home.title).toBe("Ask AI");
+    expect(home.questions).toEqual([...SUGGESTED_QUESTIONS.home]);
+    expect(home.suggest).toBeNull();
+    expect(home.askHeading).toBe("Ask about this page");
+    const d = panelSpec(deal);
+    expect(d.questions).toEqual([...SUGGESTED_QUESTIONS.deal]);
+    expect(d.suggest).toMatchObject({ kind: "next_steps", use: "Set as next action" });
+  });
+
+  it("from the Tasks card star: the title, questions about the tasks, Suggest tasks for this deal, Add as a task", () => {
+    const s = panelSpec({ ...deal, card: "Tasks" });
+    expect(s.title).toBe("Ask AI about Tasks");
+    expect(s.sub).toBe("Context: Tasks, Dalton Services");
+    expect(s.questions).toHaveLength(3);
+    expect(s.questions[1]).toBe("Which task is missing on this deal?");
+    expect(s.suggest).toEqual({ kind: "tasks", heading: "Suggested tasks", button: "Suggest tasks for this deal", use: "Add as a task" });
+    expect(s.askHeading).toBe("Ask about Tasks");
+    expect(panelSpec({ page: "person", recordId: deal.recordId, label: "Mark Reed", card: "Tasks" }).suggest?.button).toBe("Suggest tasks for this person");
+  });
+
+  it("from the Open questions and Next actions stars", () => {
+    expect(panelSpec({ ...deal, card: "Open questions" }).suggest).toMatchObject({ kind: "questions", button: "Suggest questions" });
+    const home = panelSpec({ page: "home", label: "Work on now", card: "Next actions" });
+    expect(home.title).toBe("Ask AI about Next actions");
+    expect(home.suggest).toMatchObject({ kind: "next_steps", button: "Suggest next steps" });
+    expect(home.questions[0]).toBe("Which of these should I do first?");
+  });
+
+  it("from a field star: the title names the field, questions about it, no next steps (the draft is the section)", () => {
+    const f = panelSpec({ ...deal, field: { key: "key_finding", label: "Key finding" } });
+    expect(f.title).toBe("Ask AI about the Key finding field");
+    expect(f.questions).toEqual(["What should the Key finding say?", "What is missing before the Key finding can be written?", "Write the Key finding in half the words"]);
+    expect(f.suggest).toBeNull();
+    expect(f.askHeading).toBe("Ask about the Key finding");
+  });
+
+  it("asks for tasks with the record's noun and the page context", () => {
+    const p = tasksPrompt({ title: "Deal: Dalton Services", lines: ["task: Read the CIM"] }, "deal");
+    expect(p).toContain("Suggest tasks for this deal");
+    expect(p).toContain("task: Read the CIM");
+    expect(recordNoun("consulting_item")).toBe("engagement");
+    expect(recordNoun("listings")).toBe("page");
   });
 });

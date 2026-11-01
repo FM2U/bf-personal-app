@@ -151,7 +151,7 @@ export function NextFollowUpCard({ person, today }: { person: PersonRow; today: 
           What for
         </label>
         <div className="relative min-w-0">
-          <input id={`${ids}-w`} value={what} onChange={(e) => setWhat(e.target.value)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} placeholder="What the follow-up is for" className={cn(INPUT, "pr-8")} data-testid="fu-what" />
+          <input id={`${ids}-w`} value={what} onChange={(e) => setWhat(e.target.value)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} placeholder="What the follow-up is for" className={cn(INPUT, "pr-9")} data-testid="fu-what" />
           <AiFieldStar context={personAsk(person)} field={{ key: "next_action", label: "What for", current: what }} visible={!what.trim() || focused} onUse={setWhat} />
         </div>
         <SaveLine state={dirty ? { kind: "idle" } : state}>
@@ -161,7 +161,7 @@ export function NextFollowUpCard({ person, today }: { person: PersonRow; today: 
             </RowButton>
           ) : (
             <div className="flex gap-1.5">
-              <RowButton tone="primary" disabled={acting} onClick={() => setMode(mode === "done" ? "idle" : "done")} data-testid="fu-done">
+              <RowButton tone="cobalt" disabled={acting} onClick={() => setMode(mode === "done" ? "idle" : "done")} data-testid="fu-done">
                 Done
               </RowButton>
               <RowButton disabled={acting} onClick={() => setMode(mode === "later" ? "idle" : "later")} data-testid="fu-later">
@@ -174,7 +174,7 @@ export function NextFollowUpCard({ person, today }: { person: PersonRow; today: 
           <Confirm tone="blue" testId="fu-done-ask">
             <span>Done. Next follow-up:</span>
             {choices.map((c) => (
-              <RowButton key={c.date} tone="soft" disabled={acting} onClick={() => finish(c.date)} data-testid="fu-done-choice" data-date={c.date}>
+              <RowButton key={c.date} tone="cobalt" disabled={acting} onClick={() => finish(c.date)} data-testid="fu-done-choice" data-date={c.date}>
                 {c.label((d) => fmtDate(d, "MMM d"))}
               </RowButton>
             ))}
@@ -195,7 +195,7 @@ export function NextFollowUpCard({ person, today }: { person: PersonRow; today: 
         {mode === "later" ? (
           <Confirm tone="blue" testId="fu-later-choice">
             <span>Later:</span>
-            <RowButton tone="primary" disabled={acting} onClick={() => later(addDaysISO(today, 1))} data-testid="fu-later-tomorrow">
+            <RowButton tone="cobalt" disabled={acting} onClick={() => later(addDaysISO(today, 1))} data-testid="fu-later-tomorrow">
               Tomorrow
             </RowButton>
             <span className="flex items-center gap-1.5">
@@ -427,7 +427,7 @@ export function PersonDecisionCard({ person }: { person: PersonRow }) {
               Archived
             </Pill>
             {person.archivedAt ? <span className="text-[13px] text-muted-foreground">{fmtDate(person.archivedAt, "MMM d, yyyy")}</span> : null}
-            <RowButton tone="gold" onClick={() => act(() => reopenPerson(person.id))} disabled={pending} className="h-9 px-3.5 text-[13px]" data-testid="person-reopen">
+            <RowButton tone="cobalt" onClick={() => act(() => reopenPerson(person.id))} disabled={pending} className="h-9 px-3.5 text-[13px]" data-testid="person-reopen">
               Reopen
             </RowButton>
           </>

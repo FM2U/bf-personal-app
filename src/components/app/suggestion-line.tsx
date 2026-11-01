@@ -29,7 +29,7 @@ export function SuggestionLine({ s, context, className }: { s: Suggestion; conte
   const win = s.link?.window ? parseWindowParam(s.link.window) : null;
   return (
     <div role="note" className={cn("flex items-start gap-2.5 rounded-lg border border-primary-border bg-primary-soft/70 px-3 py-2 text-sm", className)} data-testid="suggestion-line" data-key={s.key}>
-      <Lightbulb aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-gold" strokeWidth={2} />
+      <Lightbulb aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-violet" strokeWidth={2} />
       <p className="min-w-0 flex-1 text-slate-800">
         <span>{s.text}</span>
         {s.link ? (

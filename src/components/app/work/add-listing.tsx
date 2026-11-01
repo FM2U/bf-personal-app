@@ -3,12 +3,11 @@
 import { useId, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Sparkles } from "lucide-react";
 import { createListing, fillListingFromText } from "@/app/actions/work";
 import { useUnsavedWork } from "@/components/app/unsaved-changes";
 import { LISTING_SOURCES } from "@/lib/work/buy-box";
 import { EMPTY_LISTING_FIELDS, LISTING_TEXT_MAX, type ListingFields } from "@/lib/work/listing-text";
-import { RowButton, WorkCard } from "@/components/app/work/ui";
+import { AiButton, RowButton, WorkCard } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
 
 const INPUT = "h-9 w-full min-w-0 rounded-[7px] border border-input bg-white px-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
@@ -26,7 +25,7 @@ export function AddListingButton({ open }: { open: boolean }) {
   return (
     <Link
       href={open ? "/work/listings" : "/work/listings?add=1"}
-      className={cn("inline-flex h-9 items-center rounded-[7px] border px-3.5 text-[13px] font-medium", open ? "border-input bg-white text-slate-800 hover:bg-slate-50" : "border-primary bg-primary text-white hover:bg-primary-hover")}
+      className={cn("inline-flex h-9 items-center rounded-[7px] border px-3.5 text-[13px] font-medium", open ? "border-input bg-white text-slate-800 hover:bg-slate-50" : "border-primary-solid bg-primary-solid text-white hover:border-primary-solid-hover hover:bg-primary-solid-hover")}
       data-testid="add-listing-button"
     >
       {open ? "Close the form" : "Add a listing"}
@@ -87,9 +86,9 @@ export function AddListingCard() {
             <div className="flex flex-col gap-2 sm:col-span-2 lg:col-span-4">
               <textarea id={`${ids}-text`} value={text} onChange={(e) => setText(e.target.value.slice(0, LISTING_TEXT_MAX))} rows={4} placeholder="Paste the email or the page here" className={cn(INPUT, "h-auto min-h-[72px] resize-y py-2")} data-testid="listing-text" />
               <div className="flex items-center gap-3">
-                <RowButton onClick={fill} disabled={filling || text.trim().length < 20} data-testid="listing-fill">
-                  <Sparkles className="mr-1.5 h-3.5 w-3.5" /> {filling ? "Reading..." : "Fill from text"}
-                </RowButton>
+                <AiButton busy={filling} onClick={fill} disabled={text.trim().length < 20} data-testid="listing-fill">
+                  Fill from text
+                </AiButton>
                 <span className="text-xs text-muted-foreground">The AI fills the empty fields below. Check them, then save.</span>
               </div>
               {error && reply !== null ? (

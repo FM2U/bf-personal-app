@@ -24,7 +24,7 @@ function Tile({ title, icon: Icon, children, className, testId }: { title: strin
   return (
     <section className={cn("flex min-w-0 flex-col rounded-xl border border-border bg-white px-4 pb-3 pt-3.5", className)} data-testid={testId}>
       <h3 className="mb-1.5 flex items-center gap-2 text-sm font-semibold text-slate-900">
-        <Icon aria-hidden className="h-4 w-4 text-gold" strokeWidth={1.75} />
+        <Icon aria-hidden className="h-4 w-4 text-slate-500" strokeWidth={1.75} />
         {title}
       </h3>
       {children}

@@ -227,7 +227,7 @@ export async function ensureReportMeasures(ctx: Ctx, report: Row): Promise<Row> 
 }
 
 /**
- * The report email built from one or two templates: the visual HTML (tiles, misses, gold line under the header) and
+ * The report email built from one or two templates: the visual HTML (tiles, misses, the hairline under the header) and
  * the plain text part (src/lib/calc/partner-report.ts). Used by Send now, Save to Gmail drafts, finalize, and the preview.
  */
 export function templateReportEmail(partner: Row, report: Row, link: string | null, templates: ReportTemplate[]): { subject: string; body: string; html: string } {

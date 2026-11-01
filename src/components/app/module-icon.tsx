@@ -25,7 +25,7 @@ export type ModuleKey = keyof typeof MODULE_ICONS;
 
 /**
  * 16px line icon for a module in the module's accent color (src/lib/status.ts MODULE_ACCENT: Plan and Accountability
- * violet, Finance gold, Opportunities coral, People cyan, Productivity cobalt, Home and Settings gray).
+ * violet, Finance sky, Opportunities coral, People cyan, Productivity cobalt, Home and Settings gray).
  * Decorative: the title next to it says what it is.
  */
 export function ModuleIcon({ module, className }: { module: ModuleKey; className?: string }) {

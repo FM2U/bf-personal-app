@@ -8,7 +8,7 @@ import { addDaysISO } from "@/lib/calc/dates";
 import type { AskContext } from "@/lib/work/ask-ai";
 import { matchesProjectFilter, matchesProjectSearch, PROJECT_FILTERS, PROJECT_SECTIONS, projectFilterCounts, projectSections, type ProjectFilter } from "@/lib/work/projects";
 import type { ProjectRow, RosaraData } from "@/lib/work/projects-data";
-import { AiCardStar, AiFieldStar } from "@/components/app/work/ask-ai";
+import { AiFieldStar } from "@/components/app/work/ask-ai";
 import { ProjectListRow } from "@/components/app/work/project-row";
 import { useSections } from "@/components/app/work/sections";
 import { FilterRow, RowButton, SectionHeading, WorkCard } from "@/components/app/work/ui";
@@ -52,7 +52,7 @@ export function RosaraBoard({ data }: { data: RosaraData }) {
         actions={
           <>
             <span className="hidden text-[13px] text-muted-foreground sm:inline">Click a row to open the project</span>
-            <RowButton onClick={() => setAdding((a) => !a)} className="h-8" data-testid="add-project-button">
+            <RowButton tone={adding ? "outline" : "primary"} onClick={() => setAdding((a) => !a)} className="h-8" data-testid="add-project-button">
               {adding ? "Close the form" : "Add a project"}
             </RowButton>
           </>
@@ -106,7 +106,7 @@ export function RosaraBoard({ data }: { data: RosaraData }) {
   );
 }
 
-/** The Weekly focus bar: the label, the text (click to edit, Save), "Shown on Home", the purple star. */
+/** The Weekly focus bar: the label, the text (click to edit, Save), "Shown on Home". One field, so only the star inside the field (Edit batch B, item 3). */
 export function WeeklyFocusBar({ focus }: { focus: string }) {
   const router = useRouter();
   const [text, setText] = useState(focus);
@@ -130,7 +130,7 @@ export function WeeklyFocusBar({ focus }: { focus: string }) {
     });
   return (
     <section className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-border bg-white px-[22px] py-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]" data-testid="weekly-focus">
-      <span className="text-[12.5px] font-medium tracking-[0.09em] whitespace-nowrap text-gold-strong uppercase">Weekly focus</span>
+      <span className="text-[12.5px] font-medium tracking-[0.09em] whitespace-nowrap text-heading uppercase">Weekly focus</span>
       <div className="relative min-w-0 flex-1 basis-[280px]">
         <input
           value={text}
@@ -145,7 +145,7 @@ export function WeeklyFocusBar({ focus }: { focus: string }) {
           }}
           placeholder="This week: the one thing Rosara gets"
           aria-label="Weekly focus"
-          className={cn(INPUT, "pr-8")}
+          className={cn(INPUT, "pr-9")}
           data-testid="weekly-focus-input"
         />
         <AiFieldStar context={PAGE} field={{ key: "weekly_focus", label: "Weekly focus", current: text }} visible={!text.trim() || focused} onUse={setText} />
@@ -162,7 +162,6 @@ export function WeeklyFocusBar({ focus }: { focus: string }) {
         ) : (
           <span className="text-[13px] text-muted-foreground">Shown on Home</span>
         )}
-        <AiCardStar context={{ ...PAGE, card: "Weekly focus" }} />
       </div>
     </section>
   );
@@ -194,7 +193,7 @@ function AddProjectForm({ today, onClose, onSaved }: { today: string; onClose: (
       </label>
       <div className="flex min-w-0 flex-wrap items-center gap-x-3.5 gap-y-2">
         <div className="relative min-w-0 flex-1 basis-[200px]">
-          <input id={`${ids}-${k}`} value={String(f[k] ?? "")} onChange={set(k)} onFocus={() => setFocusedField(k)} onBlur={() => setFocusedField(null)} placeholder={placeholder} className={cn(INPUT, star && "pr-8")} data-testid={`project-${k}`} />
+          <input id={`${ids}-${k}`} value={String(f[k] ?? "")} onChange={set(k)} onFocus={() => setFocusedField(k)} onBlur={() => setFocusedField(null)} placeholder={placeholder} className={cn(INPUT, star && "pr-9")} data-testid={`project-${k}`} />
           {star ? <AiFieldStar context={PAGE} field={{ key: "next_action", label: "First next action", current: f.nextAction, extra: f.name ? `The project: ${f.name}. Goal: ${f.goal || "not set"}. Milestone: ${f.milestone || "not set"}.` : null }} visible={!f.nextAction.trim() || focusedField === k} onUse={(t) => setF((x) => ({ ...x, nextAction: t }))} /> : null}
         </div>
         {extra}

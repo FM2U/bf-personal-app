@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 
 /**
  * The To-dos page (batch B, approved 2026-10-31): a simple personal list in one card, at most 720px wide. Sections
- * Today, Next 7 days, Later (gold small caps, collapsible, remembered), and Done today (collapsed by default). Each
+ * Today, Next 7 days, Later (charcoal small caps, collapsible, remembered), and Done today (collapsed by default). Each
  * item: a checkbox (done items move under Done today), the text (click to edit inline, Enter saves, Escape cancels),
  * the due date at the right, a faint x to delete. Add at the bottom: the text and an optional date. Not tied to
  * records.

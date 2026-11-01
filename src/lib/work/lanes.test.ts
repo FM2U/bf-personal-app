@@ -64,6 +64,12 @@ describe("the AI order", () => {
     expect(validateAiOrderReply("text", keys).ok).toBe(false);
   });
 
+  it("reads plain-text lines (the reader's items): the key named in the line, the rest as the reason", () => {
+    const r = validateAiOrderReply({ items: ["1. key=job:b | the call is at 2:00", "deal:a: due today and the broker is quiet", "something without a key"] }, keys);
+    expect(r.ok && r.value.order).toEqual(["job:b", "deal:a", "person:c", "project:d"]);
+    expect(r.ok && r.value.reasons).toEqual({ "job:b": "the call is at 2:00", "deal:a": "due today and the broker is quiet" });
+  });
+
   it("applies a cached order to the rows on the page: a row the cache does not know goes to the end, a cached key that is gone is skipped", () => {
     const rows = [{ key: "deal:a" }, { key: "job:b" }, { key: "person:c" }, { key: "job:new" }];
     expect(applyAiOrder(rows, ["person:c", "gone:x", "deal:a", "job:b"]).map((r) => r.key)).toEqual(["person:c", "deal:a", "job:b", "job:new"]);

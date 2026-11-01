@@ -2,7 +2,7 @@
 
 /**
  * The Filter button and panel used by every filtered list (Task lists, contacts, organizations, communications,
- * reviews, pipeline item lists, commitments, expenses). The panel shows columns of checkboxes with thin gold lines
+ * reviews, pipeline item lists, commitments, expenses). The panel shows columns of checkboxes with thin hairlines
  * between the columns, then Clear all and Apply. Active filters show as small labels next to the button; each label's x
  * removes that filter, and Reset goes back to the list's default. The filters live in the page address.
  *
@@ -111,8 +111,8 @@ export function FilterPanel({
             className={cn("fixed inset-x-4 top-20 z-40 max-h-[75vh] overflow-y-auto rounded-xl border border-border bg-white p-4 shadow-xl sm:absolute sm:inset-x-auto sm:left-0 sm:top-full sm:mt-2 sm:max-h-none sm:overflow-visible", WIDTH[n])}
             data-testid="filter-popover"
           >
-            {/* Columns side by side with thin gold lines between them (stacked with gold lines between on the phone). */}
-            <div className={cn("grid grid-cols-1 divide-y divide-gold-rule sm:divide-x sm:divide-y-0", GRID_COLS[n])} data-testid="filter-columns">
+            {/* Columns side by side with thin hairlines between them (stacked with hairlines between on the phone). */}
+            <div className={cn("grid grid-cols-1 divide-y divide-rule sm:divide-x sm:divide-y-0", GRID_COLS[n])} data-testid="filter-columns">
               {layout.map((group, i) => (
                 <div key={i} className={cn("flex min-w-0 flex-col gap-3 py-3 first:pt-0 last:pb-0 sm:px-4 sm:py-0 sm:first:pl-0 sm:last:pr-0")} data-testid="filter-column">
                   {group.map((col) => (

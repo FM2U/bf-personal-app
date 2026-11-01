@@ -22,7 +22,7 @@ export function AskAiButton({ context, prompt, label = "Ask AI about this", comp
       data-testid="ask-ai"
       aria-label={compact ? label : undefined}
     >
-      <Sparkles className="text-gold" /> <span className={cn(compact && "hidden sm:inline")}>{label}</span>
+      <Sparkles className="text-violet" /> <span className={cn(compact && "hidden sm:inline")}>{label}</span>
     </Button>
   );
 }

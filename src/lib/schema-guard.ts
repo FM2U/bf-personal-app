@@ -234,3 +234,14 @@ export const COLUMNS_0023: Record<string, string[]> = {
   notes: ["kind", "source_url"],
   pipeline_items: ["pay_range"],
 };
+
+/**
+ * Database update 0024 (Edit batch B): in the acquisition pipeline Broker call moves after CIM review (positions
+ * 3 and 4 swapped by UPDATE, stage ids and every deal's stage kept), the NDA signed default becomes "Ask the broker
+ * for the CIM" (on the stage and on the deals that still carried the old text), the seed for future owners follows,
+ * and schema_has_0024(). Before it, every Work screen shows DB_UPDATE_NOTICE_0024 instead of its content, and every
+ * other screen and both scheduled jobs keep working.
+ */
+export const DB_UPDATE_FILE_0024 = "supabase/UPDATE_0024_RUN_ONCE.sql";
+export const DB_UPDATE_NOTICE_0024 = `Database update needed: paste ${DB_UPDATE_FILE_0024} into the Supabase SQL Editor and run it.`;
+export const PROBE_0024 = "schema_has_0024";

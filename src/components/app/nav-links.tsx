@@ -46,7 +46,7 @@ export function SidebarLinks({ toScreen, outreachDue }: { toScreen?: number | nu
               {m.label}
             </Link>
             {m.key === "work" && active === "work" ? (
-              <div className="mt-0.5 mb-1.5 ml-3.5 flex flex-col border-l-2 border-gold-rule pl-1.5" data-testid="work-subnav">
+              <div className="mt-0.5 mb-1.5 ml-3.5 flex flex-col border-l-2 border-rule pl-1.5" data-testid="work-subnav">
                 {WORK_TABS.map((t) => (
                   <Link
                     key={t.href}
@@ -103,7 +103,7 @@ export function MobileModuleBar() {
           href={m.href}
           className={cn(
             "shrink-0 rounded-full border px-3 py-1 text-xs font-medium",
-            active === m.key ? "border-primary bg-primary text-white" : "border-border bg-white text-slate-700",
+            active === m.key ? "border-primary-solid bg-primary-solid text-white hover:border-primary-solid-hover hover:bg-primary-solid-hover" : "border-border bg-white text-slate-700",
           )}
         >
           {m.label}

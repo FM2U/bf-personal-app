@@ -3,12 +3,47 @@ import { progressSegments, type WaitLevel } from "@/lib/work/stages";
 import { cn } from "@/lib/utils";
 
 /**
- * The building blocks of the Work screens (approved mockup 2026-10-30, mockup v6 2026-10-31): a card with a thin gold
- * rule under its title (the title row can stay pinned while the card scrolls), two-line rows without column headers,
- * small labeled figures on the right, pills in the status colors, the nine-segment stage progress mark, the gold
- * small-caps section headings that collapse their section, the filter pills with the Find box and the Collapse all
- * control, and the small row buttons. Server and client components both use them.
+ * The building blocks of the Work screens (approved mockup 2026-10-30, mockup v6 2026-10-31; the color system of Edit
+ * batch B, 2026-11-01): a card with a thin hairline under its title (the title row can stay pinned while the card
+ * scrolls), two-line rows without column headers, small labeled figures on the right in fixed-width columns, pills in
+ * the status colors, the nine-segment stage progress mark, the charcoal small-caps section headings that collapse
+ * their section, the filter pills with the Find box and the Collapse all control, and the small row buttons. Server
+ * and client components both use them.
+ *
+ * Colors (the swatch sheet approved 2026-11-01): structure in slate (headings and card titles charcoal, hairlines,
+ * labels, the neutral pill), actions in cobalt (links, outlined buttons; solid only for the one main action per page),
+ * soft blue for lane and purpose pills, Follow up, Interested, and the active filter pill, status only in green, amber,
+ * and red, purple only for the AI, and #00F0FF only as the stage mark's current segment and the counter bar fill.
+ *
+ * The alignment rule (Edit batch B, item 5): every row keeps fixed-width columns for its figures and buttons, sized
+ * for the longest case ("4 days late", "120 min"), so nothing shifts between rows when text wraps or a value is
+ * longer; the text columns wrap inside their own width. The widths are in ROW_COLS (one place to edit, tested).
  */
+
+/**
+ * The fixed row columns (the alignment rule). Each is a Tailwind width class plus the longest text it was sized for;
+ * a column marks itself with data-col so the flow checks can measure the same x on every row.
+ */
+export const ROW_COLS = {
+  /** "4 days late" at 12px semibold. */
+  due: { cls: "w-[82px]", longest: "4 days late" },
+  /** "120 min" at 12px. */
+  minutes: { cls: "w-[56px]", longest: "120 min" },
+  /** Done or Later (Done reads "Saving" while it saves). */
+  button: { cls: "min-w-[68px]", longest: "Saving" },
+  /** The Done and Later pair, or the one Set next action link that takes the pair's place. */
+  buttonPair: { cls: "w-[142px]", longest: "Set the next action" },
+  /** LAST CONTACT: "Oct 27 · meeting" (the label is 12 letters in small caps). */
+  lastContact: { cls: "w-[128px]", longest: "Oct 27 · meeting" },
+  /** NEXT FOLLOW-UP and NEXT: "4 days late" (the label NEXT FOLLOW-UP is the wider part). */
+  nextDate: { cls: "w-[112px]", longest: "NEXT FOLLOW-UP" },
+  /** TASKS: a count. */
+  count: { cls: "w-[44px]", longest: "99" },
+  /** The money figures on listing rows: "Not stated". */
+  money: { cls: "w-[80px]", longest: "Not stated" },
+  /** The wider buttons: Interested, Set the next action. */
+  wideButton: { cls: "min-w-[90px]", longest: "Interested" },
+} as const;
 
 /**
  * The pinned header rule (approved 2026-10-31, item 21), shared by every Work page and every card that scrolls:
@@ -30,22 +65,22 @@ export function PinnedBlock({ children, testId }: { children: React.ReactNode; t
   );
 }
 
-/** A card header that stays at the top while the card scrolls (desktop): solid white, a gold hairline across the full width. */
-export const PINNED_CARD_HEADER = "bg-white border-b border-gold-rule lg:sticky lg:top-0 lg:z-[2]";
+/** A card header that stays at the top while the card scrolls (desktop): solid white, a hairline across the full width. */
+export const PINNED_CARD_HEADER = "bg-white border-b border-rule lg:sticky lg:top-0 lg:z-[2]";
 
-export function WorkCard({ id, title, count, hint, sub, actions, children, className, testId, rule = true, pinned = false, scroll = false, bodyClassName }: { id?: string; title: React.ReactNode; count?: number | null; hint?: React.ReactNode; /** A quiet line under the title (for narrow cards, where a hint at the right would wrap). */ sub?: React.ReactNode; actions?: React.ReactNode; children: React.ReactNode; className?: string; testId?: string; /** False: no gold rule (a closed card ends at its title row). */ rule?: boolean; /** The title row stays at the top while the content under it scrolls (desktop): solid white with the hairline across the full width. */ pinned?: boolean; /** The card scrolls on its own (desktop); give it a height through className. */ scroll?: boolean; bodyClassName?: string }) {
+export function WorkCard({ id, title, count, hint, sub, actions, children, className, testId, rule = true, pinned = false, scroll = false, bodyClassName }: { id?: string; title: React.ReactNode; count?: number | null; hint?: React.ReactNode; /** A quiet line under the title (for narrow cards, where a hint at the right would wrap). */ sub?: React.ReactNode; actions?: React.ReactNode; children: React.ReactNode; className?: string; testId?: string; /** False: no rule under the title (a closed card ends at its title row). */ rule?: boolean; /** The title row stays at the top while the content under it scrolls (desktop): solid white with the hairline across the full width. */ pinned?: boolean; /** The card scrolls on its own (desktop); give it a height through className. */ scroll?: boolean; bodyClassName?: string }) {
   return (
     <section id={id} className={cn("flex min-w-0 flex-col rounded-xl border border-border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]", scroll && "lg:overflow-y-auto", className)} data-testid={testId}>
       <div className={cn("rounded-t-xl bg-white", pinned && rule && PINNED_CARD_HEADER)} data-pinned={pinned && rule ? "card" : undefined}>
         <div className={cn("flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-[22px] pt-4", rule ? "pb-3" : "pb-4")}>
-          <h2 className="flex items-center gap-2 text-[15px] font-semibold tracking-[-0.01em] whitespace-nowrap text-slate-900">
+          <h2 className="flex items-center gap-2 text-[15px] font-semibold tracking-[-0.01em] whitespace-nowrap text-heading">
             <span>{title}</span>
             {count ? <span className="tabular rounded-full bg-status-neutral-bg px-2 py-px text-[11px] font-semibold leading-4 text-status-neutral">{count}</span> : null}
           </h2>
           {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : hint ? <span className="min-w-0 flex-1 text-right text-[13px] text-muted-foreground">{hint}</span> : null}
           {sub ? <div className="-mt-1 w-full text-[13px] text-muted-foreground">{sub}</div> : null}
         </div>
-        {rule && !pinned ? <div className="mx-[22px] h-px bg-gold-rule" /> : null}
+        {rule && !pinned ? <div className="mx-[22px] h-px bg-rule" /> : null}
       </div>
       {rule ? <div className={bodyClassName}>{children}</div> : null}
     </section>
@@ -53,7 +88,7 @@ export function WorkCard({ id, title, count, hint, sub, actions, children, class
 }
 
 /**
- * A section heading inside a card (mockup v6): gold small caps with a thin gold line, the count at the right, a
+ * A section heading inside a card (mockup v6): charcoal small caps with a thin hairline, the count at the right, a
  * small triangle that turns when the section is collapsed. An empty section is a faint heading with "none" and does
  * not collapse. `hint` shows at the right on wider screens (the buy box line, "Next by default: ...").
  */
@@ -61,12 +96,12 @@ export function SectionHeading({ name, count, collapsed, onToggle, hint, title, 
   const empty = count === 0;
   const cls = cn(
     "group mt-3 mb-1 flex w-full items-center gap-2 border-b py-1.5 pb-[7px] text-left text-[12.5px] font-medium tracking-[0.09em] uppercase select-none",
-    empty ? "cursor-default border-slate-100 text-slate-400" : "cursor-pointer border-gold-rule text-gold-strong",
+    empty ? "cursor-default border-slate-100 text-slate-400" : "cursor-pointer border-rule text-heading",
     className,
   );
   const body = (
     <>
-      <svg viewBox="0 0 10 10" className={cn("h-[9px] w-3 shrink-0 text-gold-rule transition-transform group-hover:text-gold", collapsed && "-rotate-90", empty && "invisible")} aria-hidden>
+      <svg viewBox="0 0 10 10" className={cn("h-[9px] w-3 shrink-0 text-status-neutral-solid transition-transform group-hover:text-slate-500", collapsed && "-rotate-90", empty && "invisible")} aria-hidden>
         <path d="M1 2.5h8L5 8z" fill="currentColor" />
       </svg>
       <span className="min-w-0 truncate">{name}</span>
@@ -102,7 +137,7 @@ export function CollapseAllButton({ allCollapsed, onClick, className }: { allCol
  * right end. `prefix` names the test ids ("deals-filter-wait", "deals-search"). It is the last row of the PinnedBlock,
  * which adds the space and the hairline under it.
  */
-export function FilterRow<K extends string>({ prefix, filters, active, counts, onPick, query, onQuery, placeholder = "Find", collapse, className, searchClassName }: { prefix: string; filters: readonly { key: K; label: string; /** A gold outline (the purpose pills on Outreach). */ gold?: boolean; /** A thin vertical hairline before this pill (a second group of pills). */ sepBefore?: boolean }[]; active: K; counts: Record<K, number>; onPick: (k: K) => void; query: string; onQuery: (q: string) => void; placeholder?: string; collapse?: { allCollapsed: boolean; onClick: () => void } | null; className?: string; searchClassName?: string }) {
+export function FilterRow<K extends string>({ prefix, filters, active, counts, onPick, query, onQuery, placeholder = "Find", collapse, className, searchClassName }: { prefix: string; filters: readonly { key: K; label: string; /** A thin vertical hairline before this pill (a second group of pills). */ sepBefore?: boolean }[]; active: K; counts: Record<K, number>; onPick: (k: K) => void; query: string; onQuery: (q: string) => void; placeholder?: string; collapse?: { allCollapsed: boolean; onClick: () => void } | null; className?: string; searchClassName?: string }) {
   return (
     <div className={cn("flex flex-wrap items-center gap-2", className)} data-testid={`${prefix}-filters`}>
       {filters.map((f) => {
@@ -113,7 +148,7 @@ export function FilterRow<K extends string>({ prefix, filters, active, counts, o
             <button
               type="button"
               onClick={() => onPick(f.key)}
-              className={cn("inline-flex items-center rounded-full border px-3 py-1 text-[12.5px] font-medium whitespace-nowrap", on ? "border-primary-border bg-primary-soft text-primary-strong" : f.gold ? "border-gold-border bg-white text-gold-strong hover:bg-gold-soft" : "border-border bg-white text-status-neutral hover:bg-slate-50")}
+              className={cn("inline-flex items-center rounded-full border px-3 py-1 text-[12.5px] font-medium whitespace-nowrap", on ? "border-primary-border bg-primary-soft text-primary-strong" : "border-border bg-white text-slate-600 hover:bg-slate-50")}
               aria-pressed={on}
               data-testid={`${prefix}-filter-${f.key}`}
               data-count={counts[f.key]}
@@ -147,13 +182,16 @@ export function Rows({ children, className, testId }: { children: React.ReactNod
   );
 }
 
-/** One row: the text on the left (two or three lines), the figures and buttons on the right. */
+/**
+ * One row: the text on the left (two or three lines, wrapping inside its own width), the figures and buttons on the
+ * right. The right side keeps its content's fixed widths (ROW_COLS), so the columns sit at the same x on every row.
+ */
 export function RowShell({ children, right, className, href, testId, dataAttrs, stack = false }: { children: React.ReactNode; right?: React.ReactNode; className?: string; href?: string; testId?: string; dataAttrs?: Record<string, string>; /** The figures and buttons go under the text (narrow columns). */ stack?: boolean }) {
   const cls = cn("grid grid-cols-1 items-center gap-x-[18px] gap-y-1.5 border-t border-slate-100 px-[22px] py-[13px] first:border-t-0", !stack && "sm:grid-cols-[minmax(0,1fr)_auto]", href && "cursor-pointer hover:bg-[#fbfcfe]", className);
   const body = (
     <>
       <div className="min-w-0">{children}</div>
-      {right ? <div className={cn("flex flex-wrap items-center gap-x-3.5 gap-y-2 whitespace-nowrap", !stack && "sm:justify-end", stack && "mt-1")}>{right}</div> : null}
+      {right ? <div className={cn("flex flex-wrap items-center gap-x-3.5 gap-y-2 whitespace-nowrap", !stack && "sm:justify-end", stack && "mt-1")} data-row-right>{right}</div> : null}
     </>
   );
   if (href) {
@@ -193,26 +231,27 @@ export function Line3({ children, className }: { children: React.ReactNode; clas
   return <div className={cn("mt-0.5 text-[12.5px] text-muted-foreground italic", className)}>{children}</div>;
 }
 
-/** A small figure with its label under it, right-aligned (the numbers on listing and deal rows). */
-export function Stat({ value, label, className, testId }: { value: React.ReactNode; label: React.ReactNode; className?: string; testId?: string }) {
+/** A small figure with its label under it, right-aligned, in a fixed-width column (the money figures on listing rows). */
+export function Stat({ value, label, className, testId, col = "money" }: { value: React.ReactNode; label: React.ReactNode; className?: string; testId?: string; /** The fixed column (ROW_COLS) this figure sits in. */ col?: keyof typeof ROW_COLS }) {
   return (
-    <div className={cn("flex min-w-[72px] flex-col items-start leading-tight sm:items-end", className)} data-testid={testId}>
-      <b className="tabular text-[13.5px] font-semibold text-slate-900">{value}</b>
-      <span className="mt-0.5 text-[11px] tracking-[0.04em] text-slate-400 uppercase">{label}</span>
+    <div className={cn("flex flex-col items-start leading-tight sm:items-end", ROW_COLS[col].cls, className)} data-testid={testId} data-col={col}>
+      <b className="tabular truncate text-[13.5px] font-semibold text-slate-900">{value}</b>
+      <span className="mt-0.5 truncate text-[11px] tracking-[0.04em] text-muted-foreground uppercase">{label}</span>
     </div>
   );
 }
 
-export type PillTone = "gray" | "amber" | "red" | "green" | "gold" | "blue" | "quiet" | "charcoal";
+export type PillTone = "gray" | "amber" | "red" | "green" | "blue" | "quiet" | "charcoal";
 
 const PILL: Record<PillTone, string> = {
+  /** The neutral pill: stages, days under the threshold, counts. */
   gray: "border-border bg-status-neutral-bg text-status-neutral",
   /** Passed and Lost: medium charcoal with white text (approved 2026-10-31). */
   charcoal: "border-[#4b5563] bg-[#4b5563] text-white",
   amber: "border-status-soon-border bg-status-soon-bg text-status-soon",
   red: "border-status-missed-border bg-status-missed-bg text-status-missed",
   green: "border-status-met-border bg-status-met-bg text-status-met",
-  gold: "border-gold-border bg-gold-soft text-gold-strong",
+  /** Soft blue: lane and purpose pills, Interested, what belongs to you but is not a status. */
   blue: "border-primary-border bg-primary-soft text-primary-strong",
   quiet: "border-transparent bg-transparent pl-0 text-slate-400",
 };
@@ -239,23 +278,54 @@ export function Due({ text, tone, className, testId }: { text: string; tone: "to
   );
 }
 
-/** The nine-segment stage progress mark: cobalt for stages done, gold for the current one, gray for the rest. */
+/**
+ * The figure columns at the right of a next-action row (Home and the lane pages): the due date and the block minutes,
+ * each a fixed-width column (ROW_COLS) with its text at the right, so the columns line up on every row. Then the
+ * buttons (`children`).
+ */
+export function ActionFigures({ due, minutes, children, testId = "next-action-due" }: { due: { text: string; tone: "today" | "over" | "later" | "none" } | null; minutes: number | null | undefined; children?: React.ReactNode; testId?: string }) {
+  return (
+    <>
+      <span className={cn("shrink-0 text-right", ROW_COLS.due.cls)} data-col="due">
+        {due ? <Due text={due.text} tone={due.tone} testId={testId} /> : null}
+      </span>
+      <span className={cn("tabular shrink-0 text-right text-xs text-slate-400", ROW_COLS.minutes.cls)} data-col="minutes" data-testid="next-action-minutes">
+        {minutes ? `${minutes} min` : ""}
+      </span>
+      {children}
+    </>
+  );
+}
+
+/**
+ * The buttons at the end of a row, in one column. `pair`: the fixed width of the Done and Later pair
+ * (ROW_COLS.buttonPair), which a single Set next action link fills, so the column starts at the same x on every row.
+ */
+export function RowButtons({ children, className, pair = false, ...props }: React.HTMLAttributes<HTMLDivElement> & { children?: React.ReactNode; className?: string; pair?: boolean }) {
+  return (
+    <div className={cn("flex shrink-0 justify-end gap-1.5", pair && ROW_COLS.buttonPair.cls, className)} data-col="buttons" {...props}>
+      {children}
+    </div>
+  );
+}
+
+/** The nine-segment stage progress mark: cobalt for stages done, #00F0FF with a cobalt outline for the current one, light gray for the rest. */
 export function ProgressMark({ stage, className }: { stage: string | null | undefined; className?: string }) {
   const segs = progressSegments(stage);
   return (
     <span className={cn("inline-flex shrink-0 gap-0.5 align-middle", className)} aria-label={stage ? `Stage: ${stage}` : "No stage"} title={stage ?? undefined} data-testid="progress-mark">
       {segs.map((s, i) => (
-        <i key={i} className={cn("block h-[11px] w-[5px] rounded-[2px]", s === "done" ? "bg-primary" : s === "current" ? "bg-gold" : "bg-slate-200")} data-seg={s} />
+        <i key={i} className={cn("block h-[11px] w-[5px] rounded-[2px]", s === "done" ? "bg-primary" : s === "current" ? "bg-electric shadow-[inset_0_0_0_1px_var(--primary)]" : "bg-border")} data-seg={s} />
       ))}
     </span>
   );
 }
 
-/** A stage heading with the gold bar, the name and the count (the Passed, Lost, and Closed groups under the Deals columns). */
+/** A stage heading with the quiet bar, the name and the count (the Passed, Lost, and Closed groups under the Deals columns). */
 export function StageHeading({ name, count, hint, empty, children }: { name: string; count: number; hint?: string | null; empty?: boolean; children?: React.ReactNode }) {
   return (
     <div className={cn("flex items-center gap-2.5 px-[22px] text-[13px]", empty ? "py-[11px] font-medium text-slate-400" : "pt-3.5 pb-1 font-semibold text-slate-900")}>
-      <span className={cn("h-3.5 w-[3px] shrink-0 rounded-[2px]", empty ? "bg-border" : "bg-gold")} aria-hidden />
+      <span className={cn("h-3.5 w-[3px] shrink-0 rounded-[2px]", empty ? "bg-border" : "bg-status-neutral-solid")} aria-hidden />
       <span>{name}</span>
       <span className="tabular font-medium text-muted-foreground">{count}</span>
       {hint && !empty ? <span className="ml-auto hidden min-w-0 truncate text-xs font-normal text-slate-400 md:block">Next by default: {hint}</span> : null}
@@ -292,22 +362,67 @@ export function Confirm({ tone = "blue", children, className, testId }: { tone?:
   );
 }
 
-/** The small buttons on rows: blue (primary), soft blue (Interested), gold (Follow up), or outline. */
-export function RowButton({ tone = "outline", className, children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { tone?: "primary" | "soft" | "gold" | "outline" }) {
+/**
+ * The small buttons on rows and cards. primary: solid cobalt, only for the one main action on a page (Add a listing,
+ * Add a person, Add a project, Save, Send, Approve; #14297b at rest, #1e40af on hover). cobalt: outlined, cobalt text
+ * and edge, white fill, soft blue on hover (Done, Advance, Reopen, the choices after Done). soft: soft blue fill
+ * (Interested, Follow up). outline: gray edge (Later, Pass, Email, Log a call, Cancel).
+ */
+export type RowButtonTone = "primary" | "cobalt" | "soft" | "outline";
+export const ROW_BUTTON_BASE = "inline-flex h-[30px] items-center justify-center rounded-[7px] border px-[11px] text-[12.5px] font-medium whitespace-nowrap transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50";
+export const ROW_BUTTON_TONE: Record<RowButtonTone, string> = {
+  primary: "border-primary-solid bg-primary-solid text-white hover:border-primary-solid-hover hover:bg-primary-solid-hover",
+  cobalt: "border-primary bg-white text-primary-strong hover:border-primary-border hover:bg-primary-soft",
+  soft: "border-primary-border bg-primary-soft text-primary-strong hover:bg-primary-soft-hover",
+  outline: "border-input bg-white text-slate-800 hover:bg-slate-50",
+};
+export function RowButton({ tone = "outline", className, children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { tone?: RowButtonTone }) {
   return (
-    <button
-      type="button"
-      className={cn(
-        "inline-flex h-[30px] items-center justify-center rounded-[7px] border px-[11px] text-[12.5px] font-medium whitespace-nowrap transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50",
-        tone === "primary" && "border-primary bg-primary text-white hover:border-primary-hover hover:bg-primary-hover",
-        tone === "soft" && "border-primary-border bg-primary-soft text-primary hover:bg-[#e3ebfd]",
-        tone === "gold" && "border-gold-border bg-gold-soft text-gold-strong hover:bg-[#f6ead0]",
-        tone === "outline" && "border-input bg-white text-slate-800 hover:bg-slate-50",
-        className,
-      )}
-      {...props}
-    >
+    <button type="button" className={cn(ROW_BUTTON_BASE, ROW_BUTTON_TONE[tone], className)} data-tone={tone} {...props}>
       {children}
+    </button>
+  );
+}
+
+/** A link drawn as a row button (Set next action, Set the next action). */
+export function RowLink({ tone = "outline", className, children, href, ...props }: React.ComponentProps<typeof Link> & { tone?: RowButtonTone; className?: string }) {
+  return (
+    <Link href={href} className={cn(ROW_BUTTON_BASE, ROW_BUTTON_TONE[tone], className)} data-tone={tone} {...props}>
+      {children}
+    </Link>
+  );
+}
+
+/**
+ * The one thinking state of every AI control (Edit batch B, item 1): while the AI works the button is grayed, shows a
+ * small spinner, and reads "Thinking". Used by the Suggest buttons, Fill from text, Write it, Write with AI, and Ask.
+ */
+export function Thinking({ label = "Thinking", className }: { label?: string; className?: string }) {
+  return (
+    <span className={cn("inline-flex items-center gap-1.5", className)} data-testid="ai-thinking" role="status">
+      <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden>
+        <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeOpacity="0.25" strokeWidth="2" />
+        <path d="M14 8a6 6 0 0 0-6-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      </svg>
+      {label}
+    </span>
+  );
+}
+
+/** An AI button: the purple four-point star and its label ("Suggest tasks"); in its thinking state it is grayed with the spinner and "Thinking". */
+export function AiButton({ busy, children, className, disabled, tone = "outline", ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { busy: boolean; tone?: RowButtonTone }) {
+  return (
+    <button type="button" className={cn(ROW_BUTTON_BASE, ROW_BUTTON_TONE[tone], busy && "border-border bg-slate-50 text-slate-400 hover:bg-slate-50 disabled:opacity-100", className)} disabled={disabled || busy} data-busy={busy ? "1" : "0"} {...props}>
+      {busy ? (
+        <Thinking />
+      ) : (
+        <>
+          <svg viewBox="0 0 16 16" className="mr-1.5 h-3 w-3 shrink-0 text-violet" aria-hidden>
+            <path d="M8 0.5 C8.6 4.4 9.9 6.4 15.5 8 C9.9 9.6 8.6 11.6 8 15.5 C7.4 11.6 6.1 9.6 0.5 8 C6.1 6.4 7.4 4.4 8 0.5 Z" fill="currentColor" />
+          </svg>
+          {children}
+        </>
+      )}
     </button>
   );
 }
@@ -330,13 +445,14 @@ export function WorkHeader({ title, right, crumb, under }: { title: React.ReactN
 
 /**
  * A labeled figure (batch B): the value above its small uppercase label, right-aligned on wide screens. The value's
- * color follows a tone (amber for today, red for overdue, gray for none). Figures sit 28px apart (`Figures`).
+ * color follows a tone (amber for today, red for overdue, gray for none). Figures sit 28px apart (`Figures`). On a
+ * row the figure sits in a fixed column (`col`, ROW_COLS) so it lines up on every row; the record header leaves it.
  */
-export function Figure({ value, label, tone = "plain", className, testId }: { value: React.ReactNode; label: React.ReactNode; tone?: "plain" | "today" | "over" | "later" | "none" | "amber" | "red"; className?: string; testId?: string }) {
+export function Figure({ value, label, tone = "plain", className, testId, col }: { value: React.ReactNode; label: React.ReactNode; tone?: "plain" | "today" | "over" | "later" | "none" | "amber" | "red"; className?: string; testId?: string; col?: keyof typeof ROW_COLS }) {
   return (
-    <div className={cn("flex min-w-[72px] flex-col items-start leading-tight sm:items-end", className)} data-testid={testId} data-tone={tone}>
-      <b className={cn("tabular text-[13.5px] font-semibold whitespace-nowrap", tone === "today" || tone === "amber" ? "text-status-soon" : tone === "over" || tone === "red" ? "text-status-missed" : tone === "none" ? "text-slate-400" : "text-slate-900")}>{value}</b>
-      <span className="mt-0.5 text-[11px] tracking-[0.04em] whitespace-nowrap text-slate-400 uppercase">{label}</span>
+    <div className={cn("flex flex-col items-start leading-tight sm:items-end", col ? ROW_COLS[col].cls : "min-w-[72px]", className)} data-testid={testId} data-tone={tone} data-col={col}>
+      <b className={cn("tabular max-w-full truncate text-[13.5px] font-semibold whitespace-nowrap", tone === "today" || tone === "amber" ? "text-status-soon" : tone === "over" || tone === "red" ? "text-status-missed" : tone === "none" ? "text-slate-400" : "text-slate-900")}>{value}</b>
+      <span className="mt-0.5 max-w-full truncate text-[11px] tracking-[0.04em] whitespace-nowrap text-muted-foreground uppercase">{label}</span>
     </div>
   );
 }
@@ -351,8 +467,8 @@ export function Figures({ children, className, testId }: { children: React.React
 }
 
 /**
- * The weekly counter (batch B): "Network outreach: 4 of 10 this week" with a thin gold bar, and a quiet line at the
- * right on wide screens ("Counted from emails sent and calls logged, Mon to Fri").
+ * The weekly counter (batch B): "Network outreach: 4 of 10 this week" with a thin bar (#00F0FF on light gray), and a
+ * quiet line at the right on wide screens ("Counted from emails sent and calls logged, Mon to Fri").
  */
 export function TargetBar({ count, target, pct, hint, className, testId = "outreach-counter" }: { count: number; target: number; pct: number; hint?: React.ReactNode; className?: string; testId?: string }) {
   return (
@@ -360,18 +476,18 @@ export function TargetBar({ count, target, pct, hint, className, testId = "outre
       <span className="text-[13px] text-slate-800 whitespace-nowrap">
         Network outreach: <b className="tabular font-semibold text-slate-900">{count}</b> of {target} this week
       </span>
-      <span className="h-[5px] w-full max-w-[220px] overflow-hidden rounded-full bg-gold-soft" aria-hidden>
-        <i className="block h-full rounded-full bg-gold" style={{ width: `${Math.max(0, Math.min(100, pct))}%` }} />
+      <span className="h-[5px] w-full max-w-[220px] overflow-hidden rounded-full bg-border" aria-hidden>
+        <i className="block h-full rounded-full bg-electric" style={{ width: `${Math.max(0, Math.min(100, pct))}%` }} />
       </span>
       {hint ? <span className="hidden min-w-0 text-xs text-slate-400 md:ml-auto md:block">{hint}</span> : null}
     </div>
   );
 }
 
-/** A lane pill on a Home row (Outreach, Rosara, Job search, Consulting; deals have none). */
+/** A lane pill on a Home row (Outreach, Rosara, Job search, Consulting; deals have none): one soft blue for all four. */
 export function LanePill({ lane, className }: { lane: "Outreach" | "Rosara" | "Job search" | "Consulting"; className?: string }) {
   return (
-    <Pill tone={lane === "Outreach" || lane === "Rosara" ? "gold" : lane === "Job search" ? "blue" : "gray"} className={className} testId="lane-pill">
+    <Pill tone="blue" className={className} testId="lane-pill">
       {lane}
     </Pill>
   );

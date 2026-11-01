@@ -5,8 +5,8 @@ import { cn } from "@/lib/utils";
 
 const ICON: Record<TimelineEvent["kind"], { text: string; cls: string }> = {
   note: { text: "N", cls: "border-border bg-status-neutral-bg text-status-neutral" },
-  finding: { text: "F", cls: "border-gold-border bg-gold-soft text-gold-strong" },
-  email: { text: "E", cls: "border-gold-border bg-gold-soft text-gold-strong" },
+  finding: { text: "F", cls: "border-border bg-status-neutral-bg text-status-neutral" },
+  email: { text: "E", cls: "border-border bg-status-neutral-bg text-status-neutral" },
   call: { text: "C", cls: "border-status-met-border bg-status-met-bg text-status-met" },
   move: { text: "→", cls: "border-primary-border bg-primary-soft text-primary-strong" },
   other: { text: "·", cls: "border-border bg-status-neutral-bg text-status-neutral" },
@@ -23,7 +23,7 @@ function hostOf(url: string): string {
 
 /**
  * The timeline list (notes, findings, emails, calls, stage moves; newest first) shared by every record page. A
- * finding (batch B2) shows a gold Finding pill before its line and "Source: <site>" under it, opening the link.
+ * finding (batch B2) shows a neutral Finding pill before its line and "Source: <site>" under it, opening the link.
  */
 export function TimelineEvents({ events, empty }: { events: TimelineEvent[]; empty: string }) {
   return (
@@ -38,7 +38,7 @@ export function TimelineEvents({ events, empty }: { events: TimelineEvent[]; emp
             <span className="min-w-0 text-sm text-slate-900">
               {e.kind === "finding" ? (
                 <>
-                  <Pill tone="gold" className="mr-1.5 align-[1px]" testId="finding-pill">
+                  <Pill tone="gray" className="mr-1.5 align-[1px]" testId="finding-pill">
                     Finding
                   </Pill>
                   {e.title}

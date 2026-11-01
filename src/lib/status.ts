@@ -5,7 +5,7 @@
  * - missed: missed or overdue, and critical (red)
  * - neutral: not started or neutral (gray)
  * No other color carries meaning. Cobalt is the app color (links, buttons, the Next required action card);
- * gold is the secondary accent (Proprietary, highlights); violet, cyan, and coral mark modules and chart series.
+ * sky, violet, cyan, and coral mark modules and chart series (never gold or brown since Edit batch B, 2026-11-01).
  */
 export type Status = "met" | "soon" | "missed" | "neutral";
 
@@ -112,21 +112,21 @@ export function progressPct(count: number, required: number): number {
 
 /**
  * Accent colors (not statuses) as hex, for charts (SVG fill and stroke). Each one equals a token in globals.css
- * (a test checks this): cobalt = --primary, gold = --gold, violet = --violet, cyan = --cyan, coral = --coral,
+ * (a test checks this): cobalt = --primary, sky = --sky, violet = --violet, cyan = --cyan, coral = --coral,
  * gray = --status-neutral-solid.
  */
-export type Accent = "cobalt" | "gold" | "violet" | "cyan" | "coral" | "gray";
+export type Accent = "cobalt" | "sky" | "violet" | "cyan" | "coral" | "gray";
 export const ACCENT_HEX: Record<Accent, string> = {
   cobalt: "#1e40af",
-  gold: "#b8862b",
-  violet: "#6d28d9",
+  sky: "#0284c7",
+  violet: "#7c3aed",
   cyan: "#0e7c86",
   coral: "#e0603f",
   gray: "#94a3b8",
 };
 
-/** Chart series colors, in order: cobalt, gold, violet, cyan, coral. A "current" or baseline series uses gray. */
-export const CHART_SERIES: string[] = [ACCENT_HEX.cobalt, ACCENT_HEX.gold, ACCENT_HEX.violet, ACCENT_HEX.cyan, ACCENT_HEX.coral];
+/** Chart series colors, in order: cobalt, sky, violet, cyan, coral. A "current" or baseline series uses gray. */
+export const CHART_SERIES: string[] = [ACCENT_HEX.cobalt, ACCENT_HEX.sky, ACCENT_HEX.violet, ACCENT_HEX.cyan, ACCENT_HEX.coral];
 export const CHART_BASELINE = ACCENT_HEX.gray;
 /**
  * Chart colors that carry a status (tokens --status-met-solid, --status-missed-solid, --status-missed-border, --input):
@@ -143,7 +143,7 @@ export function seriesColor(i: number): string {
 export const MODULE_ACCENT: Record<string, Accent> = {
   home: "gray",
   plan: "violet",
-  finance: "gold",
+  finance: "sky",
   opportunities: "coral",
   people: "cyan",
   productivity: "cobalt",
@@ -160,7 +160,7 @@ export const MODULE_ACCENT: Record<string, Accent> = {
 /** Text color class for a module icon. */
 export const ACCENT_TEXT: Record<Accent, string> = {
   cobalt: "text-primary",
-  gold: "text-gold",
+  sky: "text-sky",
   violet: "text-violet",
   cyan: "text-cyan",
   coral: "text-coral",

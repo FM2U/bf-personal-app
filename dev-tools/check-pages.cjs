@@ -93,7 +93,18 @@ async function keyPages() {
 
 (async () => {
   fs.mkdirSync(OUT, { recursive: true });
-  const browser = await chromium.launch();
+  // The browser keeps the real clock even under dev-tools/late-evening.sh: libfaketime makes Chromium's own timers
+  // unsteady (clicks and waits stall for seconds), and the app's "today" comes from the server, which runs on the fake clock.
+  const browser = await chromium.launch({ env: { ...process.env, LD_PRELOAD: "", FAKETIME: "" } });
+  if (process.env.FAKETIME) {
+    // The pages still see the fake date: Date starts at this process's (fake) time and runs, the browser's own timers left real.
+    const raw = browser.newContext.bind(browser);
+    browser.newContext = async (options) => {
+      const c = await raw(options);
+      await c.clock.setSystemTime(Date.now());
+      return c;
+    };
+  }
   const failures = [];
   const KEY = process.env.KEY_PAGES === "0" ? [] : await keyPages();
   const named = (p) => {
@@ -139,7 +150,8 @@ async function keyPages() {
       const bad = status >= 400 || status === 0 || /Application error|Internal Server Error|This page could not be found|Unhandled Runtime Error/i.test(body || "") || page.url().includes("/login");
       const name = named(p) ? `${vpName}-${named(p)}.png` : `${vpName}${p === "/" ? "-home" : p.replace(/\//g, "-").replace(/[?=&]/g, "_")}.png`;
       if (process.env.SHOTS !== "0") await page.screenshot({ path: path.join(OUT, name), fullPage: true });
-      const realErrors = errors.filter((e) => !/favicon|Download the React DevTools/i.test(e));
+      // The fake-clock script Playwright adds to every frame is refused by the sandboxed email preview frame; not an app error.
+      const realErrors = errors.filter((e) => !/favicon|Download the React DevTools|Blocked script execution in 'about:srcdoc'/i.test(e));
       if (bad || realErrors.length) failures.push({ page: p, viewport: vpName, status, url: page.url(), errors: realErrors.slice(0, 3) });
       console.log(`${bad ? "FAIL" : "ok  "} ${vpName} ${status} ${p}${realErrors.length ? `  console: ${realErrors[0].slice(0, 160)}` : ""}`);
     }

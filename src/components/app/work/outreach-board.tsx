@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
  * Outreach (batch B, mockup v7 approved 2026-10-31): the pinned block with the title, Add a person, the Work tabs,
  * and the filter row (All, Due today, Overdue, No date, then the purpose pills Off-market deals, Job search,
  * Consulting, Rosara with counts, Find a person, Collapse all). Then the Add a person card (when open) and one card:
- * the weekly counter with its gold bar, and the sections by next follow-up: Overdue, Due today, Next 7 days, Later,
+ * the weekly counter with its bar, and the sections by next follow-up: Overdue, Due today, Next 7 days, Later,
  * No date. The page scrolls as one. A filter shows only the matching rows, opens the sections with a match and
  * collapses the rest; the sections the person collapses are remembered in this browser. Archived people sit in a
  * slim bar at the bottom.
@@ -51,7 +51,7 @@ export function OutreachBoard({ header, data, adding, saved }: { /** The title, 
     <>
       <PinnedBlock testId="outreach-sticky">
         {header}
-        <FilterRow prefix="outreach" filters={OUTREACH_FILTERS.map((f) => ({ key: f.key, label: f.label, gold: !!f.purpose, sepBefore: f.key === "off_market_deals" }))} active={filter} counts={counts} onPick={pick} query={query} onQuery={setQuery} placeholder="Find a person" collapse={{ allCollapsed: ui.allCollapsed, onClick: ui.toggleAll }} className="-mt-2" searchClassName="sm:w-[150px]" />
+        <FilterRow prefix="outreach" filters={OUTREACH_FILTERS.map((f) => ({ key: f.key, label: f.label, sepBefore: f.key === "off_market_deals" }))} active={filter} counts={counts} onPick={pick} query={query} onQuery={setQuery} placeholder="Find a person" collapse={{ allCollapsed: ui.allCollapsed, onClick: ui.toggleAll }} className="-mt-2" searchClassName="sm:w-[150px]" />
       </PinnedBlock>
       <div className="flex flex-col gap-[18px]">
         {saved ? (
@@ -65,7 +65,7 @@ export function OutreachBoard({ header, data, adding, saved }: { /** The title, 
         {adding ? <AddPersonCard onClose={() => router.push("/work/outreach")} /> : null}
         <section className="rounded-xl border border-border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]" data-testid="outreach-card">
           <TargetBar count={data.counter.count} target={data.counter.target} pct={data.counter.pct} hint="Counted from emails sent and calls logged, Mon to Fri" />
-          <div className="mx-[22px] h-px bg-gold-rule" />
+          <div className="mx-[22px] h-px bg-rule" />
           {people.length ? (
             <div className="px-[22px] pt-1 pb-3">
               {OUTREACH_SECTIONS.map((s) => {

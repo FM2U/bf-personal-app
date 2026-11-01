@@ -15,7 +15,7 @@ export function DealListRow({ deal, today }: { deal: DealRow; today: string }) {
       dataAttrs={{ "data-deal": deal.id }}
       right={
         <>
-          <Stat value={deal.earnings === null ? "No figure" : `${moneyShort(deal.earnings)}${deal.earningsLabel === "SDE" ? " SDE" : ""}`} label={deal.location ?? "No location"} />
+          <Stat value={deal.earnings === null ? "No figure" : `${moneyShort(deal.earnings)}${deal.earningsLabel === "SDE" ? " SDE" : ""}`} label={deal.location ?? "No location"} col="lastContact" />
           {waiting ? (
             <Pill tone={waitTone(deal.waitLevel)} className="tabular" testId="deal-wait">
               {daysLabel(deal.waitDays)}

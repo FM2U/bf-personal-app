@@ -1,7 +1,8 @@
 /**
  * The Deals screen's three phase columns (approved 2026-10-30) and its filters, pure and tested in
- * src/lib/work/phases.test.ts. Each phase holds three of the nine working stages in order. The filters run in the
- * browser over the deals the page already loaded.
+ * src/lib/work/phases.test.ts. The phases hold the nine working stages in order: Early two, Evaluate four, Decide
+ * three (Broker call moved to Evaluate after CIM review in Edit batch B, 2026-11-01). The filters run in the browser
+ * over the deals the page already loaded.
  */
 import type { WorkStageName } from "@/lib/work/stages";
 
@@ -14,8 +15,8 @@ export type PhaseDef = { key: string; name: string; tagline: string; stages: rea
 
 /** Early: get the CIM. Evaluate: decide whether to bid. Decide: bid and close. */
 export const PHASES: readonly Phase[] = [
-  { key: "early", name: "Early", tagline: "Get the CIM", stages: ["Interested", "NDA signed", "Broker call"] },
-  { key: "evaluate", name: "Evaluate", tagline: "Decide whether to bid", stages: ["CIM review", "Seller call", "Model"] },
+  { key: "early", name: "Early", tagline: "Get the CIM", stages: ["Interested", "NDA signed"] },
+  { key: "evaluate", name: "Evaluate", tagline: "Decide whether to bid", stages: ["CIM review", "Broker call", "Seller call", "Model"] },
   { key: "decide", name: "Decide", tagline: "Bid and close", stages: ["Partner presentation", "IOI or LOI", "Diligence"] },
 ] as const;
 

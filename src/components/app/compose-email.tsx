@@ -18,6 +18,7 @@ import { EmailEditor, type EmailEditorApi } from "@/components/app/email-editor"
 import type { ComposeSetup } from "@/lib/compose-email";
 import type { AskContext } from "@/lib/work/ask-ai";
 import { AiFieldStar } from "@/components/app/work/ask-ai";
+import { Thinking } from "@/components/app/work/ui";
 import { STATUS_BOX, STATUS_TEXT } from "@/lib/status";
 import { cn } from "@/lib/utils";
 
@@ -224,8 +225,8 @@ export function ComposeEmailDialog({
                 className="min-w-0 flex-1"
                 data-testid="compose-ai-line"
               />
-              <Button type="button" variant="outline" onClick={writeWithAI} disabled={writing || !instruction.trim() || sent} className="shrink-0" data-testid="compose-ai-write">
-                <Sparkles /> {writing ? "Writing..." : "Write with AI"}
+              <Button type="button" variant="outline" onClick={writeWithAI} disabled={writing || !instruction.trim() || sent} className={cn("shrink-0", writing && "border-border bg-slate-50 text-slate-400 disabled:opacity-100")} data-testid="compose-ai-write">
+                {writing ? <Thinking /> : <><Sparkles className="text-violet" /> Write with AI</>}
               </Button>
           </div>
           <p className="text-xs text-muted-foreground">The AI fills Subject and Message below, replacing what is there. Read and edit it before sending.</p>
@@ -237,7 +238,7 @@ export function ComposeEmailDialog({
             Subject
           </label>
           <div className="relative min-w-0">
-            <Input id={`${ids}-subject`} value={subject} onChange={(e) => setSubject(e.target.value)} onFocus={() => setSubjectFocused(true)} onBlur={() => setSubjectFocused(false)} maxLength={200} className={ask ? "pr-8" : undefined} data-testid="compose-subject" />
+            <Input id={`${ids}-subject`} value={subject} onChange={(e) => setSubject(e.target.value)} onFocus={() => setSubjectFocused(true)} onBlur={() => setSubjectFocused(false)} maxLength={200} className={ask ? "pr-9" : undefined} data-testid="compose-subject" />
             {ask ? <AiFieldStar context={ask} field={{ key: "email_subject", label: "Subject", current: subject, extra: `The email goes to ${toName}.${body.trim() ? ` The message so far: ${body.slice(0, 300)}` : ""}` }} visible={!subject.trim() || subjectFocused} onUse={setSubject} /> : null}
           </div>
         </div>

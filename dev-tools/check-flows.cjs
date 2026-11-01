@@ -41,6 +41,8 @@ async function step(name, fn) {
   // FLOWS=<regular expression> runs only the matching steps (for example FLOWS="Send|Google").
   if (process.env.FLOWS && !new RegExp(process.env.FLOWS).test(name)) return;
   try {
+    // Under the fake clock the page's Date is set again at every step: a page in the background counts time slowly.
+    if (process.env.FAKETIME && global.__page) await global.__page.context().clock.setSystemTime(Date.now()).catch(() => null);
     await fn();
     results.push(["ok  ", name]);
     process.stderr.write(`ok   ${name}\n`);
@@ -99,6 +101,17 @@ const editorText = (loc) =>
   });
 // The text a person reads in the box (list marks are drawn, not text): no line may start with "- ".
 const shownText = (loc) => loc.evaluate((el) => el.innerText);
+// Under the fake clock the pages still see the fake date (the Log a call drawer's "now", date pickers): every new
+// context starts its Date at this process's (fake) time and lets it run, with the browser's own timers left real.
+const fakeBrowserDate = (browser) => {
+  if (!process.env.FAKETIME) return;
+  const raw = browser.newContext.bind(browser);
+  browser.newContext = async (options) => {
+    const c = await raw(options);
+    await c.clock.setSystemTime(Date.now());
+    return c;
+  };
+};
 const expectText = async (page, text) => {
   try {
     await page.waitForFunction((t) => document.body.innerText.includes(t), text, { timeout: 15000 });
@@ -108,7 +121,10 @@ const expectText = async (page, text) => {
 };
 
 (async () => {
-  const browser = await chromium.launch();
+  // The browser keeps the real clock even under dev-tools/late-evening.sh: libfaketime makes Chromium's own timers
+  // unsteady (clicks and waits stall for seconds), and the app's "today" comes from the server, which runs on the fake clock.
+  const browser = await chromium.launch({ env: { ...process.env, LD_PRELOAD: "", FAKETIME: "" } });
+  fakeBrowserDate(browser);
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
   await ctx.addCookies([cookie]);
   await routeSignatureImage(ctx);
@@ -3116,13 +3132,13 @@ const expectText = async (page, text) => {
     await page.locator("[data-url-window] [data-testid=panel-notes]").waitFor();
   });
 
-  await step("Filters: communications, commitments, and the pipeline list filter in the address; gold lines between columns", async () => {
+  await step("Filters: communications, commitments, and the pipeline list filter in the address; hairlines between columns", async () => {
     await page.goto(`${BASE}/people/communications`);
     await page.getByTestId("filter-button").click();
     const cols = page.getByTestId("filter-column");
     if ((await cols.count()) !== 4) throw new Error(`columns: ${await cols.count()}`);
     const border = await cols.nth(1).evaluate((el) => getComputedStyle(el).borderLeftColor);
-    if (border !== "rgb(217, 189, 132)") throw new Error(`divider color ${border}`);
+    if (border !== "rgb(213, 219, 227)") throw new Error(`divider color ${border}`);
     await page.getByTestId("filter-method-call").check();
     await page.getByTestId("filter-apply").click();
     await page.waitForURL(/method=call/);
@@ -3444,8 +3460,9 @@ const expectText = async (page, text) => {
     // No count chips; the numbers live in the tiles and the filter pills.
     if (await page.getByTestId("work-chips").count()) throw new Error("count chips are still on Home");
     const glance = Object.fromEntries(await page.getByTestId("glance-row").evaluateAll((els) => els.map((e) => [e.dataset.key, Number(e.dataset.count)])));
-    const inDb = await one(`select (select count(*)::int from pipeline_items i join pipeline_stages s on s.id = i.stage_id where i.status = 'open' and i.screened and s.name in ('Interested', 'NDA signed', 'Broker call')) early,
-      (select count(*)::int from pipeline_items i join pipeline_stages s on s.id = i.stage_id where i.status = 'open' and i.screened and s.name in ('CIM review', 'Seller call', 'Model')) evaluate,
+    // Edit batch B: Broker call sits in Evaluate after CIM review.
+    const inDb = await one(`select (select count(*)::int from pipeline_items i join pipeline_stages s on s.id = i.stage_id where i.status = 'open' and i.screened and s.name in ('Interested', 'NDA signed')) early,
+      (select count(*)::int from pipeline_items i join pipeline_stages s on s.id = i.stage_id where i.status = 'open' and i.screened and s.name in ('CIM review', 'Broker call', 'Seller call', 'Model')) evaluate,
       (select count(*)::int from pipeline_items i join pipeline_stages s on s.id = i.stage_id where i.status = 'open' and i.screened and s.name in ('Partner presentation', 'IOI or LOI', 'Diligence')) decide`);
     if (glance.early !== inDb.early || glance.evaluate !== inDb.evaluate || glance.decide !== inDb.decide) throw new Error(`glance: ${JSON.stringify(glance)} vs ${JSON.stringify(inDb)}`);
     if (glance.wait !== 2) throw new Error("Waiting over 5 days should count the two long waits");
@@ -3562,7 +3579,7 @@ const expectText = async (page, text) => {
     // Interested is the soft blue button, Add a listing the solid one.
     const soft = await row.getByTestId("interested-button").evaluate((e) => getComputedStyle(e).backgroundColor);
     const solid = await page.getByTestId("add-listing-button").evaluate((e) => getComputedStyle(e).backgroundColor);
-    if (soft !== "rgb(238, 243, 254)" || solid !== "rgb(30, 64, 175)") throw new Error(`button colors: interested ${soft}, add ${solid}`);
+    if (soft !== "rgb(234, 242, 255)" || solid !== "rgb(20, 41, 123)") throw new Error(`button colors: interested ${soft}, add ${solid}`);
     const d = await dealByName("Riverbend Commercial Cleaning");
     const fin = await one("select revenue, ebitda, sde, asking_price from deal_financials where item_id = $1", [d.id]);
     if (d.name !== "00 Commercial Cleaning" || d.company_name !== "Riverbend Commercial Cleaning" || d.screened !== false || d.stage !== null || Number(fin.sde) !== 1200000 || fin.ebitda !== null || Number(fin.revenue) !== 4100000 || Number(fin.asking_price) !== 3900000) throw new Error(JSON.stringify({ d, fin }));
@@ -3657,7 +3674,7 @@ const expectText = async (page, text) => {
     if (!(await one("select 1 x from tasks where pipeline_item_id = $1 and status = 'todo' and title = $2", [d.id, `00 Commercial Cleaning: ${d.next_action}`]))) throw new Error("no task for the next action");
     // Due today, so it shows on Home.
     await pg.query("update pipeline_items set next_action_due = $2 where id = $1", [d.id, nyDate(0)]);
-    for (const expectStage of ["NDA signed", "Broker call"]) {
+    for (const expectStage of ["NDA signed", "CIM review"]) {
       await page.goto(`${BASE}/work`);
       const r = page.locator(`[data-testid=next-action-row][data-deal="${d.id}"]`);
       await r.waitFor();
@@ -3673,7 +3690,7 @@ const expectText = async (page, text) => {
       if (d.stage !== expectStage) throw new Error(`stage ${d.stage}`);
       await pg.query("update pipeline_items set next_action_due = $2 where id = $1", [d.id, nyDate(0)]);
     }
-    if (d.next_action !== "Ask for the seller call") throw new Error(`next action after two moves: ${d.next_action}`);
+    if (!d.next_action.startsWith("Write the key finding")) throw new Error(`next action after two moves: ${d.next_action}`);
     const done = (await one("select count(*)::int n from tasks where pipeline_item_id = $1 and status = 'done'", [d.id])).n;
     if (done < 2) throw new Error(`done tasks: ${done}`);
     // Not yet: the deal stays and needs a next action.
@@ -3684,8 +3701,10 @@ const expectText = async (page, text) => {
     await r.getByTestId("next-action-result").waitFor();
     for (let i = 0; i < 40 && (await dealByName("Riverbend Commercial Cleaning")).next_action !== null; i++) await page.waitForTimeout(250);
     d = await dealByName("Riverbend Commercial Cleaning");
-    if (d.stage !== "Broker call" || d.next_action !== null) throw new Error(JSON.stringify(d));
-    // It now shows under Needs a next action on Home, with Set next action.
+    if (d.stage !== "CIM review" || d.next_action !== null) throw new Error(JSON.stringify(d));
+    // It now shows under Needs a next action on Home, with Set next action (outlined cobalt, not solid).
+    await page.goto(`${BASE}/work`);
+    if ((await page.locator(`[data-testid=needs-action-row][data-deal="${d.id}"] [data-testid=set-next-action]`).getAttribute("data-tone")) !== "cobalt") throw new Error("Set next action should be outlined");
     await page.goto(`${BASE}/work`);
     await page.locator(`[data-testid=needs-action-row][data-deal="${d.id}"] [data-testid=set-next-action]`).waitFor();
     await page.goto(`${BASE}/work/deals`);
@@ -3728,7 +3747,7 @@ const expectText = async (page, text) => {
     const r = page.locator(`[data-testid=waiting-row][data-deal="${summit.id}"]`);
     await r.waitFor();
     if ((await r.getByTestId("waiting-days").getAttribute("data-tone")) !== "red") throw new Error("Summit should be red");
-    if (!(await r.getByTestId("waiting-since").innerText()).includes("Broker call")) throw new Error("the stage shows next to Since");
+    if (!(await r.getByTestId("waiting-since").innerText()).includes("CIM review")) throw new Error("the stage shows next to Since");
     await r.getByTestId("follow-up-button").click();
     const dlg = page.getByTestId("compose-dialog");
     await dlg.waitFor();
@@ -3783,7 +3802,7 @@ const expectText = async (page, text) => {
     await page.goto(`${BASE}/work/deals/${dalton.id}`);
     await page.getByTestId("work-deal").waitFor();
     const status = await page.getByTestId("deal-status-line").innerText();
-    if (!status.includes("CIM review · day 4") || !status.includes("Not waiting on anyone")) throw new Error(`status line: ${status}`);
+    if (!status.includes("Broker call · day 4") || !status.includes("Not waiting on anyone")) throw new Error(`status line: ${status}`);
     if ((await page.getByTestId("timeline-event").count()) < 6 || (await page.getByTestId("panel-documents").innerText()).includes("No documents")) throw new Error("timeline or documents");
     if (!(await page.getByTestId("fact-asking").innerText()).includes("(3.5x)")) throw new Error("multiple");
     // The open questions outline: the sample's three groups, every line a text box.
@@ -3947,7 +3966,10 @@ const expectText = async (page, text) => {
     const phases = await page.getByTestId("deals-phase").evaluateAll((els) => els.map((e) => [e.dataset.phase, Number(e.dataset.count)]));
     if (phases.map((x) => x[0]).join(",") !== "early,evaluate,decide") throw new Error(`phases: ${JSON.stringify(phases)}`);
     const counts = await page.getByTestId("stage-heading").evaluateAll((els) => els.map((e) => [e.dataset.stage, Number(e.dataset.count)]));
-    if (counts.map((x) => x[0]).join(",") !== "Interested,NDA signed,Broker call,CIM review,Seller call,Model,Partner presentation,IOI or LOI,Diligence") throw new Error(`stages: ${JSON.stringify(counts)}`);
+    if (counts.map((x) => x[0]).join(",") !== "Interested,NDA signed,CIM review,Broker call,Seller call,Model,Partner presentation,IOI or LOI,Diligence") throw new Error(`stages: ${JSON.stringify(counts)}`);
+    // Edit batch B: Early holds two stages, Evaluate four with Broker call right after CIM review.
+    const perPhase = await page.getByTestId("deals-phase").evaluateAll((els) => els.map((e) => [...e.querySelectorAll("[data-testid=stage-heading]")].map((h) => h.dataset.stage).join(",")));
+    if (perPhase.join("|") !== "Interested,NDA signed|CIM review,Broker call,Seller call,Model|Partner presentation,IOI or LOI,Diligence") throw new Error(`stages per phase: ${perPhase.join("|")}`);
     for (const [name, n] of counts) {
       const inDb = (await one("select count(*)::int n from pipeline_items i join pipeline_stages s on s.id = i.stage_id join pipelines p on p.id = i.pipeline_id where p.kind = 'acquisition' and s.name = $1 and i.screened and i.status = 'open'", [name])).n;
       if (inDb !== n) throw new Error(`${name}: shown ${n}, records ${inDb}`);
@@ -4716,19 +4738,38 @@ const expectText = async (page, text) => {
     await page.getByTestId("compose-dialog").waitFor({ state: "hidden" });
     await page.getByTestId("drawer-close").click();
     await page.getByTestId("ask-ai-panel").waitFor({ state: "hidden" });
-    // A card star on a record page: the Tasks card; Suggested next steps load on their own; Set as next action.
+    // The page pill on a record page: Suggested next steps load on their own; Set as next action.
     const research = await projectByName("Market research");
     await page.goto(`${BASE}/work/rosara/${research.id}`);
     await page.getByTestId("project-tasks").waitFor();
-    await page.getByTestId("project-tasks").locator("[data-testid=ai-card-star][data-card=Tasks]").click();
+    await page.getByTestId("ask-ai").click();
     await page.getByTestId("ask-ai-panel").waitFor();
-    if (!(await page.getByTestId("ask-ai-panel").innerText()).includes("Context: Tasks, Market research")) throw new Error("the card context");
+    if ((await page.getByTestId("ask-ai-title").innerText()).trim() !== "Ask AI" || !(await page.getByTestId("ask-ai-panel").innerText()).includes("Context: Market research")) throw new Error("the page context");
     await page.getByTestId("ask-ai-step").first().waitFor({ timeout: 20000 });
     if ((await page.getByTestId("ask-ai-step").count()) !== 3) throw new Error("three suggested steps");
     const stepText = (await page.getByTestId("ask-ai-step").first().locator("p").first().innerText()).trim();
     await page.getByTestId("ask-ai-set-next").first().click();
     await page.getByTestId("ask-ai-set-note").waitFor({ timeout: 15000 });
     if ((await projectByName("Market research")).next_action !== stepText) throw new Error("Set as next action");
+    await page.getByTestId("drawer-close").click();
+    await page.getByTestId("ask-ai-panel").waitFor({ state: "hidden" });
+    // A card star on a record page (Edit batch B): the Tasks card's panel is about the tasks: its title, its three
+    // questions, "Suggest tasks for this project" with Add as a task.
+    await page.getByTestId("project-tasks").locator("[data-testid=ai-card-star][data-card=Tasks]").click();
+    await page.getByTestId("ask-ai-panel").waitFor();
+    if ((await page.getByTestId("ask-ai-title").innerText()).trim() !== "Ask AI about Tasks" || !(await page.getByTestId("ask-ai-panel").innerText()).includes("Context: Tasks, Market research")) throw new Error("the card context");
+    const taskPills = await page.getByTestId("ask-ai-pill").allInnerTexts();
+    if (taskPills.length !== 3 || taskPills[1] !== "Which task is missing on this project?") throw new Error(`card pills: ${taskPills.join("|")}`);
+    if ((await page.getByTestId("ask-ai-steps").getAttribute("data-kind")) !== "tasks") throw new Error("the Tasks suggestions");
+    await page.getByTestId("ask-ai-add-task").first().waitFor({ timeout: 20000 });
+    if (!(await page.getByTestId("ask-ai-steps-again").innerText()).includes("Suggest tasks for this project")) throw new Error(`the Suggest tasks button: ${await page.getByTestId("ask-ai-steps-again").innerText()}`);
+    const taskText = (await page.getByTestId("ask-ai-step").first().locator("p").first().innerText()).trim();
+    const tasksBefore = (await one("select count(*)::int n from deal_todos where record_type = 'projects' and record_id = $1", [research.id])).n;
+    await page.getByTestId("ask-ai-add-task").first().click();
+    await page.getByTestId("ask-ai-set-note").waitFor({ timeout: 15000 });
+    if (!(await page.getByTestId("ask-ai-set-note").innerText()).startsWith("Added as a task")) throw new Error(await page.getByTestId("ask-ai-set-note").innerText());
+    if ((await one("select count(*)::int n from deal_todos where record_type = 'projects' and record_id = $1 and text = $2", [research.id, taskText])).n !== 1 || (await one("select count(*)::int n from deal_todos where record_type = 'projects' and record_id = $1", [research.id])).n !== tasksBefore + 1) throw new Error("Add as a task did not add the task");
+    await page.screenshot({ path: path.join(OUT, "flow-work-ask-ai-card.png") });
     await page.getByTestId("drawer-close").click();
     await page.getByTestId("ask-ai-panel").waitFor({ state: "hidden" });
     // The field star: the Weekly focus on Rosara; the star shows while the field is empty or focused; Use this fills it.
@@ -4741,6 +4782,9 @@ const expectText = async (page, text) => {
     await star.click();
     await page.getByTestId("ask-ai-panel").waitFor();
     if (!(await page.getByTestId("ask-ai-panel").innerText()).includes("Context: the Weekly focus field")) throw new Error("the field context");
+    if ((await page.getByTestId("ask-ai-title").innerText()).trim() !== "Ask AI about the Weekly focus field" || (await page.getByTestId("ask-ai-pill").count()) !== 3 || (await page.getByTestId("ask-ai-steps").count())) throw new Error("a field panel: its own title and questions, no next steps");
+    // The Weekly focus is a one-field card: only the field star, no card-header star.
+    if (await page.getByTestId("weekly-focus").locator("[data-testid=ai-card-star]").count()) throw new Error("the Weekly focus bar should have no card star");
     await page.getByTestId("ask-ai-draft").waitFor({ timeout: 20000 });
     await page.getByTestId("ask-ai-use").click();
     await page.getByTestId("ask-ai-panel").waitFor({ state: "hidden" });
@@ -4761,6 +4805,180 @@ const expectText = async (page, text) => {
     await page.keyboard.press("Escape");
     await page.getByRole("button", { name: "Discard email" }).click();
     await page.getByTestId("compose-dialog").waitFor({ state: "hidden" });
+  });
+
+  await step("Edit batch B: Suggest tasks reads a plain-text reply (the shared Thinking state meanwhile); an unusable reply shows the AI's text with Try again; Write it reads plain text; Fill from text thinks", async () => {
+    await aipost("/__reset");
+    const dalton = await dealByName("Dalton Services");
+    await page.goto(`${BASE}/work/deals/${dalton.id}`);
+    const todos = page.getByTestId("deal-todos");
+    await todos.waitFor();
+    const suggest = todos.getByTestId("todo-suggest");
+    if ((await suggest.innerText()).trim() !== "Suggest tasks") throw new Error(`the button reads: ${await suggest.innerText()}`);
+    // Plain text: the mock answers with bulleted lines, no JSON; the reader takes the lines as items. The mock answers
+    // 1.5 seconds late here, so the Thinking state can be seen.
+    await aipost("/__mode", { todos: "plain", delay: 1500 });
+    const before = (await todosOf(dalton.id)).length;
+    await suggest.click();
+    // The thinking state: grayed, a spinner, "Thinking".
+    await page.waitForFunction(() => { const b = document.querySelector("[data-testid=deal-todos] [data-testid=todo-suggest][data-busy='1']"); return !!b && !!b.querySelector("[data-testid=ai-thinking]") && b.innerText.includes("Thinking"); }, null, { timeout: 5000 });
+    await todos.getByTestId("todo-note").waitFor({ timeout: 20000 });
+    const note = await todos.getByTestId("todo-note").innerText();
+    if (!/\d suggested\./.test(note)) throw new Error(`plain-text tasks: ${note}`);
+    await page.waitForFunction((n) => document.querySelectorAll("[data-testid=deal-todos] [data-testid=todo-item]").length > n, before, { timeout: 15000 });
+    const added = (await todosOf(dalton.id)).map((t) => t.text);
+    if (added.length <= before) throw new Error("no task added from the plain reply");
+    if (added.some((t) => /^Here are a few things/.test(t))) throw new Error("the reply's lead-in line became a task");
+    if ((await suggest.getAttribute("data-busy")) !== "0" || (await suggest.innerText()).trim() !== "Suggest tasks") throw new Error("the button should read Suggest tasks again");
+    // An unusable reply (JSON without a list) after the retry: the message, the reply's text, Try again.
+    await aipost("/__mode", { todos: "invalid", delay: 0 });
+    const callsBefore = (await aicalls()).filter((c) => c === "deal_todos").length;
+    await suggest.click();
+    await todos.getByTestId("todo-note-retry").waitFor({ timeout: 20000 });
+    const bad = await todos.getByTestId("todo-note").innerText();
+    if (!bad.includes("not in a form the app can use") || !(await todos.getByTestId("todo-note-reply").innerText()).includes("Nothing to add for this deal")) throw new Error(`unusable reply: ${bad}`);
+    if ((await aicalls()).filter((c) => c === "deal_todos").length !== callsBefore + 2) throw new Error("the AI should be asked twice (the stricter second try)");
+    // Try again with a good reply.
+    await aipost("/__mode", { todos: "valid" });
+    await todos.getByTestId("todo-note-retry").click();
+    await page.waitForFunction(() => /suggested\.|Nothing new/.test(document.querySelector("[data-testid=deal-todos] [data-testid=todo-note]")?.innerText ?? ""), null, { timeout: 20000 });
+    // Write it with plain text: the Key finding star; the draft shows the bare sentence; Use this fills the field.
+    await aipost("/__mode", { field: "plain" });
+    await page.getByTestId("key-finding").focus();
+    await page.getByTestId("deal-findings").locator("[data-testid=ai-field-star][data-field=key_finding]").click();
+    await page.getByTestId("ask-ai-panel").waitFor();
+    await page.getByTestId("ask-ai-draft").waitFor({ timeout: 20000 });
+    const draft = await page.getByTestId("ask-ai-draft").innerText();
+    if (!draft.includes("Mock finding:") || draft.includes("{")) throw new Error(`plain draft: ${draft}`);
+    if (!(await page.getByTestId("ask-ai-write-again").innerText()).includes("Write it again")) throw new Error("Write it again");
+    await page.getByTestId("ask-ai-use").click();
+    await page.getByTestId("ask-ai-panel").waitFor({ state: "hidden" });
+    if (!(await page.getByTestId("key-finding").inputValue()).startsWith("Mock finding:")) throw new Error("Use this did not fill the key finding");
+    await aipost("/__mode", { field: "valid" });
+    // Fill from text shares the thinking state.
+    await aipost("/__mode", { delay: 1500 });
+    await page.goto(`${BASE}/work/listings?add=1`);
+    await page.getByTestId("listing-text").fill("For sale: Regional Sign Shop\nRevenue $3.1M, EBITDA $1.1M, Asking $4.0M\nLocation: Macon, GA\nIndustry: Signage");
+    const fill = page.getByTestId("listing-fill");
+    await fill.click();
+    await page.locator("[data-testid=listing-fill][data-busy='1'] [data-testid=ai-thinking]").waitFor({ timeout: 5000 });
+    await page.waitForFunction(() => document.querySelector("[data-testid=listing-name]")?.value.includes("Sign Shop"), null, { timeout: 20000 });
+    if ((await fill.innerText()).trim() !== "Fill from text") throw new Error("Fill from text should read its name again");
+    await aipost("/__mode", { delay: 0 });
+  });
+
+  await step("Edit batch B: the Ask AI panel opens before its content loads (title and questions at once, the cost line later)", async () => {
+    const dalton = await dealByName("Dalton Services");
+    await page.goto(`${BASE}/work/deals/${dalton.id}`);
+    await page.getByTestId("deal-todos").waitFor();
+    await page.waitForLoadState("networkidle");
+    // Every server action answers 4 seconds late: the panel must not wait for it. (The clock is not measured: under the
+    // fake clock of late-evening.sh the browser's own timing is not steady; what counts is that the title and the
+    // questions are there while the server has not answered yet, and that the cost line arrives after.)
+    const slow = async (route, req) => {
+      if (req.method() === "POST" && req.headers()["next-action"]) await new Promise((r) => setTimeout(r, 4000));
+      await route.continue().catch(() => null);
+    };
+    await page.route("**/*", slow);
+    const t0 = Date.now();
+    await page.getByTestId("deal-todos").locator("[data-testid=ai-card-star][data-card=Tasks]").click();
+    await page.getByTestId("ask-ai-title").waitFor();
+    await page.getByTestId("ask-ai-pills").waitFor();
+    const opened = Date.now() - t0;
+    if ((await page.getByTestId("ask-ai-title").innerText()).trim() !== "Ask AI about Tasks" || (await page.getByTestId("ask-ai-pill").count()) !== 3) throw new Error("the panel's own title and questions");
+    if (await page.getByTestId("ask-ai-estimate").count()) throw new Error(`the cost line arrived before the server answered (the panel took ${opened} ms)`);
+    await page.getByTestId("ask-ai-estimate").waitFor({ timeout: 20000 });
+    if (Date.now() - t0 < 3500) throw new Error("the cost line should come from the server");
+    await page.unroute("**/*", slow);
+    await page.getByTestId("drawer-close").click();
+    await page.getByTestId("ask-ai-panel").waitFor({ state: "hidden" });
+  });
+
+  await step("Edit batch B: Done buttons outlined cobalt with a white fill; Advance outlined; the one solid button on a page is its main action; no gold or brown hex in the built styles", async () => {
+    await page.goto(`${BASE}/work`);
+    await page.getByTestId("next-action-row").first().waitFor();
+    const done = page.getByTestId("next-action-done").first();
+    const style = await done.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { tone: el.dataset.tone, bg: cs.backgroundColor, border: cs.borderTopColor, color: cs.color };
+    });
+    if (style.tone !== "cobalt" || style.bg !== "rgb(255, 255, 255)" || style.border !== "rgb(30, 64, 175)" || style.color !== "rgb(30, 64, 175)") throw new Error(`Done: ${JSON.stringify(style)}`);
+    await done.hover();
+    // The color changes over a short transition.
+    await page.waitForFunction(() => getComputedStyle(document.querySelector("[data-testid=next-action-done]")).backgroundColor === "rgb(234, 242, 255)", null, { timeout: 3000 }).catch(() => null);
+    const hovered = await done.evaluate((el) => getComputedStyle(el).backgroundColor);
+    if (hovered !== "rgb(234, 242, 255)") throw new Error(`Done on hover: ${hovered}`);
+    // Follow up is soft blue; Set next action (Needs a next action) is outlined.
+    const follow = await page.getByTestId("follow-up-button").first().evaluate((el) => [el.dataset.tone, getComputedStyle(el).backgroundColor, getComputedStyle(el).color].join("|"));
+    if (follow !== "soft|rgb(234, 242, 255)|rgb(30, 64, 175)") throw new Error(`Follow up: ${follow}`);
+    // The progress mark: done segments cobalt, the current one #00F0FF, the rest light gray.
+    const segs = await page.locator("[data-testid=progress-mark]").evaluateAll((els) => [...new Set(els.flatMap((el) => [...el.children].map((i) => `${i.dataset.seg}:${getComputedStyle(i).backgroundColor}`)))]);
+    if (!segs.some((x) => x === "current:rgb(0, 240, 255)") || !segs.some((x) => x === "done:rgb(30, 64, 175)") || !segs.some((x) => x === "todo:rgb(226, 232, 240)")) throw new Error(`stage mark: ${segs.join(",")}`);
+    // The counter bar fill is #00F0FF; the section headings are charcoal; the lane pills are the one soft blue.
+    const bar = await page.locator("[data-testid=home-outreach-counter] i").evaluate((el) => getComputedStyle(el).backgroundColor);
+    if (bar !== "rgb(0, 240, 255)") throw new Error(`counter bar: ${bar}`);
+    const heading = await page.locator("[data-testid=section-heading][data-count]:not([data-count='0'])").first().evaluate((el) => getComputedStyle(el).color);
+    if (heading !== "rgb(51, 65, 85)") throw new Error(`heading color: ${heading}`);
+    const lanes = await page.getByTestId("lane-pill").evaluateAll((els) => [...new Set(els.map((e) => `${e.dataset.tone}:${getComputedStyle(e).backgroundColor}`))]);
+    if (lanes.length !== 1 || lanes[0] !== "blue:rgb(234, 242, 255)") throw new Error(`lane pills: ${lanes.join(",")}`);
+    // The deal page: Advance outlined, Save solid (#14297b at rest).
+    const dalton = await dealByName("Dalton Services");
+    await page.goto(`${BASE}/work/deals/${dalton.id}`);
+    await page.getByTestId("decision-advance").waitFor();
+    const advance = await page.getByTestId("decision-advance").evaluate((el) => [el.dataset.tone, getComputedStyle(el).backgroundColor].join("|"));
+    if (advance !== "cobalt|rgb(255, 255, 255)") throw new Error(`Advance: ${advance}`);
+    await page.goto(`${BASE}/work/outreach`);
+    await page.getByTestId("add-person-button").waitFor();
+    const add = await page.getByTestId("add-person-button").evaluate((el) => getComputedStyle(el).backgroundColor);
+    if (add !== "rgb(20, 41, 123)") throw new Error(`Add a person: ${add}`);
+    const solids = await page.locator("main button, main a").evaluateAll((els) => els.filter((e) => getComputedStyle(e).backgroundColor === "rgb(20, 41, 123)").map((e) => e.innerText.trim()));
+    if (solids.join("|") !== "Add a person") throw new Error(`solid buttons on Outreach: ${solids.join("|")}`);
+    // No gold or brown anywhere in the built styles.
+    const sheets = await page.evaluate(async () => {
+      const hrefs = [...document.querySelectorAll("link[rel=stylesheet]")].map((l) => l.href);
+      const texts = await Promise.all(hrefs.map((h) => fetch(h).then((r) => r.text())));
+      return texts.join("\n") + [...document.querySelectorAll("style")].map((s) => s.textContent).join("\n");
+    });
+    if (!sheets.length) throw new Error("no stylesheet found");
+    for (const hex of ["b8862b", "7a5714", "fbf4e2", "e8d29a", "d9bd84", "f6ead0", "92400e", "fcd34d", "--gold"]) if (sheets.toLowerCase().includes(hex)) throw new Error(`the built styles still carry ${hex}`);
+  });
+
+  await step("Edit batch B: rows line up. On Home, Outreach, Rosara, and Screen listings every figure and button column sits at the same x on every row, with long and short text", async () => {
+    // Make the longest cases: a 120 minute block, a 4-days-late due, a long next action that wraps, a long name.
+    const dalton = await dealByName("Dalton Services");
+    const meridian = await dealByName("Meridian Industrial Coatings");
+    await pg.query("update pipeline_items set next_action_minutes = 120, next_action_due = $2, next_action = 'Finish the seven year model with the downside scenario at three times trailing earnings and send it to the partners for comments before the call' where id = $1", [meridian.id, nyDate(-4)]);
+    await pg.query("update pipeline_items set next_action_minutes = 5, next_action_due = $2 where id = $1", [dalton.id, nyDate(0)]);
+    const sameX = async (selector, cols) => {
+      const rows = await page.locator(selector).evaluateAll((els, cs) => els.filter((e) => getComputedStyle(e).display !== "none").map((e) => Object.fromEntries(cs.map((c) => { const col = e.querySelector(`[data-col=${c}]`); return [c, col ? Math.round(col.getBoundingClientRect().left) : null]; }))), cols);
+      if (rows.length < 3) throw new Error(`${selector}: only ${rows.length} rows to compare`);
+      for (const c of cols) {
+        const xs = [...new Set(rows.map((r) => r[c]).filter((x) => x !== null))];
+        if (xs.length !== 1) throw new Error(`${selector} column ${c} sits at x ${xs.join(", ")} (${rows.length} rows)`);
+      }
+      return rows.length;
+    };
+    await page.goto(`${BASE}/work`);
+    await page.getByTestId("next-action-row").first().waitFor();
+    await page.getByTestId("home-order-soonest").click();
+    const homeRows = await sameX("[data-testid=next-action-row], [data-testid=outreach-action-row], [data-testid=project-action-row], [data-testid=item-action-row], [data-testid=needs-action-row]", ["due", "minutes", "buttons"]);
+    // The row with the long action wraps its text inside its own width: the figures stay on one line at the right.
+    const tall = await page.locator(`[data-testid=next-action-row][data-deal="${meridian.id}"]`).evaluate((e) => ({ h: e.getBoundingClientRect().height, due: e.querySelector("[data-col=due]").innerText, min: e.querySelector("[data-col=minutes]").innerText }));
+    if (tall.due !== "4 days late" || tall.min !== "120 min") throw new Error(`the longest case: ${JSON.stringify(tall)}`);
+    await page.goto(`${BASE}/work/outreach`);
+    await page.getByTestId("person-row").first().waitFor();
+    await sameX("[data-testid=person-row]", ["lastContact", "nextDate", "buttons"]);
+    await page.goto(`${BASE}/work/rosara`);
+    await page.getByTestId("project-row").first().waitFor();
+    await sameX("[data-testid=project-row]", ["count", "nextDate", "buttons"]);
+    if ((await page.getByTestId("set-next-action").count()) < 1) throw new Error("the sample should have a project without a next action (Set the next action)");
+    await page.goto(`${BASE}/work/listings`);
+    await page.getByTestId("listing-row").first().waitFor();
+    await sameX("[data-testid=listing-row]:not([data-hidden='1'])", ["money", "buttons"]);
+    // Screenshots of Home with the long and short rows, at 1280 and on the phone.
+    await shoot3(`${BASE}/work`, "work-now");
+    await pg.query("update pipeline_items set next_action_minutes = 60, next_action = 'Finish the 7-year model, scenario at 3x TTM', next_action_due = $2 where id = $1", [meridian.id, nyDate(-1)]);
+    if (homeRows < 5) throw new Error(`only ${homeRows} rows on Home`);
   });
 
   await step("Savings ideas: propose now, shown on Home with a count, Edit, Later, Decline (not proposed again), Approve as a reduction action", async () => {

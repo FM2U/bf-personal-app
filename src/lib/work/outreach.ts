@@ -21,11 +21,12 @@ export const OUTREACH_ROLES = [
 ] as const;
 export type OutreachRole = (typeof OUTREACH_ROLES)[number]["key"];
 
+/** The four purposes. Every purpose pill is the one soft blue (the color system of Edit batch B, 2026-11-01). */
 export const PURPOSES = [
-  { key: "off_market_deals", label: "Off-market deals", tone: "gold" },
-  { key: "job_search", label: "Job search", tone: "blue" },
-  { key: "consulting", label: "Consulting", tone: "gray" },
-  { key: "rosara", label: "Rosara", tone: "gold" },
+  { key: "off_market_deals", label: "Off-market deals" },
+  { key: "job_search", label: "Job search" },
+  { key: "consulting", label: "Consulting" },
+  { key: "rosara", label: "Rosara" },
 ] as const;
 export type PurposeKey = (typeof PURPOSES)[number]["key"];
 
@@ -43,8 +44,9 @@ export function purposeLabel(key: string): string {
   return PURPOSES.find((p) => p.key === key)?.label ?? key;
 }
 
-export function purposeTone(key: string): "gold" | "blue" | "gray" {
-  return PURPOSES.find((p) => p.key === key)?.tone ?? "gray";
+/** Every purpose pill is soft blue (lane and purpose pills share one color). */
+export function purposeTone(): "blue" {
+  return "blue";
 }
 
 /**

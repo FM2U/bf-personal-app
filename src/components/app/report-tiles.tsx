@@ -14,7 +14,7 @@ export function ReportTiles({ input, className }: { input: ReportInput; classNam
   const misses = [...new Set(sections.flatMap((s) => s.misses))];
   return (
     <section className={cn("rounded-xl border border-border bg-white", className)} data-testid="report-tiles">
-      <div className="mx-4 flex flex-wrap items-center justify-between gap-3 border-b border-gold-rule pb-3 pt-4">
+      <div className="mx-4 flex flex-wrap items-center justify-between gap-3 border-b border-rule pb-3 pt-4">
         <div className="min-w-0">
           <p className="text-xs text-muted-foreground">Accountability report</p>
           <h2 className="text-lg font-semibold text-slate-900">{sections[0]?.period}</h2>
