@@ -107,10 +107,10 @@ export function PhaseColumns<T extends ColumnItem>({ header, before, groups, tod
   );
 }
 
-/** The card of one row in a column: the link, the hover, and the hidden state shared by deals, opportunities, and consulting items. */
+/** The card of one row in a column: the link, the shared hover (.row-hover, Edit batch C round 3), and the hidden state shared by deals, opportunities, and consulting items. */
 export function ColumnCard({ href, hidden, children, testId = "deal-row", id }: { href: string; hidden: boolean; children: React.ReactNode; testId?: string; id: string }) {
   return (
-    <Link href={href} className={cn("-mx-2.5 mt-0.5 mb-1.5 block min-w-0 rounded-[9px] border border-transparent px-2.5 py-[9px] hover:border-slate-100 hover:bg-[#fbfcfe]", hidden && "hidden")} data-testid={testId} data-deal={id} data-hidden={hidden ? "1" : "0"}>
+    <Link href={href} className={cn("row-hover -mx-2.5 mt-0.5 mb-1.5 block min-w-0 border border-transparent px-2.5 py-[9px]", hidden && "hidden")} data-testid={testId} data-deal={id} data-hidden={hidden ? "1" : "0"}>
       {children}
     </Link>
   );

@@ -4,7 +4,9 @@
  * reply (used by callForJson, which asks once more with the problems listed), and the clean-up of what comes back.
  * The call itself is in src/app/actions/work.ts (fillListingFromText). Since Edit batch A (2026-10-31) the reply
  * carries a listing name (a plain description, shown as "00 ..." until the company is named) and the company name
- * when the text names it, and "Cash Flow" on a listing is read as SDE.
+ * when the text names it, and "Cash Flow" on a listing is read as SDE. Edit batch C round 3: the link field takes the
+ * first web address (http or https) in the pasted text; the prompt asks for it and firstUrl() fills it when the AI
+ * leaves it empty.
  */
 import { LISTING_SOURCES, mentionsSde, parseMoneyText } from "@/lib/work/buy-box";
 import { buildListingName } from "@/lib/work/names";
@@ -31,12 +33,35 @@ export const LISTING_TEXT_MAX = 12_000;
 
 export function listingPrompt(text: string): string {
   return `TASK: listing_fields
-Read this business-for-sale listing (a broker email or a web page) and return the fields as JSON. Use only what the text says; leave a field empty ("") when the text does not say. Money fields are short text like "$4.1M" or "$410K". "earnings" is the EBITDA, or the SDE with the word SDE after it ("$1.2M SDE") when only SDE is given; a figure called "Cash Flow", "Seller's Discretionary Earnings", "Owner Benefit", or "Discretionary Cash Flow" is SDE. "listing_name" is a plain description of the business in 2 to 6 words, as a broker would headline it ("Industrial Filtration Distributor", "Commercial HVAC Service Contractor, 11 technicians"); never a made-up company name, never ending in "Co" or "Company". "company_name" is the real company name only when the text names it; otherwise "". "what_it_does" is one line: the product or service and who buys it. "source" is one of: Broker newsletter, Broker outreach, Network, Other. "location" is "City, ST". "industry" is two or three words.
+Read this business-for-sale listing (a broker email or a web page) and return the fields as JSON. Use only what the text says; leave a field empty ("") when the text does not say. Money fields are short text like "$4.1M" or "$410K". "earnings" is the EBITDA, or the SDE with the word SDE after it ("$1.2M SDE") when only SDE is given; a figure called "Cash Flow", "Seller's Discretionary Earnings", "Owner Benefit", or "Discretionary Cash Flow" is SDE. "listing_name" is a plain description of the business in 2 to 6 words, as a broker would headline it ("Industrial Filtration Distributor", "Commercial HVAC Service Contractor, 11 technicians"); never a made-up company name, never ending in "Co" or "Company". "company_name" is the real company name only when the text names it; otherwise "". "what_it_does" is one line: the product or service and who buys it. "source" is one of: Broker newsletter, Broker outreach, Network, Other. "location" is "City, ST". "industry" is two or three words. "listing_url" is the first web address in the text that starts with http:// or https://, exactly as written; "" when there is none.
 Return only JSON: {"listing_name": "", "company_name": "", "source": "", "what_it_does": "", "broker_name": "", "revenue": "", "earnings": "", "asking_price": "", "location": "", "industry": "", "listing_url": ""}
 Listing text:
 """
 ${text.slice(0, LISTING_TEXT_MAX)}
 """`;
+}
+
+/** Characters that end a web address in running text (a closing bracket, a quote, an angle bracket, a space). */
+const URL_PATTERN = /https?:\/\/[^\s<>"'`()[\]{}]+/gi;
+
+/**
+ * The first web address (http or https) in a text, without the punctuation that ends the sentence around it
+ * ("See https://bizbuysell.com/x." gives "https://bizbuysell.com/x"); null when the text has none.
+ */
+export function firstUrl(text: string | null | undefined): string | null {
+  for (const m of String(text ?? "").matchAll(URL_PATTERN)) {
+    const url = m[0].replace(/[.,;:!?*_]+$/, "");
+    // A real address has a host with a dot ("bizbuysell.com"); "http://" alone or "https://intranet" is skipped.
+    if (/^https?:\/\/[^/\s.]+(\.[^/\s.]+)+/i.test(url)) return url.slice(0, 500);
+  }
+  return null;
+}
+
+/** The fields with the link filled from the text when the AI left it empty (the regular-expression fallback). */
+export function withListingUrl(fields: ListingFields, text: string): ListingFields {
+  if (fields.listing_url.trim()) return fields;
+  const url = firstUrl(text);
+  return url ? { ...fields, listing_url: url } : fields;
 }
 
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max) : typeof v === "number" ? String(v) : "");

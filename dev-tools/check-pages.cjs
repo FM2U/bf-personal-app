@@ -73,6 +73,9 @@ async function keyPages() {
     // The deal page of the Work module (Dalton Services from the sample data, otherwise any open deal).
     const deal = (await one("select id from pipeline_items where name = 'Dalton Services' limit 1").catch(() => null)) ?? (await one("select i.id from pipeline_items i join pipelines p on p.id = i.pipeline_id where p.kind = 'acquisition' and i.screened and i.stage_id is not null order by i.created_at limit 1").catch(() => null));
     if (deal) out.push(`/work/deals/${deal}`);
+    // Edit batch C round 3: a listing to screen opens the same page in the Listing state (when the sample listings are loaded).
+    const listing = await one("select i.id from pipeline_items i join pipelines p on p.id = i.pipeline_id where p.kind = 'acquisition' and i.screened = false and i.status = 'open' order by i.created_at limit 1").catch(() => null);
+    if (listing) out.push(`/work/deals/${listing}#listing`);
     // The person page of the Work module (Mark Reed from the sample data, otherwise any contact).
     const person = (await one("select id from contacts where name = 'Mark Reed' limit 1").catch(() => null)) ?? (await one("select id from contacts order by created_at limit 1").catch(() => null));
     if (person) out.push(`/work/outreach/${person}`);
@@ -119,6 +122,7 @@ async function keyPages() {
     if (p.startsWith("/records/pipeline_items/") && p.endsWith("#due-today")) return "pipeline-item-due-today";
     if (p.startsWith("/records/pipeline_items/") && p.endsWith("#overdue")) return "pipeline-item-overdue";
     if (p.startsWith("/records/pipeline_items/")) return "consulting-item";
+    if (p.startsWith("/work/deals/") && p.endsWith("#listing")) return "work-listing-page";
     if (p.startsWith("/work/deals/")) return "work-deal";
     if (p.startsWith("/work/outreach/")) return "work-person";
     if (p.startsWith("/work/rosara/")) return "work-project";

@@ -186,6 +186,28 @@ select:not([multiple]):not([size]) {
   font-weight: 500;
 }
 
+/*
+ * Clickable rows and cards (Edit batch C round 3, platform rule): one class for every row or card that opens something
+ * in the Work and Accountability modules. A light gray fill (#f1f5f9) on hover and on keyboard focus, rounded corners
+ * (8px), a 120ms fade. Rows that do not open anything do not carry it. The corner and the fade sit in the components
+ * layer, so a card's own larger corner (rounded-xl) stays; the fill is unlayered, so it shows over a white card.
+ */
+@layer components {
+  .row-hover {
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 120ms ease;
+  }
+}
+.row-hover:hover,
+.row-hover:focus-visible {
+  background-color: #f1f5f9;
+}
+.row-hover:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
 /* Field labels held to two lines, sitting at the bottom of a two-line space so inputs in a row stay aligned. */
 .field-label {
   display: flex;

@@ -65,6 +65,8 @@ export function PersonRow({ person, today, onEmail, onCall, done: doneText }: { 
       testId="person-row"
       textGap
       dataAttrs={{ "data-person": person.id, "data-section-date": person.nextFollowUp ?? "" }}
+      open={`/work/outreach/${person.id}`}
+      openLabel={`Open ${person.name}`}
       right={
         asking ? undefined : (
         <>
@@ -190,6 +192,8 @@ export function OutreachActionRow({ person, today, reason }: { person: PersonRow
     <RowShell
       testId="outreach-action-row"
       dataAttrs={{ "data-person": person.id }}
+      open={`/work/outreach/${person.id}`}
+      openLabel={`Open ${person.name}`}
       right={
         asking ? undefined : (
           <ActionFigures due={{ text: next.tone === "over" ? overdueText(person.nextFollowUp!, today) : next.text, tone: next.tone }} minutes={null}>

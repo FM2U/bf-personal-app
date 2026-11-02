@@ -11,13 +11,15 @@ import { Line1, Line2, Name, Pill, RowButton, RowShell, waitTone } from "@/compo
  * (amber at the threshold, red at double), and Follow up, which opens the email editor with a drafted follow-up to
  * the deal's main contact (the editor is held by the Home board, so it stays open while the row moves to another
  * section after the send). Sending logs the email on the deal (the existing send path) and starts the wait again
- * from today ("Followed up").
+ * from today ("Followed up"). A click on the row outside Follow up and the name opens the deal (Edit batch C round 3).
  */
 export function WaitingRow({ deal, followedUp, onFollowUp }: { deal: DealRow; followedUp: boolean; onFollowUp: () => void }) {
   return (
     <RowShell
       testId="waiting-row"
       dataAttrs={{ "data-deal": deal.id }}
+      open={`/work/deals/${deal.id}`}
+      openLabel={`Open ${deal.name}`}
       stack
       right={
         <>

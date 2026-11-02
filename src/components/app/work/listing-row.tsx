@@ -17,6 +17,7 @@ export { PassMenu };
  * One listing to screen: name (a button that opens the listing popup, Edit batch C round 2) and the buy box pill, what it does, source, broker and location, the three figures,
  * Pass (reason menu) and Interested (soft blue), each figure in a fixed column. After either the row shows one line, then leaves the list.
  * `hidden` keeps the row in the page but out of sight (the filter pills and Find on Screen listings).
+ * Edit batch C round 3: a click anywhere on the row outside its buttons opens the popup too (the shared hover).
  */
 export function ListingRow({ listing, hidden = false }: { listing: ListingRowData; hidden?: boolean }) {
   const router = useRouter();
@@ -59,6 +60,8 @@ export function ListingRow({ listing, hidden = false }: { listing: ListingRowDat
       testId="listing-row"
       dataAttrs={{ "data-listing": listing.id, "data-fits": listing.buyBox.fits ? "1" : "0", "data-hidden": hidden ? "1" : "0" }}
       className={cn(hidden && "hidden")}
+      onOpen={() => setPopup(true)}
+      openLabel={`Open ${listing.name}`}
       right={
         <>
           <div className={cn("flex items-end", FIGURE_COLS_GAP.cls)} data-testid="listing-figures">

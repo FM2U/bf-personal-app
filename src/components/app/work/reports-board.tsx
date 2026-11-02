@@ -97,7 +97,7 @@ export function ReportsBoard({ data, title, tabs, view: viewAtStart, period: per
                     <div className="-mx-[22px] flex flex-col" data-testid="section-body">
                       {rows.length ? (
                         rows.map((r) => (
-                          <button key={r.id} type="button" onClick={() => setOpen(r)} className="grid w-full cursor-pointer grid-cols-1 items-center gap-x-[18px] gap-y-1.5 border-t border-slate-100 px-[22px] py-[13px] text-left first:border-t-0 hover:bg-[#fbfcfe] sm:grid-cols-[minmax(0,1fr)_auto]" data-testid="sent-row" data-state={r.state} data-day={r.day}>
+                          <button key={r.id} type="button" onClick={() => setOpen(r)} className="row-hover grid w-full grid-cols-1 items-center gap-x-[18px] gap-y-1.5 border-t border-slate-100 px-[22px] py-[13px] text-left first:border-t-0 sm:grid-cols-[minmax(0,1fr)_auto]" data-testid="sent-row" data-state={r.state} data-day={r.day}>
                             <div className="min-w-0">
                               <Line1>
                                 <Name>{r.title}</Name>
@@ -263,7 +263,7 @@ function PastWeeks({ past, mostMissed, active, onOpen }: { past: WeekTile[]; mos
         {past.map((w, i) => {
           const key = pastWeekPeriodKey(i + 1);
           return (
-            <button key={w.weekStart} type="button" onClick={() => onOpen(key)} aria-pressed={active === key} className={cn("flex min-w-0 flex-col gap-0.5 rounded-xl border bg-white px-4 py-3.5 text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:bg-[#fbfcfe] md:px-5 md:py-4", active === key ? "border-primary-border" : "border-border")} data-testid="past-week" data-period={key} data-met={w.met}>
+            <button key={w.weekStart} type="button" onClick={() => onOpen(key)} aria-pressed={active === key} className={cn("row-hover flex min-w-0 flex-col gap-0.5 rounded-xl border bg-white px-4 py-3.5 text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] md:px-5 md:py-4", active === key ? "border-primary-border" : "border-border")} data-testid="past-week" data-period={key} data-met={w.met}>
               <b className={cn("tabular text-[22px] leading-tight font-semibold tracking-[-0.01em] md:text-[26px]", w.total && w.met === w.total ? "text-status-met" : w.total && w.met * 2 < w.total ? "text-status-missed" : "text-slate-900")}>
                 {w.met} of {w.total}
               </b>

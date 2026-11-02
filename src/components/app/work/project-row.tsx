@@ -131,6 +131,8 @@ export function ProjectListRow({ project, today }: { project: ProjectRowData; to
     <RowShell
       testId="project-row"
       dataAttrs={{ "data-project": project.id }}
+      open={`/work/rosara/${project.id}`}
+      openLabel={`Open ${project.name}`}
       right={
         <>
           <Figures className="gap-x-6" testId="project-figures">
@@ -199,6 +201,8 @@ export function ProjectActionRow({ project, today, reason }: { project: ProjectR
       <RowShell
         testId="needs-action-row"
         dataAttrs={{ "data-project": project.id }}
+        open={`/work/rosara/${project.id}`}
+        openLabel={`Open ${project.name}`}
         right={
           <RowButtons pair>
             <RowLink href={`/work/rosara/${project.id}#next-action`} tone="cobalt" className="w-full" data-testid="set-next-action">
@@ -222,6 +226,8 @@ export function ProjectActionRow({ project, today, reason }: { project: ProjectR
     <RowShell
       testId="project-action-row"
       dataAttrs={{ "data-project": project.id }}
+      open={`/work/rosara/${project.id}`}
+      openLabel={`Open ${project.name}`}
       right={
         <ActionFigures due={due} minutes={project.nextActionMinutes}>
           <Buttons pending={pending} onDone={() => (project.topTask ? setState({ kind: "ask" }) : finish())} onLater={() => setState(state.kind === "later" ? { kind: "idle" } : { kind: "later" })} />

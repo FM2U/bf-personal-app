@@ -53,6 +53,8 @@ export type DealRow = {
   /** The listing name ("00 Industrial Filtration Distributor" until the company is named). */
   listingName: string;
   companyName: string | null;
+  /** False for a listing still to screen (Edit batch C round 3: its page shows the Listing state). */
+  screened: boolean;
   status: string;
   stageId: string | null;
   stageName: string | null;
@@ -195,6 +197,7 @@ export function toDealRow(i: Row, f: Row | undefined, contact: Row | undefined, 
     name: displayName({ name: String(i.name), companyName: i.company_name as string | null }),
     listingName: String(i.name),
     companyName: i.company_name ? String(i.company_name) : null,
+    screened: i.screened !== false,
     status: String(i.status ?? "open"),
     stageId: stage?.id ?? null,
     stageName,
@@ -249,6 +252,8 @@ export type WorkNowData = {
   toScreen: number;
   /** The open deals in the nine working stages (every Home section and filter reads these). */
   deals: DealRow[];
+  /** Listings to screen that have a next action (optional on a listing; Edit batch C round 3): rows on Next actions. */
+  listingActions: DealRow[];
   /** The newest three listings to screen. */
   listings: ListingTile[];
   glance: GlanceCounts;
@@ -259,7 +264,7 @@ export type WorkNowData = {
 /** Home (Work on now): the open deals in the nine stages, the newest listings to screen, and the Deals at a glance counts. */
 export async function loadWorkNow(sb: SupabaseClient, ownerId: string): Promise<WorkNowData> {
   const ctx = await loadWorkCtx(sb, ownerId);
-  const base: WorkNowData = { available: false, notice: null, today: ctx.today, tz: ctx.tz, threshold: ctx.threshold, toScreen: 0, deals: [], listings: [], glance: { active: 0, early: 0, evaluate: 0, decide: 0, waitingOver: 0, needsAction: 0 }, outreach: { counter: { count: 0, target: 10, pct: 0 }, dueToday: [], due: [], overdue: 0 } };
+  const base: WorkNowData = { available: false, notice: null, today: ctx.today, tz: ctx.tz, threshold: ctx.threshold, toScreen: 0, deals: [], listingActions: [], listings: [], glance: { active: 0, early: 0, evaluate: 0, decide: 0, waitingOver: 0, needsAction: 0 }, outreach: { counter: { count: 0, target: 10, pct: 0 }, dueToday: [], due: [], overdue: 0 } };
   const notice = await workUpdateNotice(sb);
   if (notice) return { ...base, notice };
   const [pipe, outreach] = await Promise.all([loadWorkPipeline(sb, ownerId), loadOutreachHome(sb, ctx)]);
@@ -276,6 +281,7 @@ export async function loadWorkNow(sb: SupabaseClient, ownerId: string): Promise<
     available: true,
     toScreen: listings.length,
     deals,
+    listingActions: listings.filter((l) => !!l.nextAction),
     listings: listings.slice(0, 3).map((l) => ({ id: l.id, name: l.name, meta: [l.brokerName, l.location].filter(Boolean).join(" · ") })),
     glance: glanceCounts(groups),
     outreach,

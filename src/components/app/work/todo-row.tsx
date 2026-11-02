@@ -40,6 +40,8 @@ export function TodoActionRow({ todo, today, reason }: { todo: PersonalTodo; tod
     <RowShell
       testId="todo-action-row"
       dataAttrs={{ "data-todo": todo.id }}
+      open="/work/todos"
+      openLabel="Open To-dos"
       right={
         <ActionFigures due={due.text ? { text: due.text, tone: due.tone } : null} minutes={null}>
           <RowButtons pair>

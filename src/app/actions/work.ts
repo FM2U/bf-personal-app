@@ -13,7 +13,7 @@ import { date as fmtDate } from "@/lib/format";
 import { missingForStage } from "@/lib/pipeline";
 import { DB_UPDATE_NOTICE_0021, isMissingSchemaError } from "@/lib/schema-guard";
 import { checkBuyBox, dealSourceTypeFor, isPassReason, LISTING_SOURCES, moneyShort, parseMoneyText } from "@/lib/work/buy-box";
-import { listingNumbers, listingPrompt, validateListingReply, type ListingFields } from "@/lib/work/listing-text";
+import { firstUrl, listingNumbers, listingPrompt, validateListingReply, withListingUrl, type ListingFields } from "@/lib/work/listing-text";
 import { loadWorkPipeline, workUpdateNotice, type WorkPipeline } from "@/lib/work/data";
 import { cleanQuestions, countQuestions, mergeQuestions, parseOpenQuestions, questionsPrompt, TODO_MAX_LENGTH, todosPrompt, validateQuestionsReply, validateTodosReply, type DealContext, type QuestionGroups } from "@/lib/work/questions";
 import { nextTodoPosition, openTodos, type DealTodo } from "@/lib/work/todos";
@@ -83,7 +83,8 @@ export async function fillListingFromText(text: string): Promise<{ ok: true; fie
   if (body.length < 20) return fail("Paste the listing text first (the broker email or the page), then press Fill from text.");
   try {
     const fields = await callForJson<ListingFields>({ sb: supabase, ownerId, purpose: "listing_fields", prompt: listingPrompt(body), maxTokens: 1000, validate: (v) => validateListingReply(cleanDeep(v)) });
-    return { ok: true, fields };
+    // Edit batch C round 3: the first web address in the text goes into the link when the AI left it empty.
+    return { ok: true, fields: withListingUrl(fields, body) };
   } catch (e) {
     if (e instanceof AIInvalidReply) return e.cutOff ? { ok: false, error: AI_REPLY_CUT_OFF } : { ok: false, error: "The AI answered, but not with the fields. Fill them in by hand, or try again.", reply: replySnippet(e.reply) };
     const why = e instanceof AIUnavailable ? e.message : "The AI request failed.";
@@ -571,4 +572,24 @@ export async function addDealNote(id: string, body: string): Promise<{ ok: true 
   if (error) return notSaved(error);
   done();
   return { ok: true };
+}
+
+/**
+ * "Add link" (Edit batch C round 3): the link to the original listing, typed in the listing popup or in the Facts card
+ * when there is none yet. Only the link is saved; an address typed without http is saved with https:// in front.
+ */
+export async function saveListingLink(id: string, url: string): Promise<{ ok: true; url: string } | Fail> {
+  const typed = String(url ?? "").trim();
+  if (!typed) return fail("Paste or type the link first.");
+  const link = /\s/.test(typed) ? null : firstUrl(/^https?:\/\//i.test(typed) ? typed : `https://${typed}`);
+  if (!link) return fail("That does not look like a web address. Paste the address of the original listing.");
+  const s = await setup();
+  if (isFail(s)) return s;
+  const { sb, ctx, pipe } = s;
+  const item = await dealOf(sb, ctx, pipe, id);
+  if (isFail(item)) return item;
+  const { error } = await sb.from("pipeline_items").update({ listing_url: link }).eq("id", item.id);
+  if (error) return notSaved(error);
+  done();
+  return { ok: true, url: link };
 }

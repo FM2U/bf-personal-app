@@ -3,7 +3,8 @@ import { requireOwner } from "@/lib/auth";
 import { date as fmtDate } from "@/lib/format";
 import { loadDealPage } from "@/lib/work/data";
 import { listedAs } from "@/lib/work/names";
-import { headerFigures } from "@/lib/work/record-page";
+import { checkBuyBox } from "@/lib/work/buy-box";
+import { dealPageState, headerFigures } from "@/lib/work/record-page";
 import { daysLabel } from "@/lib/work/stages";
 import { openTodos } from "@/lib/work/todos";
 import { AskAiPill } from "@/components/app/work/ask-ai";
@@ -24,6 +25,12 @@ export const metadata = { title: "Deal" };
  * (charcoal for Passed and Lost), the wait pill, what it does and where, and at the right the figures NEXT ACTION,
  * OPEN TASKS, LAST CONTACT (or WAITING). Left: Findings (the type-specific card), Next action, Tasks (was Also to
  * do). Right: Facts, Timeline, Documents, Decision. Every card saves on its own.
+ *
+ * Edit batch C round 3: a listing (screened = false) opens this same page in the Listing state (one code path; the
+ * states are in src/lib/work/record-page.ts, dealPageState): the breadcrumb "Screen listings › name", the "Listing"
+ * type pill and the buy box pill in place of the stage mark and the stage pill, Interested in place of Advance, the
+ * Next action optional, no Documents card, and the Decision card with Pass and Interested. After Interested the same
+ * page, at the same address, shows the deal state; nothing is copied (notes, tasks, and facts are on the same row).
  */
 export default async function DealPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -54,6 +61,9 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
       </WorkShell>
     );
   }
+  const state = dealPageState({ screened: deal.screened, status: deal.status, stageName: deal.stageName, name: deal.name });
+  const isListing = state.kind === "listing";
+  const buyBox = isListing ? checkBuyBox({ name: deal.listingName, whatItDoes: deal.whatItDoes, industry: deal.industry, location: deal.location, ebitda: deal.ebitda, sde: deal.sde }) : null;
   const waiting = deal.status === "open" && deal.waitLevel !== "none";
   const listing = listedAs({ name: deal.listingName, companyName: deal.companyName });
   const figures = headerFigures(
@@ -63,26 +73,40 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
   );
   return (
     <WorkShell testId="work-deal">
+      <span hidden data-testid="deal-page-state" data-state={state.kind} />
       <RecordHeader
         title={deal.name}
         under={listing ? <span data-testid="deal-listed-as">Listed as {listing}</span> : null}
         crumb={
           <>
-            <Link href="/work/deals" className="text-primary-strong hover:underline" data-testid="deal-crumb">
-              Deals
+            <Link href={state.crumb.href} className="text-primary-strong hover:underline" data-testid="deal-crumb">
+              {state.crumb.label}
             </Link>
             <span className="mx-1.5 text-slate-400">›</span>
-            {deal.stageName ?? "No stage"}
+            <span data-testid="deal-crumb-tail">{state.crumb.tail}</span>
           </>
         }
         actions={
           <>
-            <DealHeaderActions deal={deal} compose={d.compose} advanceTo={deal.status === "open" ? d.advanceTo : null} today={d.today} tz={d.tz} />
+            <DealHeaderActions deal={deal} compose={d.compose} advanceTo={deal.status === "open" && !isListing ? d.advanceTo : null} today={d.today} tz={d.tz} listing={isListing} />
             <AskAiPill context={{ page: "deal", recordId: deal.id, label: deal.name }} compose={d.compose} />
           </>
         }
         testId="deal-status-line"
         status={
+          isListing ? (
+            <>
+              <Pill tone="gray" testId="deal-type-pill">
+                {state.typePill}
+              </Pill>
+              {buyBox ? (
+                <Pill tone={buyBox.fits ? "green" : "amber"} testId="deal-buy-box-pill">
+                  {buyBox.label}
+                </Pill>
+              ) : null}
+              {deal.whatItDoes || deal.location ? <What>{[deal.whatItDoes, deal.location].filter(Boolean).join(" · ")}</What> : null}
+            </>
+          ) : (
           <>
             <ProgressMark stage={deal.stageName} />
             <Pill tone={deal.status === "open" ? "stage" : deal.stageName === "Closed" ? "green" : "charcoal"} testId="deal-stage-pill">
@@ -100,20 +124,21 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
             )}
             {deal.whatItDoes || deal.location ? <What>{[deal.whatItDoes, deal.location].filter(Boolean).join(" · ")}</What> : null}
           </>
+          )
         }
         figures={figures}
       />
       <div className="grid grid-cols-1 items-start gap-5 min-[1000px]:grid-cols-2">
         <div className="flex min-w-0 flex-col gap-5">
-          <FindingsCard deal={deal} compose={d.questionsCompose} />
-          <NextActionCard deal={deal} today={d.today} />
+          <FindingsCard deal={deal} compose={d.questionsCompose} aiTools={state.questionsTools} />
+          <NextActionCard deal={deal} today={d.today} noActionHint={state.noActionHint} />
           <TodosCard deal={deal} todos={d.todos} />
         </div>
         <div className="flex min-w-0 flex-col gap-5">
           <FactsCard deal={deal} />
           <TimelineCard deal={deal} events={d.timeline} />
-          <DocumentsCard table="pipeline_items" id={deal.id} docs={d.documents} storageKey="work:deal" defaultOpen />
-          <DecisionCard deal={deal} advanceTo={deal.status === "open" ? d.advanceTo : null} />
+          {state.documents ? <DocumentsCard table="pipeline_items" id={deal.id} docs={d.documents} storageKey="work:deal" defaultOpen /> : null}
+          <DecisionCard deal={deal} advanceTo={deal.status === "open" && !isListing ? d.advanceTo : null} listing={isListing} />
         </div>
       </div>
       <p className="mt-5 text-xs text-muted-foreground">

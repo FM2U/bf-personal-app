@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { headerFigures } from "./record-page";
+import { dealPageState, headerFigures } from "./record-page";
 
 const today = "2026-11-03";
 const fmt = (d: string) => d.slice(5);
@@ -24,5 +24,26 @@ describe("the record-page header figures", () => {
     const f = headerFigures({ nextDue: today, hasNext: true, nextLabel: "Next action", openTasks: 0, lastContactAt: "2026-10-20T10:00:00Z", lastContactKind: "call", waitingOn: "Rachel Kim", waitDays: 6, waitTone: "amber" }, today, fmt);
     expect(f[0]).toMatchObject({ value: "Today", tone: "today" });
     expect(f[2]).toEqual({ key: "waiting", value: "6 days", label: "Waiting on Rachel Kim", tone: "amber" });
+  });
+});
+
+describe("the deal page state (Edit batch C round 3)", () => {
+  it("shows a listing in the Listing state: Screen listings crumb with the name, the Listing pill, Pass and Interested, no Documents", () => {
+    expect(dealPageState({ screened: false, status: "open", stageName: null, name: "00 Industrial Filtration Distributor" })).toEqual({
+      kind: "listing",
+      crumb: { label: "Screen listings", href: "/work/listings", tail: "00 Industrial Filtration Distributor" },
+      typePill: "Listing",
+      noActionHint: "Optional for a listing",
+      decision: "listing",
+      documents: false,
+      questionsTools: false,
+    });
+  });
+
+  it("shows the same row as a deal once it is screened: Deals crumb with the stage, the stage pill, Documents", () => {
+    const s = dealPageState({ screened: true, status: "open", stageName: "Interested", name: "Dalton Services" });
+    expect(s).toMatchObject({ kind: "deal", crumb: { label: "Deals", href: "/work/deals", tail: "Interested" }, typePill: null, noActionHint: "Needs a next action", decision: "open", documents: true, questionsTools: true });
+    expect(dealPageState({ screened: true, status: "closed", stageName: "Passed", name: "x" })).toMatchObject({ kind: "deal", decision: "closed", crumb: { tail: "Passed" } });
+    expect(dealPageState({ screened: true, status: "open", stageName: null, name: "x" }).crumb.tail).toBe("No stage");
   });
 });

@@ -42,6 +42,9 @@ import { cn } from "@/lib/utils";
  * the AI once a day for the order of the day's actions (cached; "Order again" asks again) and shows one purple
  * reason under each row; Soonest first is the default and costs nothing; the choice is remembered in this browser.
  * Edit batch C round 2: personal to-dos due today or earlier join Next actions with a "To-do" lane pill.
+ * Edit batch C round 3: every next-action and waiting row opens its record when clicked outside its buttons and links
+ * (the deal or listing, person, project, opportunity, consulting page, or To-dos), with the shared hover; a listing
+ * with a next action shows with the deals; the Screen listings tile opens each listing's page.
  * Edit batch C: "Show: All" after the filter pills narrows Next actions and Waiting on someone to the ticked lanes
  * (the pill counts follow, remembered in this browser), and the AI order numbers sit in their own column.
  * Right third, stacked: Waiting on someone, Outreach, Rosara (the weekly focus, the next project action, the
@@ -110,7 +113,8 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
       const section = laneSectionOf(action, today);
       if (section) out.push({ key: actionKey(lane, id), lane, section, action, ...extra, render });
     };
-    for (const d of deals) {
+    // Edit batch C round 3: a listing to screen with a next action (optional on a listing) shows with the deals.
+    for (const d of [...deals, ...(data.listingActions ?? [])]) {
       push("Deals", d.id, { key: actionKey("Deals", d.id), lane: "Deals", id: d.id, name: d.name, action: d.nextAction, due: d.nextActionDue, minutes: d.nextActionMinutes, meta: [d.stageName, d.whatItDoes, d.location].filter(Boolean).join(", ") }, { status: d.status, waitLevel: d.waitLevel, nextAction: d.nextAction, nextActionDue: d.nextActionDue, name: d.name }, (reason) => (d.nextAction ? <NextActionRow deal={d} today={today} reason={reason} /> : <NeedsActionRow deal={d} />));
     }
     for (const p of data.outreach.due) {
@@ -128,7 +132,7 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
       push("To-dos", t.id, { key: actionKey("To-dos", t.id), lane: "To-dos", id: t.id, name: t.text, action: t.text, due: t.dueOn, minutes: null, meta: "Personal to-do" }, { status: "open", waitLevel: "none", nextAction: t.text, nextActionDue: t.dueOn, name: t.text }, (reason) => <TodoActionRow todo={t} today={today} reason={reason} />);
     }
     return out;
-  }, [deals, data.outreach.due, data.rosara.actions, data.pipelines.jobs, data.pipelines.consulting, data.todos, today]);
+  }, [deals, data.listingActions, data.outreach.due, data.rosara.actions, data.pipelines.jobs, data.pipelines.consulting, data.todos, today]);
   const rows = useMemo(() => allRows.filter((r) => laneShown(r.lane, show)), [allRows, show]);
 
   const sectionsOf = useMemo(() => {
@@ -389,6 +393,8 @@ function NeedsActionRow({ deal }: { deal: DealRow }) {
     <RowShell
       testId="needs-action-row"
       dataAttrs={{ "data-deal": deal.id }}
+      open={`/work/deals/${deal.id}`}
+      openLabel={`Open ${deal.name}`}
       right={
         <>
           {def ? <span className="max-w-[260px] truncate text-xs text-muted-foreground" title={def}>Stage default: {def}</span> : null}
@@ -487,7 +493,7 @@ function TargetsTodayTile({ tile }: { tile: HomeData["targets"] }) {
         <>
           <div className="flex flex-col pt-1" data-testid="home-targets-rows">
             {tile.lines.map((l) => (
-              <Link key={l.id} href="/work/targets" className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 border-t border-slate-100 px-[22px] py-[10px] first:border-t-0 hover:bg-[#fbfcfe]" data-testid="home-target-line" data-target={l.name}>
+              <Link key={l.id} href="/work/targets" className="row-hover grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 border-t border-slate-100 px-[22px] py-[10px] first:border-t-0" data-testid="home-target-line" data-target={l.name}>
                 <div className="min-w-0">
                   <span className="text-sm font-semibold text-slate-900">{l.name}</span>
                   <div className="text-[12.5px] text-slate-600 italic">{l.sub}</div>
@@ -495,14 +501,14 @@ function TargetsTodayTile({ tile }: { tile: HomeData["targets"] }) {
                 <Figure value={l.figure} label={l.label} tone={l.tone === "missed" ? "red" : "plain"} className={cn("w-[82px]", l.tone === "met" && "[&>b]:text-status-met")} testId="home-target-figure" />
               </Link>
             ))}
-            <Link href="/work/targets" className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 border-t border-slate-100 px-[22px] py-[10px] hover:bg-[#fbfcfe]" data-testid="home-targets-met">
+            <Link href="/work/targets" className="row-hover grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 border-t border-slate-100 px-[22px] py-[10px]" data-testid="home-targets-met">
               <div className="min-w-0">
                 <span className="text-sm font-semibold text-slate-900">Targets met</span>
                 <div className="truncate text-[12.5px] text-slate-600 italic">{tile.met.names}</div>
               </div>
               <Figure value={`${tile.met.met} of ${tile.met.total}`} label="This week" className={cn("w-[82px]", tile.met.total && tile.met.met === tile.met.total && "[&>b]:text-status-met")} testId="home-targets-met-figure" />
             </Link>
-            <Link href="/work/end-of-day" className="flex flex-col gap-0.5 border-t border-slate-100 px-[22px] py-[10px] hover:bg-[#fbfcfe]" data-testid="home-eod" data-state={tile.eod.state}>
+            <Link href="/work/end-of-day" className="row-hover flex flex-col gap-0.5 border-t border-slate-100 px-[22px] py-[10px]" data-testid="home-eod" data-state={tile.eod.state}>
               <span className="flex items-center gap-2.5">
                 <span className="text-sm font-semibold text-slate-900">End of day</span>
                 <Pill tone={eodTone} testId="home-eod-pill">
@@ -617,7 +623,7 @@ function JobSearchTile({ pipelines, today }: { pipelines: HomeData["pipelines"];
           { key: "needs", label: "Needs a next action", n: t.needsAction, href: "/work/jobs?filter=needs", warn: true },
           { key: "wait", label: "Waiting on someone", n: t.waiting, href: "/work/jobs?filter=wait", warn: true },
         ].map((r) => (
-          <Link key={r.key} href={r.href} className="flex items-center justify-between gap-3 border-t border-slate-100 px-[22px] py-[9px] text-sm text-slate-900 hover:bg-[#fbfcfe]" data-testid="jobs-row" data-key={r.key} data-count={r.n}>
+          <Link key={r.key} href={r.href} className="row-hover flex items-center justify-between gap-3 border-t border-slate-100 px-[22px] py-[9px] text-sm text-slate-900" data-testid="jobs-row" data-key={r.key} data-count={r.n}>
             <span>{r.label}</span>
             <Pill tone={r.warn && r.n > 0 ? "amber" : "gray"} className="tabular min-w-[32px] justify-center">
               {r.n}
@@ -646,7 +652,7 @@ function ListingsTile({ count, listings }: { count: number; listings: ListingTil
       </div>
       <div className="flex flex-col">
         {listings.map((l) => (
-          <Link key={l.id} href="/work/listings" className="flex flex-col gap-0.5 border-t border-slate-100 px-[22px] py-[9px] hover:bg-[#fbfcfe]" data-testid="home-listing">
+          <Link key={l.id} href={`/work/deals/${l.id}`} className="row-hover flex flex-col gap-0.5 border-t border-slate-100 px-[22px] py-[9px]" data-testid="home-listing">
             <Name>{l.name}</Name>
             {l.meta ? <span className="text-[12.5px] text-muted-foreground italic">{l.meta}</span> : null}
           </Link>
@@ -674,7 +680,7 @@ function GlanceTile({ glance, threshold }: { glance: WorkNowData["glance"]; thre
     <WorkCard title="Deals at a glance" hint={`${glance.active} active`} testId="home-glance">
       <div className="flex flex-col pt-1 pb-2">
         {rows.map((r) => (
-          <Link key={r.key} href={r.href} className="flex items-center justify-between gap-3 border-t border-slate-100 px-[22px] py-[9px] text-sm text-slate-900 first:border-t-0 hover:bg-[#fbfcfe]" data-testid="glance-row" data-key={r.key} data-count={r.n}>
+          <Link key={r.key} href={r.href} className="row-hover flex items-center justify-between gap-3 border-t border-slate-100 px-[22px] py-[9px] text-sm text-slate-900 first:border-t-0" data-testid="glance-row" data-key={r.key} data-count={r.n}>
             <span>{r.label}</span>
             <Pill tone={r.warn && r.n > 0 ? "amber" : "gray"} className="tabular min-w-[32px] justify-center">
               {r.n}

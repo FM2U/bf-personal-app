@@ -2,6 +2,7 @@ import Link from "next/link";
 import { progressSegments, type WaitLevel } from "@/lib/work/stages";
 import { FIGURE_GAP_CLS, FIGURE_LABEL_CLS, figureValueClass, isEmptyValue, type FigureTone } from "@/lib/work/figure-style";
 import { cn } from "@/lib/utils";
+import { OpenRow } from "@/components/app/work/open-row";
 
 /**
  * The building blocks of the Work screens (approved mockup 2026-10-30, mockup v6 2026-10-31; the color system of Edit
@@ -209,9 +210,12 @@ export function Rows({ children, className, testId }: { children: React.ReactNod
 /**
  * One row: the text on the left (two or three lines, wrapping inside its own width), the figures and buttons on the
  * right. The right side keeps its content's fixed widths (ROW_COLS), so the columns sit at the same x on every row.
+ * A row that opens something carries the shared hover (.row-hover, Edit batch C round 3): `href` makes the whole row
+ * a link (rows with no buttons); `open` (an address) or `onOpen` (a popup) makes a row with buttons open when clicked
+ * outside its buttons and links (OpenRow). A row that opens nothing has no hover.
  */
-export function RowShell({ children, right, className, href, testId, dataAttrs, stack = false, textGap = false }: { children: React.ReactNode; right?: React.ReactNode; className?: string; href?: string; testId?: string; dataAttrs?: Record<string, string>; /** The figures and buttons go under the text (narrow columns). */ stack?: boolean; /** The reserved 32px gap before the figures (TEXT_GAP; Outreach rows). */ textGap?: boolean }) {
-  const cls = cn("grid grid-cols-1 items-center gap-x-[18px] gap-y-1.5 border-t border-slate-100 px-[22px] py-[13px] first:border-t-0", !stack && "sm:grid-cols-[minmax(0,1fr)_auto]", textGap && TEXT_GAP.cls, href && "cursor-pointer hover:bg-[#fbfcfe]", className);
+export function RowShell({ children, right, className, href, open, onOpen, openLabel, testId, dataAttrs, stack = false, textGap = false }: { children: React.ReactNode; right?: React.ReactNode; className?: string; href?: string; /** The page the row opens when clicked outside its buttons and links. */ open?: string; /** What a click on the row does instead (the listing popup). */ onOpen?: () => void; /** What the row opens, for a screen reader. */ openLabel?: string; testId?: string; dataAttrs?: Record<string, string>; /** The figures and buttons go under the text (narrow columns). */ stack?: boolean; /** The reserved 32px gap before the figures (TEXT_GAP; Outreach rows). */ textGap?: boolean }) {
+  const cls = cn("grid grid-cols-1 items-center gap-x-[18px] gap-y-1.5 border-t border-slate-100 px-[22px] py-[13px] first:border-t-0", !stack && "sm:grid-cols-[minmax(0,1fr)_auto]", textGap && TEXT_GAP.cls, href && "row-hover", className);
   const body = (
     <>
       <div className="min-w-0" data-row-text>{children}</div>
@@ -223,6 +227,13 @@ export function RowShell({ children, right, className, href, testId, dataAttrs, 
       <Link href={href} className={cls} data-testid={testId} {...dataAttrs}>
         {body}
       </Link>
+    );
+  }
+  if (open || onOpen) {
+    return (
+      <OpenRow href={open} onOpen={onOpen} label={openLabel} className={cls} testId={testId} dataAttrs={dataAttrs}>
+        {body}
+      </OpenRow>
     );
   }
   return (
@@ -331,8 +342,9 @@ export function ActionFigures({ due, minutes, children, testId = "next-action-du
  * (ROW_COLS.buttonPair), which a single Set next action link fills, so the column starts at the same x on every row.
  */
 export function RowButtons({ children, className, pair = false, ...props }: React.HTMLAttributes<HTMLDivElement> & { children?: React.ReactNode; className?: string; pair?: boolean }) {
+  // A click on the buttons never reaches a row that opens on click (Edit batch C round 3).
   return (
-    <div className={cn("flex shrink-0 justify-end gap-1.5", pair && ROW_COLS.buttonPair.cls, className)} data-col="buttons" {...props}>
+    <div className={cn("flex shrink-0 justify-end gap-1.5", pair && ROW_COLS.buttonPair.cls, className)} data-col="buttons" data-row-stop {...props}>
       {children}
     </div>
   );
@@ -385,6 +397,7 @@ export function Confirm({ tone = "blue", children, className, testId }: { tone?:
       )}
       role="status"
       data-testid={testId}
+      data-row-stop
     >
       {children}
     </div>

@@ -674,6 +674,8 @@ const ai = http.createServer(async (req, res) => {
           industry: pick(/Industry[:\s]+([^\n]{3,60})/i),
           listing_url: pick(/(https?:\/\/\S+|\b[a-z0-9.-]+\.(?:com|net|org)\/\S*)/i),
         };
+        // Edit batch C round 3: "no_url" leaves the link empty, so the app's own search of the text fills it.
+        if (aiMode.listing === "no_url") reply.listing_url = "";
         return send(res, 200, aiMessage(JSON.stringify(reply)));
       }
       if (text.includes("TASK: open_questions")) {

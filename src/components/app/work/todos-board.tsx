@@ -8,6 +8,7 @@ import { date as fmtDate } from "@/lib/format";
 import { TODO_SECTIONS, todoDueLabel, type PersonalTodo, type TodoSectionKey } from "@/lib/work/personal-todos";
 import type { TodosData } from "@/lib/work/personal-todos-data";
 import { useSections } from "@/components/app/work/sections";
+import { rowClickOpens } from "@/components/app/work/open-row";
 import { CollapseAllButton, Due, RowButton, SectionHeading } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
 
@@ -16,7 +17,8 @@ import { cn } from "@/lib/utils";
  * Today, Next 7 days, Later (charcoal small caps, collapsible, remembered), and Done today (collapsed by default). Each
  * item: a checkbox (done items move under Done today), the text (click to edit inline, Enter saves, Escape cancels),
  * the due date at the right, a faint x to delete. Add at the bottom: the text and an optional date. Not tied to
- * records.
+ * records. Edit batch C round 3: a click anywhere on an open to-do's row (outside the checkbox and the x) starts the
+ * edit, so the row carries the shared hover; a done to-do opens nothing and has no hover.
  */
 const STORAGE_KEY = "work-todos-sections";
 const INPUT = "h-9 min-w-0 rounded-[7px] border border-input bg-white px-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
@@ -116,8 +118,17 @@ function TodoLine({ todo, today, section, checked, pending, onCheck, onEdit, onD
     if (draft.trim() && draft.trim() !== todo.text) onEdit(draft);
     else setDraft(todo.text);
   };
+  const clickable = !todo.doneAt && !editing;
   return (
-    <div className={cn("group flex items-center gap-3 border-b border-slate-100 py-[9px] last:border-b-0", section === "done" && "opacity-70")} data-testid="personal-todo" data-done={todo.doneAt ? "1" : "0"}>
+    // The row's click is a shortcut for the text button (the keyboard path), so it needs no key handler of its own.
+    <div
+      onClick={(e) => {
+        if (clickable && rowClickOpens(e)) setEditing(true);
+      }}
+      className={cn("group -mx-2 flex items-center gap-3 border-b border-slate-100 px-2 py-[9px] last:border-b-0", clickable && "row-hover", section === "done" && "opacity-70")}
+      data-testid="personal-todo"
+      data-done={todo.doneAt ? "1" : "0"}
+    >
       <input type="checkbox" checked={checked} onChange={(e) => onCheck(e.target.checked)} disabled={pending} aria-label={`Done: ${todo.text}`} className="h-4 w-4 shrink-0 accent-[var(--primary)]" data-testid="personal-todo-check" />
       {editing ? (
         <input
@@ -140,7 +151,7 @@ function TodoLine({ todo, today, section, checked, pending, onCheck, onEdit, onD
           data-testid="personal-todo-edit"
         />
       ) : (
-        <button type="button" onClick={() => !todo.doneAt && setEditing(true)} className={cn("min-w-0 flex-1 truncate text-left text-sm text-slate-800", todo.doneAt ? "cursor-default text-slate-400 line-through" : "rounded px-1 -mx-1 hover:bg-slate-50")} title={todo.doneAt ? undefined : "Click to edit"} data-testid="personal-todo-text">
+        <button type="button" onClick={() => !todo.doneAt && setEditing(true)} className={cn("min-w-0 flex-1 truncate rounded text-left text-sm text-slate-800 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none", todo.doneAt && "cursor-default text-slate-400 line-through")} title={todo.doneAt ? undefined : "Click to edit"} data-testid="personal-todo-text">
           {todo.text}
         </button>
       )}

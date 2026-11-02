@@ -103,7 +103,7 @@ export function OutreachBoard({ header, data, adding, saved }: { /** The title, 
             {showArchived ? (
               <div className="flex flex-col border-t border-slate-100">
                 {data.archived.map((p) => (
-                  <Link key={p.id} href={`/work/outreach/${p.id}`} className="flex flex-wrap items-center gap-x-2.5 border-t border-slate-100 px-[22px] py-2.5 text-sm first:border-t-0 hover:bg-[#fbfcfe]" data-testid="archived-row">
+                  <Link key={p.id} href={`/work/outreach/${p.id}`} className="row-hover flex flex-wrap items-center gap-x-2.5 border-t border-slate-100 px-[22px] py-2.5 text-sm first:border-t-0" data-testid="archived-row">
                     <span className="font-semibold text-slate-900">{p.name}</span>
                     <span className="text-[13px] text-muted-foreground">{[p.organization, p.roleLabel].filter(Boolean).join(" · ")}</span>
                   </Link>

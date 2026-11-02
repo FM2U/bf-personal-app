@@ -227,6 +227,8 @@ export function ItemActionRow({ item, today, reason }: { item: ItemRow; today: s
       <RowShell
         testId="needs-action-row"
         dataAttrs={{ "data-deal": item.id }}
+        open={itemHref(item)}
+        openLabel={`Open ${item.name}`}
         right={
           <RowButtons pair>
             <RowLink href={`${itemHref(item)}#next-action`} tone="cobalt" className="w-full" data-testid="set-next-action">
@@ -251,6 +253,8 @@ export function ItemActionRow({ item, today, reason }: { item: ItemRow; today: s
     <RowShell
       testId="item-action-row"
       dataAttrs={{ "data-deal": item.id }}
+      open={itemHref(item)}
+      openLabel={`Open ${item.name}`}
       right={
         <ActionFigures due={due} minutes={item.nextActionMinutes}>
           <Buttons pending={pending} onDone={() => (asks ? setState({ kind: "ask" }) : finish(false))} onLater={() => setState(state.kind === "later" ? { kind: "idle" } : { kind: "later" })} />

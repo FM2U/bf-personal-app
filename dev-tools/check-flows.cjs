@@ -5948,6 +5948,188 @@ const expectText = async (page, text) => {
     await shootBatchC(`${BASE}/work/targets`, "work-targets");
   });
 
+  // ---------- Edit batch C, round 3: listing record page, inline link, hover rule, clickable Home rows ----------
+  const R3_NAME = "00 Flow R3 Pump Distributor";
+  /** The computed hover of a row: the fill, the corner, and the fade, read after the mouse rests on it. */
+  const hoverStyle = async (pg_, loc) => {
+    await loc.scrollIntoViewIfNeeded();
+    await loc.hover({ position: { x: 6, y: 6 } });
+    await pg_.waitForTimeout(260);
+    return loc.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { bg: cs.backgroundColor, radius: cs.borderTopLeftRadius, fade: cs.transitionDuration, cls: el.classList.contains("row-hover") };
+    });
+  };
+  const HOVER_BG = "rgb(241, 245, 249)";
+
+  await step("Edit batch C round 3: Fill from text puts the first http or https address of the pasted text in the link (the app finds it when the AI leaves it empty); the listing saves without a link", async () => {
+    await pg.query("delete from pipeline_items where name like '00 Flow R3%'");
+    await aipost("/__mode", { listing: "no_url" });
+    try {
+      await page.goto(`${BASE}/work/listings?add=1`);
+      await page.getByTestId("add-listing-card").waitFor();
+      await page.getByTestId("listing-text").fill(["For sale: Flow R3 Pump Distributor (broker newsletter)", "Industrial pumps for municipal water plants", "Revenue: $6.2M. EBITDA: $1.5M. Asking price: $6.0M", "Location: Savannah, GA", "Industry: Industrial distribution", "Broker: Sunbelt, Dana Whitfield", "Full listing at https://www.example.com/listings/flow-r3-pumps. Call me with questions."].join("\n"));
+      await page.getByTestId("listing-fill").click();
+      await page.waitForFunction(() => document.querySelector("[data-testid=listing-name]")?.value === "00 Flow R3 Pump Distributor", null, { timeout: 15000 });
+      const link = await page.getByTestId("listing-link").inputValue();
+      if (link !== "https://www.example.com/listings/flow-r3-pumps") throw new Error(`the link from the text: "${link}"`);
+    } finally {
+      await aipost("/__reset");
+    }
+    // Saved without the link, for the Add link checks below.
+    await page.getByTestId("listing-link").fill("");
+    await page.getByTestId("listing-what").fill("Industrial pumps for municipal water plants");
+    await page.getByTestId("listing-save").click();
+    await page.waitForURL(/\/work\/listings\?saved=/);
+    const d = await dealByName(R3_NAME);
+    if (!d || d.screened !== false || d.stage !== null) throw new Error(`the listing: ${JSON.stringify(d)}`);
+  });
+
+  await step("Edit batch C round 3: a click on a listing row (outside its buttons) opens the popup; Add link in the popup saves on Enter; Open full page opens the listing page in the Listing state (crumb, Listing and buy box pills, figures, the six cards, no Documents)", async () => {
+    const d = await dealByName(R3_NAME);
+    await page.goto(`${BASE}/work/listings`);
+    const row = page.locator(`[data-testid=listing-row][data-listing='${d.id}']`);
+    await row.waitFor();
+    // The Pass and Interested buttons do not open the popup.
+    await row.getByTestId("pass-button").click();
+    await page.waitForTimeout(300);
+    if (await page.getByTestId("listing-popup").count()) throw new Error("Pass opened the popup");
+    await page.keyboard.press("Escape");
+    await row.getByText("Industrial pumps for municipal water plants").click();
+    const pop = page.getByTestId("listing-popup");
+    await pop.waitFor();
+    // No link yet: the Add link field instead; Enter saves it.
+    await page.getByTestId("listing-popup-add-link-input").fill("www.example.com/listings/flow-r3-pumps");
+    await page.getByTestId("listing-popup-add-link-input").press("Enter");
+    await page.getByTestId("listing-popup-link").waitFor({ timeout: 10000 });
+    const saved = await one("select listing_url from pipeline_items where id = $1", [d.id]);
+    if (saved.listing_url !== "https://www.example.com/listings/flow-r3-pumps") throw new Error(`the link saved: ${saved.listing_url}`);
+    if (!(await page.getByTestId("listing-popup-link").getAttribute("href")).includes("flow-r3-pumps")) throw new Error("the popup link");
+    // Open full page sits next to Edit.
+    const order = await pop.locator("[data-testid=listing-popup-full-page], [data-testid=listing-popup-edit]").evaluateAll((els) => els.map((e) => e.dataset.testid));
+    if (order.join(",") !== "listing-popup-full-page,listing-popup-edit") throw new Error(`the popup buttons: ${order}`);
+    await page.getByTestId("listing-popup-full-page").click();
+    await page.waitForURL(new RegExp(`/work/deals/${d.id}$`));
+    await page.getByTestId("deal-facts").waitFor();
+    if ((await page.getByTestId("deal-page-state").getAttribute("data-state")) !== "listing") throw new Error("not the Listing state");
+    if ((await page.getByTestId("deal-crumb").innerText()).trim() !== "Screen listings" || (await page.getByTestId("deal-crumb-tail").innerText()).trim() !== R3_NAME) throw new Error("the breadcrumb");
+    if ((await page.getByTestId("deal-type-pill").innerText()).trim() !== "Listing") throw new Error("the Listing pill");
+    if ((await page.getByTestId("deal-buy-box-pill").innerText()).trim() !== "Fits") throw new Error(`the buy box pill: ${await page.getByTestId("deal-buy-box-pill").innerText()}`);
+    if (await page.getByTestId("deal-stage-pill").count()) throw new Error("a stage pill on a listing");
+    if ((await page.locator("[data-testid=record-figures] > div").count()) !== 3) throw new Error("the header figures");
+    for (const id of ["deal-findings", "deal-next-action", "deal-todos", "deal-facts", "deal-timeline", "deal-decision", "listing-decision", "decision-pass", "decision-interested", "listing-interested"]) if (!(await page.getByTestId(id).count())) throw new Error(`missing ${id}`);
+    for (const id of ["panel-documents", "deal-advance", "suggest-questions"]) if (await page.getByTestId(id).count()) throw new Error(`${id} on a listing`);
+    if ((await page.getByTestId("next-action-hint").innerText()).trim() !== "Optional for a listing") throw new Error("the Next action hint");
+    if (!(await page.getByTestId("fact-link").getAttribute("href")).includes("flow-r3-pumps")) throw new Error("the Facts link");
+    // Facts: Add link when there is none (a wrong address is refused; Save keeps a right one).
+    await pg.query("update pipeline_items set listing_url = null where id = $1", [d.id]);
+    await page.reload();
+    await page.getByTestId("facts-add-link-open").click();
+    await page.getByTestId("facts-add-link-input").fill("not a link");
+    await page.getByTestId("facts-add-link-save").click();
+    await page.getByTestId("facts-add-link-error").waitFor();
+    await page.getByTestId("facts-add-link-input").fill("https://www.example.com/listings/flow-r3-pumps?ref=facts");
+    await page.getByTestId("facts-add-link-save").click();
+    await page.getByTestId("fact-link").waitFor({ timeout: 10000 });
+    if ((await one("select listing_url from pipeline_items where id = $1", [d.id])).listing_url !== "https://www.example.com/listings/flow-r3-pumps?ref=facts") throw new Error("the Facts link was not saved");
+    await shootBatchC(`${BASE}/work/deals/${d.id}`, "work-listing-page");
+  });
+
+  await step("Edit batch C round 3: a note added on the listing page stays when Interested (on the page) turns the listing into a deal at the same address: stage pill, Deals crumb, Documents, the same row in the database", async () => {
+    const d = await dealByName(R3_NAME);
+    const url = `${BASE}/work/deals/${d.id}`;
+    await page.goto(url);
+    await page.getByTestId("deal-note").fill("Flow R3: asked the broker for the teaser and the last 3 years");
+    await page.getByTestId("note-save").click();
+    await page.getByTestId("deal-timeline").filter({ hasText: "Flow R3: asked the broker for the teaser" }).waitFor({ timeout: 10000 });
+    await page.getByTestId("decision-interested").click();
+    await page.waitForFunction(() => document.querySelector("[data-testid=deal-page-state]")?.dataset.state === "deal", null, { timeout: 20000 });
+    if (page.url() !== url) throw new Error(`the address changed: ${page.url()}`);
+    if (!(await page.getByTestId("deal-stage-pill").innerText()).startsWith("Interested")) throw new Error("the stage pill");
+    if ((await page.getByTestId("deal-crumb").innerText()).trim() !== "Deals") throw new Error("the Deals crumb");
+    if (await page.getByTestId("deal-type-pill").count()) throw new Error("the Listing pill after Interested");
+    if (!(await page.getByTestId("panel-documents").count())) throw new Error("no Documents after Interested");
+    if (!(await page.getByTestId("deal-timeline").innerText()).includes("Flow R3: asked the broker for the teaser")) throw new Error("the note is gone");
+    await page.getByTestId("decision-note").waitFor();
+    const after = await one("select i.screened, s.name stage, (select count(*)::int from notes n where n.record_id = i.id) notes, (select count(*)::int from pipeline_items x where x.name = i.name) copies from pipeline_items i left join pipeline_stages s on s.id = i.stage_id where i.id = $1", [d.id]);
+    if (!after.screened || after.stage !== "Interested" || after.notes !== 1 || after.copies !== 1) throw new Error(`after Interested: ${JSON.stringify(after)}`);
+  });
+
+  await step("Edit batch C round 3: Home rows open their record when clicked outside their buttons (a deal, a to-do; Enter on a focused row too); Done does not navigate; waiting rows open the deal", async () => {
+    await pg.query("delete from todos where text like 'Flow R3:%'");
+    await pg.query("insert into todos (owner_id, text, due_on, position) values ($1, 'Flow R3: call the insurance agent', $2, 910)", [OWNER, nyDate(0)]);
+    await page.goto(`${BASE}/work`);
+    await page.getByTestId("home-bento").waitFor();
+    await page.evaluate(() => window.localStorage.removeItem("work-home-show"));
+    await page.reload();
+    // A deal row: a click on the action text opens the deal.
+    const dealRow = page.locator("[data-testid=home-row][data-lane=deals][data-hidden='0'] [data-testid=next-action-row]").first();
+    await dealRow.waitFor();
+    const dealId = await dealRow.getAttribute("data-deal");
+    if ((await dealRow.getAttribute("role")) !== "link" || (await dealRow.getAttribute("tabindex")) !== "0") throw new Error("the row is not reachable by Tab");
+    await dealRow.locator("[data-row-text] > div").nth(1).click();
+    await page.waitForURL(new RegExp(`/work/deals/${dealId}$`));
+    // A waiting row opens its deal too.
+    await page.goto(`${BASE}/work`);
+    const wait = page.locator("[data-testid=waiting-row]:visible").first();
+    if (await wait.count()) {
+      const wId = await wait.getAttribute("data-deal");
+      await wait.locator("[data-row-text] > div").nth(1).click();
+      await page.waitForURL(new RegExp(`/work/deals/${wId}$`));
+      await page.goto(`${BASE}/work`);
+    }
+    // The to-do row: Enter on the focused row opens To-dos; Done does not navigate.
+    const todo = page.locator("[data-testid=todo-action-row]").filter({ hasText: "Flow R3: call the insurance agent" });
+    await todo.waitFor();
+    await todo.focus();
+    await page.keyboard.press("Enter");
+    await page.waitForURL(/\/work\/todos$/);
+    await page.goto(`${BASE}/work`);
+    await todo.waitFor();
+    await todo.getByTestId("next-action-done").click();
+    await todo.getByTestId("next-action-result").waitFor();
+    await page.waitForTimeout(400);
+    if (!/\/work$/.test(page.url())) throw new Error(`Done navigated: ${page.url()}`);
+    if (!(await one("select done_at from todos where text = 'Flow R3: call the insurance agent'")).done_at) throw new Error("Done did not save");
+    await pg.query("delete from todos where text like 'Flow R3:%'");
+  });
+
+  await step("Edit batch C round 3: the hover rule: Home, Deals, and Outreach rows fill #f1f5f9 with 8px corners and a 120ms fade on hover; a Targets row (it opens nothing) has no hover; flow-work-hover.png", async () => {
+    // The flow's own listing (now a deal) leaves the sample data before the screenshots.
+    await pg.query("delete from notes where record_type = 'pipeline_items' and record_id in (select id from pipeline_items where name like '00 Flow R3%')");
+    await pg.query("delete from pipeline_items where name like '00 Flow R3%'");
+    const check = (s, where) => {
+      if (!s.cls || s.bg !== HOVER_BG || s.radius !== "8px" || s.fade !== "0.12s") throw new Error(`${where}: ${JSON.stringify(s)}`);
+    };
+    await page.goto(`${BASE}/work`);
+    await page.getByTestId("home-bento").waitFor();
+    check(await hoverStyle(page, page.locator("[data-testid=home-row][data-hidden='0'] [role=link]").first()), "Home next action row");
+    check(await hoverStyle(page, page.locator("[data-testid=glance-row]").first()), "Home Deals at a glance row");
+    await page.goto(`${BASE}/work/deals`);
+    await page.getByTestId("deals-columns").waitFor();
+    check(await hoverStyle(page, page.locator("[data-testid=deal-row][data-hidden='0']").first()), "Deals card");
+    await page.goto(`${BASE}/work/outreach`);
+    await page.waitForLoadState("networkidle");
+    check(await hoverStyle(page, page.locator("[data-testid=person-row]").first()), "Outreach row");
+    await page.goto(`${BASE}/work/listings`);
+    check(await hoverStyle(page, page.locator("[data-testid=listing-row][data-hidden='0']").first()), "Screen listings row");
+    await page.goto(`${BASE}/work/targets`);
+    const t = page.locator("[data-testid=target-row]").first();
+    await t.waitFor();
+    const ts = await hoverStyle(page, t);
+    if (ts.cls || ts.bg === HOVER_BG) throw new Error(`a Targets row has a hover: ${JSON.stringify(ts)}`);
+    // The hover on one Deals card at 1280, and the Home and Deals pages at 1280 and on the phone.
+    await p1280.goto(`${BASE}/work/deals`);
+    await p1280.getByTestId("deals-columns").waitFor();
+    const card = p1280.locator("[data-testid=deal-row][data-hidden='0']").first();
+    await card.hover();
+    await p1280.waitForTimeout(300);
+    await p1280.screenshot({ path: path.join(OUT, "flow-work-hover.png") });
+    await p1280.mouse.move(0, 0);
+    await shootBatchC(`${BASE}/work`, "work-now");
+    await shootBatchC(`${BASE}/work/deals`, "work-deals");
+  });
+
   await step("Savings ideas: propose now, shown on Home with a count, Edit, Later, Decline (not proposed again), Approve as a reduction action", async () => {
     await aipost("/__reset");
     await page.goto(`${BASE}/finance/expenses`);

@@ -17,7 +17,8 @@ import { ActionFigures, Confirm, Line1, Line2, Name, ProgressMark, ROW_COLS, Row
  * deal and sets the next stage's default action, Not yet clears the action (the deal then needs a next action). When
  * the deal has Also to do items, the same line also offers "Next: <top item>", which makes that item the next action
  * (due tomorrow); a typed action with to-dos offers that too instead of clearing at once. Later: Tomorrow, or a
- * date. Every save goes through a server action; the page re-reads after it.
+ * date. Every save goes through a server action; the page re-reads after it. Edit batch C round 3: a click on the row
+ * outside its buttons and links opens the deal (or the listing, which shows "Listing" where a deal shows its stage).
  */
 export function NextActionRow({ deal, today, compact = false, reason }: { deal: DealRow; today: string; compact?: boolean; /** The AI's one-line reason under the row (By the AI, batch B2). */ reason?: string | null }) {
   const router = useRouter();
@@ -81,6 +82,8 @@ export function NextActionRow({ deal, today, compact = false, reason }: { deal: 
     <RowShell
       testId="next-action-row"
       dataAttrs={{ "data-deal": deal.id }}
+      open={`/work/deals/${deal.id}`}
+      openLabel={`Open ${deal.name}`}
       right={
         <ActionFigures due={due} minutes={deal.nextActionMinutes}>
           {buttons}
@@ -93,7 +96,7 @@ export function NextActionRow({ deal, today, compact = false, reason }: { deal: 
           <Name>{deal.name}</Name>
         </Link>
         <What>
-          {deal.stageName}
+          {deal.screened ? deal.stageName : "Listing"}
           {deal.whatItDoes || deal.location ? ` · ${[deal.whatItDoes, deal.location].filter(Boolean).join(", ")}` : ""}
         </What>
       </Line1>

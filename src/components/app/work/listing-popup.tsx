@@ -6,9 +6,9 @@ import { ExternalLink, X } from "lucide-react";
 import type { PassReason } from "@/lib/work/buy-box";
 import type { ListingRow as ListingRowData } from "@/lib/work/data";
 import { listingPopup } from "@/lib/work/listing-popup";
-import { DealFactsForm, Fact } from "@/components/app/work/deal/cards";
+import { AddLinkInline, DealFactsForm, Fact } from "@/components/app/work/deal/cards";
 import { PassMenu } from "@/components/app/work/pass-menu";
-import { Pill, ROW_COLS, RowButton } from "@/components/app/work/ui";
+import { Pill, ROW_COLS, RowButton, RowLink } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
 
 /**
@@ -18,6 +18,8 @@ import { cn } from "@/lib/utils";
  * why selling), and "Open the original listing" (a new tab) when there is a link. Edit turns the facts into the deal
  * page's Facts form in the same window; Pass (the reason menu) and Interested act as on the row and close the window,
  * and the row shows the result. Escape, a click outside, or the close mark closes it; the focus stays inside it.
+ * Edit batch C round 3: "Open full page" next to Edit opens the listing's record page (/work/deals/[id] in the Listing
+ * state); with no link to the original listing the footer has an "Add link" field instead (Enter or Save).
  */
 export function ListingPopup({ listing, open, onOpenChange, onPass, onInterested, pending }: { listing: ListingRowData; open: boolean; onOpenChange: (open: boolean) => void; onPass: (reason: PassReason) => void; onInterested: () => void; pending: boolean }) {
   const [editing, setEditing] = useState(false);
@@ -109,11 +111,14 @@ export function ListingPopup({ listing, open, onOpenChange, onPass, onInterested
                 Open the original listing <ExternalLink className="h-3.5 w-3.5" aria-hidden />
               </a>
             ) : (
-              <span className="text-[13px] text-muted-foreground" data-testid="listing-popup-no-link">
-                No link to the original listing
-              </span>
+              <div className="min-w-0 flex-1 basis-[260px]" data-testid="listing-popup-no-link">
+                <AddLinkInline dealId={listing.id} testId="listing-popup-add-link" />
+              </div>
             )}
             <div className="flex flex-wrap gap-1.5">
+              <RowLink href={`/work/deals/${listing.id}`} data-testid="listing-popup-full-page">
+                Open full page
+              </RowLink>
               {!editing ? (
                 <RowButton onClick={() => setEditing(true)} disabled={pending} data-testid="listing-popup-edit">
                   Edit

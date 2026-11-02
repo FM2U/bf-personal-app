@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Mail, Phone } from "lucide-react";
-import { addDealNote, addTodo, advanceDeal, deleteTodo, makeTodoNextAction, markLost, passDeal, saveFacts, saveFindings, saveNextAction, setTodoDone, suggestQuestions, suggestTodos, type FactsInput } from "@/app/actions/work";
+import { addDealNote, addTodo, advanceDeal, deleteTodo, makeTodoNextAction, markInterested, markLost, passDeal, saveFacts, saveFindings, saveListingLink, saveNextAction, setTodoDone, suggestQuestions, suggestTodos, type FactsInput } from "@/app/actions/work";
 import { ComposeEmailDialog } from "@/components/app/compose-email";
 import { useUnsavedWork } from "@/components/app/unsaved-changes";
 import type { ComposeSetup } from "@/lib/compose-email";
@@ -21,7 +21,7 @@ import { TasksCard } from "@/components/app/work/tasks-card";
 import { TimelineEvents } from "@/components/app/work/timeline-list";
 import { PassMenu } from "@/components/app/work/pass-menu";
 import { LogCallDrawer } from "@/components/app/work/log-call-drawer";
-import { AiButton, Pill, RowButton, WorkCard } from "@/components/app/work/ui";
+import { AiButton, Pill, ROW_COLS, RowButton, WorkCard } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
 
 /**
@@ -30,6 +30,9 @@ import { cn } from "@/lib/utils";
  * Edit batch A (2026-10-31): the key finding grows with its text, the open questions are an outline in three groups
  * (filled by the AI, every line editable, Suggest questions, Email these questions), the Tasks checklist (was Also
  * to do; batch B's shared TasksCard), the two name fields in Facts, Add a note under the timeline, and Log a call.
+ * Edit batch C round 3: the same cards show a listing (the Listing state of the page, src/lib/work/record-page.ts):
+ * the header and the Decision card offer Pass and Interested, Findings leaves the AI tools for after Interested, the
+ * Next action is optional, and Facts has "Add link" when there is no link to the original listing.
  */
 
 const INPUT = "h-9 w-full min-w-0 rounded-[7px] border border-input bg-white px-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-60";
@@ -109,7 +112,7 @@ export function useSave() {
 
 // ---------- Header ----------
 
-export function DealHeaderActions({ deal, compose, advanceTo, today, tz }: { deal: DealRow; compose: ComposeSetup | null; advanceTo: Stage | null; today: string; tz: string }) {
+export function DealHeaderActions({ deal, compose, advanceTo, today, tz, listing = false }: { deal: DealRow; compose: ComposeSetup | null; advanceTo: Stage | null; today: string; tz: string; /** The Listing state: Interested in place of Advance. */ listing?: boolean }) {
   const router = useRouter();
   const [emailOpen, setEmailOpen] = useState(false);
   const [callOpen, setCallOpen] = useState(false);
@@ -138,9 +141,14 @@ export function DealHeaderActions({ deal, compose, advanceTo, today, tz }: { dea
         <RowButton onClick={() => setCallOpen(true)} className="h-9 px-3.5 text-[13px]" data-testid="deal-log-call">
           <Phone className="mr-1.5 h-3.5 w-3.5" /> Log a call
         </RowButton>
-        {open && advanceTo ? (
+        {open && advanceTo && !listing ? (
           <RowButton tone="cobalt" onClick={() => act(() => advanceDeal(deal.id))} disabled={pending} className="h-9 px-3.5 text-[13px]" data-testid="deal-advance">
             {pending ? "Moving..." : `Advance to ${advanceTo.name}`}
+          </RowButton>
+        ) : null}
+        {open && listing ? (
+          <RowButton tone="soft" onClick={() => act(() => markInterested(deal.id))} disabled={pending} className={cn("h-9 px-3.5 text-[13px]", ROW_COLS.wideButton.cls)} data-testid="listing-interested">
+            {pending ? "Saving..." : "Interested"}
           </RowButton>
         ) : null}
         {open ? <PassMenu onPick={(reason: PassReason) => act(() => passDeal(deal.id, reason))} pending={pending} testId="deal-pass" className="h-9 px-3.5 text-[13px]" /> : null}
@@ -173,7 +181,7 @@ export function DealHeaderActions({ deal, compose, advanceTo, today, tz }: { dea
 
 // ---------- Next action ----------
 
-export function NextActionCard({ deal, today }: { deal: DealRow; today: string }) {
+export function NextActionCard({ deal, today, noActionHint = "Needs a next action" }: { deal: DealRow; today: string; /** The hint when there is none ("Optional for a listing"). */ noActionHint?: string }) {
   const ids = useId();
   const { pending, state, run } = useSave();
   const [action, setAction] = useSynced(deal.nextAction ?? "");
@@ -185,7 +193,7 @@ export function NextActionCard({ deal, today }: { deal: DealRow; today: string }
   const dirty = action !== (deal.nextAction ?? "") || due !== (deal.nextActionDue ?? "") || minutes !== (deal.nextActionMinutes ? String(deal.nextActionMinutes) : "") || waitingOn !== (deal.waitingOn ?? "") || (waitingOn !== "" && since !== (deal.waitingSince ?? today));
   useUnsavedWork(dirty, "The next action is not saved yet.");
   const d = deal.nextAction ? dueLabel(deal.nextActionDue, today, (x) => fmtDate(x, "MMM d")) : null;
-  const hint = deal.nextAction ? `Due ${d!.text.toLowerCase() === "today" ? "today" : d!.text}${deal.nextActionMinutes ? ` · ${deal.nextActionMinutes} min` : ""}` : "Needs a next action";
+  const hint = deal.nextAction ? `Due ${d!.text.toLowerCase() === "today" ? "today" : d!.text}${deal.nextActionMinutes ? ` · ${deal.nextActionMinutes} min` : ""}` : noActionHint;
   return (
     <WorkCard
       title="Next action"
@@ -259,7 +267,7 @@ const sameQuestions = (a: QuestionGroups, b: QuestionGroups) => QUESTION_GROUPS.
  * new lines are added to the groups); "Email these questions" opens the email editor to the broker (the seller
  * selectable when known) with the seller and broker groups as bullets. Save keeps the key finding and the lines.
  */
-export function FindingsCard({ deal, compose }: { deal: DealRow; compose: ComposeSetup | null }) {
+export function FindingsCard({ deal, compose, aiTools = true }: { deal: DealRow; compose: ComposeSetup | null; /** Suggest questions and Email these questions (from Interested on; a listing shows a line instead). */ aiTools?: boolean }) {
   const ids = useId();
   const { pending, state, run } = useSave();
   const [key, setKey] = useSynced(deal.keyFinding ?? "");
@@ -360,7 +368,8 @@ export function FindingsCard({ deal, compose }: { deal: DealRow; compose: Compos
             </div>
           ))}
         </div>
-        <p className="text-xs text-muted-foreground">Filled by the AI when a listing becomes Interested. Edit anything.</p>
+        <p className="text-xs text-muted-foreground" data-testid="questions-note">{aiTools ? "Filled by the AI when a listing becomes Interested. Edit anything." : "Empty until you press Interested: the AI then drafts the open questions. You can add your own now."}</p>
+        {aiTools ? (
         <div className="flex flex-wrap items-center gap-2">
           <AiButton busy={suggesting} onClick={suggest} disabled={pending} data-testid="suggest-questions">
             Suggest questions
@@ -390,6 +399,7 @@ export function FindingsCard({ deal, compose }: { deal: DealRow; compose: Compos
             </span>
           ) : null}
         </div>
+        ) : null}
         <SaveLine state={dirty ? { kind: "idle" } : state}>
           <RowButton tone="primary" disabled={pending || !dirty} onClick={() => run(() => saveFindings(deal.id, { keyFinding: key, questions }))} data-testid="findings-save">
             {pending ? "Saving..." : "Save"}
@@ -524,9 +534,75 @@ export function DealFactsForm({ deal, onSaved, onCancel, testId = "facts-form" }
   );
 }
 
+/**
+ * "Add link" (Edit batch C round 3): the link to the original listing typed in place, when there is none yet. The field
+ * saves on Enter or with Save (only the link; an address typed without http is saved with https:// in front). With
+ * `onCancel` (the Facts card, where "+ Add link" opened it) it takes the focus and has Cancel, and Escape closes it; the
+ * listing popup shows it at once without Cancel.
+ */
+export function AddLinkInline({ dealId, testId = "add-link", onSaved, onCancel, className }: { dealId: string; testId?: string; onSaved?: (url: string) => void; onCancel?: () => void; className?: string }) {
+  const router = useRouter();
+  const ids = useId();
+  const [url, setUrl] = useState("");
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  useUnsavedWork(url.trim() !== "", "The link is not saved yet.");
+  const save = () =>
+    start(async () => {
+      setError(null);
+      const r = await saveListingLink(dealId, url);
+      if (!r.ok) return setError(r.error);
+      setUrl("");
+      onSaved?.(r.url);
+      router.refresh();
+    });
+  return (
+    <div className={cn("flex min-w-0 flex-col gap-1", className)} data-testid={testId}>
+      <div className="flex min-w-0 items-center gap-2">
+        <label htmlFor={`${ids}-url`} className="sr-only">
+          Link to the original listing
+        </label>
+        <input
+          id={`${ids}-url`}
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (url.trim() && !pending) save();
+            }
+            if (e.key === "Escape" && onCancel) {
+              e.preventDefault();
+              onCancel();
+            }
+          }}
+          autoFocus={!!onCancel}
+          placeholder="Add link: paste the address of the original listing"
+          className={cn(INPUT, "h-[30px] min-w-0 flex-1 text-[13px]")}
+          data-testid={`${testId}-input`}
+        />
+        <RowButton tone={url.trim() ? "primary" : "outline"} disabled={pending || !url.trim()} onClick={save} data-testid={`${testId}-save`}>
+          {pending ? "Saving..." : "Save"}
+        </RowButton>
+        {onCancel ? (
+          <button type="button" onClick={onCancel} className="text-xs text-muted-foreground hover:underline" data-testid={`${testId}-cancel`}>
+            Cancel
+          </button>
+        ) : null}
+      </div>
+      {error ? (
+        <span className="text-[13px] text-status-missed" role="alert" data-testid={`${testId}-error`}>
+          {error}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 export function FactsCard({ deal }: { deal: DealRow }) {
   const [editing, setEditing] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [adding, setAdding] = useState(false);
   const link = deal.listingUrl ? (deal.listingUrl.startsWith("http") ? deal.listingUrl : `https://${deal.listingUrl}`) : null;
   return (
     <WorkCard
@@ -575,10 +651,15 @@ export function FactsCard({ deal }: { deal: DealRow }) {
               <a href={link} target="_blank" rel="noreferrer" title={link} className="block truncate text-primary-strong hover:underline" data-testid="fact-link">
                 {linkLabel(link)}
               </a>
-            ) : (
+            ) : adding ? (
               "Not set"
+            ) : (
+              <button type="button" onClick={() => setAdding(true)} className="text-left text-[13.5px] font-medium text-primary-strong hover:underline" data-testid="facts-add-link-open">
+                + Add link
+              </button>
             )}
           </Fact>
+          {!link && adding ? <AddLinkInline dealId={deal.id} testId="facts-add-link" onSaved={() => setAdding(false)} onCancel={() => setAdding(false)} className="col-span-2 sm:col-span-3" /> : null}
           {saved ? (
             <span className="self-end text-[13px] font-medium text-status-met" role="status" data-testid="save-ok">
               Saved
@@ -618,10 +699,17 @@ export function TimelineCard({ deal, events }: { deal: DealRow; events: Timeline
 
 // ---------- Decision ----------
 
-export function DecisionCard({ deal, advanceTo }: { deal: DealRow; advanceTo: Stage | null }) {
+/**
+ * Decision. A listing (Edit batch C round 3): Pass with a reason, or Interested, which moves the same record into Deals
+ * at Interested (the page re-reads and shows the deal state at the same address; notes, tasks, and facts stay, nothing
+ * is copied); the line saying so stays under the buttons. An open deal: Advance, Pass with a reason, Lost. A closed
+ * deal: the outcome and its date.
+ */
+export function DecisionCard({ deal, advanceTo, listing = false }: { deal: DealRow; advanceTo: Stage | null; listing?: boolean }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const act = (fn: () => Promise<{ ok: boolean; error?: string }>) =>
     start(async () => {
       setError(null);
@@ -629,6 +717,45 @@ export function DecisionCard({ deal, advanceTo }: { deal: DealRow; advanceTo: St
       if (!r.ok) return setError(r.error ?? "Not saved.");
       router.refresh();
     });
+  const interested = () =>
+    start(async () => {
+      setError(null);
+      const r = await markInterested(deal.id);
+      if (!r.ok) return setError(r.error);
+      setNote(`Now a deal at Interested. Next action: ${r.nextAction ? r.nextAction.charAt(0).toLowerCase() + r.nextAction.slice(1) : "set it on this page"}, due ${r.due ? fmtDate(r.due, "EEE MMM d") : "soon"}.${r.questions ? " Open questions drafted by the AI." : ""}`);
+      router.refresh();
+    });
+  const noteLine = note ? (
+    <span className="text-[13px] font-medium text-status-met" role="status" data-testid="decision-note">
+      {note}
+    </span>
+  ) : null;
+  if (listing && deal.status === "open") {
+    return (
+      <WorkCard title="Decision" hint="Interested moves this listing into Deals" testId="deal-decision">
+        <div className="flex flex-col gap-2 px-[22px] pt-3 pb-5" data-testid="listing-decision">
+          <div className="flex flex-wrap items-center gap-2">
+            <PassMenu label="Pass with a reason" onPick={(reason: PassReason) => act(() => passDeal(deal.id, reason))} pending={pending} testId="decision-pass" align="left" className="h-9 px-3.5 text-[13px]" />
+            <RowButton
+              tone="soft"
+              onClick={interested}
+              disabled={pending}
+              className={cn("h-9 px-3.5 text-[13px]", ROW_COLS.wideButton.cls)}
+              data-testid="decision-interested"
+            >
+              {pending ? "Saving..." : "Interested"}
+            </RowButton>
+          </div>
+          <p className="text-xs text-muted-foreground">Pass keeps it in the Passed list with the reason. Interested keeps this page, its notes, tasks, and facts; the AI drafts the open questions.</p>
+          {error ? (
+            <span className="text-[13px] text-status-missed" role="alert" data-testid="decision-error">
+              {error}
+            </span>
+          ) : null}
+        </div>
+      </WorkCard>
+    );
+  }
   if (deal.status !== "open") {
     return (
       <WorkCard title="Decision" hint="Recorded on the deal" testId="deal-decision">
@@ -655,6 +782,7 @@ export function DecisionCard({ deal, advanceTo }: { deal: DealRow; advanceTo: St
             Lost (the seller withdrew or chose someone else)
           </button>
         </div>
+        {noteLine}
         {error ? (
           <span className="text-[13px] text-status-missed" role="alert" data-testid="decision-error">
             {error}
