@@ -98,7 +98,7 @@ export function AiCardStar({ context, compose, extras, onUseNext, className, tes
  * The star inside a field (20px, in a 28px faint circle): shown while the field is empty or focused. Wrap the input
  * in a `relative` box and give the input right padding (pr-9). `onUse` fills the field with the AI's text.
  */
-export function AiFieldStar({ context, field, visible, onUse, onUseFindings, className, testId = "ai-field-star" }: { context: Omit<AskContext, "field">; field: AskField; visible: boolean; onUse: (text: string) => void; /** The Key finding star (AI instructions, 2026-11-02): "Use this" fills the Key finding, Strengths, Risks, and the broker questions. */ onUseFindings?: ((d: KeyFindingDraft) => void) | null; className?: string; testId?: string }) {
+export function AiFieldStar({ context, field, visible, onUse, onUseFindings, className, testId = "ai-field-star" }: { context: Omit<AskContext, "field">; field: AskField; visible: boolean; onUse: (text: string) => void; /** The Key finding star (AI instructions, 2026-11-02; revision 1): "Use this" saves the Key finding, Strengths, Risks, Growth paths, and the broker questions. */ onUseFindings?: ((d: KeyFindingDraft) => void) | null; className?: string; testId?: string }) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -160,9 +160,10 @@ function AiFailLine({ error, reply, onRetry, testId, className }: { error: strin
 type FailState = { error: string; reply?: string | null } | null;
 
 /**
- * The Key finding draft in the panel (AI instructions, 2026-11-02): the Key finding, Strengths, Risks, and Check with
- * the broker, each under a small label, and "Use this", which fills the Findings card (Key finding, Strengths, Risks;
- * the questions are added under Ask the broker). Nothing is saved until the card's Save.
+ * The Key finding draft in the panel (AI instructions, 2026-11-02): the Key finding, Strengths, Risks, Growth paths
+ * (revision 1; the first is the main one), and Check with the broker, each under a small label, and "Use this", which
+ * saves them to the Findings card at once (the questions are added under Ask the broker); the card then shows "Saved.
+ * Undo" for about 10 seconds.
  */
 function KeyFindingDraftView({ draft, onUse }: { draft: KeyFindingDraft; onUse: () => void }) {
   const list = (label: string, items: string[], testId: string) => (
@@ -191,13 +192,14 @@ function KeyFindingDraftView({ draft, onUse }: { draft: KeyFindingDraft; onUse: 
       </div>
       {list("Strengths", draft.strengths, "ask-ai-kf-strengths")}
       {list("Risks", draft.risks, "ask-ai-kf-risks")}
+      {list("Growth paths (the first is the main one)", draft.growthPaths ?? [], "ask-ai-kf-growth")}
       {list("Check with the broker", draft.brokerQuestions, "ask-ai-kf-broker")}
       <div className="flex flex-wrap gap-2 pt-1">
         <button type="button" onClick={onUse} className={VIOLET_BUTTON} data-testid="ask-ai-use-findings">
           Use this
         </button>
       </div>
-      <p className="text-[12px] text-muted-foreground">Use this fills the Findings card and adds the broker questions under Ask the broker. Nothing is saved until you press Save.</p>
+      <p className="text-[12px] text-muted-foreground">Use this saves the Key finding, Strengths, Risks, and Growth paths to the Findings card at once and adds the broker questions under Ask the broker. You can undo it there.</p>
     </div>
   );
 }
@@ -206,7 +208,7 @@ const VIOLET_BUTTON = "inline-flex h-[30px] items-center justify-center rounded-
 const SOFT_BUTTON = "inline-flex h-[30px] items-center justify-center rounded-[7px] border border-violet-rule bg-violet-soft px-[11px] text-[12.5px] font-medium whitespace-nowrap text-violet hover:bg-[#f3ecff] disabled:pointer-events-none disabled:opacity-50";
 const INPUT = "h-9 w-full min-w-0 rounded-[7px] border border-input bg-white px-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
 
-export function AskAiPanel({ context, compose, extras, open, onOpenChange, onUse, onUseNext, onUseFindings }: { context: AskContext; compose?: ComposeSetup | null; extras?: EodExtras | null; open: boolean; onOpenChange: (open: boolean) => void; /** A field star: "Use this" fills the field. */ onUse?: (text: string) => void; /** The next action star: "Use this" fills the card's fields. */ onUseNext?: ((s: NextActionSuggestion) => void) | null; /** The Key finding star: "Use this" fills the Findings card (nothing saved until its Save). */ onUseFindings?: ((d: KeyFindingDraft) => void) | null }) {
+export function AskAiPanel({ context, compose, extras, open, onOpenChange, onUse, onUseNext, onUseFindings }: { context: AskContext; compose?: ComposeSetup | null; extras?: EodExtras | null; open: boolean; onOpenChange: (open: boolean) => void; /** A field star: "Use this" fills the field. */ onUse?: (text: string) => void; /** The next action star: "Use this" fills the card's fields. */ onUseNext?: ((s: NextActionSuggestion) => void) | null; /** The Key finding star: "Use this" saves to the Findings card at once (with Undo there). */ onUseFindings?: ((d: KeyFindingDraft) => void) | null }) {
   const router = useRouter();
   const spec = panelSpec(context);
   // The End of day drafts (batch C): which of the three the panel shows, by the card it was opened from (all three from the page pill).

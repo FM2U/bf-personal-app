@@ -30,8 +30,10 @@
 #   (y) 0001 to 0026 (the live database on 2026-11-02, night) plus a listing with facts, then UPDATE_0027_RUN_ONCE.sql twice
 #   (z) 0001 to 0027 (the live database on 2026-11-02, late) plus a deal with a key finding and one Buy box row already set,
 #       then UPDATE_0028_RUN_ONCE.sql twice
+#   (aa) 0001 to 0028 (the live database on 2026-11-02, after 0028) plus a deal with strengths and risks, the financing and
+#       growth goals settings typed, owner-operator No, one new Buy box row already typed, then UPDATE_0029_RUN_ONCE.sql twice
 # Paths b, c, d (UPDATE_RUN_ONCE.sql) and j, k, l also check 0014: tables, policies, functions, sample removal, and reset.
-# UPDATE_RUN_ONCE.sql now ends with 0028, so on paths b, c, d the acquisition, job, and consulting stages are the new ones (the checks allow both).
+# UPDATE_RUN_ONCE.sql now ends with 0029, so on paths b, c, d the acquisition, job, and consulting stages are the new ones (the checks allow both).
 # Every UPDATE_RUN_ONCE.sql path also checks 0012 and 0013.
 # Usage: bash supabase/tests/upgrade_test.sh
 set -euo pipefail
@@ -1180,6 +1182,93 @@ select '0028 checks passed' as result;
 SQL
 for f in UPDATE_RUN_ONCE ALL_MIGRATIONS_RUN_ONCE; do grep -q "schema_has_0028" "$DIR/$f.sql" || { echo "$f.sql is missing 0028"; exit 1; }; done
 
+# (aa) Live state on 2026-11-02 after 0028: 0001 to 0028 applied (with the owner, so the three 0028 Buy box rows exist),
+# a deal with strengths and risks, financing and growth goals typed (with a change in their history), owner-operator No,
+# a core range row already typed, and another input. Then UPDATE_0029_RUN_ONCE.sql twice. The one delete: the financing
+# and growth goals rows (and their history) are removed; nothing else is deleted. The deal keeps every field, growth
+# paths start empty, financing starts at equity; the Buy box rows are added once with today's values (the typed one kept).
+setup bf_upgrade_aa 0028
+su postgres -c "$PSQL -d bf_upgrade_aa" <<'SQL'
+\set ON_ERROR_STOP 1
+insert into public.owner_profile (owner_id) values ('00000000-0000-0000-0000-000000000001') on conflict do nothing;
+SQL
+su postgres -c "$PSQL -d bf_upgrade_aa -f $DIR/UPDATE_0028_RUN_ONCE.sql"
+su postgres -c "$PSQL -d bf_upgrade_aa" <<'SQL'
+\set ON_ERROR_STOP 1
+update public.inputs set value_text = 'SBA loan and seller note' where key = 'buy_box_financing';
+update public.inputs set value_text = 'Add two physician groups a year' where key = 'buy_box_growth_goals';
+update public.inputs set value_number = 0 where key = 'buy_box_owner_operator';
+insert into public.inputs (owner_id, key, label, category, unit, value_number) values ('00000000-0000-0000-0000-000000000001', 'buy_box_core_min', 'Core range from (EBITDA or SDE)', 'Buy box', 'usd', 1200000);
+insert into public.inputs (owner_id, key, label, category, unit, value_number) values ('00000000-0000-0000-0000-000000000001', 'upgrade_aa_other', 'Another input', 'General', 'number', 7);
+insert into public.pipeline_items (owner_id, pipeline_id, name, screened, status, key_finding, strengths, risks)
+  select '00000000-0000-0000-0000-000000000001', id, '00 Upgrade AA Deal', true, 'open', 'Recurring revenue, one big customer', '["70% recurring revenue"]'::jsonb, '["Top client is 30% of revenue"]'::jsonb
+  from public.pipelines where kind = 'acquisition' limit 1;
+create table public.upgrade_aa_before as select
+  (select count(*) from public.pipeline_items) as items,
+  (select count(*) from public.inputs) as inputs,
+  (select count(*) from public.input_history) as history,
+  (select count(*) from public.input_history h join public.inputs i on i.id = h.input_id where i.key in ('buy_box_financing', 'buy_box_growth_goals')) as removed_history,
+  (select count(*) from public.inputs where key in ('buy_box_financing', 'buy_box_growth_goals')) as removed,
+  (select id from public.pipeline_items where name = '00 Upgrade AA Deal') as deal_id;
+SQL
+for run in 1 2; do
+  echo "[bf_upgrade_aa] Applying UPDATE_0029_RUN_ONCE.sql (run $run)"
+  su postgres -c "$PSQL -d bf_upgrade_aa -f $DIR/UPDATE_0029_RUN_ONCE.sql"
+done
+su postgres -c "$PSQL -d bf_upgrade_aa" <<'SQL'
+\set ON_ERROR_STOP 1
+do $$
+declare v_items bigint; v_inputs bigint; v_history bigint; v_removed_history bigint; v_removed bigint; v_id uuid; v_owners bigint;
+  o constant uuid := '00000000-0000-0000-0000-000000000001';
+begin
+  select items, inputs, history, removed_history, removed, deal_id into v_items, v_inputs, v_history, v_removed_history, v_removed, v_id from public.upgrade_aa_before;
+  select count(*) into v_owners from public.owner_profile;
+  assert to_regprocedure('public.schema_has_0029()') is not null, '0029 check function';
+  assert v_removed = 2 * v_owners, 'the financing and growth goals rows were there before';
+  assert v_removed_history >= 2, 'the typed financing and growth goals have history';
+  assert (select count(*) from public.pipeline_items) = v_items, 'no item deleted';
+  assert (select growth_paths is null and financing = 'equity' from public.pipeline_items where id = v_id), 'growth paths start empty, financing starts at equity';
+  assert (select key_finding = 'Recurring revenue, one big customer' and strengths->>0 = '70% recurring revenue' and risks->>0 = 'Top client is 30% of revenue' and screened from public.pipeline_items where id = v_id), 'other fields kept';
+  assert (select count(*) from public.pipeline_items where financing <> 'equity') = 0, 'every deal starts at all equity';
+  -- The one delete: the two replaced settings rows (and their history); every other row is kept and nine rows are added per owner once (one was typed already).
+  assert (select count(*) from public.inputs where key in ('buy_box_financing', 'buy_box_growth_goals')) = 0, 'financing and growth goals rows removed';
+  assert (select count(*) from public.inputs) = v_inputs - v_removed + 9 * v_owners - 1, 'nine Buy box rows per owner added once, the two replaced rows removed, nothing else';
+  assert (select count(*) from public.input_history) = v_history - v_removed_history, 'only the history of the two removed rows went with them';
+  assert (select value_number = 7 from public.inputs where key = 'upgrade_aa_other'), 'another input kept';
+  assert (select value_number = 0 from public.inputs where key = 'buy_box_owner_operator' and owner_id = o), 'owner-operator No kept';
+  assert (select value_number = 1200000 from public.inputs where key = 'buy_box_core_min' and owner_id = o), 'the typed core range row kept';
+  assert (select value_number = 2500000 and unit = 'usd' and category = 'Buy box' from public.inputs where key = 'buy_box_core_max' and owner_id = o), 'core range to';
+  assert (select value_number = 750000 from public.inputs where key = 'buy_box_stretch_min' and owner_id = o), 'stretch range from';
+  assert (select value_number = 3500000 from public.inputs where key = 'buy_box_stretch_max' and owner_id = o), 'stretch range to';
+  assert (select value_text = 'B2B services' from public.inputs where key = 'buy_box_industries' and owner_id = o), 'industries';
+  assert (select value_text = 'retail,direct_to_consumer,franchises' from public.inputs where key = 'buy_box_excluded' and owner_id = o), 'excluded types';
+  assert (select value_text = 'southeast,east_coast' from public.inputs where key = 'buy_box_regions' and owner_id = o), 'regions';
+  assert (select value_text is null from public.inputs where key = 'buy_box_excluded_other' and owner_id = o), 'excluded other starts empty';
+  assert (select value_text is null from public.inputs where key = 'buy_box_regions_other' and owner_id = o), 'regions other starts empty';
+  assert (select count(*) from pg_constraint where conname in ('pipeline_items_growth_paths_check', 'pipeline_items_financing_check')) = 2, 'each check once';
+  update public.pipeline_items set growth_paths = '["Add employer contracts", "Raise prices 5%"]'::jsonb, financing = 'equity_plus_debt' where id = v_id;
+  assert (select jsonb_array_length(growth_paths) = 2 and financing = 'equity_plus_debt' from public.pipeline_items where id = v_id), 'growth paths and financing save';
+  begin
+    update public.pipeline_items set growth_paths = '["a", "b", "c", "d"]'::jsonb where id = v_id;
+    raise exception 'a fourth growth path was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    update public.pipeline_items set financing = 'sba' where id = v_id;
+    raise exception 'an unknown financing was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    update public.pipeline_items set financing = null where id = v_id;
+    raise exception 'an empty financing was accepted';
+  exception when not_null_violation then null;
+  end;
+end $$;
+drop table public.upgrade_aa_before;
+select '0029 checks passed' as result;
+SQL
+for f in UPDATE_RUN_ONCE ALL_MIGRATIONS_RUN_ONCE; do grep -q "schema_has_0029" "$DIR/$f.sql" || { echo "$f.sql is missing 0029"; exit 1; }; done
+
 echo "Upgrade paths passed: 0001-0007 + update twice, 0001-0008 + update, 0001-0009 + update twice, 0001-0010 + 0011 update twice,"
 echo "0001-0010 + 0011_0012 update twice, 0001-0011 + 0011_0012 update twice, 0001-0011 + 0012 update twice (edited text kept),"
 echo "0001-0012 + 0013 update twice, 0001-0012 + 0013_0014 update twice, 0001-0013 + 0013_0014 update twice, 0001-0013 + 0014 update twice,"
@@ -1192,4 +1281,5 @@ echo "0001-0023 + 0024 update twice (CIM review before Broker call, ids and deal
 echo "0001-0024 + 0025 update twice (targets and reports kept, the new columns and tables, end_of_day reports, the seed reuses the old target rows),"
 echo "0001-0025 + 0026 update twice (Former colleague contacts moved to Personal network by UPDATE, other roles and fields kept, the check refuses the old key),"
 echo "0001-0026 + 0027 update twice (the listing text, year established, and employees columns start empty, the listing keeps its fields, a bad year is refused),"
-echo "0001-0027 + 0028 update twice (strengths and risks start empty, the deal keeps its fields, the Buy box rows added once with a typed row kept, a fourth line refused)."
+echo "0001-0027 + 0028 update twice (strengths and risks start empty, the deal keeps its fields, the Buy box rows added once with a typed row kept, a fourth line refused),"
+echo "0001-0028 + 0029 update twice (growth paths empty and financing at equity, the deal keeps its fields, nine Buy box rows added once with a typed row kept, only the financing and growth goals rows removed)."

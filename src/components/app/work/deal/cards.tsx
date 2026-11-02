@@ -2,18 +2,19 @@
 
 import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Mail, Phone } from "lucide-react";
-import { addDealNote, addTodo, advanceDeal, deleteTodo, makeTodoNextAction, markInterested, markLost, passDeal, saveFacts, saveFindings, saveListingLink, saveListingText, saveNextAction, setTodoDone, suggestQuestions, suggestTodos, type FactsInput } from "@/app/actions/work";
+import { ChevronDown, ChevronUp, Mail, Phone } from "lucide-react";
+import { addDealNote, addTodo, advanceDeal, deleteTodo, makeTodoNextAction, markInterested, markLost, passDeal, saveFacts, saveFindings, saveListingLink, saveListingText, saveNextAction, setTodoDone, suggestQuestions, suggestTodos, type FactsInput, type FindingsInput } from "@/app/actions/work";
 import { ComposeEmailDialog } from "@/components/app/compose-email";
 import { useUnsavedWork } from "@/components/app/unsaved-changes";
 import type { ComposeSetup } from "@/lib/compose-email";
 import { date as fmtDate } from "@/lib/format";
 import { applyKeyFindingDraft, dealAsk, type KeyFindingDraft } from "@/lib/work/ask-ai";
-import { FINDING_LIST_MAX } from "@/lib/work/deal-facts";
-import { DB_UPDATE_NOTICE_0028 } from "@/lib/schema-guard";
+import { FINDING_LIST_MAX, parseFindingList } from "@/lib/work/deal-facts";
+import { DB_UPDATE_NOTICE_0028, DB_UPDATE_NOTICE_0029 } from "@/lib/schema-guard";
+import { FINANCING_OPTIONS, financingLabel, isDealFinancing } from "@/lib/ai/instructions";
 import { LISTING_SOURCES, moneyShort, type PassReason } from "@/lib/work/buy-box";
 import type { DealRow, Stage, TimelineEvent } from "@/lib/work/data";
-import { QUESTION_GROUPS, questionsEmailDraft, type QuestionGroupKey, type QuestionGroups } from "@/lib/work/questions";
+import { QUESTION_GROUPS, cleanQuestions, questionsEmailDraft, type QuestionGroupKey, type QuestionGroups } from "@/lib/work/questions";
 import { FIGURE_GAP_CLS, FIGURE_LABEL_CLS, figureValueClass, isEmptyValue } from "@/lib/work/figure-style";
 import { dueLabel } from "@/lib/work/stages";
 import type { DealTodo } from "@/lib/work/todos";
@@ -260,15 +261,40 @@ export function NextActionCard({ deal, today, noActionHint = "Needs a next actio
 
 // ---------- Findings ----------
 
-const sameQuestions = (a: QuestionGroups, b: QuestionGroups) => QUESTION_GROUPS.every((g) => a[g.key].length === b[g.key].length && a[g.key].every((l, i) => l === b[g.key][i]));
-const sameLines = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((l, i) => l === b[i]);
+/** What the Findings card keeps (AI instructions revision 1): the values compared with what is saved, and what Undo restores. */
+type FindingsSnapshot = { keyFinding: string; strengths: string[]; risks: string[]; growthPaths: string[]; questions: QuestionGroups };
+
+/** The key finding as the server keeps it (line ends made plain, trimmed, cut at 2,000 characters). */
+const cleanKey = (s: string) => s.replace(/\r\n?/g, "\n").trim().slice(0, 2000);
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+/**
+ * A field of the Findings card and its saved value. The page re-reads after every save; a re-read that brings back what
+ * this card saved leaves the screen as it is (a line being added stays), and any other value (saved somewhere else)
+ * replaces both.
+ */
+function useSavedField<T>(server: T): { value: T; set: React.Dispatch<React.SetStateAction<T>>; saved: T; setSaved: (v: T) => void } {
+  const key = JSON.stringify(server);
+  const [value, set] = useState<T>(server);
+  const [saved, setSaved] = useState<T>(server);
+  const [prevKey, setPrevKey] = useState(key);
+  if (prevKey !== key) {
+    setPrevKey(key);
+    if (key !== JSON.stringify(saved)) {
+      set(server);
+      setSaved(server);
+    }
+  }
+  return { value, set, saved, setSaved };
+}
 
 /**
  * Strengths or Risks on the Findings card (AI instructions, 2026-11-02): up to three short lines, each a text box
  * (edit it, or press the faint x to delete it); "+ Add" adds a line until there are three. The two lists sit side by
- * side on wider screens with their headings and first lines on the same rows.
+ * side on wider screens with their headings and first lines on the same rows. Revision 1: a line saves when it loses
+ * focus, and a delete saves at once (`onCommit`).
  */
-function FindingList({ label, kind, lines, rows, onChange, disabled, focusIndex }: { label: string; kind: "strengths" | "risks"; lines: string[]; /** Rows the two lists share (the heading and the longer list's lines), so line n of each sits on one row. */ rows: number; onChange: (next: string[]) => void; disabled?: boolean; focusIndex: number | null }) {
+function FindingList({ label, kind, lines, rows, onChange, onCommit, disabled, focusIndex }: { label: string; kind: "strengths" | "risks"; lines: string[]; /** Rows the two lists share (the heading and the longer list's lines), so line n of each sits on one row. */ rows: number; onChange: (next: string[]) => void; /** Saves the list (the lines given, or the ones on screen). */ onCommit: (next?: string[]) => void; disabled?: boolean; focusIndex: number | null }) {
   const full = lines.length >= FINDING_LIST_MAX;
   return (
     <div className="flex min-w-0 flex-col sm:grid sm:grid-rows-subgrid sm:[grid-row:span_var(--rows)]" style={{ "--rows": rows } as React.CSSProperties} data-testid={`finding-list-${kind}`} data-count={lines.filter((l) => l.trim()).length}>
@@ -289,6 +315,7 @@ function FindingList({ label, kind, lines, rows, onChange, disabled, focusIndex 
             <GrowingTextarea
               value={line}
               onChange={(v) => onChange(lines.map((l, n) => (n === i ? v.replace(/\n/g, " ") : l)))}
+              onBlur={() => onCommit()}
               minRows={1}
               minHeight={30}
               plain
@@ -305,7 +332,19 @@ function FindingList({ label, kind, lines, rows, onChange, disabled, focusIndex 
               className="flex-1"
               data-testid={`finding-input-${kind}`}
             />
-            <button type="button" onClick={() => onChange(lines.filter((_, n) => n !== i))} disabled={disabled} className="mt-1 h-6 w-6 shrink-0 rounded text-slate-300 hover:bg-slate-100 hover:text-slate-600" aria-label={`Delete this ${kind === "strengths" ? "strength" : "risk"}`} title="Delete" data-testid={`finding-delete-${kind}`}>
+            <button
+              type="button"
+              onClick={() => {
+                const next = lines.filter((_, n) => n !== i);
+                onChange(next);
+                onCommit(next);
+              }}
+              disabled={disabled}
+              className="mt-1 h-6 w-6 shrink-0 rounded text-slate-300 hover:bg-slate-100 hover:text-slate-600"
+              aria-label={`Delete this ${kind === "strengths" ? "strength" : "risk"}`}
+              title="Delete"
+              data-testid={`finding-delete-${kind}`}
+            >
               ×
             </button>
           </div>
@@ -317,45 +356,210 @@ function FindingList({ label, kind, lines, rows, onChange, disabled, focusIndex 
   );
 }
 
+const MOVE_BUTTON = "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:pointer-events-none disabled:opacity-30";
+
 /**
- * Findings: the key finding (a full-width box that grows with its text) and the open questions as an outline in
- * three groups, Ask the seller, Ask the broker, Find out myself. Every line is a text box (edit it, or clear it and
- * press the faint x to delete it); "+ Add" adds a line to a group. "Suggest questions" asks the AI for more (the
- * new lines are added to the groups); "Email these questions" opens the email editor to the broker (the seller
- * selectable when known) with the seller and broker groups as bullets. Save keeps the key finding and the lines.
+ * Growth paths on the Findings card (AI instructions revision 1): up to three concrete paths to grow this business, the
+ * first is the main one (marked Main; later AI answers read it as "growth path (main)"). Each line is a text box that
+ * saves when it loses focus; the arrows move a line up or down and the x deletes it, each saved at once; "+ Add" adds a
+ * line until there are three. The Key finding star fills the list.
  */
-export function FindingsCard({ deal, compose, aiTools = true, listsReady = true }: { deal: DealRow; compose: ComposeSetup | null; /** Suggest questions and Email these questions (from Interested on; a listing shows a line instead). */ aiTools?: boolean; /** False before database update 0028: Strengths and Risks show the update line and are not saved. */ listsReady?: boolean }) {
+function GrowthPathList({ lines, onChange, onCommit, disabled, focusIndex }: { lines: string[]; onChange: (next: string[]) => void; onCommit: (next?: string[]) => void; disabled?: boolean; focusIndex: number | null }) {
+  const full = lines.length >= FINDING_LIST_MAX;
+  const move = (i: number, by: -1 | 1) => {
+    const j = i + by;
+    if (j < 0 || j >= lines.length) return;
+    const next = [...lines];
+    [next[i], next[j]] = [next[j], next[i]];
+    onChange(next);
+    onCommit(next);
+  };
+  return (
+    <div className="flex min-w-0 flex-col" data-testid="finding-list-growth" data-count={lines.filter((l) => l.trim()).length}>
+      <div className="flex h-7 items-center justify-between gap-2">
+        <span className="text-[13px] font-semibold text-slate-900">
+          Growth paths <span className="font-normal text-muted-foreground">· the first is the main path</span>
+        </span>
+        {!full && !disabled ? (
+          <button type="button" onClick={() => onChange([...lines, ""])} className="text-xs font-medium text-primary-strong hover:underline" data-testid="growth-add">
+            + Add
+          </button>
+        ) : (
+          <span className="text-[11.5px] text-slate-400">{full ? `${FINDING_LIST_MAX} of ${FINDING_LIST_MAX}` : ""}</span>
+        )}
+      </div>
+      {lines.length ? (
+        lines.map((line, i) => (
+          <div key={`growth-${i}`} className="flex items-start gap-1.5 border-t border-slate-100 py-0.5" data-testid="growth-line">
+            {/* A fixed-width mark column: Main on the first line, the number on the others, so the text boxes line up. */}
+            <span className="mt-[5px] flex w-[42px] shrink-0 justify-start">
+              {i === 0 ? (
+                <Pill tone="blue" className="px-[7px] text-[11px]" testId="growth-main">
+                  Main
+                </Pill>
+              ) : (
+                <span className="pl-2 text-[12px] text-slate-400 tabular-nums">{i + 1}</span>
+              )}
+            </span>
+            <GrowingTextarea
+              value={line}
+              onChange={(v) => onChange(lines.map((l, n) => (n === i ? v.replace(/\n/g, " ") : l)))}
+              onBlur={() => onCommit()}
+              minRows={1}
+              minHeight={30}
+              plain
+              disabled={disabled}
+              autoFocus={focusIndex === i}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  if (!full) onChange([...lines, ""]);
+                }
+              }}
+              placeholder="A concrete path to growth and the fact behind it"
+              aria-label={`Growth path ${i + 1}${i === 0 ? ", the main path" : ""}`}
+              className="flex-1"
+              data-testid="growth-input"
+            />
+            <div className="mt-1 flex shrink-0 items-center">
+              <button type="button" onClick={() => move(i, -1)} disabled={disabled || i === 0} className={MOVE_BUTTON} aria-label="Move up" title="Move up" data-testid="growth-up">
+                <ChevronUp className="h-3.5 w-3.5" />
+              </button>
+              <button type="button" onClick={() => move(i, 1)} disabled={disabled || i === lines.length - 1} className={MOVE_BUTTON} aria-label="Move down" title="Move down" data-testid="growth-down">
+                <ChevronDown className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const next = lines.filter((_, n) => n !== i);
+                  onChange(next);
+                  onCommit(next);
+                }}
+                disabled={disabled}
+                className="h-6 w-6 shrink-0 rounded text-slate-300 hover:bg-slate-100 hover:text-slate-600"
+                aria-label="Delete this growth path"
+                title="Delete"
+                data-testid="growth-delete"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        ))
+      ) : (
+        <p className="border-t border-slate-100 py-1.5 text-[12.5px] text-slate-400">None yet. A deal with no credible path to growth counts as a risk.</p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Findings: the key finding (a full-width box that grows with its text), Strengths and Risks side by side, Growth paths
+ * (revision 1), and the open questions as an outline in three groups, Ask the seller, Ask the broker, Find out myself.
+ * Every line is a text box (edit it, or press the faint x to delete it); "+ Add" adds a line. "Suggest questions" asks
+ * the AI for more (the new lines are added to the groups); "Email these questions" opens the email editor to the
+ * broker (the seller selectable when known) with the seller and broker groups as bullets.
+ *
+ * AI instructions revision 1 (saving fix): there is no Save button. Each field saves when it loses focus; a delete or a
+ * move saves at once. "Use this" on the Key finding star saves the Key finding, Strengths, Risks, and Growth paths and
+ * adds the broker questions at once, then shows "Saved. Undo" for about 10 seconds; Undo saves the values from before.
+ * (Bug: lines filled by Use this were lost when Interested re-read the page before Save.)
+ */
+export function FindingsCard({ deal, compose, aiTools = true, listsReady = true, growthReady = true }: { deal: DealRow; compose: ComposeSetup | null; /** Suggest questions and Email these questions (from Interested on; a listing shows a line instead). */ aiTools?: boolean; /** False before database update 0028: Strengths and Risks show the update line and are not saved. */ listsReady?: boolean; /** False before database update 0029: Growth paths show the update line and are not saved. */ growthReady?: boolean }) {
   const ids = useId();
-  const { pending, state, run } = useSave();
-  const [key, setKey] = useSynced(deal.keyFinding ?? "");
-  // AI instructions (2026-11-02): Strengths and Risks, up to three lines each.
-  const [strengths, setStrengths] = useSynced<string[]>(deal.strengths);
-  const [risks, setRisks] = useSynced<string[]>(deal.risks);
-  const [listFocus, setListFocus] = useState<{ kind: "strengths" | "risks"; i: number } | null>(null);
-  const [useNote, setUseNote] = useState<string | null>(null);
-  // The lines on screen, and the saved lines they are compared with (Suggest questions saves on the server and moves
-  // the baseline, so typed lines stay and nothing counts as unsaved that is not).
-  const [questions, setQuestions] = useState<QuestionGroups>(deal.openQuestions);
-  const [baseline, setBaseline] = useState<QuestionGroups>(deal.openQuestions);
-  const [prevProp, setPrevProp] = useState(deal.openQuestions);
-  if (prevProp !== deal.openQuestions) {
-    setPrevProp(deal.openQuestions);
-    setBaseline(deal.openQuestions);
-    setQuestions(deal.openQuestions);
-  }
+  const key = useSavedField(deal.keyFinding ?? "");
+  const strengths = useSavedField<string[]>(deal.strengths);
+  const risks = useSavedField<string[]>(deal.risks);
+  const growth = useSavedField<string[]>(deal.growthPaths);
+  const questions = useSavedField<QuestionGroups>(deal.openQuestions);
+  const [listFocus, setListFocus] = useState<{ kind: "strengths" | "risks" | "growth"; i: number } | null>(null);
+  const [saving, startSave] = useTransition();
+  const [saveNote, setSaveNote] = useState<{ kind: "saved" } | { kind: "error"; text: string } | null>(null);
+  const [undo, setUndo] = useState<{ text: string; prev: FindingsSnapshot; at: number } | null>(null);
   const [suggesting, startSuggest] = useTransition();
   const [suggestNote, setSuggestNote] = useState<{ tone: "ok" | "warn"; text: string; reply?: string | null } | null>(null);
   const [emailOpen, setEmailOpen] = useState(false);
   const [focusLine, setFocusLine] = useState<string | null>(null);
   const [keyFocused, setKeyFocused] = useState(false);
-  const dirty = key !== (deal.keyFinding ?? "") || !sameQuestions(questions, baseline) || !sameLines(strengths, deal.strengths) || !sameLines(risks, deal.risks);
+
+  const dirtyKey = cleanKey(key.value) !== cleanKey(key.saved);
+  const dirtyStrengths = listsReady && !same(parseFindingList(strengths.value), parseFindingList(strengths.saved));
+  const dirtyRisks = listsReady && !same(parseFindingList(risks.value), parseFindingList(risks.saved));
+  const dirtyGrowth = growthReady && !same(parseFindingList(growth.value), parseFindingList(growth.saved));
+  const dirtyQuestions = !same(cleanQuestions(questions.value), cleanQuestions(questions.saved));
+  const dirty = dirtyKey || dirtyStrengths || dirtyRisks || dirtyGrowth || dirtyQuestions;
   useUnsavedWork(dirty, "The findings are not saved yet.");
 
-  const setLine = (g: QuestionGroupKey, i: number, text: string) => setQuestions((q) => ({ ...q, [g]: q[g].map((l, n) => (n === i ? text : l)) }));
-  const removeLine = (g: QuestionGroupKey, i: number) => setQuestions((q) => ({ ...q, [g]: q[g].filter((_, n) => n !== i) }));
+  // "Saved. Undo" shows for about 10 seconds.
+  useEffect(() => {
+    if (!undo) return;
+    const t = setTimeout(() => setUndo((u) => (u && u.at === undo.at ? null : u)), 10_000);
+    return () => clearTimeout(t);
+  }, [undo]);
+
+  /**
+   * Saves the fields given (their values, cleaned) when they differ from what is saved, or always with `force`. The
+   * saved values move at once, so leaving right after a field loses focus does not ask; on an error they move back, the
+   * field counts as not saved again, and the error shows. Resolves true when saved (or nothing to save).
+   */
+  const commit = (values: Partial<FindingsSnapshot>, force = false): Promise<boolean> => {
+    const input: FindingsInput = {};
+    const rollback: (() => void)[] = [];
+    if (values.keyFinding !== undefined) {
+      const v = cleanKey(values.keyFinding);
+      if (force || v !== cleanKey(key.saved)) {
+        input.keyFinding = v;
+        const before = key.saved;
+        key.setSaved(v);
+        rollback.push(() => key.setSaved(before));
+      }
+    }
+    for (const [name, field, ready] of [["strengths", strengths, listsReady], ["risks", risks, listsReady], ["growthPaths", growth, growthReady]] as const) {
+      const raw = values[name];
+      if (raw === undefined || !ready) continue;
+      const v = parseFindingList(raw);
+      if (force || !same(v, parseFindingList(field.saved))) {
+        input[name] = v;
+        const before = field.saved;
+        field.setSaved(v);
+        rollback.push(() => field.setSaved(before));
+      }
+    }
+    if (values.questions !== undefined) {
+      const v = cleanQuestions(values.questions);
+      if (force || !same(v, cleanQuestions(questions.saved))) {
+        input.questions = v;
+        const before = questions.saved;
+        questions.setSaved(v);
+        rollback.push(() => questions.setSaved(before));
+      }
+    }
+    if (!Object.keys(input).length) return Promise.resolve(true);
+    return new Promise((resolve) =>
+      startSave(async () => {
+        const r = await saveFindings(deal.id, input);
+        if (!r.ok) {
+          for (const f of rollback) f();
+          setSaveNote({ kind: "error", text: r.error });
+          return resolve(false);
+        }
+        setSaveNote({ kind: "saved" });
+        resolve(true);
+      }),
+    );
+  };
+  /** Everything on screen, for a save of every field (Try again). */
+  const onScreen = (): FindingsSnapshot => ({ keyFinding: key.value, strengths: strengths.value, risks: risks.value, growthPaths: growth.value, questions: questions.value });
+
+  const setLine = (g: QuestionGroupKey, i: number, text: string) => questions.set((q) => ({ ...q, [g]: q[g].map((l, n) => (n === i ? text : l)) }));
+  const removeLine = (g: QuestionGroupKey, i: number) => {
+    const next = { ...questions.value, [g]: questions.value[g].filter((_, n) => n !== i) };
+    questions.set(next);
+    void commit({ questions: next });
+  };
   const addLine = (g: QuestionGroupKey) => {
-    setQuestions((q) => ({ ...q, [g]: [...q[g], ""] }));
-    setFocusLine(`${g}-${questions[g].length}`);
+    questions.set((q) => ({ ...q, [g]: [...q[g], ""] }));
+    setFocusLine(`${g}-${questions.value[g].length}`);
   };
   const suggest = () => {
     setSuggestNote(null);
@@ -363,8 +567,8 @@ export function FindingsCard({ deal, compose, aiTools = true, listsReady = true 
       const r = await suggestQuestions(deal.id);
       if (!r.ok) return setSuggestNote({ tone: "warn", text: r.error, reply: r.reply });
       // Lines typed here and not saved yet stay; the AI's new lines (saved on the deal already) join them.
-      setBaseline(r.questions);
-      setQuestions((q) => {
+      questions.setSaved(r.questions);
+      questions.set((q) => {
         const next = { ...q };
         for (const g of QUESTION_GROUPS) {
           const have = new Set(q[g.key].map((l) => l.trim().toLowerCase()));
@@ -375,24 +579,48 @@ export function FindingsCard({ deal, compose, aiTools = true, listsReady = true 
       setSuggestNote({ tone: "ok", text: r.added ? `${r.added} suggested. Edit or delete any.` : "Nothing new to add." });
     });
   };
-  /** "Use this" on the Key finding star: fills the Key finding, Strengths, and Risks, and adds the broker questions (nothing saved until Save). */
-  const useFindings = (d: KeyFindingDraft) => {
-    const next = applyKeyFindingDraft({ broker: questions.broker }, d);
-    setKey(next.keyFinding);
+  /** Puts a snapshot on the screen (Use this, Undo). */
+  const show = (s: FindingsSnapshot) => {
+    key.set(s.keyFinding);
     if (listsReady) {
-      setStrengths(next.strengths);
-      setRisks(next.risks);
+      strengths.set(s.strengths);
+      risks.set(s.risks);
     }
-    setQuestions((q) => ({ ...q, broker: next.broker }));
-    setUseNote(`Filled in${next.added ? `, ${next.added} ${next.added === 1 ? "question" : "questions"} added under Ask the broker` : ""}. Press Save to keep it.`);
+    if (growthReady) growth.set(s.growthPaths);
+    questions.set(s.questions);
   };
-  const changeList = (kind: "strengths" | "risks", next: string[]) => {
-    const prev = kind === "strengths" ? strengths : risks;
-    (kind === "strengths" ? setStrengths : setRisks)(next);
+  /** "Use this" on the Key finding star: fills and saves the Key finding, Strengths, Risks, and Growth paths and adds the broker questions; "Saved. Undo" for about 10 seconds. */
+  const useFindings = (d: KeyFindingDraft) => {
+    const prev: FindingsSnapshot = { keyFinding: cleanKey(key.value), strengths: parseFindingList(strengths.value), risks: parseFindingList(risks.value), growthPaths: parseFindingList(growth.value), questions: cleanQuestions(questions.value) };
+    const next = applyKeyFindingDraft({ broker: questions.value.broker }, d);
+    const snap: FindingsSnapshot = { keyFinding: next.keyFinding, strengths: listsReady ? next.strengths : prev.strengths, risks: listsReady ? next.risks : prev.risks, growthPaths: growthReady ? next.growthPaths : prev.growthPaths, questions: { ...questions.value, broker: next.broker } };
+    show(snap);
+    setUndo(null);
+    void commit(snap, true).then((ok) => {
+      if (ok) setUndo({ text: next.added ? `${next.added} ${next.added === 1 ? "question" : "questions"} added under Ask the broker.` : "", prev, at: Date.now() });
+    });
+  };
+  const undoUse = () => {
+    if (!undo) return;
+    const prev = undo.prev;
+    setUndo(null);
+    show(prev);
+    void commit(prev, true);
+  };
+  /** The Key finding star's plain text (when the star gives one line): fills and saves the Key finding. */
+  const useKey = (text: string) => {
+    key.set(text);
+    void commit({ keyFinding: text });
+  };
+  const changeList = (kind: "strengths" | "risks" | "growth", next: string[]) => {
+    const field = kind === "strengths" ? strengths : kind === "risks" ? risks : growth;
+    const prev = field.value;
+    field.set(next);
     setListFocus(next.length > prev.length ? { kind, i: next.length - 1 } : null);
   };
-  const draft = questionsEmailDraft({ dealName: deal.name, toName: compose?.recipients.find((r) => r.email === compose.defaultTo)?.name ?? null, questions });
-  const emailable = questions.seller.some((l) => l.trim()) || questions.broker.some((l) => l.trim());
+  const draft = questionsEmailDraft({ dealName: deal.name, toName: compose?.recipients.find((r) => r.email === compose.defaultTo)?.name ?? null, questions: questions.value });
+  const emailable = questions.value.seller.some((l) => l.trim()) || questions.value.broker.some((l) => l.trim());
+  const rows = 1 + Math.max(1, strengths.value.length, risks.value.length);
   return (
     <WorkCard title="Findings" actions={<AiCardStar context={{ ...dealAsk(deal), card: "Open questions" }} />} testId="deal-findings">
       <div className="flex flex-col gap-2.5 px-[22px] pt-3 pb-5" data-testid="findings-form">
@@ -400,41 +628,66 @@ export function FindingsCard({ deal, compose, aiTools = true, listsReady = true 
           Key finding
         </label>
         <div className="relative min-w-0">
-          <GrowingTextarea id={`${ids}-k`} value={key} onChange={setKey} onFocus={() => setKeyFocused(true)} onBlur={() => setKeyFocused(false)} placeholder="The one line that matters most" className="pr-9" data-testid="key-finding" />
-          <AiFieldStar context={dealAsk(deal)} field={{ key: "key_finding", label: "Key finding", current: key }} visible={!key.trim() || keyFocused} onUse={setKey} onUseFindings={useFindings} className="top-[18px]" />
+          <GrowingTextarea
+            id={`${ids}-k`}
+            value={key.value}
+            onChange={key.set}
+            onFocus={() => setKeyFocused(true)}
+            onBlur={() => {
+              setKeyFocused(false);
+              void commit({ keyFinding: key.value });
+            }}
+            placeholder="The one line that matters most"
+            className="pr-9"
+            data-testid="key-finding"
+          />
+          <AiFieldStar context={dealAsk(deal)} field={{ key: "key_finding", label: "Key finding", current: key.value }} visible={!key.value.trim() || keyFocused} onUse={useKey} onUseFindings={useFindings} className="top-[18px]" />
         </div>
-        {useNote && dirty ? (
-          <p className="text-[12.5px] text-violet" role="status" data-testid="findings-use-note">
-            {useNote}
+        {undo ? (
+          <p className="flex flex-wrap items-center gap-x-1.5 text-[12.5px] text-violet" role="status" data-testid="findings-use-note">
+            <span className="font-medium">Saved.</span>
+            {undo.text ? <span>{undo.text}</span> : null}
+            <button type="button" onClick={undoUse} disabled={saving} className="font-medium text-primary-strong hover:underline" data-testid="findings-undo">
+              Undo
+            </button>
           </p>
         ) : null}
         {/* One grid for both lists: on wider screens line n of Strengths and line n of Risks share a row, so they stay level when a line wraps. */}
         <div className="grid grid-cols-1 gap-x-6 gap-y-3 pt-1 sm:grid-cols-2 sm:gap-y-0" data-testid="finding-lists">
-          <FindingList label="Strengths" kind="strengths" lines={strengths} rows={1 + Math.max(1, strengths.length, risks.length)} onChange={(n) => changeList("strengths", n)} disabled={!listsReady} focusIndex={listFocus?.kind === "strengths" ? listFocus.i : null} />
-          <FindingList label="Risks" kind="risks" lines={risks} rows={1 + Math.max(1, strengths.length, risks.length)} onChange={(n) => changeList("risks", n)} disabled={!listsReady} focusIndex={listFocus?.kind === "risks" ? listFocus.i : null} />
+          <FindingList label="Strengths" kind="strengths" lines={strengths.value} rows={rows} onChange={(n) => changeList("strengths", n)} onCommit={(n) => void commit({ strengths: n ?? strengths.value })} disabled={!listsReady} focusIndex={listFocus?.kind === "strengths" ? listFocus.i : null} />
+          <FindingList label="Risks" kind="risks" lines={risks.value} rows={rows} onChange={(n) => changeList("risks", n)} onCommit={(n) => void commit({ risks: n ?? risks.value })} disabled={!listsReady} focusIndex={listFocus?.kind === "risks" ? listFocus.i : null} />
         </div>
         {!listsReady ? (
           <p className="text-[12.5px] text-status-soon" role="status" data-testid="update-0028-needed">
             {DB_UPDATE_NOTICE_0028}
           </p>
         ) : null}
+        <div className="pt-1.5">
+          <GrowthPathList lines={growth.value} onChange={(n) => changeList("growth", n)} onCommit={(n) => void commit({ growthPaths: n ?? growth.value })} disabled={!growthReady} focusIndex={listFocus?.kind === "growth" ? listFocus.i : null} />
+        </div>
+        {!growthReady ? (
+          <p className="text-[12.5px] text-status-soon" role="status" data-testid="update-0029-needed">
+            {DB_UPDATE_NOTICE_0029}
+          </p>
+        ) : null}
         <div className={cn(LABEL, "pt-1")}>Open questions</div>
         <div className="flex flex-col gap-1" data-testid="open-questions">
           {QUESTION_GROUPS.map((g) => (
-            <div key={g.key} className="flex flex-col" data-testid="question-group" data-group={g.key} data-count={questions[g.key].filter((l) => l.trim()).length}>
+            <div key={g.key} className="flex flex-col" data-testid="question-group" data-group={g.key} data-count={questions.value[g.key].filter((l) => l.trim()).length}>
               <div className="flex items-center justify-between gap-2 pt-1.5 pb-1">
                 <span className="text-[13px] font-semibold text-slate-900">{g.label}</span>
                 <button type="button" onClick={() => addLine(g.key)} className="text-xs font-medium text-primary-strong hover:underline" data-testid={`question-add-${g.key}`}>
                   + Add
                 </button>
               </div>
-              {questions[g.key].length ? (
-                questions[g.key].map((line, i) => (
+              {questions.value[g.key].length ? (
+                questions.value[g.key].map((line, i) => (
                   <div key={`${g.key}-${i}`} className="flex items-start gap-1.5 border-t border-slate-100 py-0.5" data-testid="question-line">
                     <span className="mt-[13px] h-1.5 w-1.5 shrink-0 rounded-full bg-status-neutral-solid" aria-hidden />
                     <GrowingTextarea
                       value={line}
                       onChange={(v) => setLine(g.key, i, v.replace(/\n/g, " "))}
+                      onBlur={() => void commit({ questions: questions.value })}
                       minRows={1}
                       minHeight={30}
                       plain
@@ -464,7 +717,7 @@ export function FindingsCard({ deal, compose, aiTools = true, listsReady = true 
         <p className="text-xs text-muted-foreground" data-testid="questions-note">{aiTools ? "Filled by the AI when a listing becomes Interested. Edit anything." : "Empty until you press Interested: the AI then drafts the open questions. You can add your own now."}</p>
         {aiTools ? (
         <div className="flex flex-wrap items-center gap-2">
-          <AiButton busy={suggesting} onClick={suggest} disabled={pending} data-testid="suggest-questions">
+          <AiButton busy={suggesting} onClick={suggest} disabled={saving} data-testid="suggest-questions">
             Suggest questions
           </AiButton>
           {compose ? (
@@ -493,11 +746,27 @@ export function FindingsCard({ deal, compose, aiTools = true, listsReady = true 
           ) : null}
         </div>
         ) : null}
-        <SaveLine state={dirty ? { kind: "idle" } : state}>
-          <RowButton tone="primary" disabled={pending || !dirty} onClick={() => run(() => saveFindings(deal.id, listsReady ? { keyFinding: key, questions, strengths, risks } : { keyFinding: key, questions }), () => setUseNote(null))} data-testid="findings-save">
-            {pending ? "Saving..." : "Save"}
-          </RowButton>
-        </SaveLine>
+        {/* No Save button (revision 1): each field saves when you click away from it. */}
+        <div className="flex min-h-5 flex-wrap items-center justify-end gap-3 text-[12.5px]" data-testid="findings-save-line">
+          {saving ? (
+            <span className="text-muted-foreground" data-testid="findings-saving">
+              Saving...
+            </span>
+          ) : saveNote?.kind === "error" ? (
+            <span className="text-status-missed" role="alert" data-testid="save-error">
+              {saveNote.text}{" "}
+              <button type="button" onClick={() => void commit(onScreen())} className="font-medium text-primary-strong hover:underline" data-testid="findings-retry">
+                Try again
+              </button>
+            </span>
+          ) : saveNote?.kind === "saved" && !dirty ? (
+            <span className="font-medium text-status-met" role="status" data-testid="save-ok">
+              Saved
+            </span>
+          ) : (
+            <span className="text-muted-foreground">Saves when you click away from a field.</span>
+          )}
+        </div>
       </div>
       {compose && emailOpen ? <ComposeEmailDialog setup={compose} open={emailOpen} onOpenChange={setEmailOpen} initial={draft} ask={dealAsk(deal)} /> : null}
     </WorkCard>
@@ -554,8 +823,12 @@ export function Fact({ label, children, testId }: { label: string; children: Rea
   );
 }
 
-/** The Facts edit form of a deal or a listing: the deal page's Facts card and the listing popup on Screen listings use it. */
-export function DealFactsForm({ deal, onSaved, onCancel, testId = "facts-form" }: { deal: DealRow; onSaved: () => void; onCancel?: () => void; testId?: string }) {
+/**
+ * The Facts edit form of a deal or a listing: the deal page's Facts card and the listing popup on Screen listings use it.
+ * AI instructions revision 1: Financing (All equity or Equity plus debt) on the deal page, once database update 0029
+ * has run (deal.financing is null before it).
+ */
+export function DealFactsForm({ deal, onSaved, onCancel, testId = "facts-form", showFinancing = true }: { deal: DealRow; onSaved: () => void; onCancel?: () => void; testId?: string; /** False in the listing popup. */ showFinancing?: boolean }) {
   const ids = useId();
   const { pending, state, run } = useSave();
   const initial = (): FactsInput => ({
@@ -574,6 +847,7 @@ export function DealFactsForm({ deal, onSaved, onCancel, testId = "facts-form" }
     listingUrl: deal.listingUrl ?? "",
     yearEstablished: deal.yearEstablished === null ? "" : String(deal.yearEstablished),
     employees: deal.employees ?? "",
+    ...(showFinancing && deal.financing ? { financing: deal.financing } : {}),
   });
   const initialKey = JSON.stringify(initial());
   const [f, setF] = useState<FactsInput>(initial);
@@ -615,6 +889,20 @@ export function DealFactsForm({ deal, onSaved, onCancel, testId = "facts-form" }
       {field("source", "Source")}
       {field("yearEstablished", "Year established", "2010")}
       {field("employees", "Employees", "14 full-time")}
+      {showFinancing && deal.financing ? (
+        <div className="flex min-w-0 flex-col gap-1">
+          <label htmlFor={`${ids}-financing`} className={LABEL}>
+            Financing
+          </label>
+          <select id={`${ids}-financing`} value={f.financing ?? "equity"} onChange={(e) => setF((x) => ({ ...x, financing: isDealFinancing(e.target.value) ? e.target.value : "equity" }))} className={INPUT} data-testid="fact-financing">
+            {FINANCING_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
       <div className="sm:col-span-2">{field("whySelling", "Why selling", "Retiring, no successor")}</div>
       <div className="sm:col-span-2">{field("listingUrl", "Link", "https://")}</div>
       <SaveLine state={state}>
@@ -744,6 +1032,11 @@ export function FactsCard({ deal }: { deal: DealRow }) {
           <Fact label="Source">{deal.source ?? "Not set"}</Fact>
           <Fact label="Year established" testId="fact-year">{deal.yearEstablished ?? "Not known"}</Fact>
           <Fact label="Employees" testId="fact-employees">{deal.employees ?? "Not known"}</Fact>
+          {deal.financing ? (
+            <Fact label="Financing" testId="fact-financing-value">
+              {financingLabel(deal.financing)}
+            </Fact>
+          ) : null}
           <Fact label="Why selling">{deal.whySelling ?? "Not known"}</Fact>
           <Fact label="Link">
             {link ? (

@@ -6,7 +6,7 @@
  * "Email these questions" opens the email editor with the seller and broker groups as bullets (the draft is here too).
  */
 
-import { buyerInstructions, stageLineFor, type AiSpot } from "@/lib/ai/instructions";
+import { buyerInstructions, financingLineFor, stageLineFor, type AiSpot } from "@/lib/ai/instructions";
 import { defaultBuyBoxSettings, type BuyBoxSettings } from "@/lib/work/buy-box";
 import { dealFactLines, listingTextBlock, NO_FALSE_GAPS_RULE, type DealFacts } from "@/lib/work/deal-facts";
 
@@ -107,7 +107,7 @@ export type DealContext = {
 
 /** The AI instructions of a click on this deal (src/lib/ai/instructions.ts): the buyer base, the deal's stage line, the spot part. */
 export function dealInstructions(c: DealContext, spot: AiSpot): string {
-  return buyerInstructions({ buyBox: c.buyBox ?? defaultBuyBoxSettings(), stage: stageLineFor(c.facts.stage, c.facts.screened) }, spot);
+  return buyerInstructions({ buyBox: c.buyBox ?? defaultBuyBoxSettings(), stage: stageLineFor(c.facts.stage, c.facts.screened), financing: financingLineFor(c.facts.stage, c.facts.screened, c.facts.financing) }, spot);
 }
 
 export const CONTEXT_MAX_LINES = 30;

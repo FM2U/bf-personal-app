@@ -2,16 +2,17 @@
  * The AI instructions for every AI action on a deal or a listing (AI instructions, approved 2026-11-02; spec in
  * docs/2026-11-02-ai-instructions.md), pure and tested in src/lib/ai/instructions.test.ts. They are built fresh on
  * every click from three parts, and the AI sees only what applies to that click:
- *   1. the shared base: who the buyer is, the buy box (filled from Settings, Buy box), how to judge a business, and
- *      the general rules;
- *   2. the stage line, chosen from the deal's state (screening, after the CIM, diligence);
+ *   1. the shared base: who the buyer is, the buy box (filled from Settings, Buy box) and that it is a preference, how
+ *      to judge a business and that a clear path to growth is required, and the general rules;
+ *   2. the stage line, chosen from the deal's state (screening, after the CIM, diligence), and at Model, IOI or LOI, and
+ *      Diligence the deal's financing line (AI instructions revision 1);
  *   3. the spot part: what this click writes (the Key finding, questions, tasks, the next action, an answer, a field).
  * The facts block (src/lib/work/deal-facts.ts) follows the instructions in every prompt. Records that are not deals
  * (a person, a project, an opportunity, a consulting item) and the other pages keep their own prompts and take
  * GENERAL_RULES_LINE.
  */
 
-import type { BuyBoxSettings } from "@/lib/work/buy-box";
+import { amountWords, excludedWords, orList, regionWords, type BuyBoxSettings } from "@/lib/work/buy-box";
 
 /** The first paragraph of the shared base (verbatim from the approved spec). */
 export const BASE_BUYER =
@@ -28,17 +29,34 @@ export const BASE_RULES =
 /** The one line that records which are not deals take (plain words, facts only, no false gaps). */
 export const GENERAL_RULES_LINE = "Plain words, no hype. Use only the facts on the page below. Only say information is missing when it is absent from the page; name the field and who to ask.";
 
-/** "Buy box: <size range>, <industries>, <regions>, owner-operator, financing: <...>, growth goals: <...>." (the last two only when set). */
+/** Revision 1 (verbatim): the buy box is a preference. Follows the buy box line. */
+export const BASE_BUY_BOX_PREFERENCE = "The buy box is a preference, not a hard rule; say plainly when a business outside it is still worth pursuing.";
+
+/** Revision 1 (verbatim): a path to growth is required. Follows how to judge a business. */
+export const BASE_GROWTH = "A clear path to growth is required for a good fit; a deal with no credible path counts as a risk.";
+
+/**
+ * "Buy box: $1M to $2.5M EBITDA (or SDE when there is no EBITDA), stretch range $0.75M to $3.5M, B2B services (no
+ * retail, direct to consumer, or franchises), Southeast or East Coast, owner-operator." Filled from the settings: the
+ * excluded part only when something is excluded; "any industry" and "any US region" when none is set.
+ */
 export function buyBoxLine(b: BuyBoxSettings): string {
-  const parts = [b.sizeRange, b.industries, b.regions, b.ownerOperator ? "owner-operator" : "not owner-operator (a hired manager runs it)"];
-  if (b.financing?.trim()) parts.push(`financing: ${b.financing.trim()}`);
-  if (b.growthGoals?.trim()) parts.push(`growth goals: ${b.growthGoals.trim()}`);
+  const excluded = excludedWords(b);
+  const regions = regionWords(b);
+  const industries = b.industries.trim() || "any industry";
+  const parts = [
+    `${amountWords(b.coreMin)} to ${amountWords(b.coreMax)} EBITDA (or SDE when there is no EBITDA)`,
+    `stretch range ${amountWords(b.stretchMin)} to ${amountWords(b.stretchMax)}`,
+    excluded.length ? `${industries} (no ${orList(excluded)})` : industries,
+    regions.length ? orList(regions) : "any US region",
+    b.ownerOperator ? "owner-operator" : "not owner-operator (a hired manager runs it)",
+  ];
   return `Buy box: ${parts.join(", ")}.`.replace(/\.\.$/, ".");
 }
 
-/** The shared base: who the buyer is, the buy box, how to judge, the rules (four paragraphs). */
+/** The shared base: who the buyer is; the buy box and that it is a preference; how to judge and that growth is required; the rules. */
 export function baseInstructions(b: BuyBoxSettings): string {
-  return [BASE_BUYER, buyBoxLine(b), BASE_JUDGE, BASE_RULES].join("\n\n");
+  return [BASE_BUYER, `${buyBoxLine(b)} ${BASE_BUY_BOX_PREFERENCE}`, `${BASE_JUDGE} ${BASE_GROWTH}`, BASE_RULES].join("\n\n");
 }
 
 // ---------- The stage line ----------
@@ -67,6 +85,38 @@ export function stageLineFor(stage: string | null | undefined, screened: boolean
   return "screening";
 }
 
+// ---------- The financing line (AI instructions revision 1) ----------
+
+/** How a deal is to be paid for (pipeline_items.financing, database update 0029): all equity (the default) or equity plus debt. */
+export type DealFinancing = "equity" | "equity_plus_debt";
+
+export const FINANCING_OPTIONS: readonly { value: DealFinancing; label: string }[] = [
+  { value: "equity", label: "All equity" },
+  { value: "equity_plus_debt", label: "Equity plus debt" },
+];
+
+export function isDealFinancing(v: unknown): v is DealFinancing {
+  return v === "equity" || v === "equity_plus_debt";
+}
+
+export function financingLabel(v: DealFinancing): string {
+  return FINANCING_OPTIONS.find((o) => o.value === v)?.label ?? "All equity";
+}
+
+export const FINANCING_LINES: Record<DealFinancing, string> = {
+  equity: "Financing: all equity.",
+  equity_plus_debt: "Financing: equity plus debt; check whether earnings can comfortably carry a loan.",
+};
+
+/** The stages where the AI is told how the deal is financed. Earlier stages get nothing about financing. */
+export const FINANCING_STAGES: readonly string[] = ["Model", "IOI or LOI", "Diligence"];
+
+/** The financing line of a deal at Model, IOI or LOI, or Diligence; null at every other stage and on a listing. */
+export function financingLineFor(stage: string | null | undefined, screened: boolean, financing: DealFinancing | null | undefined): string | null {
+  if (!screened || !FINANCING_STAGES.includes(String(stage ?? "").trim())) return null;
+  return FINANCING_LINES[financing === "equity_plus_debt" ? "equity_plus_debt" : "equity"];
+}
+
 // ---------- The spot part ----------
 
 /** What one AI click writes. */
@@ -77,6 +127,7 @@ export const KEY_FINDING_SPOT = [
   "Write:",
   "Strengths: up to 3, each naming the fact behind it and why it matters to the buyer.",
   "Risks: up to 3, each naming the fact behind it.",
+  "Growth paths: up to 3 concrete ways to grow this business, each naming the fact behind it; put the main one first.",
   "Key finding: one sentence under 30 words that weighs the top strength against the top risk and says what decides the deal.",
   "Check with the broker: up to 3 questions for data gaps and mismatches. Never put a gap or mismatch in the Key finding.",
 ].join("\n");
@@ -102,9 +153,15 @@ export function spotInstructions(spot: AiSpot, fieldLabel?: string | null): stri
 }
 
 /** Where the instructions are used: one deal or listing (with its stage), or a list of them (Screen listings, Deals). */
-export type BuyerScope = { buyBox: BuyBoxSettings; /** Null on a list of deals in several stages (no stage line). */ stage: StageLine | null };
+export type BuyerScope = {
+  buyBox: BuyBoxSettings;
+  /** Null on a list of deals in several stages (no stage line). */
+  stage: StageLine | null;
+  /** The deal's financing line (financingLineFor): only at Model, IOI or LOI, and Diligence; null or absent otherwise. */
+  financing?: string | null;
+};
 
-/** The instructions of one click: the shared base, the stage line (when one applies), and the spot part. */
+/** The instructions of one click: the shared base, the stage line (when one applies), the financing line (when one applies), and the spot part. */
 export function buyerInstructions(scope: BuyerScope, spot: AiSpot, fieldLabel?: string | null): string {
-  return [baseInstructions(scope.buyBox), scope.stage ? STAGE_LINES[scope.stage] : null, spotInstructions(spot, fieldLabel)].filter(Boolean).join("\n\n");
+  return [baseInstructions(scope.buyBox), scope.stage ? STAGE_LINES[scope.stage] : null, scope.financing || null, spotInstructions(spot, fieldLabel)].filter(Boolean).join("\n\n");
 }

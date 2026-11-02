@@ -548,7 +548,7 @@ google.listen(GOOGLE_PORT, () => console.log(`Mock Google listening on http://lo
 //   "TASK: next_steps"          -> three suggested next steps built from the page title (the Ask AI panel, batch B2; also
 //                                  the suggested tasks of the Tasks card star)
 //   "TASK: ask_page"            -> a bulleted answer to the question with a next action and an email draft (Ask about this page)
-//   "TASK: key_finding"         -> strengths, risks, a key finding, and broker questions (the Key finding star, AI instructions 2026-11-02)
+//   "TASK: key_finding"         -> strengths, risks, growth paths (revision 1), a key finding, and broker questions (the Key finding star, AI instructions 2026-11-02)
 //   "TASK: field_draft"         -> one line for the field named in the request (the star inside a field; "Use this");
 //                                  with {"field": "plain"} the line as plain text (no JSON)
 //   "TASK: next_action"         -> one next action due two days after the "Today is" date (a Monday when that is a weekend),
@@ -743,6 +743,8 @@ const ai = http.createServer(async (req, res) => {
         const reply = {
           strengths: [`Mock strength: revenue of ${revenue} with repeat clients`, "Mock strength: a team of coaches delivers the work"],
           risks: ["Mock risk: the owner's role after the sale is not clear"],
+          // Revision 1: up to 3 growth paths, the main one first.
+          growth_paths: [`Mock growth path: sell to employer groups, using revenue of ${revenue}`, "Mock growth path: raise prices on renewals", "Mock growth path: add a second coaching program"],
           key_finding: `Mock key finding: ${page} has steady revenue; the owner transition decides it.`,
           broker_questions: ["Mock question: which period does the revenue figure cover?", "Mock question: how many clients renew each year?"],
         };

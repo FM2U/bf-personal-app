@@ -1,5 +1,5 @@
 -- BF Personal App: database update 0028 (AI instructions and Findings: strengths, risks, and the Buy box settings).
--- For the live database, which has 0001 to 0027. Paste this whole file into the Supabase SQL Editor and press Run.
+-- For a database that has 0001 to 0027 (the live database with 0001 to 0028 uses UPDATE_0029_RUN_ONCE.sql). Paste this whole file into the Supabase SQL Editor and press Run.
 -- Expected result: "Success. No rows returned". Safe to run more than once: nothing is duplicated, nothing is deleted, no existing row changes.
 -- What it adds:
 --   pipeline_items.strengths and pipeline_items.risks (the Findings card's two lists, up to 3 lines each, read by every later AI

@@ -9,6 +9,7 @@
  * src/app/actions/work.ts). The rule NO_FALSE_GAPS_RULE goes after the facts and the text in every such prompt.
  */
 import { askingMultiple, earningsOf } from "@/lib/work/buy-box";
+import { isDealFinancing, type DealFinancing } from "@/lib/ai/instructions";
 import type { DealRow } from "@/lib/work/data";
 // questions.ts imports this file too; both use the other's exports only inside functions, so the cycle is safe.
 import { QUESTION_GROUPS, type QuestionGroups } from "@/lib/work/questions";
@@ -40,6 +41,13 @@ export type DealFacts = {
   /** The Findings card's Strengths and Risks (database update 0028; up to 3 each, empty before it). */
   strengths?: readonly string[];
   risks?: readonly string[];
+  /** The Findings card's Growth paths (database update 0029; up to 3, the first is the main one; empty before it). */
+  growthPaths?: readonly string[];
+  /**
+   * How the deal is financed (database update 0029; "equity" before it). Not a fact line: the instructions add the
+   * financing line only at Model, IOI or LOI, and Diligence (src/lib/ai/instructions.ts, financingLineFor).
+   */
+  financing?: DealFinancing | null;
   openQuestions: QuestionGroups | null;
   /** The original listing text as pasted (the full text; trimmed for the AI by listingTextForAi). */
   listingText: string | null;
@@ -87,7 +95,8 @@ export function listingTextForAi(raw: string | null | undefined, max = LISTING_T
 /**
  * The fact lines of a deal or a listing, one fact a line ("revenue: $3,400,000"), the known ones only, plus the stage
  * (or "listing, not screened yet"), the key finding, the strengths and risks ("strength: ...", "risk: ...", AI
- * instructions 2026-11-02), and the open questions ("question (Ask the seller): ...").
+ * instructions 2026-11-02), the growth paths ("growth path (main): ...", then "growth path: ...", revision 1), and the
+ * open questions ("question (Ask the seller): ...").
  */
 export function dealFactLines(f: DealFacts): string[] {
   const lines: string[] = [];
@@ -117,6 +126,7 @@ export function dealFactLines(f: DealFacts): string[] {
   add("key finding", f.keyFinding);
   for (const x of f.strengths ?? []) add("strength", x);
   for (const x of f.risks ?? []) add("risk", x);
+  (f.growthPaths ?? []).forEach((x, n) => add(n === 0 ? "growth path (main)" : "growth path", x));
   if (f.openQuestions) for (const g of QUESTION_GROUPS) for (const q of f.openQuestions[g.key]) add(`question (${g.label})`, q);
   return lines;
 }
@@ -127,12 +137,12 @@ export function listingTextBlock(raw: string | null | undefined): string {
   return t ? `Original listing text (as pasted):\n"""\n${t}\n"""` : "Original listing text: none saved.";
 }
 
-/** Strengths and risks: at most this many each (the Findings card and the Key finding star). */
+/** Strengths, risks, and growth paths: at most this many each (the Findings card and the Key finding star). */
 export const FINDING_LIST_MAX = 3;
 export const FINDING_LINE_MAX = 240;
 
 /**
- * A stored strengths or risks value (jsonb array, or a JSON string of one) as clean lines: trimmed, empty and repeated
+ * A stored strengths, risks, or growth paths value (jsonb array, or a JSON string of one) as clean lines: trimmed, empty and repeated
  * lines dropped, at most FINDING_LIST_MAX, each cut at FINDING_LINE_MAX characters. Anything else reads as none.
  */
 export function parseFindingList(v: unknown): string[] {
@@ -190,6 +200,8 @@ export function dealFactsFromRow(item: Record<string, unknown>, fin: Record<stri
     keyFinding: strOrNull(item.key_finding),
     strengths: parseFindingList(item.strengths),
     risks: parseFindingList(item.risks),
+    growthPaths: parseFindingList(item.growth_paths),
+    financing: isDealFinancing(item.financing) ? item.financing : "equity",
     openQuestions,
     listingText: typeof item.listing_text === "string" && item.listing_text.trim() ? item.listing_text : null,
   };
@@ -219,6 +231,8 @@ export function dealFactsOf(d: DealRow, listingText: string | null): DealFacts {
     keyFinding: d.keyFinding,
     strengths: d.strengths,
     risks: d.risks,
+    growthPaths: d.growthPaths,
+    financing: d.financing ?? "equity",
     openQuestions: d.openQuestions,
     listingText,
   };

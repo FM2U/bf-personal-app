@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { markInterested, passDeal } from "@/app/actions/work";
 import { date as fmtDate } from "@/lib/format";
-import { moneyShort, PASS_REASONS, type PassReason } from "@/lib/work/buy-box";
+import { buyBoxTone, moneyShort, PASS_REASONS, type BuyBoxSettings, type PassReason } from "@/lib/work/buy-box";
 import type { ListingRow as ListingRowData } from "@/lib/work/data";
 import { PassMenu } from "@/components/app/work/pass-menu";
 import { ListingPopup } from "@/components/app/work/listing-popup";
@@ -19,7 +19,7 @@ export { PassMenu };
  * `hidden` keeps the row in the page but out of sight (the filter pills and Find on Screen listings).
  * Edit batch C round 3: a click anywhere on the row outside its buttons opens the popup too (the shared hover).
  */
-export function ListingRow({ listing, hidden = false }: { listing: ListingRowData; hidden?: boolean }) {
+export function ListingRow({ listing, hidden = false, buyBox }: { listing: ListingRowData; hidden?: boolean; /** The Buy box settings (the popup's reasons). */ buyBox?: BuyBoxSettings }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [popup, setPopup] = useState(false);
@@ -58,7 +58,7 @@ export function ListingRow({ listing, hidden = false }: { listing: ListingRowDat
   return (
     <RowShell
       testId="listing-row"
-      dataAttrs={{ "data-listing": listing.id, "data-fits": listing.buyBox.fits ? "1" : "0", "data-hidden": hidden ? "1" : "0" }}
+      dataAttrs={{ "data-listing": listing.id, "data-fits": listing.buyBox.fits ? "1" : "0", "data-tier": listing.buyBox.tier, "data-hidden": hidden ? "1" : "0" }}
       className={cn(hidden && "hidden")}
       onOpen={() => setPopup(true)}
       openLabel={`Open ${listing.name}`}
@@ -82,13 +82,13 @@ export function ListingRow({ listing, hidden = false }: { listing: ListingRowDat
         <button type="button" onClick={() => setPopup(true)} className="text-left text-sm font-semibold text-slate-900 underline-offset-2 hover:text-primary-strong hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-haspopup="dialog" title="Open the listing" data-testid="listing-name-button">
           {listing.name}
         </button>
-        <Pill tone={listing.buyBox.fits ? "green" : "amber"} testId="buy-box-pill">
+        <Pill tone={buyBoxTone(listing.buyBox.tier)} testId="buy-box-pill">
           {listing.buyBox.label}
         </Pill>
       </Line1>
       {listing.whatItDoes ? <Line2>{listing.whatItDoes}</Line2> : null}
       {meta ? <Line3>{meta}</Line3> : null}
-      {popup ? <ListingPopup listing={listing} open={popup} onOpenChange={setPopup} onPass={pass} onInterested={interested} pending={pending} /> : null}
+      {popup ? <ListingPopup listing={listing} buyBox={buyBox} open={popup} onOpenChange={setPopup} onPass={pass} onInterested={interested} pending={pending} /> : null}
     </RowShell>
   );
 }

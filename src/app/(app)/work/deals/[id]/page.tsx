@@ -3,7 +3,7 @@ import { requireOwner } from "@/lib/auth";
 import { date as fmtDate } from "@/lib/format";
 import { loadDealPage } from "@/lib/work/data";
 import { listedAs } from "@/lib/work/names";
-import { checkBuyBox } from "@/lib/work/buy-box";
+import { buyBoxTone, checkBuyBox } from "@/lib/work/buy-box";
 import { dealPageState, headerFigures } from "@/lib/work/record-page";
 import { daysLabel } from "@/lib/work/stages";
 import { openTodos } from "@/lib/work/todos";
@@ -14,6 +14,7 @@ import { Pill, ProgressMark, waitTone, What, WorkHeader } from "@/components/app
 import { DealHeaderActions, DecisionCard, FactsCard, FindingsCard, ListingTextCard, NextActionCard, TimelineCard, TodosCard } from "@/components/app/work/deal/cards";
 import { DB_UPDATE_NOTICE_0027 } from "@/lib/schema-guard";
 import { hasUpdate0028 } from "@/lib/update-0028";
+import { hasUpdate0029 } from "@/lib/update-0029";
 import { DocumentsCard } from "@/components/app/record-side-panels";
 import { EmptyState } from "@/components/app/page-header";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,8 @@ export const metadata = { title: "Deal" };
  * page, at the same address, shows the deal state; nothing is copied (notes, tasks, and facts are on the same row).
  *
  * AI instructions 2026-11-02: Findings shows Strengths and Risks under the Key finding (database update 0028).
+ * Revision 1: Growth paths under them and Financing in Facts (database update 0029); the Findings fields save when
+ * they lose focus; the listing's buy box pill reads the Buy box settings (Fits, Near fit, Outside).
  *
  * Fix 2026-11-02: the Original listing text card sits under Facts (collapsed, Show and Hide, Replace; the paste box
  * when none is saved). It is not part of the Timeline.
@@ -69,10 +72,13 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
     );
   }
   // AI instructions (2026-11-02): Strengths and Risks need database update 0028 (the probe, and the columns on the row).
-  const listsReady = d.findingListsReady && (await hasUpdate0028(supabase));
+  const [has0028, has0029] = await Promise.all([hasUpdate0028(supabase), hasUpdate0029(supabase)]);
+  const listsReady = d.findingListsReady && has0028;
+  // AI instructions revision 1: Growth paths and Financing need database update 0029.
+  const growthReady = d.growthPathsReady && has0029;
   const state = dealPageState({ screened: deal.screened, status: deal.status, stageName: deal.stageName, name: deal.name });
   const isListing = state.kind === "listing";
-  const buyBox = isListing ? checkBuyBox({ name: deal.listingName, whatItDoes: deal.whatItDoes, industry: deal.industry, location: deal.location, ebitda: deal.ebitda, sde: deal.sde }) : null;
+  const buyBox = isListing ? checkBuyBox({ name: deal.listingName, whatItDoes: deal.whatItDoes, industry: deal.industry, location: deal.location, ebitda: deal.ebitda, sde: deal.sde }, d.buyBox) : null;
   const waiting = deal.status === "open" && deal.waitLevel !== "none";
   const listing = listedAs({ name: deal.listingName, companyName: deal.companyName });
   const figures = headerFigures(
@@ -109,7 +115,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
                 {state.typePill}
               </Pill>
               {buyBox ? (
-                <Pill tone={buyBox.fits ? "green" : "amber"} testId="deal-buy-box-pill">
+                <Pill tone={buyBoxTone(buyBox.tier)} testId="deal-buy-box-pill">
                   {buyBox.label}
                 </Pill>
               ) : null}
@@ -139,12 +145,12 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
       />
       <div className="grid grid-cols-1 items-start gap-5 min-[1000px]:grid-cols-2">
         <div className="flex min-w-0 flex-col gap-5">
-          <FindingsCard deal={deal} compose={d.questionsCompose} aiTools={state.questionsTools} listsReady={listsReady} />
+          <FindingsCard deal={deal} compose={d.questionsCompose} aiTools={state.questionsTools} listsReady={listsReady} growthReady={growthReady} />
           <NextActionCard deal={deal} today={d.today} noActionHint={state.noActionHint} />
           <TodosCard deal={deal} todos={d.todos} />
         </div>
         <div className="flex min-w-0 flex-col gap-5">
-          <FactsCard deal={deal} />
+          <FactsCard deal={growthReady ? deal : { ...deal, financing: null }} />
           <ListingTextCard dealId={deal.id} text={d.listingText} ready={d.listingTextReady} notice={DB_UPDATE_NOTICE_0027} />
           <TimelineCard deal={deal} events={d.timeline} />
           {state.documents ? <DocumentsCard table="pipeline_items" id={deal.id} docs={d.documents} storageKey="work:deal" defaultOpen /> : null}

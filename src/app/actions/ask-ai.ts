@@ -195,7 +195,7 @@ export async function draftField(c: AskContext): Promise<{ ok: true; text: strin
  * The Key finding star (AI instructions, approved 2026-11-02): Strengths, Risks, the Key finding, and Check with the
  * broker in one reply, from the buyer instructions with the deal's stage line and every fact. Through callForJson
  * (a reply cut off by the length limit is asked again with double the limit; a reply that fails the check is asked
- * again once). "Use this" fills the Findings card in the browser; nothing is saved until the card's Save.
+ * again once). Revision 1: the reply has growth paths too, and "Use this" saves the Findings card at once (with Undo).
  */
 export async function draftKeyFinding(c: AskContext): Promise<{ ok: true; draft: KeyFindingDraft } | Fail> {
   const s = await setup();

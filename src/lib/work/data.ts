@@ -12,7 +12,9 @@ import { hasUpdate0022 } from "@/lib/update-0022";
 import { hasUpdate0023 } from "@/lib/update-0023";
 import { hasUpdate0024 } from "@/lib/update-0024";
 import { countOutreachDue, loadOutreachHome, type OutreachHome } from "@/lib/work/outreach-data";
-import { askingMultiple, checkBuyBox, earningsOf, passReasonLabel } from "@/lib/work/buy-box";
+import { askingMultiple, checkBuyBox, defaultBuyBoxSettings, earningsOf, passReasonLabel, type BuyBoxSettings, type BuyBoxTier } from "@/lib/work/buy-box";
+import { loadBuyBoxSettings } from "@/lib/work/buy-box-data";
+import { isDealFinancing, type DealFinancing } from "@/lib/ai/instructions";
 import { glanceCounts, type GlanceCounts } from "@/lib/work/home";
 import { compareNames, displayName } from "@/lib/work/names";
 import { parseOpenQuestions, type QuestionGroups } from "@/lib/work/questions";
@@ -78,6 +80,10 @@ export type DealRow = {
   /** The Findings card's Strengths and Risks (database update 0028; up to 3 each; empty before it). */
   strengths: string[];
   risks: string[];
+  /** The Findings card's Growth paths (database update 0029; up to 3, the first is the main one; empty before it). */
+  growthPaths: string[];
+  /** Facts, Financing (database update 0029): all equity (the default) or equity plus debt; null before the update. */
+  financing: DealFinancing | null;
   openQuestions: QuestionGroups;
   /** The first open item of the Also to do checklist (offered as the next action when the current one is Done). */
   topTodo: { id: string; text: string } | null;
@@ -107,7 +113,8 @@ export type DealRow = {
   stageEnteredAt: string | null;
 };
 
-export type ListingRow = DealRow & { buyBox: { fits: boolean; label: string } };
+/** A listing to screen with its buy box check (Fits, Near fit, or Outside; AI instructions revision 1). */
+export type ListingRow = DealRow & { buyBox: { tier: BuyBoxTier; fits: boolean; label: string } };
 
 export async function loadWorkCtx(sb: SupabaseClient, ownerId: string): Promise<WorkCtx> {
   const ctx = await loadCtx(sb, ownerId);
@@ -236,6 +243,8 @@ export function toDealRow(i: Row, f: Row | undefined, contact: Row | undefined, 
     keyFinding: i.key_finding ?? null,
     strengths: parseFindingList(i.strengths),
     risks: parseFindingList(i.risks),
+    growthPaths: parseFindingList(i.growth_paths),
+    financing: isDealFinancing(i.financing) ? i.financing : Object.prototype.hasOwnProperty.call(i, "financing") ? "equity" : null,
     openQuestions: parseOpenQuestions(i.open_questions_json, i.open_questions as string | null),
     topTodo: top ? { id: top.id, text: top.text } : null,
     nextAction: i.next_action ?? null,
@@ -314,30 +323,31 @@ export async function loadWorkNow(sb: SupabaseClient, ownerId: string): Promise<
 
 export type PassedRow = { id: string; name: string; reasonLabel: string; date: string; earnings: number | null; earningsLabel: "EBITDA" | "SDE" | null; location: string | null };
 
-export type ListingsData = { available: boolean; notice: string | null; today: string; listings: ListingRow[]; passed: PassedRow[] };
+export type ListingsData = { available: boolean; notice: string | null; today: string; listings: ListingRow[]; passed: PassedRow[]; /** The Buy box settings the checks used (the popup reads them too). */ buyBox: BuyBoxSettings };
 
 /** Screen listings: the unscreened listings (newest first) and the passed list (newest first). */
 export async function loadListings(sb: SupabaseClient, ownerId: string): Promise<ListingsData> {
   const ctx = await loadWorkCtx(sb, ownerId);
-  const base: ListingsData = { available: false, notice: null, today: ctx.today, listings: [], passed: [] };
+  const base: ListingsData = { available: false, notice: null, today: ctx.today, listings: [], passed: [], buyBox: defaultBuyBoxSettings() };
   const notice = await workUpdateNotice(sb);
   if (notice) return { ...base, notice };
-  const pipe = await loadWorkPipeline(sb, ownerId);
-  if (!pipe) return { ...base, available: true };
+  const [pipe, buyBox] = await Promise.all([loadWorkPipeline(sb, ownerId), loadBuyBoxSettings(sb, ownerId)]);
+  if (!pipe) return { ...base, available: true, buyBox };
   const loaded = await loadItems(sb, ownerId, pipe.id, null);
   const rows = loaded.items.map((i) => toDealRow(i, loaded.financials[i.id], loaded.contacts[i.primary_contact_id], pipe, ctx));
   const listings: ListingRow[] = rows
     .filter((d, n) => loaded.items[n].screened === false && d.status === "open")
     .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : compareNames(a.name, b.name)))
     .map((d) => {
-      const check = checkBuyBox({ name: d.name, whatItDoes: d.whatItDoes, industry: d.industry, location: d.location, ebitda: d.ebitda, sde: d.sde });
-      return { ...d, buyBox: { fits: check.fits, label: check.label } };
+      // AI instructions revision 1: the check reads the Buy box settings (core and stretch ranges, excluded types, regions).
+      const check = checkBuyBox({ name: d.name, whatItDoes: d.whatItDoes, industry: d.industry, location: d.location, ebitda: d.ebitda, sde: d.sde }, buyBox);
+      return { ...d, buyBox: { tier: check.tier, fits: check.fits, label: check.label } };
     });
   const passed: PassedRow[] = rows
     .filter((d) => d.stageName === "Passed")
     .sort((a, b) => ((a.stageEnteredAt ?? "") < (b.stageEnteredAt ?? "") ? 1 : -1))
     .map((d) => ({ id: d.id, name: d.name, reasonLabel: d.passReasonLabel ?? "Passed", date: d.stageEnteredAt ? fmtDate(d.stageEnteredAt, "MMM d") : "", earnings: d.earnings, earningsLabel: d.earningsLabel, location: d.location }));
-  return { ...base, available: true, listings, passed };
+  return { ...base, available: true, listings, passed, buyBox };
 }
 
 export type StageGroup = { stage: Stage; hint: string | null; deals: DealRow[] };
@@ -409,6 +419,10 @@ export type DealPageData = {
   listingTextReady: boolean;
   /** False before database update 0028 (the Findings card's Strengths and Risks show the update line and are not saved). */
   findingListsReady: boolean;
+  /** False before database update 0029 (the Findings card's Growth paths show the update line and are not saved). */
+  growthPathsReady: boolean;
+  /** The Buy box settings (the buy box pill of a listing). */
+  buyBox: BuyBoxSettings;
   /** The last logged email or call on this deal (the header figure): the owner's date (YYYY-MM-DD) and what kind. */
   lastContact: { on: string; kind: string } | null;
   compose: ComposeSetup | null;
@@ -423,7 +437,7 @@ export type DealPageData = {
 /** The deal page: the deal, its timeline (notes, communications, stage moves; newest first), documents, and the email setup. */
 export async function loadDealPage(sb: SupabaseClient, ownerId: string, id: string): Promise<DealPageData> {
   const ctx = await loadWorkCtx(sb, ownerId);
-  const base: DealPageData = { available: false, notice: null, today: ctx.today, tz: ctx.tz, threshold: ctx.threshold, deal: null, timeline: [], documents: [], todos: [], listingText: null, listingTextReady: false, findingListsReady: false, lastContact: null, compose: null, questionsCompose: null, advanceTo: null, passedStageId: null, lostStageId: null };
+  const base: DealPageData = { available: false, notice: null, today: ctx.today, tz: ctx.tz, threshold: ctx.threshold, deal: null, timeline: [], documents: [], todos: [], listingText: null, listingTextReady: false, findingListsReady: false, growthPathsReady: false, buyBox: defaultBuyBoxSettings(), lastContact: null, compose: null, questionsCompose: null, advanceTo: null, passedStageId: null, lostStageId: null };
   const notice = await workUpdateNotice(sb);
   if (notice) return { ...base, notice };
   const pipe = await loadWorkPipeline(sb, ownerId);
@@ -431,7 +445,7 @@ export async function loadDealPage(sb: SupabaseClient, ownerId: string, id: stri
   const { data: row } = await readItems((columns) => sb.from("pipeline_items").select(columns).eq("owner_id", ownerId).eq("id", id).eq("pipeline_id", pipe.id).maybeSingle());
   const item = row as Row | null;
   if (!item) return { ...base, available: true };
-  const [{ data: fin }, { data: contact }, { data: notes }, { data: comms }, { data: links }, { data: history }, documents, { data: full }, { data: todoRows }] = await Promise.all([
+  const [{ data: fin }, { data: contact }, { data: notes }, { data: comms }, { data: links }, { data: history }, documents, { data: full }, { data: todoRows }, buyBox] = await Promise.all([
     sb.from("deal_financials").select("item_id,revenue,ebitda,sde,asking_price").eq("item_id", id).maybeSingle(),
     item.primary_contact_id ? sb.from("contacts").select("id,name,email,organization_id").eq("id", item.primary_contact_id).maybeSingle() : Promise.resolve({ data: null }),
     sb.from("notes").select("id,body,created_at").eq("record_type", "pipeline_items").eq("record_id", id).order("created_at", { ascending: false }).limit(50),
@@ -441,10 +455,12 @@ export async function loadDealPage(sb: SupabaseClient, ownerId: string, id: stri
     loadDocuments(sb, "pipeline_items", id),
     sb.from("pipeline_items").select("*").eq("id", id).maybeSingle(),
     sb.from("deal_todos").select(TODO_COLUMNS).eq("owner_id", ownerId).eq("deal_id", id).limit(500),
+    loadBuyBoxSettings(sb, ownerId),
   ]);
   const todos = sortTodos(((todoRows ?? []) as Row[]).map(toTodo));
-  // Strengths and risks (database update 0028) come with the row read with "*".
-  const deal = toDealRow({ ...item, strengths: (full as Row | null)?.strengths, risks: (full as Row | null)?.risks }, (fin as Row | null) ?? undefined, (contact as Row | null) ?? undefined, pipe, ctx, todos);
+  // Strengths and risks (database update 0028), growth paths and financing (0029) come with the row read with "*".
+  const fullRow = (full as Row | null) ?? {};
+  const deal = toDealRow({ ...item, strengths: fullRow.strengths, risks: fullRow.risks, growth_paths: fullRow.growth_paths, ...(Object.prototype.hasOwnProperty.call(fullRow, "financing") ? { financing: fullRow.financing } : {}) }, (fin as Row | null) ?? undefined, (contact as Row | null) ?? undefined, pipe, ctx, todos);
   // Communications linked through record_links but not stamped with the item (older rows).
   const commRows = ((comms ?? []) as Row[]).filter((c) => !c.awaiting_log);
   const linkedIds = ((links ?? []) as Row[]).map((l) => l.from_id).filter((x) => !commRows.some((c) => c.id === x));
@@ -483,6 +499,8 @@ export async function loadDealPage(sb: SupabaseClient, ownerId: string, id: stri
     listingText: typeof (full as Row | null)?.listing_text === "string" && String((full as Row).listing_text).trim() ? String((full as Row).listing_text) : null,
     listingTextReady: !!full && Object.prototype.hasOwnProperty.call(full, "listing_text"),
     findingListsReady: !!full && Object.prototype.hasOwnProperty.call(full, "strengths"),
+    growthPathsReady: !!full && Object.prototype.hasOwnProperty.call(full, "growth_paths"),
+    buyBox,
     lastContact: lastComm ? { on: todayInTz(ctx.tz, new Date(String(lastComm.occurred_at))), kind: String(lastComm.method) } : null,
     compose: compose ? { ...compose, title: `Email about ${deal.name}` } : null,
     questionsCompose: compose ? await questionsComposeSetup(sb, compose, deal) : null,

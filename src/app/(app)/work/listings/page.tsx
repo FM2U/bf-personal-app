@@ -43,7 +43,7 @@ export default async function ScreenListingsPage({ searchParams }: { searchParam
           <WorkUpdateNotice notice={d.notice} />
         </>
       ) : (
-        <ListingsBoard header={header} listings={d.listings} passed={d.passed}>
+        <ListingsBoard header={header} listings={d.listings} passed={d.passed} buyBox={d.buyBox}>
           {sp.saved ? (
             <p className="rounded-md bg-status-met-bg px-3 py-2 text-[13px] text-status-met" role="status" data-testid="listing-saved">
               Saved {sp.saved} to the list.

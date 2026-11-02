@@ -3,7 +3,7 @@
 import { useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { ExternalLink, X } from "lucide-react";
-import type { PassReason } from "@/lib/work/buy-box";
+import { buyBoxTone, type BuyBoxSettings, type PassReason } from "@/lib/work/buy-box";
 import type { ListingRow as ListingRowData } from "@/lib/work/data";
 import { listingPopup } from "@/lib/work/listing-popup";
 import { AddLinkInline, DealFactsForm, Fact } from "@/components/app/work/deal/cards";
@@ -21,10 +21,10 @@ import { cn } from "@/lib/utils";
  * Edit batch C round 3: "Open full page" next to Edit opens the listing's record page (/work/deals/[id] in the Listing
  * state); with no link to the original listing the footer has an "Add link" field instead (Enter or Save).
  */
-export function ListingPopup({ listing, open, onOpenChange, onPass, onInterested, pending }: { listing: ListingRowData; open: boolean; onOpenChange: (open: boolean) => void; onPass: (reason: PassReason) => void; onInterested: () => void; pending: boolean }) {
+export function ListingPopup({ listing, buyBox, open, onOpenChange, onPass, onInterested, pending }: { listing: ListingRowData; /** The Buy box settings the reasons are read against (the defaults when not given). */ buyBox?: BuyBoxSettings; open: boolean; onOpenChange: (open: boolean) => void; onPass: (reason: PassReason) => void; onInterested: () => void; pending: boolean }) {
   const [editing, setEditing] = useState(false);
   const [saved, setSaved] = useState(false);
-  const d = listingPopup(listing);
+  const d = listingPopup(listing, buyBox);
   const close = (o: boolean) => {
     if (!o) {
       setEditing(false);
@@ -47,7 +47,7 @@ export function ListingPopup({ listing, open, onOpenChange, onPass, onInterested
                 <DialogPrimitive.Title className="text-[18px] font-semibold tracking-[-0.01em] text-slate-900" data-testid="listing-popup-title">
                   {d.title}
                 </DialogPrimitive.Title>
-                <Pill tone={d.fits ? "green" : "amber"} testId="listing-popup-pill">
+                <Pill tone={buyBoxTone(d.tier)} testId="listing-popup-pill">
                   {d.pill}
                 </Pill>
               </div>
@@ -64,6 +64,7 @@ export function ListingPopup({ listing, open, onOpenChange, onPass, onInterested
             <DealFactsForm
               deal={listing}
               testId="listing-popup-form"
+              showFinancing={false}
               onCancel={() => setEditing(false)}
               onSaved={() => {
                 setEditing(false);
@@ -77,7 +78,7 @@ export function ListingPopup({ listing, open, onOpenChange, onPass, onInterested
                 <ul className="flex flex-col gap-1">
                   {d.reasons.map((r) => (
                     <li key={r} className="flex items-start gap-2 text-[13px] text-slate-700" data-testid="listing-popup-reason">
-                      <i className={cn("mt-[7px] block h-1.5 w-1.5 shrink-0 rounded-full", /^(Size fits|Location fits)/.test(r) ? "bg-status-met-solid" : /^No /.test(r) ? "bg-status-neutral-solid" : "bg-status-soon-solid")} aria-hidden />
+                      <i className={cn("mt-[7px] block h-1.5 w-1.5 shrink-0 rounded-full", /^(Size fits|Location fits)/.test(r) ? "bg-status-met-solid" : /^No /.test(r) ? "bg-status-neutral-solid" : /^(Near fit|Location:)/.test(r) ? "bg-status-soon-solid" : "bg-status-missed-solid")} aria-hidden />
                       <span className="min-w-0">{r}</span>
                     </li>
                   ))}

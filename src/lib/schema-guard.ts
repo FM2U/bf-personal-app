@@ -301,3 +301,19 @@ export const PROBE_0028 = "schema_has_0028";
 export const COLUMNS_0028: Record<string, string[]> = {
   pipeline_items: ["strengths", "risks"],
 };
+
+/**
+ * Database update 0029 (AI instructions revision 1, approved 2026-11-02): pipeline_items.growth_paths (the Findings
+ * card's Growth paths, a jsonb array of up to 3 lines, the first is the main one) and pipeline_items.financing (Facts,
+ * Financing: 'equity' by default or 'equity_plus_debt'), the Buy box settings rows (core and stretch ranges, industries,
+ * excluded types, regions) with today's values for each owner, the removal of the two settings revision 1 replaced
+ * (financing and growth goals; their rows only), and schema_has_0029(). Before it, the Findings card shows
+ * DB_UPDATE_NOTICE_0029 under Growth paths and saves everything else; Facts has no Financing field; the Buy box page
+ * saves anyway (it adds the rows); every other screen and both scheduled jobs keep working.
+ */
+export const DB_UPDATE_FILE_0029 = "supabase/UPDATE_0029_RUN_ONCE.sql";
+export const DB_UPDATE_NOTICE_0029 = `Database update needed: paste ${DB_UPDATE_FILE_0029} into the Supabase SQL Editor and run it. Until then, growth paths and financing are not kept.`;
+export const PROBE_0029 = "schema_has_0029";
+export const COLUMNS_0029: Record<string, string[]> = {
+  pipeline_items: ["growth_paths", "financing"],
+};

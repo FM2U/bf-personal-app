@@ -474,8 +474,8 @@ export function validateNextActionReply(value: unknown, today: string, kind: "ac
 
 // ---------- The Key finding star (AI instructions, approved 2026-11-02) ----------
 
-/** What the Key finding star writes: Strengths, Risks, the Key finding, and Check with the broker. */
-export type KeyFindingDraft = { strengths: string[]; risks: string[]; keyFinding: string; brokerQuestions: string[] };
+/** What the Key finding star writes: Strengths, Risks, Growth paths (revision 1; the first is the main one), the Key finding, and Check with the broker. */
+export type KeyFindingDraft = { strengths: string[]; risks: string[]; growthPaths: string[]; keyFinding: string; brokerQuestions: string[] };
 
 /** The Key finding is one sentence under this many words. */
 export const KEY_FINDING_MAX_WORDS = 30;
@@ -488,7 +488,7 @@ export function keyFindingPrompt(c: PageContext): string {
     "",
     contextBlock(c),
     "",
-    'Return only JSON: {"strengths": ["<the strength, the fact behind it, why it matters>"], "risks": ["<the risk and the fact behind it>"], "key_finding": "<one sentence under 30 words>", "broker_questions": ["<a question for the broker>"]}',
+    'Return only JSON: {"strengths": ["<the strength, the fact behind it, why it matters>"], "risks": ["<the risk and the fact behind it>"], "growth_paths": ["<a concrete path to growth and the fact behind it; the main one first>"], "key_finding": "<one sentence under 30 words>", "broker_questions": ["<a question for the broker>"]}',
   ].join("\n");
 }
 
@@ -513,38 +513,42 @@ function findingLines(v: unknown): string[] | null {
 }
 
 /**
- * The strict check of the Key finding reply: strengths, risks, and broker_questions are lists of text (up to 3 kept
- * each; "check_with_the_broker" and camelCase keys are read too); key_finding is one sentence under 30 words. A
- * problem goes back to the AI once (callForJson).
+ * The strict check of the Key finding reply: strengths, risks, growth_paths, and broker_questions are lists of text (up
+ * to 3 kept each, in the order given, so the main growth path stays first; a missing growth_paths reads as none;
+ * "check_with_the_broker" and camelCase keys are read too); key_finding is one sentence under 30 words. A problem goes
+ * back to the AI once (callForJson).
  */
 export function validateKeyFindingReply(value: unknown): { ok: true; value: KeyFindingDraft } | { ok: false; error: string } {
   const v = (Array.isArray(value) ? value[0] : value) as Record<string, unknown> | null;
-  if (!v || typeof v !== "object") return { ok: false, error: "the reply is not a JSON object with strengths, risks, key_finding, and broker_questions" };
+  if (!v || typeof v !== "object") return { ok: false, error: "the reply is not a JSON object with strengths, risks, growth_paths, key_finding, and broker_questions" };
   const problems: string[] = [];
   const strengths = findingLines(v.strengths);
   const risks = findingLines(v.risks);
+  const growthPaths = findingLines(v.growth_paths ?? v.growthPaths);
   const brokerQuestions = findingLines(v.broker_questions ?? v.brokerQuestions ?? v.check_with_the_broker ?? v.checkWithTheBroker);
   if (!strengths) problems.push('"strengths" must be a list of text');
   if (!risks) problems.push('"risks" must be a list of text');
+  if (!growthPaths) problems.push('"growth_paths" must be a list of text');
   if (!brokerQuestions) problems.push('"broker_questions" must be a list of text');
   const rawKey = v.key_finding ?? v.keyFinding;
   const keyFinding = typeof rawKey === "string" ? rawKey.replace(/\s+/g, " ").trim() : "";
   if (!keyFinding) problems.push('"key_finding" is missing');
   else if (wordCount(keyFinding) >= KEY_FINDING_MAX_WORDS) problems.push(`"key_finding" has ${wordCount(keyFinding)} words; write one sentence under ${KEY_FINDING_MAX_WORDS} words`);
   if (problems.length) return { ok: false, error: problems.join(", ") };
-  return { ok: true, value: { strengths: strengths!, risks: risks!, keyFinding, brokerQuestions: brokerQuestions! } };
+  return { ok: true, value: { strengths: strengths!, risks: risks!, growthPaths: growthPaths!, keyFinding, brokerQuestions: brokerQuestions! } };
 }
 
 /**
- * "Use this" on the Key finding draft: the Key finding and the Strengths and Risks lists take the draft's lines, and the
- * broker questions are added under Ask the broker after the ones there (a question already there, in any letter case,
- * is skipped; at most QUESTION_MAX_PER_GROUP lines). Nothing is saved until the card's Save.
+ * "Use this" on the Key finding draft: the Key finding and the Strengths, Risks, and Growth paths lists take the draft's
+ * lines, and the broker questions are added under Ask the broker after the ones there (a question already there, in any
+ * letter case, is skipped; at most QUESTION_MAX_PER_GROUP lines). Revision 1: the Findings card saves the result at once
+ * and offers Undo.
  */
 export function applyKeyFindingDraft(
   current: { broker: readonly string[] },
   draft: KeyFindingDraft,
   maxPerGroup = 12,
-): { keyFinding: string; strengths: string[]; risks: string[]; broker: string[]; added: number } {
+): { keyFinding: string; strengths: string[]; risks: string[]; growthPaths: string[]; broker: string[]; added: number } {
   const broker = current.broker.filter((l) => l.trim()).map((l) => l);
   const seen = new Set(broker.map((l) => l.trim().toLowerCase()));
   let added = 0;
@@ -555,5 +559,5 @@ export function applyKeyFindingDraft(
     broker.push(q.trim());
     added++;
   }
-  return { keyFinding: draft.keyFinding, strengths: [...draft.strengths], risks: [...draft.risks], broker, added };
+  return { keyFinding: draft.keyFinding, strengths: [...draft.strengths], risks: [...draft.risks], growthPaths: [...(draft.growthPaths ?? [])], broker, added };
 }

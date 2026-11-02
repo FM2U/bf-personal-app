@@ -36,6 +36,8 @@ const listing: DealRow = {
   keyFinding: null,
   strengths: [],
   risks: [],
+  growthPaths: [],
+  financing: "equity",
   openQuestions: { seller: ["How many clients renew the extension?"], broker: [], self: [] },
   topTodo: null,
   nextAction: null,

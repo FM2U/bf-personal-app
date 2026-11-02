@@ -11,7 +11,8 @@ import { evaluateConditions } from "@/lib/engine/rules";
 import { AI_REPLY_CUT_OFF, AI_REPLY_UNUSABLE, AIInvalidReply, AIUnavailable, callForJson, cleanDeep, replySnippet } from "@/lib/ai/claude";
 import { date as fmtDate } from "@/lib/format";
 import { missingForStage } from "@/lib/pipeline";
-import { DB_UPDATE_NOTICE_0021, DB_UPDATE_NOTICE_0027, DB_UPDATE_NOTICE_0028, isMissingSchemaError } from "@/lib/schema-guard";
+import { DB_UPDATE_NOTICE_0021, DB_UPDATE_NOTICE_0027, DB_UPDATE_NOTICE_0028, DB_UPDATE_NOTICE_0029, isMissingSchemaError } from "@/lib/schema-guard";
+import { isDealFinancing, type DealFinancing } from "@/lib/ai/instructions";
 import { checkBuyBox, dealSourceTypeFor, isPassReason, LISTING_SOURCES, parseMoneyText } from "@/lib/work/buy-box";
 import { firstUrl, listingNumbers, listingTextToSave, listingPrompt, validateListingReply, withListingUrl, yearOf, type ListingFields } from "@/lib/work/listing-text";
 import { loadWorkPipeline, workUpdateNotice, type WorkPipeline } from "@/lib/work/data";
@@ -66,6 +67,9 @@ const has0027 = (item: Row) => Object.prototype.hasOwnProperty.call(item, "listi
 
 /** True when a pipeline_items row read with "*" has the columns of database update 0028 (strengths, risks). */
 const has0028 = (item: Row) => Object.prototype.hasOwnProperty.call(item, "strengths");
+
+/** True when a pipeline_items row read with "*" has the columns of database update 0029 (growth_paths, financing). */
+const has0029 = (item: Row) => Object.prototype.hasOwnProperty.call(item, "growth_paths");
 
 function done() {
   revalidatePath("/", "layout");
@@ -130,7 +134,8 @@ export async function createListing(input: ListingFields, pastedText = ""): Prom
     listing_url: clean(input.listing_url, 500),
     why_selling: clean(input.why_selling, 300),
   };
-  row.buy_box_note = checkBuyBox({ name, whatItDoes: row.what_it_does, industry: row.industry, location: row.location, ebitda: numbers.ebitda, sde: numbers.sde }).label;
+  // The note keeps the check as it was when the listing was saved (the pill itself reads the Buy box settings on every load).
+  row.buy_box_note = checkBuyBox({ name, whatItDoes: row.what_it_does, industry: row.industry, location: row.location, ebitda: numbers.ebitda, sde: numbers.sde }, await loadBuyBoxSettings(sb, ctx.ownerId)).label;
   const text = listingTextToSave(pastedText);
   const year = yearOf(input.year_established);
   const extra: Row = { listing_text: text, year_established: year ? Number(year) : null, employees: clean(input.employees, 120) };
@@ -483,30 +488,61 @@ export async function resetWaiting(id: string): Promise<{ ok: true } | Fail> {
 
 // ---------- The deal page ----------
 
+/** What the Findings card saves: any of its fields (a field left out stays as it is). */
+export type FindingsInput = { keyFinding?: string; questions?: QuestionGroups; strengths?: string[]; risks?: string[]; growthPaths?: string[] };
+
+/** The saved values the Findings card compares with (cleaned as the database keeps them). */
+export type SavedFindings = { keyFinding: string; questions: QuestionGroups; strengths: string[]; risks: string[]; growthPaths: string[] };
+
 /**
- * The Findings card: the key finding (several lines), the Strengths and Risks lists (up to 3 each; AI instructions
- * 2026-11-02, database update 0028), and the open questions as three groups of lines. Before database update 0028 the
- * key finding and the questions save, and lists with lines in them return DB_UPDATE_NOTICE_0028 (nothing is saved).
+ * The Findings card (AI instructions revision 1, approved 2026-11-02): saves only the fields given, so a field saved
+ * when it loses focus never overwrites another one. The key finding (several lines), the Strengths, Risks, and Growth
+ * paths lists (up to 3 each, the first growth path is the main one), and the open questions as three groups of lines.
+ * "Use this" on the Key finding star saves all of them at once, and Undo saves the values from before.
+ * Before database update 0028 (or 0029 for growth paths) lists with lines in them return the update line and nothing
+ * is saved. Returns the saved values, cleaned.
  */
-export async function saveFindings(id: string, input: { keyFinding: string; questions: QuestionGroups; strengths?: string[]; risks?: string[] }): Promise<{ ok: true; questions: QuestionGroups } | Fail> {
+export async function saveFindings(id: string, input: FindingsInput): Promise<{ ok: true; saved: SavedFindings } | Fail> {
   const s = await setup();
   if (isFail(s)) return s;
   const { sb, ctx, pipe } = s;
   const item = await dealOf(sb, ctx, pipe, id);
   if (isFail(item)) return item;
-  const questions = cleanQuestions(input.questions);
-  const strengths = parseFindingList(input.strengths ?? []);
-  const risks = parseFindingList(input.risks ?? []);
-  const ready = has0028(item);
-  if (!ready && (strengths.length || risks.length)) return fail(DB_UPDATE_NOTICE_0028);
-  const lists = ready && input.strengths !== undefined && input.risks !== undefined ? { strengths: strengths.length ? strengths : null, risks: risks.length ? risks : null } : {};
-  const { error } = await sb.from("pipeline_items").update({ key_finding: cleanText(input.keyFinding, 2000), open_questions_json: countQuestions(questions) ? questions : null, ...lists }).eq("id", item.id);
-  if (error) return isMissingSchemaError(error) ? fail(DB_UPDATE_NOTICE_0028) : notSaved(error);
+  const patch: Row = {};
+  if (input.keyFinding !== undefined) patch.key_finding = cleanText(input.keyFinding, 2000);
+  if (input.questions !== undefined) {
+    const questions = cleanQuestions(input.questions);
+    patch.open_questions_json = countQuestions(questions) ? questions : null;
+  }
+  for (const [key, column, ready, notice] of [["strengths", "strengths", has0028(item), DB_UPDATE_NOTICE_0028], ["risks", "risks", has0028(item), DB_UPDATE_NOTICE_0028], ["growthPaths", "growth_paths", has0029(item), DB_UPDATE_NOTICE_0029]] as const) {
+    const value = input[key];
+    if (value === undefined) continue;
+    const lines = parseFindingList(value);
+    if (!ready) {
+      if (lines.length) return fail(notice);
+      continue;
+    }
+    patch[column] = lines.length ? lines : null;
+  }
+  if (Object.keys(patch).length) {
+    const { error } = await sb.from("pipeline_items").update(patch).eq("id", item.id);
+    if (error) return isMissingSchemaError(error) ? fail(DB_UPDATE_NOTICE_0029) : notSaved(error);
+  }
+  const row = { ...item, ...patch };
   done();
-  return { ok: true, questions };
+  return {
+    ok: true,
+    saved: {
+      keyFinding: typeof row.key_finding === "string" ? row.key_finding : "",
+      questions: parseOpenQuestions(row.open_questions_json, row.open_questions as string | null),
+      strengths: parseFindingList(row.strengths),
+      risks: parseFindingList(row.risks),
+      growthPaths: parseFindingList(row.growth_paths),
+    },
+  };
 }
 
-export type FactsInput = { name: string; companyName: string; whatItDoes: string; location: string; revenue: string; ebitda: string; sde: string; askingPrice: string; industry: string; brokerName: string; source: string; whySelling: string; listingUrl: string; /** Database update 0027; left as it is when not given. */ yearEstablished?: string; /** Database update 0027; left as it is when not given. */ employees?: string };
+export type FactsInput = { name: string; companyName: string; whatItDoes: string; location: string; revenue: string; ebitda: string; sde: string; askingPrice: string; industry: string; brokerName: string; source: string; whySelling: string; listingUrl: string; /** Database update 0027; left as it is when not given. */ yearEstablished?: string; /** Database update 0027; left as it is when not given. */ employees?: string; /** Database update 0029 (all equity or equity plus debt); left as it is when not given. */ financing?: DealFinancing };
 
 /** The Facts card: the deal's text facts and its numbers (deal_financials). */
 export async function saveFacts(id: string, input: FactsInput): Promise<{ ok: true } | Fail> {
@@ -533,6 +569,8 @@ export async function saveFacts(id: string, input: FactsInput): Promise<{ ok: tr
       // Database update 0027: the two Facts fields are saved once the columns exist (the row read with "*" shows them).
       ...(has0027(item) && input.yearEstablished !== undefined ? { year_established: yearOf(input.yearEstablished) ? Number(yearOf(input.yearEstablished)) : null } : {}),
       ...(has0027(item) && input.employees !== undefined ? { employees: clean(input.employees, 120) } : {}),
+      // AI instructions revision 1 (database update 0029): how the deal is financed.
+      ...(has0029(item) && isDealFinancing(input.financing) ? { financing: input.financing } : {}),
     })
     .eq("id", item.id);
   if (error) return notSaved(error);

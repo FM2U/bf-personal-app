@@ -1,7 +1,8 @@
 # Regenerates the combined SQL files from supabase/migrations:
 #   supabase/ALL_MIGRATIONS_RUN_ONCE.sql  every migration (new, empty project)
-#   supabase/UPDATE_RUN_ONCE.sql          0008 to 0028 (full catch-up for an existing project with 0001 to 0007 or later)
-#   supabase/UPDATE_0028_RUN_ONCE.sql     0028 only (the live database: 0001 to 0027)
+#   supabase/UPDATE_RUN_ONCE.sql          0008 to 0029 (full catch-up for an existing project with 0001 to 0007 or later)
+#   supabase/UPDATE_0029_RUN_ONCE.sql     0029 only (the live database: 0001 to 0028)
+#   supabase/UPDATE_0028_RUN_ONCE.sql     0028 only (a database with 0001 to 0027)
 #   supabase/UPDATE_0027_RUN_ONCE.sql     0027 only (a database with 0001 to 0026)
 #   supabase/UPDATE_0026_RUN_ONCE.sql     0026 only (a database with 0001 to 0025)
 #   supabase/UPDATE_0025_RUN_ONCE.sql     0025 only (a database with 0001 to 0024)
@@ -36,7 +37,7 @@ open("supabase/ALL_MIGRATIONS_RUN_ONCE.sql", "w").write(header + "\n".join(parts
 
 update_files = [f for f in files if f.split("/")[-1][:4] >= "0008"]
 update = (
-    "-- BF Personal App: database update (0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019, 0020, 0021, 0022, 0023, 0024, 0025, 0026, 0027, and 0028).\n"
+    "-- BF Personal App: database update (0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019, 0020, 0021, 0022, 0023, 0024, 0025, 0026, 0027, 0028, and 0029).\n"
     "--   0008: Daily Targets and Outreach Queue.\n"
     "--   0009: Stage task lists, stage time limits, required details, stalled items, deal source (proprietary or brokered),\n"
     "--         deal-source contacts, and the Deals sourced and Deals advanced targets.\n"
@@ -65,7 +66,9 @@ update = (
     "--   0026: Edit batch C round 2: the outreach role \"Former colleague\" becomes \"Personal network\" (contacts moved over by UPDATE).\n"
     "--   0027: The original listing text, year established, and employees on pipeline items (three empty columns).\n"
     "--   0028: AI instructions and Findings: strengths and risks on pipeline items (two empty columns), the three Buy box settings.\n"
-    "-- For a database that already has 0001 to 0007 (or 0001 to 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019, 0020, 0021, 0022, 0023, 0024, 0025, 0026, or 0027). Paste this whole file into the\n"
+    "--   0029: AI instructions revision 1: growth paths and financing on pipeline items, the editable Buy box settings (core and stretch\n"
+    "--         ranges, industries, excluded types, regions); the financing and growth goals settings rows are removed.\n"
+    "-- For a database that already has 0001 to 0007 (or 0001 to 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019, 0020, 0021, 0022, 0023, 0024, 0025, 0026, 0027, or 0028). Paste this whole file into the\n"
     "-- Supabase SQL Editor and press Run. Safe to run more than once: nothing is duplicated.\n"
     "-- Generated from supabase/migrations by supabase/build_combined.py.\n\n"
 )
@@ -325,7 +328,7 @@ open("supabase/UPDATE_0027_RUN_ONCE.sql", "w").write(u27 + open("supabase/migrat
 
 u28 = (
     "-- BF Personal App: database update 0028 (AI instructions and Findings: strengths, risks, and the Buy box settings).\n"
-    "-- For the live database, which has 0001 to 0027. Paste this whole file into the Supabase SQL Editor and press Run.\n"
+    "-- For a database that has 0001 to 0027 (the live database with 0001 to 0028 uses UPDATE_0029_RUN_ONCE.sql). Paste this whole file into the Supabase SQL Editor and press Run.\n"
     "-- Expected result: \"Success. No rows returned\". Safe to run more than once: nothing is duplicated, nothing is deleted, no existing row changes.\n"
     "-- What it adds:\n"
     "--   pipeline_items.strengths and pipeline_items.risks (the Findings card's two lists, up to 3 lines each, read by every later AI\n"
@@ -334,8 +337,23 @@ u28 = (
 )
 open("supabase/UPDATE_0028_RUN_ONCE.sql", "w").write(u28 + open("supabase/migrations/0028_ai_instructions_findings.sql").read())
 
+u29 = (
+    "-- BF Personal App: database update 0029 (AI instructions revision 1: growth paths, financing, the editable Buy box).\n"
+    "-- For the live database, which has 0001 to 0028. Paste this whole file into the Supabase SQL Editor and press Run.\n"
+    "-- Expected result: \"Success. No rows returned\". Safe to run more than once: nothing is duplicated.\n"
+    "-- What it changes:\n"
+    "--   pipeline_items.growth_paths (the Findings card's Growth paths, up to 3 lines, empty to start) and pipeline_items.financing\n"
+    "--   (all equity by default, or equity plus debt); the Buy box settings rows for each owner with today's values (core range\n"
+    "--   $1M to $2.5M, stretch range $0.75M to $3.5M, B2B services, no retail, direct to consumer, or franchises, Southeast and\n"
+    "--   East Coast); schema_has_0029().\n"
+    "-- The one delete: the financing and growth goals settings rows (Settings, Buy box), which revision 1 replaced, are removed\n"
+    "--   when they exist. Nothing else is deleted and no other row changes.\n"
+    "-- Generated from supabase/migrations/0029_ai_instructions_revision_1.sql by supabase/build_combined.py.\n\n"
+)
+open("supabase/UPDATE_0029_RUN_ONCE.sql", "w").write(u29 + open("supabase/migrations/0029_ai_instructions_revision_1.sql").read())
+
 old = (
-    "-- USE supabase/UPDATE_RUN_ONCE.sql INSTEAD. That file includes this update (0008) and the next ones (0009 to 0028).\n"
+    "-- USE supabase/UPDATE_RUN_ONCE.sql INSTEAD. That file includes this update (0008) and the next ones (0009 to 0029).\n"
     "-- This file is kept for reference only.\n"
     "--\n"
     "-- BF Personal App: database update 0008 (Daily Targets and Outreach Queue).\n"
@@ -345,5 +363,5 @@ old = (
 open("supabase/UPDATE_0008_RUN_ONCE.sql", "w").write(old + open("supabase/migrations/0008_targets_outreach.sql").read())
 print(
     f"Wrote ALL_MIGRATIONS_RUN_ONCE.sql ({len(files)} files), UPDATE_RUN_ONCE.sql ({len(update_files)} files), "
-    "UPDATE_0028_RUN_ONCE.sql, UPDATE_0027_RUN_ONCE.sql, UPDATE_0026_RUN_ONCE.sql, UPDATE_0025_RUN_ONCE.sql, UPDATE_0024_RUN_ONCE.sql, UPDATE_0023_RUN_ONCE.sql, UPDATE_0022_RUN_ONCE.sql, UPDATE_0021_RUN_ONCE.sql, UPDATE_0020_RUN_ONCE.sql, UPDATE_0019_RUN_ONCE.sql, UPDATE_0018_RUN_ONCE.sql, UPDATE_0017_RUN_ONCE.sql, UPDATE_0016_RUN_ONCE.sql, UPDATE_0015_RUN_ONCE.sql, UPDATE_0013_0014_RUN_ONCE.sql, UPDATE_0014_RUN_ONCE.sql, UPDATE_0011_0012_RUN_ONCE.sql, UPDATE_0012_RUN_ONCE.sql, UPDATE_0013_RUN_ONCE.sql, UPDATE_0011_RUN_ONCE.sql, UPDATE_0008_RUN_ONCE.sql"
+    "UPDATE_0029_RUN_ONCE.sql, UPDATE_0028_RUN_ONCE.sql, UPDATE_0027_RUN_ONCE.sql, UPDATE_0026_RUN_ONCE.sql, UPDATE_0025_RUN_ONCE.sql, UPDATE_0024_RUN_ONCE.sql, UPDATE_0023_RUN_ONCE.sql, UPDATE_0022_RUN_ONCE.sql, UPDATE_0021_RUN_ONCE.sql, UPDATE_0020_RUN_ONCE.sql, UPDATE_0019_RUN_ONCE.sql, UPDATE_0018_RUN_ONCE.sql, UPDATE_0017_RUN_ONCE.sql, UPDATE_0016_RUN_ONCE.sql, UPDATE_0015_RUN_ONCE.sql, UPDATE_0013_0014_RUN_ONCE.sql, UPDATE_0014_RUN_ONCE.sql, UPDATE_0011_0012_RUN_ONCE.sql, UPDATE_0012_RUN_ONCE.sql, UPDATE_0013_RUN_ONCE.sql, UPDATE_0011_RUN_ONCE.sql, UPDATE_0008_RUN_ONCE.sql"
 )

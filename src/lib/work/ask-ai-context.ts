@@ -14,7 +14,7 @@ import { loadProjectPage, loadRosara, loadRosaraHome, type ProjectRow } from "@/
 import { openTodos, type DealTodo } from "@/lib/work/todos";
 import type { TimelineEvent } from "@/lib/work/timeline";
 import { dealFactLines, dealFactsOf, moneyExact } from "@/lib/work/deal-facts";
-import { stageLineFor, type BuyerScope, type StageLine } from "@/lib/ai/instructions";
+import { financingLineFor, stageLineFor, type BuyerScope, type StageLine } from "@/lib/ai/instructions";
 import { loadBuyBoxSettings } from "@/lib/work/buy-box-data";
 import { loadEndOfDay, loadReportsPage, loadTargetsPage } from "@/lib/accountability/data";
 import { endOfDayLines, reportsLines, targetsLines } from "@/lib/accountability/ask-ai";
@@ -84,6 +84,8 @@ export async function buildPageContext(sb: SupabaseClient, ownerId: string, c: A
   let listingText: string | null = null;
   /** AI instructions (2026-11-02): the stage line of a deal or a listing; null on the Deals list; undefined elsewhere. */
   let buyerStage: StageLine | null | undefined;
+  /** AI instructions revision 1: the deal's financing line (only at Model, IOI or LOI, and Diligence). */
+  let financing: string | null = null;
   const id = c.recordId ?? "";
   const nextCard = c.card === "Next action" || c.card === "Next follow-up";
   /** "stage default next action: Ask for the seller call (due in 3 days)" for the next action star. */
@@ -135,6 +137,7 @@ export async function buildPageContext(sb: SupabaseClient, ownerId: string, c: A
         dealRecord = true;
         listingText = d.listingText;
         buyerStage = stageLineFor(d.deal.stageName, d.deal.screened);
+        financing = financingLineFor(d.deal.stageName, d.deal.screened, d.deal.financing);
       }
       break;
     }
@@ -224,6 +227,6 @@ export async function buildPageContext(sb: SupabaseClient, ownerId: string, c: A
     if (c.field.extra) head.push(c.field.extra);
   }
   // The buy box is read on every click, so the instructions follow any change in Settings.
-  const buyer: BuyerScope | null = buyerStage === undefined ? null : { buyBox: await loadBuyBoxSettings(sb, ownerId), stage: buyerStage };
+  const buyer: BuyerScope | null = buyerStage === undefined ? null : { buyBox: await loadBuyBoxSettings(sb, ownerId), stage: buyerStage, financing };
   return trimContext({ title, lines: [...head, ...lines], ...(dealRecord ? { deal: true, listingText } : {}), ...(buyer ? { buyer } : {}) });
 }
