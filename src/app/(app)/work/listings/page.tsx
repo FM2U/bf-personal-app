@@ -1,3 +1,4 @@
+import { DB_UPDATE_NOTICE_0027 } from "@/lib/schema-guard";
 import { requireOwner } from "@/lib/auth";
 import { loadListings, loadTabCounts } from "@/lib/work/data";
 import { AskAiPill } from "@/components/app/work/ask-ai";
@@ -14,7 +15,7 @@ export const metadata = { title: "Screen listings" };
  * the buy box check and Pass or Interested, and the Passed list (collapsed, searchable) so no business is screened
  * twice. The filter row and Collapse all are in src/components/app/work/listings-board.tsx.
  */
-export default async function ScreenListingsPage({ searchParams }: { searchParams: Promise<{ add?: string; saved?: string }> }) {
+export default async function ScreenListingsPage({ searchParams }: { searchParams: Promise<{ add?: string; saved?: string; text?: string }> }) {
   const { supabase, ownerId } = await requireOwner();
   const sp = await searchParams;
   const d = await loadListings(supabase, ownerId);
@@ -46,6 +47,8 @@ export default async function ScreenListingsPage({ searchParams }: { searchParam
           {sp.saved ? (
             <p className="rounded-md bg-status-met-bg px-3 py-2 text-[13px] text-status-met" role="status" data-testid="listing-saved">
               Saved {sp.saved} to the list.
+              {/* Fix 2026-11-02: before database update 0027 the pasted text is not kept. */}
+              {sp.text === "not-kept" ? <span className="text-status-soon" data-testid="listing-text-not-kept"> {DB_UPDATE_NOTICE_0027}</span> : null}
             </p>
           ) : null}
           {adding ? <AddListingCard /> : null}

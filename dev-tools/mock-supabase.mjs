@@ -559,7 +559,8 @@ google.listen(GOOGLE_PORT, () => console.log(`Mock Google listening on http://lo
 // "field": "valid" | "plain", "cutoff": "none" | "once" (the next next_steps and ask_page replies come back cut off before
 // their JSON closes, with stop_reason max_tokens, once each, like a reply that hit the length limit; the retry with the
 // higher limit gets the full reply), "delay": <ms before every AI reply, 0 by default>}; GET /__calls; GET /__limits (max_tokens per next_steps and ask_page request);
-// GET /__last_chat (the last chat request's system prompt and messages, to check "Ask AI about this" context); POST /__reset.
+// GET /__last_chat (the last chat request's system prompt and messages, to check "Ask AI about this" context); GET /__prompts
+// (the last prompt of each task by its TASK name, to check what the app sent, such as the facts in the Key finding draft); POST /__reset.
 import { createRequire } from "node:module";
 const requireCjs = createRequire(import.meta.url);
 const { mealPlanProposal } = requireCjs("./fixtures/meal-plan.cjs");
@@ -572,6 +573,8 @@ let cutSent = new Set();
 /** The max_tokens of every next_steps and ask_page request, in order (GET /__limits), to check the retry asks with double the limit. */
 let aiLimits = [];
 let lastChat = null;
+/** The last prompt of each task ("field_draft", "next_action", ...), so a check can read what the app sent (GET /__prompts). */
+let lastPrompts = {};
 
 const nyToday = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 
@@ -616,6 +619,7 @@ const ai = http.createServer(async (req, res) => {
       aiMode = { initiative: "valid", listing: "valid", todos: "valid", field: "valid", cutoff: "none", delay: 0 };
       aiCalls = [];
       aiLimits = [];
+      lastPrompts = {};
       invalidSent = false;
       cutSent = new Set();
       return send(res, 200, { ok: true });
@@ -623,12 +627,15 @@ const ai = http.createServer(async (req, res) => {
     if (url.pathname === "/__calls") return send(res, 200, aiCalls);
     if (url.pathname === "/__limits") return send(res, 200, aiLimits);
     if (url.pathname === "/__last_chat") return send(res, 200, lastChat ?? {});
+    if (url.pathname === "/__prompts") return send(res, 200, lastPrompts);
     if (url.pathname.startsWith("/v1/models")) return send(res, 200, { data: [{ id: "mock-model", type: "model" }], has_more: false });
     if (url.pathname === "/v1/messages" && req.method === "POST") {
       const body = JSON.parse((await readRaw(req)) || "{}");
       // A delay before the reply (the checks look at the Thinking state while the AI works).
       if (Number(aiMode.delay) > 0) await new Promise((r) => setTimeout(r, Number(aiMode.delay)));
       const text = (body.messages ?? []).map((m) => (typeof m.content === "string" ? m.content : (m.content ?? []).map((b) => b.text ?? "").join("\n"))).join("\n");
+      const taskName = (text.match(/TASK: ([a-z_]+)/) || [])[1];
+      if (taskName) lastPrompts[taskName] = text;
       if (text.includes("TASK: initiative_proposal")) {
         aiCalls.push("initiative_proposal");
         const retry = (body.messages ?? []).length > 1;
@@ -656,7 +663,8 @@ const ai = http.createServer(async (req, res) => {
         const listing = (text.split('"""')[1] || "").trim();
         if (aiMode.listing === "invalid") return send(res, 200, aiMessage("I can see an industrial filtration distributor in Macon with about $4M in sales, but the text gives no asking price or earnings figure, so I cannot fill the fields."));
         const pick = (re) => (listing.match(re) || [])[1] || "";
-        const money = (label) => pick(new RegExp(`${label}[^$\\d]{0,12}(\\$?\\d[\\d,.]*\\s*[MmKk]?)`));
+        // "$ 10,000,000" (a space after the dollar sign, as on Website Closers) reads as "$10,000,000".
+        const money = (label) => pick(new RegExp(`${label}[^$\\d]{0,12}(\\$?\\s?\\d[\\d,.]*\\s*[MmKk]?)`)).replace(/^\$\s+/, "$").trim();
         const sde = money("SDE") || money("Cash Flow");
         const headline = pick(/^(?:Business|Listing|Name)?:?\s*([^\n]{3,80})/m).replace(/^(For sale|Listing|Name):\s*/i, "").replace(/\s*\([^)]*\)\s*$/, "").trim();
         // A line "Company: X" names the company; otherwise the headline is the listing description.
@@ -667,12 +675,16 @@ const ai = http.createServer(async (req, res) => {
           source: /newsletter/i.test(listing) ? "Broker newsletter" : /network|intro/i.test(listing) ? "Network" : "Broker outreach",
           what_it_does: pick(/(?:What it does|Description|Overview)[:\s]+([^\n]{5,160})/i) || (listing.split("\n").find((l) => /\b(for|serving|provides|offers)\b/i.test(l)) || "").trim().slice(0, 160),
           broker_name: pick(/(?:Broker|Listed by|Contact):\s*([^\n]{3,60})/i),
-          revenue: money("Revenue"),
+          revenue: money("Revenue") || money("Gross Income"),
           earnings: money("EBITDA") || (sde ? `${sde} SDE` : ""),
           asking_price: money("Asking(?: price)?"),
           location: pick(/(?:Location|Based in|Located in)[:\s]+([^\n]{3,60})/i),
           industry: pick(/Industry[:\s]+([^\n]{3,60})/i),
           listing_url: pick(/(https?:\/\/\S+|\b[a-z0-9.-]+\.(?:com|net|org)\/\S*)/i),
+          // Fix 2026-11-02: the three facts read when the text states them.
+          why_selling: pick(/(?:Why selling|Reason for selling)[:\s]+([^\n]{3,120})/i),
+          year_established: pick(/(?:Year Established|Established|Founded)[:\s]+(\d{4})/i),
+          employees: pick(/Employees[:\s]+([^\n]{1,60})/i) || pick(/team of (\d+\+? [a-z ]{3,30}?coaches)/i),
         };
         // Edit batch C round 3: "no_url" leaves the link empty, so the app's own search of the text fills it.
         if (aiMode.listing === "no_url") reply.listing_url = "";

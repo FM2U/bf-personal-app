@@ -6130,6 +6130,111 @@ const expectText = async (page, text) => {
     await shootBatchC(`${BASE}/work/deals`, "work-deals");
   });
 
+  // ---------- Fix (2026-11-02): the AI sees every fact and the original listing text; the Original listing text card ----------
+  const FX_NAME = "00 Flow FX Physician Coaching Company";
+  const FX_TEXT = fs.readFileSync(path.join(__dirname, "fixtures", "listing-physician-coaching.txt"), "utf8");
+  const FX_SENTENCE = "ownership’s share of coaching sessions dropped from 19% in 2025 to just 5% in 2026";
+  const FX_RULE = "Only say information is missing when it is absent from the facts and the listing text above; name the exact field and who to ask.";
+  const aiprompts = async () => (await fetch(`${AIMOCK}/__prompts`)).json();
+  const listingTextState = (pg_) => pg_.getByTestId("listing-text-state").getAttribute("data-state");
+
+  await step("Fix: add a listing with the pasted text (the Website Closers fixture): Fill from text reads year established and employees; Save keeps the full text on the record; the Original listing text card under Facts shows it collapsed, Show opens it with its paragraphs, Hide closes it; it is not in the Timeline", async () => {
+    await pg.query("delete from pipeline_items where name like '00 Flow FX%'");
+    await aipost("/__reset");
+    await page.goto(`${BASE}/work/listings?add=1`);
+    await page.getByTestId("add-listing-card").waitFor();
+    await page.getByTestId("listing-text").fill(FX_TEXT);
+    await page.getByTestId("listing-fill").click();
+    await page.waitForFunction(() => document.querySelector("[data-testid=listing-year]")?.value === "2010", null, { timeout: 15000 });
+    const got = { employees: await page.getByTestId("listing-employees").inputValue(), asking: await page.getByTestId("listing-asking").inputValue(), earnings: await page.getByTestId("listing-earnings").inputValue(), why: await page.getByTestId("listing-why-selling").inputValue() };
+    if (got.employees !== "20+ associate coaches" || got.asking !== "$10,000,000" || got.earnings !== "$2,534,975 SDE" || got.why !== "") throw new Error(`the filled fields: ${JSON.stringify(got)}`);
+    // The Fill from text prompt asks for the three new fields.
+    if (!/"year_established": "", "employees": ""/.test((await aiprompts()).listing_fields ?? "")) throw new Error("the listing prompt does not ask for year established and employees");
+    await page.getByTestId("listing-name").fill(FX_NAME);
+    await page.getByTestId("listing-save").click();
+    await page.waitForURL(/\/work\/listings\?saved=/);
+    const row = await one("select id, listing_text, year_established, employees, why_selling from pipeline_items where name = $1", [FX_NAME]);
+    if (!row || row.listing_text !== FX_TEXT.trim() || row.year_established !== 2010 || row.employees !== "20+ associate coaches" || row.why_selling !== null) throw new Error(`saved: ${JSON.stringify({ ...row, listing_text: row?.listing_text?.length })}`);
+    await page.goto(`${BASE}/work/deals/${row.id}`);
+    const card = page.getByTestId("deal-listing-text");
+    await card.waitFor();
+    // Under Facts, collapsed.
+    const order = await page.locator("[data-testid=deal-facts], [data-testid=deal-listing-text], [data-testid=deal-timeline]").evaluateAll((els) => els.map((e) => e.dataset.testid));
+    if (order.join(",") !== "deal-facts,deal-listing-text,deal-timeline") throw new Error(`card order: ${order.join(",")}`);
+    if ((await listingTextState(page)) !== "closed" || (await card.getByTestId("listing-text-body").count())) throw new Error("the card should start collapsed");
+    if (!/Saved as pasted, [\d,]+ words/.test(await card.getByTestId("listing-text-summary").innerText())) throw new Error("the collapsed line");
+    if ((await page.getByTestId("fact-year").innerText()).trim().endsWith("2010") === false || !(await page.getByTestId("fact-employees").innerText()).includes("20+ associate coaches")) throw new Error("Facts: year established and employees");
+    await card.getByTestId("listing-text-toggle").click();
+    if ((await listingTextState(page)) !== "open" || (await card.getByTestId("listing-text-toggle").innerText()).trim() !== "Hide") throw new Error("Show did not open it");
+    const body = await card.getByTestId("listing-text-body").innerText();
+    if (!body.includes(FX_SENTENCE) || !/Business Model\n+The business delivers/.test(body) || !body.includes("Year Established\n2010")) throw new Error("the text box lost the text or its paragraphs");
+    if ((await card.getByTestId("listing-text-body").evaluate((el) => getComputedStyle(el).whiteSpace)) !== "pre-wrap") throw new Error("the box does not keep line breaks");
+    // Not in the Timeline (no note was written for it).
+    if ((await page.getByTestId("deal-timeline").innerText()).includes("WebsiteClosers")) throw new Error("the listing text is in the Timeline");
+    if ((await one("select count(*)::int n from notes where record_id = $1", [row.id])).n !== 0) throw new Error("a note was written for the listing text");
+    // The screenshot with the card open (desktop only; the phone shot of this page is not regenerated here).
+    await p1280.goto(`${BASE}/work/deals/${row.id}`);
+    await p1280.waitForLoadState("networkidle");
+    await p1280.getByTestId("listing-text-toggle").click();
+    await p1280.getByTestId("listing-text-body").waitFor();
+    await p1280.screenshot({ path: path.join(OUT, "desktop1280-work-listing-page.png"), fullPage: true });
+    await card.getByTestId("listing-text-toggle").click();
+    if ((await listingTextState(page)) !== "closed" || (await card.getByTestId("listing-text-body").count())) throw new Error("Hide did not close it");
+  });
+
+  await step("Fix: an older listing without text shows Paste the listing text; Save keeps it (20 characters at least); Replace puts a new text in its place (one per record, no note)", async () => {
+    await pg.query("insert into pipeline_items (owner_id, pipeline_id, name, screened, status, source) select owner_id, pipeline_id, '00 Flow FX Older Listing', false, 'open', 'Broker outreach' from pipeline_items where name = $1", [FX_NAME]);
+    const older = await one("select id from pipeline_items where name = '00 Flow FX Older Listing'");
+    await page.goto(`${BASE}/work/deals/${older.id}`);
+    const card = page.getByTestId("deal-listing-text");
+    await card.waitFor();
+    if ((await listingTextState(page)) !== "empty" || (await card.getByTestId("listing-text-toggle").count())) throw new Error("an older listing should show the paste box");
+    await card.getByTestId("listing-text-input").fill("Too short");
+    if (await card.getByTestId("listing-text-save").isEnabled()) throw new Error("Save should wait for the text");
+    const first = "Older listing: HVAC service contractor in Macon, GA.\n\nRevenue $4.2M, SDE $900K, asking $3.1M. Owner retiring.";
+    await card.getByTestId("listing-text-input").fill(first);
+    await card.getByTestId("listing-text-save").click();
+    await page.waitForFunction(() => document.querySelector("[data-testid=listing-text-state]")?.dataset.state === "open", null, { timeout: 10000 });
+    if (!(await card.getByTestId("listing-text-body").innerText()).includes("Owner retiring.")) throw new Error("the saved text is not shown");
+    if ((await one("select listing_text from pipeline_items where id = $1", [older.id])).listing_text !== first) throw new Error("the text was not saved");
+    // Replace.
+    await card.getByTestId("listing-text-replace").click();
+    const second = "Replaced: the broker sent the full teaser.\n\nYear established 1994. 14 full-time technicians.";
+    await card.getByTestId("listing-text-input").fill(second);
+    await card.getByTestId("listing-text-save").click();
+    await page.waitForFunction(() => document.querySelector("[data-testid=listing-text-body]")?.innerText.includes("Replaced: the broker"), null, { timeout: 10000 });
+    const after = await one("select listing_text, (select count(*)::int from notes where record_id = $1) notes from pipeline_items where id = $1", [older.id]);
+    if (after.listing_text !== second || after.notes !== 0) throw new Error(`after Replace: ${JSON.stringify(after)}`);
+    if ((await page.getByTestId("deal-timeline").innerText()).includes("Replaced: the broker")) throw new Error("the text is in the Timeline");
+  });
+
+  await step("Fix: the Key finding star, the next action star, and the automatic questions at Interested send every fact and the listing text (the mock AI records each prompt)", async () => {
+    await aipost("/__reset");
+    const d = await one("select id from pipeline_items where name = $1", [FX_NAME]);
+    await page.goto(`${BASE}/work/deals/${d.id}`);
+    await page.getByTestId("deal-findings").locator("[data-testid=ai-field-star][data-field=key_finding]").click();
+    await page.getByTestId("ask-ai-panel").waitFor();
+    await page.getByTestId("ask-ai-draft").waitFor({ timeout: 20000 });
+    const checkPrompt = (name, p) => {
+      for (const want of ["revenue: $7,843,427", "SDE: $2,534,975", "asking price: $10,000,000 (3.9x SDE)", "year established: 2010", "employees: 20+ associate coaches", "source: ", FX_SENTENCE, FX_RULE]) if (!String(p ?? "").includes(want)) throw new Error(`${name} prompt is missing "${want}"`);
+    };
+    checkPrompt("Key finding", (await aiprompts()).field_draft);
+    await page.keyboard.press("Escape");
+    await page.getByTestId("ask-ai-panel").waitFor({ state: "detached", timeout: 5000 }).catch(() => null);
+    await page.goto(`${BASE}/work/deals/${d.id}`);
+    await page.getByTestId("deal-next-action").getByTestId("next-action-star").click();
+    await page.getByTestId("ask-ai-next-action").waitFor({ timeout: 20000 });
+    checkPrompt("Next action", (await aiprompts()).next_action);
+    await page.goto(`${BASE}/work/deals/${d.id}`);
+    await page.getByTestId("decision-interested").click();
+    await page.waitForFunction(() => document.querySelector("[data-testid=deal-page-state]")?.dataset.state === "deal", null, { timeout: 20000 });
+    checkPrompt("Open questions at Interested", (await aiprompts()).open_questions);
+    // The card is on the deal too.
+    await page.getByTestId("deal-listing-text").waitFor();
+    if ((await listingTextState(page)) !== "closed") throw new Error("the card on the deal");
+    await pg.query("delete from pipeline_items where name like '00 Flow FX%'");
+  });
+
   await step("Savings ideas: propose now, shown on Home with a count, Edit, Later, Decline (not proposed again), Approve as a reduction action", async () => {
     await aipost("/__reset");
     await page.goto(`${BASE}/finance/expenses`);

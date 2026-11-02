@@ -19,7 +19,8 @@ const LABEL = "text-xs font-medium text-muted-foreground";
  * listing name, built as "00 " plus a plain description, and the company name when known); the owner corrects and
  * presses Save to the list. When the AI's reply is not the fields even after one retry, the first 300 characters of
  * its reply show under the error with "Try again". Typed text is never lost: a failed save shows its message under
- * the buttons with everything still in place.
+ * the buttons with everything still in place. Fix 2026-11-02: the text in the paste box at save is kept on the record
+ * (the Original listing text card), and the AI also fills why selling, year established, and employees.
  */
 export function AddListingButton({ open }: { open: boolean }) {
   return (
@@ -65,12 +66,13 @@ export function AddListingCard() {
   function save() {
     setError(null);
     startSave(async () => {
-      const r = await createListing(f);
+      // Fix 2026-11-02: the pasted text goes with the fields and is kept on the record (the Original listing text card).
+      const r = await createListing(f, text);
       if (!r.ok) return setError(r.error);
       const name = f.company_name.trim() || f.name;
       setF(EMPTY_LISTING_FIELDS);
       setText("");
-      router.push(`/work/listings?saved=${encodeURIComponent(name)}`);
+      router.push(`/work/listings?saved=${encodeURIComponent(name)}${r.notice ? "&text=not-kept" : ""}`);
       router.refresh();
     });
   }
@@ -150,6 +152,15 @@ export function AddListingCard() {
             </Field>
             <Field id={`${ids}-link`} label="Link">
               <input id={`${ids}-link`} value={f.listing_url} onChange={set("listing_url")} placeholder="https://" className={INPUT} data-testid="listing-link" />
+            </Field>
+            <Field id={`${ids}-why`} label="Why selling">
+              <input id={`${ids}-why`} value={f.why_selling} onChange={set("why_selling")} placeholder="Retiring, no successor" className={INPUT} data-testid="listing-why-selling" />
+            </Field>
+            <Field id={`${ids}-year`} label="Year established">
+              <input id={`${ids}-year`} value={f.year_established} onChange={set("year_established")} placeholder="2010" inputMode="numeric" className={INPUT} data-testid="listing-year" />
+            </Field>
+            <Field id={`${ids}-emp`} label="Employees">
+              <input id={`${ids}-emp`} value={f.employees} onChange={set("employees")} placeholder="14 full-time" className={INPUT} data-testid="listing-employees" />
             </Field>
             {error && reply === null ? (
               <p className="rounded-md bg-status-missed-bg px-3 py-2 text-[13px] text-status-missed sm:col-span-2 lg:col-span-4" role="alert" data-testid="listing-error">

@@ -6,6 +6,8 @@
  * "Email these questions" opens the email editor with the seller and broker groups as bullets (the draft is here too).
  */
 
+import { dealFactLines, listingTextBlock, NO_FALSE_GAPS_RULE, type DealFacts } from "@/lib/work/deal-facts";
+
 export type QuestionGroupKey = "seller" | "broker" | "self";
 
 export type QuestionGroups = Record<QuestionGroupKey, string[]>;
@@ -85,21 +87,13 @@ export function mergeQuestions(current: QuestionGroups, next: QuestionGroups): {
   return { merged, added };
 }
 
-/** What the AI reads about the deal before it suggests questions or to-dos. */
+/**
+ * What the AI reads about the deal before it suggests questions or to-dos: every fact and the original listing text
+ * (the shared DealFacts of src/lib/work/deal-facts.ts, Fix 2026-11-02), the next action, the timeline, the document
+ * names, and the questions already on the deal.
+ */
 export type DealContext = {
-  name: string;
-  stage: string | null;
-  whatItDoes: string | null;
-  location: string | null;
-  industry: string | null;
-  brokerName: string | null;
-  source: string | null;
-  whySelling: string | null;
-  revenue: string | null;
-  ebitda: string | null;
-  sde: string | null;
-  askingPrice: string | null;
-  keyFinding: string | null;
+  facts: DealFacts;
   nextAction: string | null;
   /** Notes, emails, and calls, newest first: "Oct 27, call: Owner is 58, retiring." */
   timeline: string[];
@@ -110,28 +104,11 @@ export type DealContext = {
 export const CONTEXT_MAX_LINES = 30;
 
 function contextBlock(c: DealContext): string {
-  const facts = [
-    ["Deal", c.name],
-    ["Stage", c.stage],
-    ["What it does", c.whatItDoes],
-    ["Location", c.location],
-    ["Industry", c.industry],
-    ["Broker", c.brokerName],
-    ["Source", c.source],
-    ["Why selling", c.whySelling],
-    ["Revenue", c.revenue],
-    ["EBITDA", c.ebitda],
-    ["SDE", c.sde],
-    ["Asking price", c.askingPrice],
-    ["Key finding", c.keyFinding],
-    ["Next action", c.nextAction],
-  ]
-    .filter(([, v]) => v)
-    .map(([k, v]) => `${k}: ${v}`)
-    .join("\n");
+  // The questions are listed apart in each prompt ("Questions already on the deal"), so the facts leave them out.
+  const facts = [...dealFactLines({ ...c.facts, openQuestions: null }), ...(c.nextAction ? [`next action: ${c.nextAction.replace(/\s+/g, " ").trim()}`] : [])].join("\n");
   const timeline = c.timeline.slice(0, CONTEXT_MAX_LINES).map((l) => `- ${l.slice(0, 300)}`).join("\n") || "- (nothing yet)";
   const docs = c.documentNames.slice(0, 20).join(", ") || "(none)";
-  return `Deal facts:\n${facts}\nNotes, emails, and calls (newest first):\n${timeline}\nDocuments on file: ${docs}`;
+  return `Deal: ${c.facts.name}\nDeal facts:\n${facts}\n${listingTextBlock(c.facts.listingText)}\nNotes, emails, and calls (newest first):\n${timeline}\nDocuments on file: ${docs}\n${NO_FALSE_GAPS_RULE}`;
 }
 
 /** The prompt for "Suggest questions" and for the automatic fill when a listing becomes Interested. */
@@ -142,7 +119,7 @@ Bram is buying a small business and this deal is at the stage below. Write the o
 - "seller": questions to ask the seller (the owner) on a call or by email.
 - "broker": questions to ask the broker (documents, process, price, timing, other bidders).
 - "self": things Bram should find out himself (market, competitors, rules, comparable sales).
-Rules: 2 to 5 questions per group, each one line under 25 words, specific to this deal (name the number or fact it follows from when there is one), plain English, no question already in the list below, no duplicates. Fewer questions when the facts are thin; an empty list for a group with nothing worth asking.
+Rules: 2 to 5 questions per group, each one line under 25 words, specific to this deal (name the number or fact it follows from when there is one), plain English, no question already in the list below, no question the facts or the original listing text already answer, no duplicates. Fewer questions when the facts are thin; an empty list for a group with nothing worth asking.
 ${contextBlock(c)}
 Questions already on the deal (do not repeat):
 ${existing}
@@ -208,7 +185,7 @@ export function validateQuestionsReply(value: unknown): { ok: true; value: Quest
 export function todosPrompt(c: DealContext, existingTodos: string[]): string {
   const existing = existingTodos.length ? existingTodos.map((t) => `"${t}"`).join("; ") : "(none)";
   return `TASK: deal_todos
-Bram is buying a small business. List up to 5 other things to do on this deal besides its next action: small concrete tasks (send, ask, read, check, book, compare), each one line under 15 words, specific to this deal, in the order to do them. Do not repeat the next action or the items already listed. Fewer items when the facts are thin.
+Bram is buying a small business. List up to 5 other things to do on this deal besides its next action: small concrete tasks (send, ask, read, check, book, compare), each one line under 15 words, specific to this deal, in the order to do them. Do not repeat the next action or the items already listed, and do not ask for a fact the facts or the original listing text already give. Fewer items when the facts are thin.
 ${contextBlock(c)}
 Open questions on the deal: ${QUESTION_GROUPS.map((g) => c.existing[g.key].join("; ")).filter(Boolean).join(" | ") || "(none)"}
 Items already listed (do not repeat): ${existing}

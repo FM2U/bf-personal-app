@@ -117,6 +117,15 @@ Built from `docs/` in the project: Architecture v2 and the Decisions Log (both a
 - **Code:** `src/lib/calc/deal-funnel.ts` (pure: first-move counting, calls, funnel steps and percents, suggestion and notes; tested in `deal-funnel.test.ts`, including New York date boundaries), `src/lib/deal-funnel.ts` (loader), count sources in `src/lib/targets.ts`, buttons in `src/components/app/listing-buttons.tsx`.
 - **Database update 0016** (`supabase/UPDATE_0016_RUN_ONCE.sql`): the two count sources, the three targets and five inputs for the owner and future owners (`seed_owner_deal_funnel`, called by the owner setup function), and `schema_has_0016()`. Running 0009 again later keeps the wider count source rule. **Before it runs,** the funnel card shows its other steps with "Database update needed" naming the file and "Not counted yet" for Listings screened, the suggested targets use the default numbers, no header or Home buttons appear, and every other screen and both scheduled jobs keep working.
 
+### Fix: the AI sees every fact and the original listing text; Original listing text card (database update 0027)
+
+- **One fact list for the AI:** every AI action on a deal or a listing (Ask AI on the page, a card, or a field; Key finding; the next action star; Suggest questions, also at Interested; Suggest tasks) reads the same lines from `src/lib/work/deal-facts.ts`: name, company or listed-as, stage or listing, what it does, revenue, EBITDA, SDE, asking price with the multiple, location, industry, source, broker, why selling, year established, employees, link, key finding, open questions, and the original listing text (cut at about 8,000 characters, paragraphs kept).
+- **No false gaps:** each of those prompts ends with: "Only say information is missing when it is absent from the facts and the listing text above; name the exact field and who to ask."
+- **Original listing text kept:** the text in the Add a listing paste box at Save is stored on the record (`pipeline_items.listing_text`, not a note, so it stays out of the Timeline). The deal and listing page show it in an "Original listing text" card under Facts: collapsed, Show and Hide, Replace; a "Paste the listing text" box when none is saved.
+- **Fill from text reads more:** why selling, year established, and employees when the text states them (new form fields; year and employees also in Facts).
+- **Database update 0027** (`supabase/UPDATE_0027_RUN_ONCE.sql`): three empty columns on `pipeline_items` and `schema_has_0027()`. Until it runs, the app works as before, the text is not kept, and the card shows the update line.
+- **Tests:** `src/lib/work/deal-facts.test.ts` (the fact lines, the money figures and listing text in every prompt, the rule, the three new fields) with the pasted listing in `dev-tools/fixtures/listing-physician-coaching.txt`; check-flows steps "Fix: ..." (the mock AI records each prompt at `GET /__prompts`).
+
 ### Edit batch C, round 3: listing record page, inline link, hover rule, clickable Home rows (no database update)
 
 Approved 2026-11-02 (`docs/2026-11-01-edit-batch-c.md`, round 3 items 1 and 2). No database update.
@@ -445,9 +454,10 @@ docs/                 SETUP-CHECKLIST.md and screenshots
 
 Exact values to paste are in `docs/SETUP-CHECKLIST.md`. Summary:
 
-1. **Supabase:** create a project. In SQL Editor, paste and run `supabase/ALL_MIGRATIONS_RUN_ONCE.sql` (0001 to 0026),
+1. **Supabase:** create a project. In SQL Editor, paste and run `supabase/ALL_MIGRATIONS_RUN_ONCE.sql` (0001 to 0027),
    or run each file in `supabase/migrations/` in number order. Or with the Supabase CLI: `supabase link` then `supabase db push`.
-   **Live database (has 0001 to 0025):** paste and run `supabase/UPDATE_0026_RUN_ONCE.sql` once (safe to run twice).
+   **Live database (has 0001 to 0026):** paste and run `supabase/UPDATE_0027_RUN_ONCE.sql` once (safe to run twice).
+   A database with 0001 to 0025 runs `supabase/UPDATE_0026_RUN_ONCE.sql` first, then `UPDATE_0027_RUN_ONCE.sql`.
    A database with 0001 to 0024 runs `supabase/UPDATE_0025_RUN_ONCE.sql` first, then `UPDATE_0026_RUN_ONCE.sql`.
    A database with 0001 to 0023 runs `supabase/UPDATE_0024_RUN_ONCE.sql` first, then `UPDATE_0025_RUN_ONCE.sql`.
    A database with 0001 to 0022 runs `supabase/UPDATE_0023_RUN_ONCE.sql` first, then `UPDATE_0024_RUN_ONCE.sql`.
@@ -463,7 +473,7 @@ Exact values to paste are in `docs/SETUP-CHECKLIST.md`. Summary:
    A database with 0001 to 0013 can also run `supabase/UPDATE_0014_RUN_ONCE.sql`.
    A database with 0001 to 0010 (or 0011) runs `supabase/UPDATE_0011_0012_RUN_ONCE.sql` first, then `UPDATE_0013_0014_RUN_ONCE.sql`.
    **Older database (0001 to 0007, 0008, or 0009):** paste and run `supabase/UPDATE_RUN_ONCE.sql` once.
-   It holds 0008 to 0026 and is safe to run twice. (`UPDATE_0008_RUN_ONCE.sql`, `UPDATE_0011_RUN_ONCE.sql`, `UPDATE_0012_RUN_ONCE.sql`, and `UPDATE_0013_RUN_ONCE.sql` are kept for reference.)
+   It holds 0008 to 0027 and is safe to run twice. (`UPDATE_0008_RUN_ONCE.sql`, `UPDATE_0011_RUN_ONCE.sql`, `UPDATE_0012_RUN_ONCE.sql`, and `UPDATE_0013_RUN_ONCE.sql` are kept for reference.)
    After changing a migration, regenerate the combined files with `python3 supabase/build_combined.py`.
    In Authentication, turn on "Allow new users to sign up" only until you create your account, then turn it off.
    In Authentication, Multi-Factor, make sure TOTP is enabled.
@@ -498,7 +508,7 @@ npm run lint
 npm run typecheck     # tsc with a 4 GB memory limit (the type check needs a little over 2 GB)
 npm run build         # locally: NODE_OPTIONS=--max-old-space-size=6144 npm run build (Vercel has enough memory)
 bash supabase/tests/run_local.sh      # applies all migrations to a local Postgres and runs a smoke test (includes reset and sample removal)
-bash supabase/tests/upgrade_test.sh   # UPDATE_0026_RUN_ONCE on 0001-0025 (twice, Former colleague contacts moved to Personal network, other roles and fields kept); UPDATE_0025_RUN_ONCE on 0001-0024 (twice, targets and reports kept, the new columns and tables, the seed reuses the old target rows); UPDATE_0024_RUN_ONCE on 0001-0023 (twice, CIM review before Broker call with ids and deals kept, the NDA signed default renamed, a future owner); UPDATE_0023_RUN_ONCE on 0001-0022 (twice, older notes read as notes, a finding saves with its source, the pay range saves); UPDATE_0022_RUN_ONCE on 0001-0021 (twice, last contact filled, to-dos read as deal tasks, consulting and job stages reshaped, a future owner); UPDATE_0021_RUN_ONCE on 0001-0020 (twice, Chase defaults renamed, typed questions converted once, to-dos go with the deal, a future owner); UPDATE_0020_RUN_ONCE on 0001-0019 (twice, deals in the old stages mapped, a future owner); UPDATE_0019_RUN_ONCE on 0001-0018 (twice, values kept); UPDATE_0018_RUN_ONCE on 0001-0017 (twice, a partner's choice kept); UPDATE_RUN_ONCE on 0001-0007 (twice), 0001-0008, 0001-0009 (twice); UPDATE_0011_0012_RUN_ONCE on 0001-0010 and 0001-0011 (twice each); UPDATE_0013_RUN_ONCE on 0001-0012 (twice); UPDATE_0013_0014_RUN_ONCE on 0001-0012 and 0001-0013 (twice each); UPDATE_0014_RUN_ONCE on 0001-0013 (twice); UPDATE_0015_RUN_ONCE on 0001-0014 (twice); UPDATE_0016_RUN_ONCE on 0001-0015 (twice, then a future owner); UPDATE_0017_RUN_ONCE on 0001-0016 (twice, a partner's choice kept, then a future owner); existing owner
+bash supabase/tests/upgrade_test.sh   # UPDATE_0027_RUN_ONCE on 0001-0026 (twice, the new columns start empty, the listing keeps its fields); UPDATE_0026_RUN_ONCE on 0001-0025 (twice, Former colleague contacts moved to Personal network, other roles and fields kept); UPDATE_0025_RUN_ONCE on 0001-0024 (twice, targets and reports kept, the new columns and tables, the seed reuses the old target rows); UPDATE_0024_RUN_ONCE on 0001-0023 (twice, CIM review before Broker call with ids and deals kept, the NDA signed default renamed, a future owner); UPDATE_0023_RUN_ONCE on 0001-0022 (twice, older notes read as notes, a finding saves with its source, the pay range saves); UPDATE_0022_RUN_ONCE on 0001-0021 (twice, last contact filled, to-dos read as deal tasks, consulting and job stages reshaped, a future owner); UPDATE_0021_RUN_ONCE on 0001-0020 (twice, Chase defaults renamed, typed questions converted once, to-dos go with the deal, a future owner); UPDATE_0020_RUN_ONCE on 0001-0019 (twice, deals in the old stages mapped, a future owner); UPDATE_0019_RUN_ONCE on 0001-0018 (twice, values kept); UPDATE_0018_RUN_ONCE on 0001-0017 (twice, a partner's choice kept); UPDATE_RUN_ONCE on 0001-0007 (twice), 0001-0008, 0001-0009 (twice); UPDATE_0011_0012_RUN_ONCE on 0001-0010 and 0001-0011 (twice each); UPDATE_0013_RUN_ONCE on 0001-0012 (twice); UPDATE_0013_0014_RUN_ONCE on 0001-0012 and 0001-0013 (twice each); UPDATE_0014_RUN_ONCE on 0001-0013 (twice); UPDATE_0015_RUN_ONCE on 0001-0014 (twice); UPDATE_0016_RUN_ONCE on 0001-0015 (twice, then a future owner); UPDATE_0017_RUN_ONCE on 0001-0016 (twice, a partner's choice kept, then a future owner); existing owner
 bash dev-tools/setup-local-db.sh      # local database with demo data (UP_TO=0015 for the live database before update 0016)
 bash dev-tools/start-local.sh         # mock Supabase API + the built app on http://localhost:3000
 NODE_PATH=$(npm root -g) node dev-tools/check-pages.cjs   # renders every screen, saves screenshots

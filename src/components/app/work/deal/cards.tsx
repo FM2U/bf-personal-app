@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Mail, Phone } from "lucide-react";
-import { addDealNote, addTodo, advanceDeal, deleteTodo, makeTodoNextAction, markInterested, markLost, passDeal, saveFacts, saveFindings, saveListingLink, saveNextAction, setTodoDone, suggestQuestions, suggestTodos, type FactsInput } from "@/app/actions/work";
+import { addDealNote, addTodo, advanceDeal, deleteTodo, makeTodoNextAction, markInterested, markLost, passDeal, saveFacts, saveFindings, saveListingLink, saveListingText, saveNextAction, setTodoDone, suggestQuestions, suggestTodos, type FactsInput } from "@/app/actions/work";
 import { ComposeEmailDialog } from "@/components/app/compose-email";
 import { useUnsavedWork } from "@/components/app/unsaved-changes";
 import type { ComposeSetup } from "@/lib/compose-email";
@@ -479,6 +479,8 @@ export function DealFactsForm({ deal, onSaved, onCancel, testId = "facts-form" }
     source: deal.source ?? "",
     whySelling: deal.whySelling ?? "",
     listingUrl: deal.listingUrl ?? "",
+    yearEstablished: deal.yearEstablished === null ? "" : String(deal.yearEstablished),
+    employees: deal.employees ?? "",
   });
   const initialKey = JSON.stringify(initial());
   const [f, setF] = useState<FactsInput>(initial);
@@ -501,7 +503,7 @@ export function DealFactsForm({ deal, onSaved, onCancel, testId = "facts-form" }
           {f.source && !(LISTING_SOURCES as readonly string[]).includes(f.source) ? <option value="__other">{f.source}</option> : null}
         </select>
       ) : (
-        <input id={`${ids}-${k}`} value={f[k]} onChange={set(k)} placeholder={placeholder} className={INPUT} data-testid={`fact-${k}`} />
+        <input id={`${ids}-${k}`} value={f[k] ?? ""} onChange={set(k)} placeholder={placeholder} className={INPUT} data-testid={`fact-${k}`} />
       )}
     </div>
   );
@@ -518,6 +520,8 @@ export function DealFactsForm({ deal, onSaved, onCancel, testId = "facts-form" }
       {field("location", "Location", "City, ST")}
       {field("brokerName", "Broker", "Firm, person")}
       {field("source", "Source")}
+      {field("yearEstablished", "Year established", "2010")}
+      {field("employees", "Employees", "14 full-time")}
       <div className="sm:col-span-2">{field("whySelling", "Why selling", "Retiring, no successor")}</div>
       <div className="sm:col-span-2">{field("listingUrl", "Link", "https://")}</div>
       <SaveLine state={state}>
@@ -645,6 +649,8 @@ export function FactsCard({ deal }: { deal: DealRow }) {
           <Fact label="Industry">{deal.industry ?? "Not set"}</Fact>
           <Fact label="Broker">{deal.brokerName ?? deal.contactName ?? "Not set"}</Fact>
           <Fact label="Source">{deal.source ?? "Not set"}</Fact>
+          <Fact label="Year established" testId="fact-year">{deal.yearEstablished ?? "Not known"}</Fact>
+          <Fact label="Employees" testId="fact-employees">{deal.employees ?? "Not known"}</Fact>
           <Fact label="Why selling">{deal.whySelling ?? "Not known"}</Fact>
           <Fact label="Link">
             {link ? (
@@ -667,6 +673,112 @@ export function FactsCard({ deal }: { deal: DealRow }) {
           ) : null}
         </div>
       )}
+    </WorkCard>
+  );
+}
+
+// ---------- Original listing text ----------
+
+/**
+ * "Original listing text" (Fix, approved 2026-11-02), under Facts on a listing or a deal: the full text pasted into Add
+ * a listing, kept on the record (never in the Timeline) and read by every AI action on it. Collapsed by default: the
+ * header says how long it is, Show opens it in a box that keeps its paragraphs, Hide closes it, and Replace opens the
+ * paste box to put a new text in its place. Without a text the card shows the "Paste the listing text" box with Save.
+ * Before database update 0027 (`ready` false) the card shows the update line instead.
+ */
+export function ListingTextCard({ dealId, text, ready, notice }: { dealId: string; text: string | null; ready: boolean; notice: string }) {
+  const ids = useId();
+  const [open, setOpen] = useState(false);
+  const [replacing, setReplacing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const { pending, state, run, reset } = useSave();
+  useUnsavedWork(draft.trim() !== "", "The listing text is not saved yet.");
+  const has = !!text?.trim();
+  const showBox = ready && (!has || replacing);
+  const save = () =>
+    run(
+      () => saveListingText(dealId, draft),
+      () => {
+        setDraft("");
+        setReplacing(false);
+        setOpen(true);
+      },
+    );
+  const words = has ? text!.trim().split(/\s+/).length : 0;
+  return (
+    <WorkCard
+      title={
+        <>
+          Original listing text
+          {/* The card's state for the checks (a closed card has no body, so the marker sits in the title). */}
+          <span hidden data-testid="listing-text-state" data-state={!ready ? "needs-update" : !has ? "empty" : open ? "open" : "closed"} />
+        </>
+      }
+      actions={
+        has && !replacing ? (
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                reset();
+                setReplacing(true);
+              }}
+              className="text-xs font-medium text-primary-strong hover:underline"
+              data-testid="listing-text-replace"
+            >
+              Replace
+            </button>
+            <RowButton onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-controls={`${ids}-text`} data-testid="listing-text-toggle">
+              {open ? "Hide" : "Show"}
+            </RowButton>
+          </>
+        ) : undefined
+      }
+      sub={
+        ready && has && !open && !replacing ? (
+          <span data-testid="listing-text-summary">Saved as pasted, {words.toLocaleString("en-US")} words. The AI reads it with the Facts.</span>
+        ) : undefined
+      }
+      rule={has ? open || replacing : true}
+      testId="deal-listing-text"
+    >
+      {!ready ? (
+        <p className="px-[22px] pt-3 pb-5 text-[13px] text-status-soon" role="status" data-testid="listing-text-update">
+          {notice}
+        </p>
+      ) : null}
+      {ready && has && open && !replacing ? (
+        <div className="px-[22px] pt-3 pb-5">
+          <div id={`${ids}-text`} className="max-h-[520px] overflow-y-auto rounded-[8px] border border-slate-200 bg-slate-50 px-4 py-3 text-[13.5px] leading-[1.6] break-words whitespace-pre-wrap text-slate-800" data-testid="listing-text-body">
+            {text}
+          </div>
+        </div>
+      ) : null}
+      {showBox ? (
+        <div className="flex flex-col gap-2 px-[22px] pt-3 pb-5" data-testid="listing-text-form">
+          <label htmlFor={`${ids}-paste`} className={LABEL}>
+            {has ? "Paste the new listing text (it replaces the saved one)" : "Paste the listing text"}
+          </label>
+          <GrowingTextarea id={`${ids}-paste`} value={draft} onChange={setDraft} minRows={3} placeholder="Paste the broker email or the page text. The AI reads it with the Facts." data-testid="listing-text-input" />
+          <SaveLine state={state}>
+            {replacing ? (
+              <RowButton
+                onClick={() => {
+                  setDraft("");
+                  setReplacing(false);
+                }}
+                disabled={pending}
+                data-testid="listing-text-cancel"
+              >
+                Cancel
+              </RowButton>
+            ) : null}
+            <RowButton tone="primary" disabled={pending || draft.trim().length < 20} onClick={save} data-testid="listing-text-save">
+              {pending ? "Saving..." : "Save"}
+            </RowButton>
+          </SaveLine>
+        </div>
+      ) : null}
     </WorkCard>
   );
 }

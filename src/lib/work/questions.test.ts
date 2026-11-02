@@ -2,19 +2,29 @@ import { describe, expect, it } from "vitest";
 import { cleanQuestions, countQuestions, emptyQuestions, mergeQuestions, parseOpenQuestions, QUESTION_GROUPS, questionsEmailDraft, questionsFromLines, questionsPrompt, todosPrompt, validateQuestionsReply, validateTodosReply, type DealContext } from "./questions";
 
 const ctx: DealContext = {
-  name: "Dalton Services",
-  stage: "CIM review",
-  whatItDoes: "Commercial HVAC service and maintenance contracts",
-  location: "Chattanooga, TN",
-  industry: "Home and building services",
-  brokerName: "Rachel Kim, Transworld",
-  source: "Broker newsletter",
-  whySelling: "Retiring, no successor",
-  revenue: "$5.6M",
-  ebitda: "$1.7M",
-  sde: null,
-  askingPrice: "$6.0M",
-  keyFinding: "70% of revenue is recurring maintenance contracts",
+  facts: {
+    name: "Dalton Services",
+    listingName: "00 Commercial HVAC Service Contractor",
+    companyName: "Dalton Services",
+    stage: "CIM review",
+    screened: true,
+    whatItDoes: "Commercial HVAC service and maintenance contracts",
+    location: "Chattanooga, TN",
+    industry: "Home and building services",
+    brokerName: "Rachel Kim, Transworld",
+    source: "Broker newsletter",
+    whySelling: "Retiring, no successor",
+    revenue: 5_600_000,
+    ebitda: 1_700_000,
+    sde: null,
+    askingPrice: 6_000_000,
+    yearEstablished: null,
+    employees: null,
+    listingUrl: null,
+    keyFinding: "70% of revenue is recurring maintenance contracts",
+    openQuestions: null,
+    listingText: "Commercial HVAC contractor in Chattanooga.\n\nThe owner works in the field two days a week and plans to stay six months.",
+  },
   nextAction: "Review the CIM and write the key finding",
   timeline: ["Oct 30, email received: CIM received from Rachel Kim", "Oct 27, call: Owner is 58, retiring. 11 technicians."],
   documentNames: ["Dalton_CIM.pdf"],
@@ -55,8 +65,14 @@ describe("open questions", () => {
     const p = questionsPrompt(ctx);
     expect(p).toContain("TASK: open_questions");
     expect(p).toContain("Deal: Dalton Services");
-    expect(p).toContain("Stage: CIM review");
-    expect(p).toContain("Asking price: $6.0M");
+    expect(p).toContain("stage: CIM review");
+    // Fix 2026-11-02: every fact as an exact figure (asking with the multiple), the listing text, and the no-false-gaps rule.
+    expect(p).toContain("revenue: $5,600,000");
+    expect(p).toContain("EBITDA: $1,700,000");
+    expect(p).toContain("asking price: $6,000,000 (3.5x EBITDA)");
+    expect(p).toContain("why selling: Retiring, no successor");
+    expect(p).toContain("The owner works in the field two days a week");
+    expect(p).toContain("Only say information is missing when it is absent from the facts and the listing text above; name the exact field and who to ask.");
     expect(p).toContain("Oct 27, call: Owner is 58");
     expect(p).toContain("Documents on file: Dalton_CIM.pdf");
     expect(p).toContain('"Why sell now at 58?"');

@@ -5,7 +5,7 @@ import { loadCtx, type Ctx } from "@/lib/engine/helpers";
 import { date as fmtDate } from "@/lib/format";
 import { loadDocuments, type DocumentItem } from "@/lib/record-panels-data";
 import { loadComposeSetup, type ComposeSetup } from "@/lib/compose-email";
-import { DB_UPDATE_NOTICE_0020, DB_UPDATE_NOTICE_0021, DB_UPDATE_NOTICE_0022, DB_UPDATE_NOTICE_0023, DB_UPDATE_NOTICE_0024 } from "@/lib/schema-guard";
+import { DB_UPDATE_NOTICE_0020, DB_UPDATE_NOTICE_0021, DB_UPDATE_NOTICE_0022, DB_UPDATE_NOTICE_0023, DB_UPDATE_NOTICE_0024, isMissingSchemaError } from "@/lib/schema-guard";
 import { hasUpdate0020 } from "@/lib/update-0020";
 import { hasUpdate0021 } from "@/lib/update-0021";
 import { hasUpdate0022 } from "@/lib/update-0022";
@@ -69,6 +69,10 @@ export type DealRow = {
   source: string | null;
   listingUrl: string | null;
   whySelling: string | null;
+  /** Database update 0027 (null before it, or when not known). */
+  yearEstablished: number | null;
+  /** Database update 0027: as the listing states it ("20+ coaches"); null before it, or when not known. */
+  employees: string | null;
   keyFinding: string | null;
   openQuestions: QuestionGroups;
   /** The first open item of the Also to do checklist (offered as the next action when the current one is Done). */
@@ -152,6 +156,16 @@ export async function loadTabCounts(sb: SupabaseClient, ownerId: string, today: 
 
 const ITEM_COLUMNS = "id,name,company_name,status,stage_id,pipeline_id,primary_contact_id,source,next_action,next_action_due,next_action_minutes,what_it_does,location,industry,listing_url,broker_name,why_selling,key_finding,open_questions,open_questions_json,waiting_on,waiting_since,pass_reason,screened,created_at,stage_entered_at,notes";
 
+/** The columns of database update 0027 (Facts); read with a fallback to ITEM_COLUMNS until the update runs. */
+const ITEM_COLUMNS_0027 = `${ITEM_COLUMNS},year_established,employees`;
+
+/** Runs a pipeline_items read with the 0027 columns, and again without them when the database does not have them yet. */
+async function readItems<T>(run: (columns: string) => PromiseLike<{ data: T; error: { message: string; code?: string } | null }>): Promise<{ data: T; error: { message: string; code?: string } | null }> {
+  const first = await run(ITEM_COLUMNS_0027);
+  if (first.error && isMissingSchemaError(first.error)) return run(ITEM_COLUMNS);
+  return first;
+}
+
 const TODO_COLUMNS = "id,deal_id,text,position,done_at,created_at";
 
 export function toTodo(t: Row): DealTodo {
@@ -161,9 +175,11 @@ export function toTodo(t: Row): DealTodo {
 type Loaded = { items: Row[]; financials: Record<string, Row>; contacts: Record<string, Row>; todos: Record<string, DealTodo[]> };
 
 async function loadItems(sb: SupabaseClient, ownerId: string, pipelineId: string, screened: boolean | null): Promise<Loaded> {
-  let q = sb.from("pipeline_items").select(ITEM_COLUMNS).eq("owner_id", ownerId).eq("pipeline_id", pipelineId).limit(500);
-  if (screened !== null) q = q.eq("screened", screened);
-  const { data, error } = await q;
+  const { data, error } = await readItems((columns) => {
+    let q = sb.from("pipeline_items").select(columns).eq("owner_id", ownerId).eq("pipeline_id", pipelineId).limit(500);
+    if (screened !== null) q = q.eq("screened", screened);
+    return q;
+  });
   if (error) throw new Error(error.message);
   const items = (data ?? []) as Row[];
   const ids = items.map((i) => i.id);
@@ -211,6 +227,8 @@ export function toDealRow(i: Row, f: Row | undefined, contact: Row | undefined, 
     source: i.source ?? null,
     listingUrl: i.listing_url ?? null,
     whySelling: i.why_selling ?? null,
+    yearEstablished: num(i.year_established),
+    employees: i.employees ? String(i.employees) : null,
     keyFinding: i.key_finding ?? null,
     openQuestions: parseOpenQuestions(i.open_questions_json, i.open_questions as string | null),
     topTodo: top ? { id: top.id, text: top.text } : null,
@@ -379,6 +397,10 @@ export type DealPageData = {
   documents: DocumentItem[];
   /** The Tasks checklist (was Also to do), open items first. */
   todos: DealTodo[];
+  /** The original listing text pasted into Add a listing or on the page (database update 0027); null when none is saved. */
+  listingText: string | null;
+  /** False before database update 0027 (the Original listing text card says so and cannot save). */
+  listingTextReady: boolean;
   /** The last logged email or call on this deal (the header figure): the owner's date (YYYY-MM-DD) and what kind. */
   lastContact: { on: string; kind: string } | null;
   compose: ComposeSetup | null;
@@ -393,12 +415,12 @@ export type DealPageData = {
 /** The deal page: the deal, its timeline (notes, communications, stage moves; newest first), documents, and the email setup. */
 export async function loadDealPage(sb: SupabaseClient, ownerId: string, id: string): Promise<DealPageData> {
   const ctx = await loadWorkCtx(sb, ownerId);
-  const base: DealPageData = { available: false, notice: null, today: ctx.today, tz: ctx.tz, threshold: ctx.threshold, deal: null, timeline: [], documents: [], todos: [], lastContact: null, compose: null, questionsCompose: null, advanceTo: null, passedStageId: null, lostStageId: null };
+  const base: DealPageData = { available: false, notice: null, today: ctx.today, tz: ctx.tz, threshold: ctx.threshold, deal: null, timeline: [], documents: [], todos: [], listingText: null, listingTextReady: false, lastContact: null, compose: null, questionsCompose: null, advanceTo: null, passedStageId: null, lostStageId: null };
   const notice = await workUpdateNotice(sb);
   if (notice) return { ...base, notice };
   const pipe = await loadWorkPipeline(sb, ownerId);
   if (!pipe) return { ...base, available: true };
-  const { data: row } = await sb.from("pipeline_items").select(ITEM_COLUMNS).eq("owner_id", ownerId).eq("id", id).eq("pipeline_id", pipe.id).maybeSingle();
+  const { data: row } = await readItems((columns) => sb.from("pipeline_items").select(columns).eq("owner_id", ownerId).eq("id", id).eq("pipeline_id", pipe.id).maybeSingle());
   const item = row as Row | null;
   if (!item) return { ...base, available: true };
   const [{ data: fin }, { data: contact }, { data: notes }, { data: comms }, { data: links }, { data: history }, documents, { data: full }, { data: todoRows }] = await Promise.all([
@@ -448,6 +470,9 @@ export async function loadDealPage(sb: SupabaseClient, ownerId: string, id: stri
     timeline: events,
     documents,
     todos,
+    // Kept on the record (database update 0027), never as a note, so it is not in the Timeline.
+    listingText: typeof (full as Row | null)?.listing_text === "string" && String((full as Row).listing_text).trim() ? String((full as Row).listing_text) : null,
+    listingTextReady: !!full && Object.prototype.hasOwnProperty.call(full, "listing_text"),
     lastContact: lastComm ? { on: todayInTz(ctx.tz, new Date(String(lastComm.occurred_at))), kind: String(lastComm.method) } : null,
     compose: compose ? { ...compose, title: `Email about ${deal.name}` } : null,
     questionsCompose: compose ? await questionsComposeSetup(sb, compose, deal) : null,

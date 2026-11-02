@@ -8,6 +8,8 @@
  * questions, and the cost estimate are here; the calls are in src/app/actions/ask-ai.ts.
  */
 
+import { listingTextBlock, NO_FALSE_GAPS_RULE } from "@/lib/work/deal-facts";
+
 /** The pages the panel knows. A record page carries the record's id. */
 export type AskPage = "home" | "listings" | "deals" | "deal" | "outreach" | "person" | "rosara" | "project" | "jobs" | "opportunity" | "consulting" | "consulting_item" | "todos" | "targets" | "end_of_day" | "reports";
 
@@ -74,20 +76,34 @@ export const SUGGESTED_QUESTIONS: Record<AskPage, readonly string[]> = {
   reports: ["What changed versus last week?", "Which broker waits the longest?", "What did my partner ask about?"],
 };
 
-/** What the AI reads about a page: a title and plain lines (names, stages, next actions, waits, recent timeline). */
-export type PageContext = { title: string; lines: string[] };
+/**
+ * What the AI reads about a page: a title and plain lines (names, stages, next actions, waits, recent timeline). On a
+ * deal or a listing (Fix 2026-11-02) `deal` is true, the lines carry every fact (src/lib/work/deal-facts.ts), and
+ * `listingText` is the original listing text (kept with its paragraphs, cut at LISTING_TEXT_AI_MAX characters).
+ */
+export type PageContext = { title: string; lines: string[]; deal?: boolean; listingText?: string | null };
 
 export const CONTEXT_MAX_LINES = 80;
 export const CONTEXT_MAX_LINE_LENGTH = 240;
 
 /** Keeps the context small: at most CONTEXT_MAX_LINES lines, each cut at CONTEXT_MAX_LINE_LENGTH characters. */
 export function trimContext(c: PageContext): PageContext {
-  return { title: c.title.slice(0, 160), lines: c.lines.filter((l) => String(l ?? "").trim()).slice(0, CONTEXT_MAX_LINES).map((l) => String(l).replace(/\s+/g, " ").trim().slice(0, CONTEXT_MAX_LINE_LENGTH)) };
+  const out: PageContext = { title: c.title.slice(0, 160), lines: c.lines.filter((l) => String(l ?? "").trim()).slice(0, CONTEXT_MAX_LINES).map((l) => String(l).replace(/\s+/g, " ").trim().slice(0, CONTEXT_MAX_LINE_LENGTH)) };
+  if (c.deal) out.deal = true;
+  // The text is cut for the AI where it goes into the prompt (listingTextBlock), at LISTING_TEXT_AI_MAX characters.
+  if (c.deal || c.listingText) out.listingText = c.listingText ?? null;
+  return out;
 }
 
-function contextBlock(c: PageContext): string {
+/**
+ * The page block of every Ask AI prompt. On a deal or a listing the original listing text follows the lines (or a line
+ * saying none is saved), then NO_FALSE_GAPS_RULE, so the AI never calls a fact missing that the page or the text holds.
+ */
+export function contextBlock(c: PageContext): string {
   const t = trimContext(c);
-  return [`Page: ${t.title}`, "What is on the page (one record or line each):", ...t.lines.map((l) => `- ${l}`)].join("\n");
+  const base = [`Page: ${t.title}`, "What is on the page (one record or line each):", ...t.lines.map((l) => `- ${l}`)];
+  if (!t.deal && !t.listingText) return base.join("\n");
+  return [...base, listingTextBlock(t.listingText), NO_FALSE_GAPS_RULE].join("\n");
 }
 
 export const NEXT_STEPS_MAX = 3;

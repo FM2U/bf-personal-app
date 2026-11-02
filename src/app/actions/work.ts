@@ -11,10 +11,11 @@ import { evaluateConditions } from "@/lib/engine/rules";
 import { AI_REPLY_CUT_OFF, AI_REPLY_UNUSABLE, AIInvalidReply, AIUnavailable, callForJson, cleanDeep, replySnippet } from "@/lib/ai/claude";
 import { date as fmtDate } from "@/lib/format";
 import { missingForStage } from "@/lib/pipeline";
-import { DB_UPDATE_NOTICE_0021, isMissingSchemaError } from "@/lib/schema-guard";
-import { checkBuyBox, dealSourceTypeFor, isPassReason, LISTING_SOURCES, moneyShort, parseMoneyText } from "@/lib/work/buy-box";
-import { firstUrl, listingNumbers, listingPrompt, validateListingReply, withListingUrl, type ListingFields } from "@/lib/work/listing-text";
+import { DB_UPDATE_NOTICE_0021, DB_UPDATE_NOTICE_0027, isMissingSchemaError } from "@/lib/schema-guard";
+import { checkBuyBox, dealSourceTypeFor, isPassReason, LISTING_SOURCES, parseMoneyText } from "@/lib/work/buy-box";
+import { firstUrl, listingNumbers, listingTextToSave, listingPrompt, validateListingReply, withListingUrl, yearOf, type ListingFields } from "@/lib/work/listing-text";
 import { loadWorkPipeline, workUpdateNotice, type WorkPipeline } from "@/lib/work/data";
+import { dealFactsFromRow } from "@/lib/work/deal-facts";
 import { cleanQuestions, countQuestions, mergeQuestions, parseOpenQuestions, questionsPrompt, TODO_MAX_LENGTH, todosPrompt, validateQuestionsReply, validateTodosReply, type DealContext, type QuestionGroups } from "@/lib/work/questions";
 import { nextTodoPosition, openTodos, type DealTodo } from "@/lib/work/todos";
 import type { Row } from "@/lib/types";
@@ -59,6 +60,9 @@ async function dealOf(sb: SupabaseClient, ctx: Ctx, pipe: WorkPipeline, id: stri
 
 const isFail = (v: unknown): v is Fail => !!v && typeof v === "object" && (v as Fail).ok === false;
 
+/** True when a pipeline_items row read with "*" has the columns of database update 0027 (listing_text, year_established, employees). */
+const has0027 = (item: Row) => Object.prototype.hasOwnProperty.call(item, "listing_text");
+
 function done() {
   revalidatePath("/", "layout");
 }
@@ -92,8 +96,13 @@ export async function fillListingFromText(text: string): Promise<{ ok: true; fie
   }
 }
 
-/** Save to the list: a new listing (a pipeline item with screened = false and no stage) and its numbers. */
-export async function createListing(input: ListingFields): Promise<{ ok: true; id: string } | Fail> {
+/**
+ * Save to the list: a new listing (a pipeline item with screened = false and no stage) and its numbers. Fix 2026-11-02:
+ * the pasted text (when the paste box holds any at save) is kept on the record as its original listing text, with why
+ * selling, year established, and employees. Before database update 0027 the listing saves without the text, the year,
+ * and the employees, and `notice` says so.
+ */
+export async function createListing(input: ListingFields, pastedText = ""): Promise<{ ok: true; id: string; notice?: string } | Fail> {
   const s = await setup();
   if (isFail(s)) return s;
   const { sb, ctx, pipe } = s;
@@ -115,17 +124,27 @@ export async function createListing(input: ListingFields): Promise<{ ok: true; i
     location: clean(input.location, 120),
     industry: clean(input.industry, 120),
     listing_url: clean(input.listing_url, 500),
+    why_selling: clean(input.why_selling, 300),
   };
   row.buy_box_note = checkBuyBox({ name, whatItDoes: row.what_it_does, industry: row.industry, location: row.location, ebitda: numbers.ebitda, sde: numbers.sde }).label;
-  const { data, error } = await sb.from("pipeline_items").insert(row).select("id").single();
-  if (error) return notSaved(error);
+  const text = listingTextToSave(pastedText);
+  const year = yearOf(input.year_established);
+  const extra: Row = { listing_text: text, year_established: year ? Number(year) : null, employees: clean(input.employees, 120) };
+  let notice: string | undefined;
+  let { data, error } = await sb.from("pipeline_items").insert({ ...row, ...extra }).select("id").single();
+  if (error && isMissingSchemaError(error)) {
+    // Before database update 0027: saved without the text, the year, and the employees.
+    ({ data, error } = await sb.from("pipeline_items").insert(row).select("id").single());
+    if (!error && (text || year || extra.employees)) notice = DB_UPDATE_NOTICE_0027;
+  }
+  if (error || !data) return notSaved(error);
   const id = String(data.id);
   if (numbers.revenue !== null || numbers.ebitda !== null || numbers.sde !== null || numbers.asking_price !== null) {
     const { error: e2 } = await sb.from("deal_financials").insert({ owner_id: ctx.ownerId, item_id: id, revenue: numbers.revenue, ebitda: numbers.ebitda, sde: numbers.sde, asking_price: numbers.asking_price });
     if (e2) return fail(`The listing was saved, but its numbers were not: ${e2.message}. Open the deal to add them.`);
   }
   done();
-  return { ok: true, id };
+  return notice ? { ok: true, id, notice } : { ok: true, id };
 }
 
 /** Pass (a listing or a deal): the reason is kept, the item goes to Passed and counts as screened. */
@@ -171,7 +190,7 @@ export async function markInterested(id: string): Promise<{ ok: true; nextAction
 
 // ---------- The AI on a deal: open questions and to-dos ----------
 
-/** What the AI reads about a deal: facts, stage, key finding, notes, emails, calls, and document names. */
+/** What the AI reads about a deal: every fact, the original listing text, stage, key finding, notes, emails, calls, and document names. */
 async function dealContext(sb: SupabaseClient, pipe: WorkPipeline, item: Row): Promise<DealContext> {
   const stage = item.stage_id ? pipe.byId[item.stage_id] : null;
   const [{ data: fin }, { data: notes }, { data: comms }, { data: docs }] = await Promise.all([
@@ -180,32 +199,20 @@ async function dealContext(sb: SupabaseClient, pipe: WorkPipeline, item: Row): P
     sb.from("communications").select("occurred_at,method,direction,subject,summary").eq("pipeline_item_id", item.id).order("occurred_at", { ascending: false }).limit(20),
     sb.from("documents").select("file_name,kind").eq("record_type", "pipeline_items").eq("record_id", item.id).order("created_at", { ascending: false }).limit(20),
   ]);
-  const f = (fin ?? null) as Row | null;
-  const money = (v: unknown) => (v === null || v === undefined || v === "" ? null : moneyShort(Number(v)));
   const timeline = [
     ...((notes ?? []) as Row[]).map((n) => ({ when: String(n.created_at), text: `note: ${String(n.body ?? "").slice(0, 300)}` })),
     ...((comms ?? []) as Row[]).map((c) => ({ when: String(c.occurred_at), text: `${c.method === "email" ? (c.direction === "incoming" ? "email received" : "email sent") : String(c.method)}: ${[c.subject, c.summary].filter(Boolean).join(". ")}` })),
   ]
     .sort((a, b) => (a.when < b.when ? 1 : -1))
     .map((e) => `${fmtDate(e.when, "MMM d")}, ${e.text}`);
+  const existing = parseOpenQuestions(item.open_questions_json, item.open_questions as string | null);
   return {
-    name: String(item.company_name || item.name),
-    stage: stage?.name ?? null,
-    whatItDoes: item.what_it_does ?? null,
-    location: item.location ?? null,
-    industry: item.industry ?? null,
-    brokerName: item.broker_name ?? null,
-    source: item.source ?? null,
-    whySelling: item.why_selling ?? null,
-    revenue: money(f?.revenue),
-    ebitda: money(f?.ebitda),
-    sde: money(f?.sde),
-    askingPrice: money(f?.asking_price),
-    keyFinding: item.key_finding ?? null,
+    // Fix 2026-11-02: every fact (money, multiple, source, link, year, employees) and the original listing text.
+    facts: dealFactsFromRow(item, (fin ?? null) as Row | null, stage?.name ?? null, existing),
     nextAction: item.next_action ?? null,
     timeline,
     documentNames: ((docs ?? []) as Row[]).map((d) => String(d.file_name)),
-    existing: parseOpenQuestions(item.open_questions_json, item.open_questions as string | null),
+    existing,
   };
 }
 
@@ -483,7 +490,7 @@ export async function saveFindings(id: string, input: { keyFinding: string; ques
   return { ok: true, questions };
 }
 
-export type FactsInput = { name: string; companyName: string; whatItDoes: string; location: string; revenue: string; ebitda: string; sde: string; askingPrice: string; industry: string; brokerName: string; source: string; whySelling: string; listingUrl: string };
+export type FactsInput = { name: string; companyName: string; whatItDoes: string; location: string; revenue: string; ebitda: string; sde: string; askingPrice: string; industry: string; brokerName: string; source: string; whySelling: string; listingUrl: string; /** Database update 0027; left as it is when not given. */ yearEstablished?: string; /** Database update 0027; left as it is when not given. */ employees?: string };
 
 /** The Facts card: the deal's text facts and its numbers (deal_financials). */
 export async function saveFacts(id: string, input: FactsInput): Promise<{ ok: true } | Fail> {
@@ -507,6 +514,9 @@ export async function saveFacts(id: string, input: FactsInput): Promise<{ ok: tr
       source,
       why_selling: clean(input.whySelling, 300),
       listing_url: clean(input.listingUrl, 500),
+      // Database update 0027: the two Facts fields are saved once the columns exist (the row read with "*" shows them).
+      ...(has0027(item) && input.yearEstablished !== undefined ? { year_established: yearOf(input.yearEstablished) ? Number(yearOf(input.yearEstablished)) : null } : {}),
+      ...(has0027(item) && input.employees !== undefined ? { employees: clean(input.employees, 120) } : {}),
     })
     .eq("id", item.id);
   if (error) return notSaved(error);
@@ -592,4 +602,24 @@ export async function saveListingLink(id: string, url: string): Promise<{ ok: tr
   if (error) return notSaved(error);
   done();
   return { ok: true, url: link };
+}
+
+/**
+ * The Original listing text card (Fix 2026-11-02): "Paste the listing text" on a listing or a deal that has none, and
+ * "Replace" on one that has it. One text per record: the new text takes the place of the old one (kept on
+ * pipeline_items.listing_text, never in the Timeline). Before database update 0027 the card shows the update line.
+ */
+export async function saveListingText(id: string, text: string): Promise<{ ok: true } | Fail> {
+  const body = listingTextToSave(text, 20);
+  if (!body) return fail("Paste the listing text first (the broker email or the page).");
+  const s = await setup();
+  if (isFail(s)) return s;
+  const { sb, ctx, pipe } = s;
+  const item = await dealOf(sb, ctx, pipe, id);
+  if (isFail(item)) return item;
+  if (!has0027(item)) return fail(DB_UPDATE_NOTICE_0027);
+  const { error } = await sb.from("pipeline_items").update({ listing_text: body }).eq("id", item.id);
+  if (error) return isMissingSchemaError(error) ? fail(DB_UPDATE_NOTICE_0027) : notSaved(error);
+  done();
+  return { ok: true };
 }

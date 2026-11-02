@@ -27,8 +27,9 @@
 #       then UPDATE_0025_RUN_ONCE.sql twice
 #   (x) 0001 to 0025 (the live database on 2026-11-02, evening) plus contacts with the Former colleague role and other roles,
 #       then UPDATE_0026_RUN_ONCE.sql twice
+#   (y) 0001 to 0026 (the live database on 2026-11-02, night) plus a listing with facts, then UPDATE_0027_RUN_ONCE.sql twice
 # Paths b, c, d (UPDATE_RUN_ONCE.sql) and j, k, l also check 0014: tables, policies, functions, sample removal, and reset.
-# UPDATE_RUN_ONCE.sql now ends with 0026, so on paths b, c, d the acquisition, job, and consulting stages are the new ones (the checks allow both).
+# UPDATE_RUN_ONCE.sql now ends with 0027, so on paths b, c, d the acquisition, job, and consulting stages are the new ones (the checks allow both).
 # Every UPDATE_RUN_ONCE.sql path also checks 0012 and 0013.
 # Usage: bash supabase/tests/upgrade_test.sh
 set -euo pipefail
@@ -1086,6 +1087,45 @@ select '0026 checks passed' as result;
 SQL
 for f in UPDATE_RUN_ONCE ALL_MIGRATIONS_RUN_ONCE; do grep -q "schema_has_0026" "$DIR/$f.sql" || { echo "$f.sql is missing 0026"; exit 1; }; done
 
+# (y) Live state on 2026-11-02, night: 0001 to 0026 applied, a listing with its facts, then UPDATE_0027_RUN_ONCE.sql twice.
+# Nothing is deleted and no row changes: the three new columns start empty, the listing keeps every field, the text,
+# the year, and the employees save, and a year outside 1700 to 2200 is refused.
+setup bf_upgrade_y 0026
+su postgres -c "$PSQL -d bf_upgrade_y" <<'SQL'
+\set ON_ERROR_STOP 1
+insert into public.pipeline_items (owner_id, pipeline_id, name, screened, status, source, why_selling, listing_url)
+  select '00000000-0000-0000-0000-000000000001', id, '00 Upgrade Y Listing', false, 'open', 'Broker newsletter', 'Retiring', 'https://example.com/y'
+  from public.pipelines where kind = 'acquisition' limit 1;
+create table public.upgrade_y_before as select (select count(*) from public.pipeline_items) as items, (select id from public.pipeline_items where name = '00 Upgrade Y Listing') as listing_id;
+SQL
+for run in 1 2; do
+  echo "[bf_upgrade_y] Applying UPDATE_0027_RUN_ONCE.sql (run $run)"
+  su postgres -c "$PSQL -d bf_upgrade_y -f $DIR/UPDATE_0027_RUN_ONCE.sql"
+done
+su postgres -c "$PSQL -d bf_upgrade_y" <<'SQL'
+\set ON_ERROR_STOP 1
+do $$
+declare v_items bigint; v_id uuid;
+begin
+  select items, listing_id into v_items, v_id from public.upgrade_y_before;
+  assert to_regprocedure('public.schema_has_0027()') is not null, '0027 check function';
+  assert (select count(*) from public.pipeline_items) = v_items, 'no item deleted';
+  assert (select listing_text is null and year_established is null and employees is null from public.pipeline_items where id = v_id), 'the new columns start empty';
+  assert (select why_selling = 'Retiring' and listing_url = 'https://example.com/y' and screened = false from public.pipeline_items where id = v_id), 'other fields kept';
+  update public.pipeline_items set listing_text = 'Para one.' || chr(10) || chr(10) || 'Para two.', year_established = 2010, employees = '20+ coaches' where id = v_id;
+  assert (select listing_text from public.pipeline_items where id = v_id) like 'Para one.%Para two.', 'the text saves with its paragraphs';
+  assert (select count(*) from pg_constraint where conname = 'pipeline_items_year_established_check') = 1, 'the year check once';
+  begin
+    update public.pipeline_items set year_established = 15 where id = v_id;
+    raise exception 'a year of 15 was accepted';
+  exception when check_violation then null;
+  end;
+end $$;
+drop table public.upgrade_y_before;
+select '0027 checks passed' as result;
+SQL
+for f in UPDATE_RUN_ONCE ALL_MIGRATIONS_RUN_ONCE; do grep -q "schema_has_0027" "$DIR/$f.sql" || { echo "$f.sql is missing 0027"; exit 1; }; done
+
 echo "Upgrade paths passed: 0001-0007 + update twice, 0001-0008 + update, 0001-0009 + update twice, 0001-0010 + 0011 update twice,"
 echo "0001-0010 + 0011_0012 update twice, 0001-0011 + 0011_0012 update twice, 0001-0011 + 0012 update twice (edited text kept),"
 echo "0001-0012 + 0013 update twice, 0001-0012 + 0013_0014 update twice, 0001-0013 + 0013_0014 update twice, 0001-0013 + 0014 update twice,"
@@ -1096,4 +1136,5 @@ echo "0001-0021 + 0022 update twice (last contact filled, to-dos read as deal ta
 echo "0001-0022 + 0023 update twice (older notes read as notes, a finding saves with its source, the pay range saves),"
 echo "0001-0023 + 0024 update twice (CIM review before Broker call, ids and deals kept, the NDA signed default renamed, a future owner),"
 echo "0001-0024 + 0025 update twice (targets and reports kept, the new columns and tables, end_of_day reports, the seed reuses the old target rows),"
-echo "0001-0025 + 0026 update twice (Former colleague contacts moved to Personal network by UPDATE, other roles and fields kept, the check refuses the old key)."
+echo "0001-0025 + 0026 update twice (Former colleague contacts moved to Personal network by UPDATE, other roles and fields kept, the check refuses the old key),"
+echo "0001-0026 + 0027 update twice (the listing text, year established, and employees columns start empty, the listing keeps its fields, a bad year is refused)."

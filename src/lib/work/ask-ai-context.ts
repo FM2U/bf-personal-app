@@ -13,7 +13,7 @@ import { loadItemPage, loadPipelineBoard, loadPipelinesHome, type ItemRow } from
 import { loadProjectPage, loadRosara, loadRosaraHome, type ProjectRow } from "@/lib/work/projects-data";
 import { openTodos, type DealTodo } from "@/lib/work/todos";
 import type { TimelineEvent } from "@/lib/work/timeline";
-import { QUESTION_GROUPS } from "@/lib/work/questions";
+import { dealFactLines, dealFactsOf, moneyExact } from "@/lib/work/deal-facts";
 import { loadEndOfDay, loadReportsPage, loadTargetsPage } from "@/lib/accountability/data";
 import { endOfDayLines, reportsLines, targetsLines } from "@/lib/accountability/ask-ai";
 
@@ -78,6 +78,8 @@ export async function buildPageContext(sb: SupabaseClient, ownerId: string, c: A
   let title = c.label;
   let lines: string[] = [];
   let head: string[] = [];
+  let dealRecord = false;
+  let listingText: string | null = null;
   const id = c.recordId ?? "";
   const nextCard = c.card === "Next action" || c.card === "Next follow-up";
   /** "stage default next action: Ask for the seller call (due in 3 days)" for the next action star. */
@@ -106,7 +108,8 @@ export async function buildPageContext(sb: SupabaseClient, ownerId: string, c: A
     case "listings": {
       const d = await loadListings(sb, ownerId);
       title = "Screen listings";
-      lines = d.listings.map((l) => `listing: ${l.name} | ${l.whatItDoes ?? ""} | ${l.location ?? ""} | ${l.earningsLabel ?? "no figure"} ${l.earnings ?? ""} | buy box: ${l.buyBox.label}`);
+      // Fix 2026-11-02: revenue, earnings, and asking price with the multiple, as exact figures.
+      lines = d.listings.map((l) => `listing: ${l.name} | ${l.whatItDoes ?? ""} | ${l.location ?? ""} | revenue ${moneyExact(l.revenue) ?? "not stated"} | ${l.earningsLabel ?? "earnings"} ${moneyExact(l.earnings) ?? "not stated"} | asking ${moneyExact(l.askingPrice) ?? "not stated"}${l.askingMultiple ? ` (${l.askingMultiple})` : ""} | buy box: ${l.buyBox.label}`);
       break;
     }
     case "deals": {
@@ -118,14 +121,13 @@ export async function buildPageContext(sb: SupabaseClient, ownerId: string, c: A
     case "deal": {
       const d = await loadDealPage(sb, ownerId, id);
       if (d.deal) {
-        title = `Deal: ${d.deal.name}`;
-        head = [dealLine(d.deal, today), ...(await stageDefault("acquisition", d.deal.stageId)), `facts: ${[d.deal.whatItDoes, d.deal.location, d.deal.industry, d.deal.brokerName ? `broker ${d.deal.brokerName}` : null, d.deal.whySelling ? `why selling: ${d.deal.whySelling}` : null].filter(Boolean).join(" | ")}`];
-        lines = [
-          ...(d.deal.keyFinding ? [`key finding: ${d.deal.keyFinding}`] : []),
-          ...QUESTION_GROUPS.flatMap((g) => d.deal!.openQuestions[g.key].map((q) => `question (${g.label}): ${q}`)),
-          ...taskLines(d.todos),
-          ...timelineLines(d.timeline),
-        ];
+        title = `${d.deal.screened ? "Deal" : "Listing"}: ${d.deal.name}`;
+        // Fix 2026-11-02: every fact (money, multiple, source, link, year, employees, key finding, open questions) and the
+        // original listing text, for the page pill, every card star, the next action star, and every field star.
+        head = [dealLine(d.deal, today), ...(await stageDefault("acquisition", d.deal.stageId)), ...dealFactLines(dealFactsOf(d.deal, d.listingText))];
+        lines = [...taskLines(d.todos), ...timelineLines(d.timeline)];
+        dealRecord = true;
+        listingText = d.listingText;
       }
       break;
     }
@@ -214,5 +216,5 @@ export async function buildPageContext(sb: SupabaseClient, ownerId: string, c: A
     head.push(`the field to fill: ${c.field.label}${c.field.current ? ` (holds: ${c.field.current.slice(0, 200)})` : " (empty)"}`);
     if (c.field.extra) head.push(c.field.extra);
   }
-  return trimContext({ title, lines: [...head, ...lines] });
+  return trimContext({ title, lines: [...head, ...lines], ...(dealRecord ? { deal: true, listingText } : {}) });
 }

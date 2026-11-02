@@ -1,7 +1,8 @@
 # Regenerates the combined SQL files from supabase/migrations:
 #   supabase/ALL_MIGRATIONS_RUN_ONCE.sql  every migration (new, empty project)
-#   supabase/UPDATE_RUN_ONCE.sql          0008 to 0026 (full catch-up for an existing project with 0001 to 0007 or later)
-#   supabase/UPDATE_0026_RUN_ONCE.sql     0026 only (the live database: 0001 to 0025)
+#   supabase/UPDATE_RUN_ONCE.sql          0008 to 0027 (full catch-up for an existing project with 0001 to 0007 or later)
+#   supabase/UPDATE_0027_RUN_ONCE.sql     0027 only (the live database: 0001 to 0026)
+#   supabase/UPDATE_0026_RUN_ONCE.sql     0026 only (a database with 0001 to 0025)
 #   supabase/UPDATE_0025_RUN_ONCE.sql     0025 only (a database with 0001 to 0024)
 #   supabase/UPDATE_0024_RUN_ONCE.sql     0024 only (a database with 0001 to 0023)
 #   supabase/UPDATE_0023_RUN_ONCE.sql     0023 only (a database with 0001 to 0022)
@@ -34,7 +35,7 @@ open("supabase/ALL_MIGRATIONS_RUN_ONCE.sql", "w").write(header + "\n".join(parts
 
 update_files = [f for f in files if f.split("/")[-1][:4] >= "0008"]
 update = (
-    "-- BF Personal App: database update (0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019, 0020, 0021, 0022, 0023, 0024, 0025, and 0026).\n"
+    "-- BF Personal App: database update (0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019, 0020, 0021, 0022, 0023, 0024, 0025, 0026, and 0027).\n"
     "--   0008: Daily Targets and Outreach Queue.\n"
     "--   0009: Stage task lists, stage time limits, required details, stalled items, deal source (proprietary or brokered),\n"
     "--         deal-source contacts, and the Deals sourced and Deals advanced targets.\n"
@@ -61,7 +62,8 @@ update = (
     "--   0025: Batch C: Targets counted from the app's own data (counts_key, archived), work events (next actions and follow-ups done, the Rosara focus done),\n"
     "--         End of day rows (reasons, tomorrow's line, sent or skipped, the email as sent), End of day reports as partner reports.\n"
     "--   0026: Edit batch C round 2: the outreach role \"Former colleague\" becomes \"Personal network\" (contacts moved over by UPDATE).\n"
-    "-- For a database that already has 0001 to 0007 (or 0001 to 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019, 0020, 0021, 0022, 0023, 0024, or 0025). Paste this whole file into the\n"
+    "--   0027: The original listing text, year established, and employees on pipeline items (three empty columns).\n"
+    "-- For a database that already has 0001 to 0007 (or 0001 to 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019, 0020, 0021, 0022, 0023, 0024, 0025, or 0026). Paste this whole file into the\n"
     "-- Supabase SQL Editor and press Run. Safe to run more than once: nothing is duplicated.\n"
     "-- Generated from supabase/migrations by supabase/build_combined.py.\n\n"
 )
@@ -299,7 +301,7 @@ open("supabase/UPDATE_0025_RUN_ONCE.sql", "w").write(u25 + open("supabase/migrat
 
 u26 = (
     "-- BF Personal App: database update 0026 (Edit batch C round 2: the Personal network role).\n"
-    "-- For the live database, which has 0001 to 0025. Paste this whole file into the Supabase SQL Editor and press Run.\n"
+    "-- For a database that has 0001 to 0025 (the live database with 0001 to 0026 uses UPDATE_0027_RUN_ONCE.sql). Paste this whole file into the Supabase SQL Editor and press Run.\n"
     "-- Expected result: \"Success. No rows returned\". Safe to run more than once: nothing is duplicated and nothing is deleted.\n"
     "-- What it changes:\n"
     "--   The outreach role \"Former colleague\" becomes \"Personal network\": every contact with the old role gets the new one by\n"
@@ -308,8 +310,19 @@ u26 = (
 )
 open("supabase/UPDATE_0026_RUN_ONCE.sql", "w").write(u26 + open("supabase/migrations/0026_edit_batch_c_round_2.sql").read())
 
+u27 = (
+    "-- BF Personal App: database update 0027 (the original listing text, year established, and employees).\n"
+    "-- For the live database, which has 0001 to 0026. Paste this whole file into the Supabase SQL Editor and press Run.\n"
+    "-- Expected result: \"Success. No rows returned\". Safe to run more than once: nothing is duplicated, nothing is deleted, no existing row changes.\n"
+    "-- What it adds:\n"
+    "--   pipeline_items.listing_text (the full text pasted into Add a listing, shown in the Original listing text card and read by\n"
+    "--   every AI action on the listing or deal), pipeline_items.year_established and pipeline_items.employees (Facts). schema_has_0027().\n"
+    "-- Generated from supabase/migrations/0027_listing_text.sql by supabase/build_combined.py.\n\n"
+)
+open("supabase/UPDATE_0027_RUN_ONCE.sql", "w").write(u27 + open("supabase/migrations/0027_listing_text.sql").read())
+
 old = (
-    "-- USE supabase/UPDATE_RUN_ONCE.sql INSTEAD. That file includes this update (0008) and the next ones (0009 to 0026).\n"
+    "-- USE supabase/UPDATE_RUN_ONCE.sql INSTEAD. That file includes this update (0008) and the next ones (0009 to 0027).\n"
     "-- This file is kept for reference only.\n"
     "--\n"
     "-- BF Personal App: database update 0008 (Daily Targets and Outreach Queue).\n"
@@ -319,5 +332,5 @@ old = (
 open("supabase/UPDATE_0008_RUN_ONCE.sql", "w").write(old + open("supabase/migrations/0008_targets_outreach.sql").read())
 print(
     f"Wrote ALL_MIGRATIONS_RUN_ONCE.sql ({len(files)} files), UPDATE_RUN_ONCE.sql ({len(update_files)} files), "
-    "UPDATE_0026_RUN_ONCE.sql, UPDATE_0025_RUN_ONCE.sql, UPDATE_0024_RUN_ONCE.sql, UPDATE_0023_RUN_ONCE.sql, UPDATE_0022_RUN_ONCE.sql, UPDATE_0021_RUN_ONCE.sql, UPDATE_0020_RUN_ONCE.sql, UPDATE_0019_RUN_ONCE.sql, UPDATE_0018_RUN_ONCE.sql, UPDATE_0017_RUN_ONCE.sql, UPDATE_0016_RUN_ONCE.sql, UPDATE_0015_RUN_ONCE.sql, UPDATE_0013_0014_RUN_ONCE.sql, UPDATE_0014_RUN_ONCE.sql, UPDATE_0011_0012_RUN_ONCE.sql, UPDATE_0012_RUN_ONCE.sql, UPDATE_0013_RUN_ONCE.sql, UPDATE_0011_RUN_ONCE.sql, UPDATE_0008_RUN_ONCE.sql"
+    "UPDATE_0027_RUN_ONCE.sql, UPDATE_0026_RUN_ONCE.sql, UPDATE_0025_RUN_ONCE.sql, UPDATE_0024_RUN_ONCE.sql, UPDATE_0023_RUN_ONCE.sql, UPDATE_0022_RUN_ONCE.sql, UPDATE_0021_RUN_ONCE.sql, UPDATE_0020_RUN_ONCE.sql, UPDATE_0019_RUN_ONCE.sql, UPDATE_0018_RUN_ONCE.sql, UPDATE_0017_RUN_ONCE.sql, UPDATE_0016_RUN_ONCE.sql, UPDATE_0015_RUN_ONCE.sql, UPDATE_0013_0014_RUN_ONCE.sql, UPDATE_0014_RUN_ONCE.sql, UPDATE_0011_0012_RUN_ONCE.sql, UPDATE_0012_RUN_ONCE.sql, UPDATE_0013_RUN_ONCE.sql, UPDATE_0011_RUN_ONCE.sql, UPDATE_0008_RUN_ONCE.sql"
 )

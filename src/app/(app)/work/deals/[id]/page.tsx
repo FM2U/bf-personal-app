@@ -11,7 +11,8 @@ import { AskAiPill } from "@/components/app/work/ask-ai";
 import { RecordHeader } from "@/components/app/work/record-header";
 import { WorkShell, WorkUpdateNotice } from "@/components/app/work/shell";
 import { Pill, ProgressMark, waitTone, What, WorkHeader } from "@/components/app/work/ui";
-import { DealHeaderActions, DecisionCard, FactsCard, FindingsCard, NextActionCard, TimelineCard, TodosCard } from "@/components/app/work/deal/cards";
+import { DealHeaderActions, DecisionCard, FactsCard, FindingsCard, ListingTextCard, NextActionCard, TimelineCard, TodosCard } from "@/components/app/work/deal/cards";
+import { DB_UPDATE_NOTICE_0027 } from "@/lib/schema-guard";
 import { DocumentsCard } from "@/components/app/record-side-panels";
 import { EmptyState } from "@/components/app/page-header";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,9 @@ export const metadata = { title: "Deal" };
  * type pill and the buy box pill in place of the stage mark and the stage pill, Interested in place of Advance, the
  * Next action optional, no Documents card, and the Decision card with Pass and Interested. After Interested the same
  * page, at the same address, shows the deal state; nothing is copied (notes, tasks, and facts are on the same row).
+ *
+ * Fix 2026-11-02: the Original listing text card sits under Facts (collapsed, Show and Hide, Replace; the paste box
+ * when none is saved). It is not part of the Timeline.
  */
 export default async function DealPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -136,6 +140,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
         </div>
         <div className="flex min-w-0 flex-col gap-5">
           <FactsCard deal={deal} />
+          <ListingTextCard dealId={deal.id} text={d.listingText} ready={d.listingTextReady} notice={DB_UPDATE_NOTICE_0027} />
           <TimelineCard deal={deal} events={d.timeline} />
           {state.documents ? <DocumentsCard table="pipeline_items" id={deal.id} docs={d.documents} storageKey="work:deal" defaultOpen /> : null}
           <DecisionCard deal={deal} advanceTo={deal.status === "open" && !isListing ? d.advanceTo : null} listing={isListing} />

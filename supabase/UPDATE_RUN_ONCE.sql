@@ -1,4 +1,4 @@
--- BF Personal App: database update (0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019, 0020, 0021, 0022, 0023, 0024, 0025, and 0026).
+-- BF Personal App: database update (0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019, 0020, 0021, 0022, 0023, 0024, 0025, 0026, and 0027).
 --   0008: Daily Targets and Outreach Queue.
 --   0009: Stage task lists, stage time limits, required details, stalled items, deal source (proprietary or brokered),
 --         deal-source contacts, and the Deals sourced and Deals advanced targets.
@@ -25,7 +25,8 @@
 --   0025: Batch C: Targets counted from the app's own data (counts_key, archived), work events (next actions and follow-ups done, the Rosara focus done),
 --         End of day rows (reasons, tomorrow's line, sent or skipped, the email as sent), End of day reports as partner reports.
 --   0026: Edit batch C round 2: the outreach role "Former colleague" becomes "Personal network" (contacts moved over by UPDATE).
--- For a database that already has 0001 to 0007 (or 0001 to 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019, 0020, 0021, 0022, 0023, 0024, or 0025). Paste this whole file into the
+--   0027: The original listing text, year established, and employees on pipeline items (three empty columns).
+-- For a database that already has 0001 to 0007 (or 0001 to 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019, 0020, 0021, 0022, 0023, 0024, 0025, or 0026). Paste this whole file into the
 -- Supabase SQL Editor and press Run. Safe to run more than once: nothing is duplicated.
 -- Generated from supabase/migrations by supabase/build_combined.py.
 
@@ -4382,3 +4383,35 @@ as $$ select true $$;
 
 revoke execute on function public.schema_has_0026() from public, anon;
 grant execute on function public.schema_has_0026() to authenticated, service_role;
+
+-- ===== supabase/migrations/0027_listing_text.sql =====
+-- 0027: Fix (approved 2026-11-02): the original listing text and two more listing facts on pipeline items.
+-- Depends on 0020 (listing and deal facts on pipeline items). Safe to run more than once. Nothing is deleted and no
+-- existing row changes: three empty columns are added.
+--   1. pipeline_items.listing_text: the full text pasted into Add a listing (or pasted later on the listing or deal
+--      page), one per record; shown in the "Original listing text" card and read by every AI action on the record.
+--      It is kept on the record and not as a note, so it never shows in the Timeline (notes.kind allows only 'note'
+--      and 'finding').
+--   2. pipeline_items.year_established and pipeline_items.employees: read by Fill from text when the listing states
+--      them, shown and edited in Facts. Employees is text ("20+ coaches", "14 full-time").
+--   3. schema_has_0027().
+
+-- 1 and 2. The columns
+alter table public.pipeline_items add column if not exists listing_text text;
+alter table public.pipeline_items add column if not exists year_established integer;
+alter table public.pipeline_items add column if not exists employees text;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'pipeline_items_year_established_check') then
+    alter table public.pipeline_items add constraint pipeline_items_year_established_check check (year_established is null or (year_established between 1700 and 2200));
+  end if;
+end $$;
+
+-- 3. Check function
+create or replace function public.schema_has_0027()
+returns boolean
+language sql
+stable
+as $$ select true $$;
+
+revoke execute on function public.schema_has_0027() from public, anon;
+grant execute on function public.schema_has_0027() to authenticated, service_role;

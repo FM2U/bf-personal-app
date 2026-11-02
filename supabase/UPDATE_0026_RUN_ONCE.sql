@@ -1,5 +1,5 @@
 -- BF Personal App: database update 0026 (Edit batch C round 2: the Personal network role).
--- For the live database, which has 0001 to 0025. Paste this whole file into the Supabase SQL Editor and press Run.
+-- For a database that has 0001 to 0025 (the live database with 0001 to 0026 uses UPDATE_0027_RUN_ONCE.sql). Paste this whole file into the Supabase SQL Editor and press Run.
 -- Expected result: "Success. No rows returned". Safe to run more than once: nothing is duplicated and nothing is deleted.
 -- What it changes:
 --   The outreach role "Former colleague" becomes "Personal network": every contact with the old role gets the new one by

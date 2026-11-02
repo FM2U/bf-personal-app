@@ -271,3 +271,18 @@ export const COLUMNS_0025: Record<string, string[]> = {
 export const DB_UPDATE_FILE_0026 = "supabase/UPDATE_0026_RUN_ONCE.sql";
 export const DB_UPDATE_NOTICE_0026 = `Database update needed: paste ${DB_UPDATE_FILE_0026} into the Supabase SQL Editor and run it. Until then, Personal network is saved under its old name.`;
 export const PROBE_0026 = "schema_has_0026";
+
+/**
+ * Database update 0027 (Fix, approved 2026-11-02): pipeline_items.listing_text (the original listing text pasted into
+ * Add a listing, shown in the Original listing text card and read by every AI action on the record), and
+ * pipeline_items.year_established and employees (Facts), and schema_has_0027(). Before it, the Work screens read the
+ * records without these columns (they show as not known), a listing saves without them (the pasted text is not kept),
+ * and saving listing text on a record shows DB_UPDATE_NOTICE_0027; every other screen and both scheduled jobs keep
+ * working.
+ */
+export const DB_UPDATE_FILE_0027 = "supabase/UPDATE_0027_RUN_ONCE.sql";
+export const DB_UPDATE_NOTICE_0027 = `Database update needed: paste ${DB_UPDATE_FILE_0027} into the Supabase SQL Editor and run it. Until then, the original listing text is not kept.`;
+export const PROBE_0027 = "schema_has_0027";
+export const COLUMNS_0027: Record<string, string[]> = {
+  pipeline_items: ["listing_text", "year_established", "employees"],
+};
