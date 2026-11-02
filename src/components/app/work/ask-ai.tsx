@@ -3,12 +3,12 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Mail } from "lucide-react";
-import { addTaskFromAi, askAboutPage, askAiSetup, draftField, setNextActionFromAi, suggestNextAction, suggestNextSteps, suggestQuestionsFromAi, suggestTasks, type AskSetup } from "@/app/actions/ask-ai";
+import { addTaskFromAi, askAboutPage, askAiSetup, draftField, draftKeyFinding, setNextActionFromAi, setNextActionFromAnswer, suggestNextAction, suggestNextSteps, suggestQuestionsFromAi, suggestTasks, type AskSetup } from "@/app/actions/ask-ai";
 import { draftReasons } from "@/app/actions/accountability";
 import type { ReasonDraft } from "@/lib/accountability/ask-ai";
 import { ComposeEmailDialog } from "@/components/app/compose-email";
 import type { ComposeSetup } from "@/lib/compose-email";
-import { panelSpec, type Answer, type AskContext, type AskField, type NextActionSuggestion, type NextStep } from "@/lib/work/ask-ai";
+import { panelSpec, setNextActionLabel, type Answer, type AskContext, type AskField, type KeyFindingDraft, type NextActionSuggestion, type NextStep } from "@/lib/work/ask-ai";
 import { date as fmtDate } from "@/lib/format";
 import { Drawer } from "@/components/app/work/drawer";
 import { AiButton, ROW_BUTTON_BASE, ROW_BUTTON_TONE, RowButton, Thinking } from "@/components/app/work/ui";
@@ -98,7 +98,7 @@ export function AiCardStar({ context, compose, extras, onUseNext, className, tes
  * The star inside a field (20px, in a 28px faint circle): shown while the field is empty or focused. Wrap the input
  * in a `relative` box and give the input right padding (pr-9). `onUse` fills the field with the AI's text.
  */
-export function AiFieldStar({ context, field, visible, onUse, className, testId = "ai-field-star" }: { context: Omit<AskContext, "field">; field: AskField; visible: boolean; onUse: (text: string) => void; className?: string; testId?: string }) {
+export function AiFieldStar({ context, field, visible, onUse, onUseFindings, className, testId = "ai-field-star" }: { context: Omit<AskContext, "field">; field: AskField; visible: boolean; onUse: (text: string) => void; /** The Key finding star (AI instructions, 2026-11-02): "Use this" fills the Key finding, Strengths, Risks, and the broker questions. */ onUseFindings?: ((d: KeyFindingDraft) => void) | null; className?: string; testId?: string }) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -114,7 +114,7 @@ export function AiFieldStar({ context, field, visible, onUse, className, testId 
       >
         <AiStar className="h-5 w-5" />
       </button>
-      {open ? <AskAiPanel context={{ ...context, card: null, field }} open={open} onOpenChange={setOpen} onUse={(t) => { onUse(t); setOpen(false); }} /> : null}
+      {open ? <AskAiPanel context={{ ...context, card: null, field }} open={open} onOpenChange={setOpen} onUse={(t) => { onUse(t); setOpen(false); }} onUseFindings={onUseFindings ? (d) => { onUseFindings(d); setOpen(false); } : null} /> : null}
     </>
   );
 }
@@ -159,11 +159,54 @@ function AiFailLine({ error, reply, onRetry, testId, className }: { error: strin
 
 type FailState = { error: string; reply?: string | null } | null;
 
+/**
+ * The Key finding draft in the panel (AI instructions, 2026-11-02): the Key finding, Strengths, Risks, and Check with
+ * the broker, each under a small label, and "Use this", which fills the Findings card (Key finding, Strengths, Risks;
+ * the questions are added under Ask the broker). Nothing is saved until the card's Save.
+ */
+function KeyFindingDraftView({ draft, onUse }: { draft: KeyFindingDraft; onUse: () => void }) {
+  const list = (label: string, items: string[], testId: string) => (
+    <div className="border-t border-violet-rule pt-2.5" data-testid={testId} data-count={items.length}>
+      <span className="block text-xs font-medium text-muted-foreground">{label}</span>
+      {items.length ? (
+        <ul className="mt-1 flex flex-col gap-1 pl-4 text-sm text-slate-800">
+          {items.map((x, i) => (
+            <li key={i} className="list-disc">
+              {x}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-1 text-[13px] text-slate-400">None.</p>
+      )}
+    </div>
+  );
+  return (
+    <div className="flex flex-col gap-2.5 rounded-lg border border-violet-rule bg-violet-soft px-4 py-3.5" data-testid="ask-ai-key-finding">
+      <div>
+        <span className="block text-xs font-medium text-muted-foreground">Key finding</span>
+        <p className="mt-1 text-sm font-medium text-slate-900" data-testid="ask-ai-kf-text">
+          {draft.keyFinding}
+        </p>
+      </div>
+      {list("Strengths", draft.strengths, "ask-ai-kf-strengths")}
+      {list("Risks", draft.risks, "ask-ai-kf-risks")}
+      {list("Check with the broker", draft.brokerQuestions, "ask-ai-kf-broker")}
+      <div className="flex flex-wrap gap-2 pt-1">
+        <button type="button" onClick={onUse} className={VIOLET_BUTTON} data-testid="ask-ai-use-findings">
+          Use this
+        </button>
+      </div>
+      <p className="text-[12px] text-muted-foreground">Use this fills the Findings card and adds the broker questions under Ask the broker. Nothing is saved until you press Save.</p>
+    </div>
+  );
+}
+
 const VIOLET_BUTTON = "inline-flex h-[30px] items-center justify-center rounded-[7px] border border-violet bg-white px-[11px] text-[12.5px] font-medium whitespace-nowrap text-violet hover:bg-violet-soft disabled:pointer-events-none disabled:opacity-50";
 const SOFT_BUTTON = "inline-flex h-[30px] items-center justify-center rounded-[7px] border border-violet-rule bg-violet-soft px-[11px] text-[12.5px] font-medium whitespace-nowrap text-violet hover:bg-[#f3ecff] disabled:pointer-events-none disabled:opacity-50";
 const INPUT = "h-9 w-full min-w-0 rounded-[7px] border border-input bg-white px-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
 
-export function AskAiPanel({ context, compose, extras, open, onOpenChange, onUse, onUseNext }: { context: AskContext; compose?: ComposeSetup | null; extras?: EodExtras | null; open: boolean; onOpenChange: (open: boolean) => void; /** A field star: "Use this" fills the field. */ onUse?: (text: string) => void; /** The next action star: "Use this" fills the card's fields. */ onUseNext?: ((s: NextActionSuggestion) => void) | null }) {
+export function AskAiPanel({ context, compose, extras, open, onOpenChange, onUse, onUseNext, onUseFindings }: { context: AskContext; compose?: ComposeSetup | null; extras?: EodExtras | null; open: boolean; onOpenChange: (open: boolean) => void; /** A field star: "Use this" fills the field. */ onUse?: (text: string) => void; /** The next action star: "Use this" fills the card's fields. */ onUseNext?: ((s: NextActionSuggestion) => void) | null; /** The Key finding star: "Use this" fills the Findings card (nothing saved until its Save). */ onUseFindings?: ((d: KeyFindingDraft) => void) | null }) {
   const router = useRouter();
   const spec = panelSpec(context);
   // The End of day drafts (batch C): which of the three the panel shows, by the card it was opened from (all three from the page pill).
@@ -224,6 +267,8 @@ export function AskAiPanel({ context, compose, extras, open, onOpenChange, onUse
   const [answerError, setAnswerError] = useState<FailState>(null);
   const [asking, startAsk] = useTransition();
   const [draft, setDraft] = useState<string | null>(null);
+  const [findings, setFindings] = useState<KeyFindingDraft | null>(null);
+  const [answerNote, setAnswerNote] = useState<{ ok: boolean; text: string } | null>(null);
   const [draftError, setDraftError] = useState<FailState>(null);
   const [drafting, startDraft] = useTransition();
   const [setting, startSet] = useTransition();
@@ -231,6 +276,8 @@ export function AskAiPanel({ context, compose, extras, open, onOpenChange, onUse
   const [emailOpen, setEmailOpen] = useState(false);
   const loaded = useRef(false);
   const field = context.field ?? null;
+  // AI instructions (2026-11-02): the Key finding star writes Strengths, Risks, the Key finding, and Check with the broker.
+  const keyFindingStar = field?.key === "key_finding" && !!onUseFindings;
   const suggest = spec.suggest;
 
   /** The suggestions of this panel: next steps, tasks, or questions (the last adds to the deal and reports the count). */
@@ -296,6 +343,7 @@ export function AskAiPanel({ context, compose, extras, open, onOpenChange, onUse
     setAnswer(null);
     setAnswerError(null);
     setSetNote(null);
+    setAnswerNote(null);
     startAsk(async () => {
       const r = await askAboutPage(context, text);
       if (!r.ok) return setAnswerError({ error: r.error, reply: r.reply });
@@ -305,8 +353,15 @@ export function AskAiPanel({ context, compose, extras, open, onOpenChange, onUse
 
   function writeField() {
     setDraft(null);
+    setFindings(null);
     setDraftError(null);
     startDraft(async () => {
+      if (keyFindingStar) {
+        const k = await draftKeyFinding(context);
+        if (!k.ok) return setDraftError({ error: k.error, reply: k.reply });
+        setFindings(k.draft);
+        return;
+      }
       const r = await draftField(context);
       if (!r.ok) return setDraftError({ error: r.error, reply: r.reply });
       setDraft(r.text);
@@ -319,6 +374,18 @@ export function AskAiPanel({ context, compose, extras, open, onOpenChange, onUse
       const r = await setNextActionFromAi(context, text);
       if (!r.ok) return setSetNote(r.error);
       setSetNote(`Set as ${r.where}.`);
+      router.refresh();
+    });
+  };
+
+  /** "Set next action: <action>" under an answer: the record's next action (the answer's date or tomorrow), or a to-do for today. */
+  const setNextFromAnswer = (a: Answer) => {
+    if (!a.nextAction) return;
+    setAnswerNote(null);
+    startSet(async () => {
+      const r = await setNextActionFromAnswer(context, a.nextAction!, a.nextActionDue);
+      if (!r.ok) return setAnswerNote({ ok: false, text: r.error });
+      setAnswerNote({ ok: true, text: r.note });
       router.refresh();
     });
   };
@@ -367,6 +434,7 @@ export function AskAiPanel({ context, compose, extras, open, onOpenChange, onUse
           </PanelHeading>
           {drafting ? <Thinking className="text-[13px] text-muted-foreground" label="Thinking" /> : null}
           {draftError ? <AiFailLine error={draftError.error} reply={draftError.reply} onRetry={writeField} testId="ask-ai-draft-error" /> : null}
+          {findings ? <KeyFindingDraftView draft={findings} onUse={() => onUseFindings?.(findings)} /> : null}
           {draft ? (
             <div className="rounded-lg border border-violet-rule bg-violet-soft px-4 py-3.5" data-testid="ask-ai-draft">
               <p className="text-sm whitespace-pre-wrap text-slate-800">{draft}</p>
@@ -564,9 +632,9 @@ export function AskAiPanel({ context, compose, extras, open, onOpenChange, onUse
             </ul>
             {answer.nextAction || (answer.email && compose) ? (
               <div className="mt-3 flex flex-wrap gap-2">
-                {answer.nextAction ? (
-                  <button type="button" onClick={() => setNext(answer.nextAction!)} disabled={setting} className={VIOLET_BUTTON} title={answer.nextAction} data-testid="ask-ai-make-next">
-                    Make this the next action
+                {setNextActionLabel(answer) ? (
+                  <button type="button" onClick={() => setNextFromAnswer(answer)} disabled={setting || !!answerNote?.ok} className={cn(VIOLET_BUTTON, "h-auto min-h-[30px] py-1 text-left whitespace-normal")} title={answer.nextAction ?? undefined} data-testid="ask-ai-make-next">
+                    {setNextActionLabel(answer)}
                   </button>
                 ) : null}
                 {answer.email && compose ? (
@@ -576,9 +644,9 @@ export function AskAiPanel({ context, compose, extras, open, onOpenChange, onUse
                 ) : null}
               </div>
             ) : null}
-            {setNote && !suggest ? (
-              <p className={cn("mt-2 text-[13px]", setNote.startsWith("Set as") ? "text-status-met" : "text-status-missed")} role="status" data-testid="ask-ai-set-note">
-                {setNote}
+            {answerNote ? (
+              <p className={cn("mt-2 text-[13px]", answerNote.ok ? "text-status-met" : "text-status-missed")} role="status" data-testid="ask-ai-answer-note">
+                {answerNote.text}
               </p>
             ) : null}
           </div>

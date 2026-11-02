@@ -13,6 +13,7 @@ import { WorkShell, WorkUpdateNotice } from "@/components/app/work/shell";
 import { Pill, ProgressMark, waitTone, What, WorkHeader } from "@/components/app/work/ui";
 import { DealHeaderActions, DecisionCard, FactsCard, FindingsCard, ListingTextCard, NextActionCard, TimelineCard, TodosCard } from "@/components/app/work/deal/cards";
 import { DB_UPDATE_NOTICE_0027 } from "@/lib/schema-guard";
+import { hasUpdate0028 } from "@/lib/update-0028";
 import { DocumentsCard } from "@/components/app/record-side-panels";
 import { EmptyState } from "@/components/app/page-header";
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,8 @@ export const metadata = { title: "Deal" };
  * type pill and the buy box pill in place of the stage mark and the stage pill, Interested in place of Advance, the
  * Next action optional, no Documents card, and the Decision card with Pass and Interested. After Interested the same
  * page, at the same address, shows the deal state; nothing is copied (notes, tasks, and facts are on the same row).
+ *
+ * AI instructions 2026-11-02: Findings shows Strengths and Risks under the Key finding (database update 0028).
  *
  * Fix 2026-11-02: the Original listing text card sits under Facts (collapsed, Show and Hide, Replace; the paste box
  * when none is saved). It is not part of the Timeline.
@@ -65,6 +68,8 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
       </WorkShell>
     );
   }
+  // AI instructions (2026-11-02): Strengths and Risks need database update 0028 (the probe, and the columns on the row).
+  const listsReady = d.findingListsReady && (await hasUpdate0028(supabase));
   const state = dealPageState({ screened: deal.screened, status: deal.status, stageName: deal.stageName, name: deal.name });
   const isListing = state.kind === "listing";
   const buyBox = isListing ? checkBuyBox({ name: deal.listingName, whatItDoes: deal.whatItDoes, industry: deal.industry, location: deal.location, ebitda: deal.ebitda, sde: deal.sde }) : null;
@@ -134,7 +139,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
       />
       <div className="grid grid-cols-1 items-start gap-5 min-[1000px]:grid-cols-2">
         <div className="flex min-w-0 flex-col gap-5">
-          <FindingsCard deal={deal} compose={d.questionsCompose} aiTools={state.questionsTools} />
+          <FindingsCard deal={deal} compose={d.questionsCompose} aiTools={state.questionsTools} listsReady={listsReady} />
           <NextActionCard deal={deal} today={d.today} noActionHint={state.noActionHint} />
           <TodosCard deal={deal} todos={d.todos} />
         </div>

@@ -16,6 +16,7 @@ import { askingMultiple, checkBuyBox, earningsOf, passReasonLabel } from "@/lib/
 import { glanceCounts, type GlanceCounts } from "@/lib/work/home";
 import { compareNames, displayName } from "@/lib/work/names";
 import { parseOpenQuestions, type QuestionGroups } from "@/lib/work/questions";
+import { parseFindingList } from "@/lib/work/deal-facts";
 import { DEFAULT_WAIT_THRESHOLD_DAYS, WORK_STAGES, dayInStage, daysWaiting, doneOutcome, nextStageName, stageIndex, waitLevel, type WaitLevel } from "@/lib/work/stages";
 import { commTitle, type TimelineEvent } from "@/lib/work/timeline";
 export type { TimelineEvent } from "@/lib/work/timeline";
@@ -74,6 +75,9 @@ export type DealRow = {
   /** Database update 0027: as the listing states it ("20+ coaches"); null before it, or when not known. */
   employees: string | null;
   keyFinding: string | null;
+  /** The Findings card's Strengths and Risks (database update 0028; up to 3 each; empty before it). */
+  strengths: string[];
+  risks: string[];
   openQuestions: QuestionGroups;
   /** The first open item of the Also to do checklist (offered as the next action when the current one is Done). */
   topTodo: { id: string; text: string } | null;
@@ -230,6 +234,8 @@ export function toDealRow(i: Row, f: Row | undefined, contact: Row | undefined, 
     yearEstablished: num(i.year_established),
     employees: i.employees ? String(i.employees) : null,
     keyFinding: i.key_finding ?? null,
+    strengths: parseFindingList(i.strengths),
+    risks: parseFindingList(i.risks),
     openQuestions: parseOpenQuestions(i.open_questions_json, i.open_questions as string | null),
     topTodo: top ? { id: top.id, text: top.text } : null,
     nextAction: i.next_action ?? null,
@@ -401,6 +407,8 @@ export type DealPageData = {
   listingText: string | null;
   /** False before database update 0027 (the Original listing text card says so and cannot save). */
   listingTextReady: boolean;
+  /** False before database update 0028 (the Findings card's Strengths and Risks show the update line and are not saved). */
+  findingListsReady: boolean;
   /** The last logged email or call on this deal (the header figure): the owner's date (YYYY-MM-DD) and what kind. */
   lastContact: { on: string; kind: string } | null;
   compose: ComposeSetup | null;
@@ -415,7 +423,7 @@ export type DealPageData = {
 /** The deal page: the deal, its timeline (notes, communications, stage moves; newest first), documents, and the email setup. */
 export async function loadDealPage(sb: SupabaseClient, ownerId: string, id: string): Promise<DealPageData> {
   const ctx = await loadWorkCtx(sb, ownerId);
-  const base: DealPageData = { available: false, notice: null, today: ctx.today, tz: ctx.tz, threshold: ctx.threshold, deal: null, timeline: [], documents: [], todos: [], listingText: null, listingTextReady: false, lastContact: null, compose: null, questionsCompose: null, advanceTo: null, passedStageId: null, lostStageId: null };
+  const base: DealPageData = { available: false, notice: null, today: ctx.today, tz: ctx.tz, threshold: ctx.threshold, deal: null, timeline: [], documents: [], todos: [], listingText: null, listingTextReady: false, findingListsReady: false, lastContact: null, compose: null, questionsCompose: null, advanceTo: null, passedStageId: null, lostStageId: null };
   const notice = await workUpdateNotice(sb);
   if (notice) return { ...base, notice };
   const pipe = await loadWorkPipeline(sb, ownerId);
@@ -435,7 +443,8 @@ export async function loadDealPage(sb: SupabaseClient, ownerId: string, id: stri
     sb.from("deal_todos").select(TODO_COLUMNS).eq("owner_id", ownerId).eq("deal_id", id).limit(500),
   ]);
   const todos = sortTodos(((todoRows ?? []) as Row[]).map(toTodo));
-  const deal = toDealRow(item, (fin as Row | null) ?? undefined, (contact as Row | null) ?? undefined, pipe, ctx, todos);
+  // Strengths and risks (database update 0028) come with the row read with "*".
+  const deal = toDealRow({ ...item, strengths: (full as Row | null)?.strengths, risks: (full as Row | null)?.risks }, (fin as Row | null) ?? undefined, (contact as Row | null) ?? undefined, pipe, ctx, todos);
   // Communications linked through record_links but not stamped with the item (older rows).
   const commRows = ((comms ?? []) as Row[]).filter((c) => !c.awaiting_log);
   const linkedIds = ((links ?? []) as Row[]).map((l) => l.from_id).filter((x) => !commRows.some((c) => c.id === x));
@@ -473,6 +482,7 @@ export async function loadDealPage(sb: SupabaseClient, ownerId: string, id: stri
     // Kept on the record (database update 0027), never as a note, so it is not in the Timeline.
     listingText: typeof (full as Row | null)?.listing_text === "string" && String((full as Row).listing_text).trim() ? String((full as Row).listing_text) : null,
     listingTextReady: !!full && Object.prototype.hasOwnProperty.call(full, "listing_text"),
+    findingListsReady: !!full && Object.prototype.hasOwnProperty.call(full, "strengths"),
     lastContact: lastComm ? { on: todayInTz(ctx.tz, new Date(String(lastComm.occurred_at))), kind: String(lastComm.method) } : null,
     compose: compose ? { ...compose, title: `Email about ${deal.name}` } : null,
     questionsCompose: compose ? await questionsComposeSetup(sb, compose, deal) : null,

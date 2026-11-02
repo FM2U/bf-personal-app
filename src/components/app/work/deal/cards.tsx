@@ -8,7 +8,9 @@ import { ComposeEmailDialog } from "@/components/app/compose-email";
 import { useUnsavedWork } from "@/components/app/unsaved-changes";
 import type { ComposeSetup } from "@/lib/compose-email";
 import { date as fmtDate } from "@/lib/format";
-import { dealAsk } from "@/lib/work/ask-ai";
+import { applyKeyFindingDraft, dealAsk, type KeyFindingDraft } from "@/lib/work/ask-ai";
+import { FINDING_LIST_MAX } from "@/lib/work/deal-facts";
+import { DB_UPDATE_NOTICE_0028 } from "@/lib/schema-guard";
 import { LISTING_SOURCES, moneyShort, type PassReason } from "@/lib/work/buy-box";
 import type { DealRow, Stage, TimelineEvent } from "@/lib/work/data";
 import { QUESTION_GROUPS, questionsEmailDraft, type QuestionGroupKey, type QuestionGroups } from "@/lib/work/questions";
@@ -259,6 +261,61 @@ export function NextActionCard({ deal, today, noActionHint = "Needs a next actio
 // ---------- Findings ----------
 
 const sameQuestions = (a: QuestionGroups, b: QuestionGroups) => QUESTION_GROUPS.every((g) => a[g.key].length === b[g.key].length && a[g.key].every((l, i) => l === b[g.key][i]));
+const sameLines = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((l, i) => l === b[i]);
+
+/**
+ * Strengths or Risks on the Findings card (AI instructions, 2026-11-02): up to three short lines, each a text box
+ * (edit it, or press the faint x to delete it); "+ Add" adds a line until there are three. The two lists sit side by
+ * side on wider screens with their headings and first lines on the same rows.
+ */
+function FindingList({ label, kind, lines, rows, onChange, disabled, focusIndex }: { label: string; kind: "strengths" | "risks"; lines: string[]; /** Rows the two lists share (the heading and the longer list's lines), so line n of each sits on one row. */ rows: number; onChange: (next: string[]) => void; disabled?: boolean; focusIndex: number | null }) {
+  const full = lines.length >= FINDING_LIST_MAX;
+  return (
+    <div className="flex min-w-0 flex-col sm:grid sm:grid-rows-subgrid sm:[grid-row:span_var(--rows)]" style={{ "--rows": rows } as React.CSSProperties} data-testid={`finding-list-${kind}`} data-count={lines.filter((l) => l.trim()).length}>
+      <div className="flex h-7 items-center justify-between gap-2">
+        <span className="text-[13px] font-semibold text-slate-900">{label}</span>
+        {!full && !disabled ? (
+          <button type="button" onClick={() => onChange([...lines, ""])} className="text-xs font-medium text-primary-strong hover:underline" data-testid={`finding-add-${kind}`}>
+            + Add
+          </button>
+        ) : (
+          <span className="text-[11.5px] text-slate-400">{full ? `${FINDING_LIST_MAX} of ${FINDING_LIST_MAX}` : ""}</span>
+        )}
+      </div>
+      {lines.length ? (
+        lines.map((line, i) => (
+          <div key={`${kind}-${i}`} className="flex items-start gap-1.5 border-t border-slate-100 py-0.5" data-testid="finding-line">
+            <span className={cn("mt-[13px] h-1.5 w-1.5 shrink-0 rounded-full", kind === "strengths" ? "bg-status-met-solid" : "bg-status-soon-solid")} aria-hidden />
+            <GrowingTextarea
+              value={line}
+              onChange={(v) => onChange(lines.map((l, n) => (n === i ? v.replace(/\n/g, " ") : l)))}
+              minRows={1}
+              minHeight={30}
+              plain
+              disabled={disabled}
+              autoFocus={focusIndex === i}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  if (!full) onChange([...lines, ""]);
+                }
+              }}
+              placeholder={kind === "strengths" ? "A strength and the fact behind it" : "A risk and the fact behind it"}
+              aria-label={`${label}, line ${i + 1}`}
+              className="flex-1"
+              data-testid={`finding-input-${kind}`}
+            />
+            <button type="button" onClick={() => onChange(lines.filter((_, n) => n !== i))} disabled={disabled} className="mt-1 h-6 w-6 shrink-0 rounded text-slate-300 hover:bg-slate-100 hover:text-slate-600" aria-label={`Delete this ${kind === "strengths" ? "strength" : "risk"}`} title="Delete" data-testid={`finding-delete-${kind}`}>
+              ×
+            </button>
+          </div>
+        ))
+      ) : (
+        <p className="border-t border-slate-100 py-1.5 text-[12.5px] text-slate-400">None yet.</p>
+      )}
+    </div>
+  );
+}
 
 /**
  * Findings: the key finding (a full-width box that grows with its text) and the open questions as an outline in
@@ -267,10 +324,15 @@ const sameQuestions = (a: QuestionGroups, b: QuestionGroups) => QUESTION_GROUPS.
  * new lines are added to the groups); "Email these questions" opens the email editor to the broker (the seller
  * selectable when known) with the seller and broker groups as bullets. Save keeps the key finding and the lines.
  */
-export function FindingsCard({ deal, compose, aiTools = true }: { deal: DealRow; compose: ComposeSetup | null; /** Suggest questions and Email these questions (from Interested on; a listing shows a line instead). */ aiTools?: boolean }) {
+export function FindingsCard({ deal, compose, aiTools = true, listsReady = true }: { deal: DealRow; compose: ComposeSetup | null; /** Suggest questions and Email these questions (from Interested on; a listing shows a line instead). */ aiTools?: boolean; /** False before database update 0028: Strengths and Risks show the update line and are not saved. */ listsReady?: boolean }) {
   const ids = useId();
   const { pending, state, run } = useSave();
   const [key, setKey] = useSynced(deal.keyFinding ?? "");
+  // AI instructions (2026-11-02): Strengths and Risks, up to three lines each.
+  const [strengths, setStrengths] = useSynced<string[]>(deal.strengths);
+  const [risks, setRisks] = useSynced<string[]>(deal.risks);
+  const [listFocus, setListFocus] = useState<{ kind: "strengths" | "risks"; i: number } | null>(null);
+  const [useNote, setUseNote] = useState<string | null>(null);
   // The lines on screen, and the saved lines they are compared with (Suggest questions saves on the server and moves
   // the baseline, so typed lines stay and nothing counts as unsaved that is not).
   const [questions, setQuestions] = useState<QuestionGroups>(deal.openQuestions);
@@ -286,7 +348,7 @@ export function FindingsCard({ deal, compose, aiTools = true }: { deal: DealRow;
   const [emailOpen, setEmailOpen] = useState(false);
   const [focusLine, setFocusLine] = useState<string | null>(null);
   const [keyFocused, setKeyFocused] = useState(false);
-  const dirty = key !== (deal.keyFinding ?? "") || !sameQuestions(questions, baseline);
+  const dirty = key !== (deal.keyFinding ?? "") || !sameQuestions(questions, baseline) || !sameLines(strengths, deal.strengths) || !sameLines(risks, deal.risks);
   useUnsavedWork(dirty, "The findings are not saved yet.");
 
   const setLine = (g: QuestionGroupKey, i: number, text: string) => setQuestions((q) => ({ ...q, [g]: q[g].map((l, n) => (n === i ? text : l)) }));
@@ -313,6 +375,22 @@ export function FindingsCard({ deal, compose, aiTools = true }: { deal: DealRow;
       setSuggestNote({ tone: "ok", text: r.added ? `${r.added} suggested. Edit or delete any.` : "Nothing new to add." });
     });
   };
+  /** "Use this" on the Key finding star: fills the Key finding, Strengths, and Risks, and adds the broker questions (nothing saved until Save). */
+  const useFindings = (d: KeyFindingDraft) => {
+    const next = applyKeyFindingDraft({ broker: questions.broker }, d);
+    setKey(next.keyFinding);
+    if (listsReady) {
+      setStrengths(next.strengths);
+      setRisks(next.risks);
+    }
+    setQuestions((q) => ({ ...q, broker: next.broker }));
+    setUseNote(`Filled in${next.added ? `, ${next.added} ${next.added === 1 ? "question" : "questions"} added under Ask the broker` : ""}. Press Save to keep it.`);
+  };
+  const changeList = (kind: "strengths" | "risks", next: string[]) => {
+    const prev = kind === "strengths" ? strengths : risks;
+    (kind === "strengths" ? setStrengths : setRisks)(next);
+    setListFocus(next.length > prev.length ? { kind, i: next.length - 1 } : null);
+  };
   const draft = questionsEmailDraft({ dealName: deal.name, toName: compose?.recipients.find((r) => r.email === compose.defaultTo)?.name ?? null, questions });
   const emailable = questions.seller.some((l) => l.trim()) || questions.broker.some((l) => l.trim());
   return (
@@ -323,8 +401,23 @@ export function FindingsCard({ deal, compose, aiTools = true }: { deal: DealRow;
         </label>
         <div className="relative min-w-0">
           <GrowingTextarea id={`${ids}-k`} value={key} onChange={setKey} onFocus={() => setKeyFocused(true)} onBlur={() => setKeyFocused(false)} placeholder="The one line that matters most" className="pr-9" data-testid="key-finding" />
-          <AiFieldStar context={dealAsk(deal)} field={{ key: "key_finding", label: "Key finding", current: key }} visible={!key.trim() || keyFocused} onUse={setKey} className="top-[18px]" />
+          <AiFieldStar context={dealAsk(deal)} field={{ key: "key_finding", label: "Key finding", current: key }} visible={!key.trim() || keyFocused} onUse={setKey} onUseFindings={useFindings} className="top-[18px]" />
         </div>
+        {useNote && dirty ? (
+          <p className="text-[12.5px] text-violet" role="status" data-testid="findings-use-note">
+            {useNote}
+          </p>
+        ) : null}
+        {/* One grid for both lists: on wider screens line n of Strengths and line n of Risks share a row, so they stay level when a line wraps. */}
+        <div className="grid grid-cols-1 gap-x-6 gap-y-3 pt-1 sm:grid-cols-2 sm:gap-y-0" data-testid="finding-lists">
+          <FindingList label="Strengths" kind="strengths" lines={strengths} rows={1 + Math.max(1, strengths.length, risks.length)} onChange={(n) => changeList("strengths", n)} disabled={!listsReady} focusIndex={listFocus?.kind === "strengths" ? listFocus.i : null} />
+          <FindingList label="Risks" kind="risks" lines={risks} rows={1 + Math.max(1, strengths.length, risks.length)} onChange={(n) => changeList("risks", n)} disabled={!listsReady} focusIndex={listFocus?.kind === "risks" ? listFocus.i : null} />
+        </div>
+        {!listsReady ? (
+          <p className="text-[12.5px] text-status-soon" role="status" data-testid="update-0028-needed">
+            {DB_UPDATE_NOTICE_0028}
+          </p>
+        ) : null}
         <div className={cn(LABEL, "pt-1")}>Open questions</div>
         <div className="flex flex-col gap-1" data-testid="open-questions">
           {QUESTION_GROUPS.map((g) => (
@@ -401,7 +494,7 @@ export function FindingsCard({ deal, compose, aiTools = true }: { deal: DealRow;
         </div>
         ) : null}
         <SaveLine state={dirty ? { kind: "idle" } : state}>
-          <RowButton tone="primary" disabled={pending || !dirty} onClick={() => run(() => saveFindings(deal.id, { keyFinding: key, questions }))} data-testid="findings-save">
+          <RowButton tone="primary" disabled={pending || !dirty} onClick={() => run(() => saveFindings(deal.id, listsReady ? { keyFinding: key, questions, strengths, risks } : { keyFinding: key, questions }), () => setUseNote(null))} data-testid="findings-save">
             {pending ? "Saving..." : "Save"}
           </RowButton>
         </SaveLine>

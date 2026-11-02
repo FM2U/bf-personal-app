@@ -48,7 +48,7 @@ describe("the Ask AI panel", () => {
     const r = validateAnswerReply({ items: ["Meridian first", "Then Dalton"] });
     expect(r.ok && r.value.bullets).toEqual(["Meridian first", "Then Dalton"]);
     const t = validateAnswerReply({ text: "Nothing is due." });
-    expect(t.ok && t.value).toEqual({ bullets: ["Nothing is due."], nextAction: null, email: null });
+    expect(t.ok && t.value).toEqual({ bullets: ["Nothing is due."], nextAction: null, nextActionDue: null, email: null });
   });
 
   it("checks the answer reply: bullets required, at most six, an optional next action and email", () => {
@@ -57,7 +57,7 @@ describe("the Ask AI panel", () => {
     expect(r.ok && r.value.nextAction).toBe("Email Mark Reed");
     expect(r.ok && r.value.email).toEqual({ subject: "Hi", body: "Hello\nthere" });
     const bare = validateAnswerReply({ bullets: "One line", email: null });
-    expect(bare.ok && bare.value).toEqual({ bullets: ["One line"], nextAction: null, email: null });
+    expect(bare.ok && bare.value).toEqual({ bullets: ["One line"], nextAction: null, nextActionDue: null, email: null });
     expect(validateAnswerReply({ bullets: [] }).ok).toBe(false);
     expect(validateAnswerReply("text").ok).toBe(false);
     expect(validateFieldReply({ text: "  Call Rita  " })).toEqual({ ok: true, value: "Call Rita" });

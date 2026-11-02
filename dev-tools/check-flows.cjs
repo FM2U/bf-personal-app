@@ -4709,7 +4709,7 @@ const expectText = async (page, text) => {
     if ((await one("select next_action from projects where id = $1", [rowKey.split(":")[1]])).next_action !== null) throw new Error("Done on the Home row");
   });
 
-  await step("Ask AI: the page pill (suggested questions, no cost line, an answer with Make this the next action and Open in email), a card star (Tasks), a field star (Use this fills the field), Set as next action on a record page, all with the mock AI", async () => {
+  await step("Ask AI: the page pill (suggested questions, no cost line, an answer with Set next action and Open in email), a card star (Tasks), a field star (Use this fills the field), Set as next action on a record page, all with the mock AI", async () => {
     await aipost("/__reset");
     await page.goto(`${BASE}/work`);
     await page.getByTestId("home-bento").waitFor();
@@ -4730,11 +4730,13 @@ const expectText = async (page, text) => {
     if (!(await page.getByTestId("ask-ai-make-next").count()) || !(await page.getByTestId("ask-ai-open-email").count())) throw new Error("the answer buttons");
     // The context sent: only this page's records (the home prompt names the deals, nobody else's data).
     await page.screenshot({ path: path.join(OUT, "flow-work-ask-ai.png") });
-    // Make this the next action on Home makes a personal to-do for today.
+    // AI instructions (2026-11-02): "Set next action: <action>" on Home makes a personal to-do for today and says so.
+    const makeNext = (await page.getByTestId("ask-ai-make-next").innerText()).trim();
+    if (!/^Set next action: Deal with .+ first$/.test(makeNext)) throw new Error(`the button: ${makeNext}`);
     await page.getByTestId("ask-ai-make-next").click();
-    await page.getByTestId("ask-ai-set-note").waitFor({ timeout: 15000 });
-    if (!(await page.getByTestId("ask-ai-set-note").innerText()).includes("Set as a to-do for today")) throw new Error(await page.getByTestId("ask-ai-set-note").innerText());
-    if (!(await one("select 1 x from todos where text like 'Deal with %' and due_on = $1", [nyDate(0)]))) throw new Error("the to-do was not made");
+    await page.getByTestId("ask-ai-answer-note").waitFor({ timeout: 15000 });
+    if ((await page.getByTestId("ask-ai-answer-note").innerText()).trim() !== "Added to To-dos for today") throw new Error(await page.getByTestId("ask-ai-answer-note").innerText());
+    if (!(await one("select 1 x from todos where text = $1 and due_on = $2", [makeNext.replace("Set next action: ", ""), nyDate(0)]))) throw new Error("the to-do was not made");
     // Open in email: the editor opens with the drafted subject and message.
     await page.getByTestId("ask-ai-open-email").click();
     await page.getByTestId("compose-dialog").waitFor();
@@ -4835,7 +4837,7 @@ const expectText = async (page, text) => {
     // (innerText of a list item starts with the browser's marker text.)
     if (bullets.length !== 3 || bullets.some((t) => /[{}[\]]|"bullets"/.test(t)) || !bullets[0].includes("First: Market research comes first")) throw new Error(`answer bullets: ${bullets.join(" | ").slice(0, 160)}`);
     if (await page.getByTestId("ask-ai-answer-error").count()) throw new Error("an error line under the answer");
-    if (!(await page.getByTestId("ask-ai-make-next").count())) throw new Error("the Make this the next action button");
+    if (!(await page.getByTestId("ask-ai-make-next").count())) throw new Error("the Set next action button");
     await page.screenshot({ path: path.join(OUT, "flow-work-ask-ai-cutoff.png") });
     // The mock saw one cut-off reply and one full reply per task, and the retry asked with double the limit.
     const calls = await aicalls();
@@ -6214,11 +6216,12 @@ const expectText = async (page, text) => {
     await page.goto(`${BASE}/work/deals/${d.id}`);
     await page.getByTestId("deal-findings").locator("[data-testid=ai-field-star][data-field=key_finding]").click();
     await page.getByTestId("ask-ai-panel").waitFor();
-    await page.getByTestId("ask-ai-draft").waitFor({ timeout: 20000 });
+    await page.getByTestId("ask-ai-key-finding").waitFor({ timeout: 20000 });
     const checkPrompt = (name, p) => {
       for (const want of ["revenue: $7,843,427", "SDE: $2,534,975", "asking price: $10,000,000 (3.9x SDE)", "year established: 2010", "employees: 20+ associate coaches", "source: ", FX_SENTENCE, FX_RULE]) if (!String(p ?? "").includes(want)) throw new Error(`${name} prompt is missing "${want}"`);
     };
-    checkPrompt("Key finding", (await aiprompts()).field_draft);
+    // AI instructions (2026-11-02): the Key finding star sends its own task (Strengths, Risks, Key finding, broker questions).
+    checkPrompt("Key finding", (await aiprompts()).key_finding);
     await page.keyboard.press("Escape");
     await page.getByTestId("ask-ai-panel").waitFor({ state: "detached", timeout: 5000 }).catch(() => null);
     await page.goto(`${BASE}/work/deals/${d.id}`);
@@ -6233,6 +6236,187 @@ const expectText = async (page, text) => {
     await page.getByTestId("deal-listing-text").waitFor();
     if ((await listingTextState(page)) !== "closed") throw new Error("the card on the deal");
     await pg.query("delete from pipeline_items where name like '00 Flow FX%'");
+  });
+
+  // ---------- AI instructions and Findings (approved 2026-11-02) ----------
+  const AI_NAME = "00 Flow AI Physician Coaching Company";
+  const AI_BASE = "The buyer is an independent searcher sourcing, screening and evaluating small business acquisitions. The goal is to buy one good business, own and run it, and grow it. Judge both whether this is a good business and whether it fits the buyer.";
+  const AI_RULES = "Use only the facts and listing text below. Do not count marketing claims as strengths without a figure behind them. Only say information is missing when it is absent from the facts and the listing text; name the field and who to ask. Plain words, no hype.";
+  const AI_SCREENING = "Stage: screening. Give a quick view of business quality and any deal-breakers.";
+  const AI_AFTER_CIM = "Stage: after the CIM. Test the main claims and the growth story.";
+  const aiDeal = () => one("select id, key_finding, strengths, risks, open_questions_json, next_action, next_action_due::text from pipeline_items where name = $1", [AI_NAME]);
+  const openKeyFindingStar = async () => {
+    // The star shows while the box is empty or focused.
+    await page.getByTestId("key-finding").focus();
+    const star = page.getByTestId("deal-findings").locator("[data-testid=ai-field-star][data-field=key_finding]");
+    await star.waitFor({ state: "visible" });
+    await star.click();
+    await page.getByTestId("ask-ai-panel").waitFor();
+    await page.getByTestId("ask-ai-key-finding").waitFor({ timeout: 20000 });
+  };
+
+  await step("AI instructions: the Key finding star on the fixture listing sends the buyer base, the screening line, and the facts; the panel shows Key finding, Strengths, Risks, and Check with the broker; Use this fills the card and adds the broker questions under Ask the broker (a repeat skipped); Save keeps them; flow-work-key-finding.png", async () => {
+    await pg.query("delete from pipeline_items where name like '00 Flow AI%'");
+    await pg.query("delete from inputs where key like 'buy_box_%'");
+    await aipost("/__reset");
+    const pipeId = (await one("select id from pipelines where owner_id = $1 and kind = 'acquisition' order by sort_order, created_at limit 1", [OWNER])).id;
+    const row = await one(
+      "insert into pipeline_items (owner_id, pipeline_id, name, screened, status, source, listing_text, year_established, employees, open_questions_json) values ($1, $2, $3, false, 'open', 'Broker newsletter', $4, 2010, '20+ associate coaches', $5) returning id",
+      [OWNER, pipeId, AI_NAME, FX_TEXT.trim(), JSON.stringify({ seller: [], broker: ["mock question: which period does the revenue figure cover?"], self: [] })],
+    );
+    await pg.query("insert into deal_financials (owner_id, item_id, revenue, sde, asking_price) values ($1, $2, 7843427, 2534975, 10000000)", [OWNER, row.id]);
+    await page.goto(`${BASE}/work/deals/${row.id}`);
+    await page.getByTestId("finding-lists").waitFor();
+    if (await page.getByTestId("update-0028-needed").count()) throw new Error("the 0028 line shows after the update");
+    await openKeyFindingStar();
+    const p = (await aiprompts()).key_finding ?? "";
+    for (const want of [AI_BASE, AI_RULES, AI_SCREENING, "Buy box: $1M to $2.5M EBITDA", "owner-operator.", "Strengths: up to 3, each naming the fact behind it", "revenue: $7,843,427", "asking price: $10,000,000 (3.9x SDE)", FX_SENTENCE]) if (!p.includes(want)) throw new Error(`the Key finding prompt is missing "${want.slice(0, 60)}"`);
+    if (p.indexOf(AI_SCREENING) > p.indexOf("revenue: $7,843,427") || p.includes(AI_AFTER_CIM) || /growth goals:|financing:/.test(p)) throw new Error("the stage line, the order, or an unset buy box part");
+    const panel = page.getByTestId("ask-ai-key-finding");
+    if (Number(await panel.getByTestId("ask-ai-kf-strengths").getAttribute("data-count")) !== 2 || Number(await panel.getByTestId("ask-ai-kf-risks").getAttribute("data-count")) !== 1 || Number(await panel.getByTestId("ask-ai-kf-broker").getAttribute("data-count")) !== 2) throw new Error("the four parts");
+    if (!(await panel.getByTestId("ask-ai-kf-text").innerText()).startsWith("Mock key finding:")) throw new Error("the key finding line");
+    await page.screenshot({ path: path.join(OUT, "flow-work-key-finding.png") });
+    await page.getByTestId("ask-ai-use-findings").click();
+    await page.getByTestId("ask-ai-panel").waitFor({ state: "detached", timeout: 5000 });
+    if (!(await page.getByTestId("key-finding").inputValue()).startsWith("Mock key finding:")) throw new Error("the Key finding box");
+    const strengths = await page.getByTestId("finding-input-strengths").evaluateAll((els) => els.map((e) => e.value));
+    const risks = await page.getByTestId("finding-input-risks").evaluateAll((els) => els.map((e) => e.value));
+    if (strengths.length !== 2 || !strengths[0].startsWith("Mock strength: revenue of $7,843,427") || risks.length !== 1) throw new Error(`the lists: ${JSON.stringify({ strengths, risks })}`);
+    const broker = await page.locator("[data-testid=question-group][data-group=broker] [data-testid=question-input]").evaluateAll((els) => els.map((e) => e.value));
+    if (broker.length !== 2 || broker[0] !== "mock question: which period does the revenue figure cover?" || broker[1] !== "Mock question: how many clients renew each year?") throw new Error(`Ask the broker: ${JSON.stringify(broker)}`);
+    if (!(await page.getByTestId("findings-use-note").innerText()).includes("1 question added under Ask the broker")) throw new Error("the Use this line");
+    // Nothing is saved until Save.
+    if ((await aiDeal()).strengths !== null || (await aiDeal()).key_finding !== null) throw new Error("saved before Save");
+    await page.getByTestId("findings-save").click();
+    await page.getByTestId("deal-findings").getByTestId("save-ok").waitFor({ timeout: 15000 });
+    const saved = await aiDeal();
+    if (!saved.key_finding.startsWith("Mock key finding:") || saved.strengths.length !== 2 || saved.risks.length !== 1 || saved.open_questions_json.broker.length !== 2) throw new Error(`saved: ${JSON.stringify(saved)}`);
+    // Edit a strength, delete the risk, add one: the lists save as typed.
+    await page.getByTestId("finding-input-strengths").nth(1).fill("A team of 20 coaches delivers the sessions");
+    await page.getByTestId("finding-delete-risks").first().click();
+    await page.getByTestId("finding-add-risks").click();
+    await page.getByTestId("finding-input-risks").first().fill("Owner share of sessions fell from 19% to 5%");
+    await page.getByTestId("finding-add-strengths").click();
+    if (await page.getByTestId("finding-add-strengths").count()) throw new Error("+ Add should go at three strengths");
+    await page.getByTestId("finding-input-strengths").nth(2).fill("Asking 3.9x SDE");
+    await page.getByTestId("findings-save").click();
+    await page.getByTestId("deal-findings").getByTestId("save-ok").waitFor({ timeout: 15000 });
+    const edited = await aiDeal();
+    if (JSON.stringify(edited.strengths) !== JSON.stringify([saved.strengths[0], "A team of 20 coaches delivers the sessions", "Asking 3.9x SDE"]) || JSON.stringify(edited.risks) !== JSON.stringify(["Owner share of sessions fell from 19% to 5%"])) throw new Error(`edited: ${JSON.stringify(edited)}`);
+    // Every later AI action reads them as facts.
+    await page.reload();
+    await page.getByTestId("deal-next-action").getByTestId("next-action-star").click();
+    await page.getByTestId("ask-ai-next-action").waitFor({ timeout: 20000 });
+    const np = (await aiprompts()).next_action ?? "";
+    if (!np.includes("strength: Asking 3.9x SDE") || !np.includes("risk: Owner share of sessions fell from 19% to 5%") || !np.includes(AI_SCREENING) || !np.includes("Write one next action and its due date only.")) throw new Error("the next action prompt lacks the strengths, the risks, the stage line, or its spot part");
+    await page.keyboard.press("Escape");
+  });
+
+  await step("AI instructions: a deal in CIM review gets the after-the-CIM line (the next action star and Suggest questions); Suggest questions gets its own spot part", async () => {
+    const d = await aiDeal();
+    const cim = await one("select s.id from pipeline_stages s join pipelines p on p.id = s.pipeline_id where p.owner_id = $1 and p.kind = 'acquisition' and s.name = 'CIM review'", [OWNER]);
+    await pg.query("update pipeline_items set screened = true, stage_id = $2 where id = $1", [d.id, cim.id]);
+    await aipost("/__reset");
+    await page.goto(`${BASE}/work/deals/${d.id}`);
+    await page.getByTestId("deal-next-action").getByTestId("next-action-star").click();
+    await page.getByTestId("ask-ai-next-action").waitFor({ timeout: 20000 });
+    const np = (await aiprompts()).next_action ?? "";
+    if (!np.includes(AI_AFTER_CIM) || np.includes(AI_SCREENING) || !np.includes(AI_BASE)) throw new Error("the next action prompt at CIM review");
+    await page.keyboard.press("Escape");
+    await page.getByTestId("ask-ai-panel").waitFor({ state: "detached", timeout: 5000 }).catch(() => null);
+    await page.getByTestId("suggest-questions").click();
+    await page.getByTestId("suggest-note").waitFor({ timeout: 20000 });
+    const qp = (await aiprompts()).open_questions ?? "";
+    if (!qp.includes(AI_AFTER_CIM) || !qp.includes("Write open questions only") || !qp.includes(AI_BASE) || qp.indexOf(AI_AFTER_CIM) > qp.indexOf("Deal facts:")) throw new Error("the Suggest questions prompt at CIM review");
+  });
+
+  await step("AI instructions: Ask about this page on a deal: an answer with a next action shows \"Set next action: ...\" and saves it to the Next action card (the answer's date), with \"Next action set\"; an answer without one shows no button", async () => {
+    const d = await aiDeal();
+    const due = nyDate(9);
+    await aipost("/__reset");
+    await aipost("/__mode", { answerNext: due });
+    await page.goto(`${BASE}/work/deals/${d.id}`);
+    await page.getByTestId("ask-ai").click();
+    await page.getByTestId("ask-ai-panel").waitFor();
+    await page.getByTestId("ask-ai-question").fill("What should I ask the broker first?");
+    await page.waitForFunction(() => !document.querySelector("[data-testid=ask-ai-ask-button]")?.disabled, null, { timeout: 15000 });
+    await page.getByTestId("ask-ai-ask-button").click();
+    await page.getByTestId("ask-ai-answer").waitFor({ timeout: 20000 });
+    const want = `Set next action: Deal with ${AI_NAME} first`;
+    if ((await page.getByTestId("ask-ai-make-next").innerText()).trim() !== want) throw new Error(`the button: ${await page.getByTestId("ask-ai-make-next").innerText()}`);
+    const ap = (await aiprompts()).ask_page ?? "";
+    if (!ap.includes(AI_BASE) || !ap.includes(AI_AFTER_CIM) || !ap.includes("Answer the question asked, and only that question.")) throw new Error("the ask prompt");
+    await page.getByTestId("ask-ai-make-next").click();
+    await page.getByTestId("ask-ai-answer-note").waitFor({ timeout: 15000 });
+    if ((await page.getByTestId("ask-ai-answer-note").innerText()).trim() !== "Next action set") throw new Error(await page.getByTestId("ask-ai-answer-note").innerText());
+    const after = await aiDeal();
+    if (after.next_action !== `Deal with ${AI_NAME} first` || after.next_action_due !== due) throw new Error(`saved: ${JSON.stringify({ a: after.next_action, d: after.next_action_due, due })}`);
+    await page.getByTestId("drawer-close").click();
+    await page.getByTestId("ask-ai-panel").waitFor({ state: "hidden" });
+    await page.waitForFunction((t) => document.querySelector("[data-testid=na-action]")?.value === t, `Deal with ${AI_NAME} first`, { timeout: 10000 });
+    if ((await page.getByTestId("na-due").inputValue()) !== due) throw new Error("the Next action card's due date");
+    // No next action in the answer: no button.
+    await aipost("/__mode", { answerNext: "none" });
+    await page.getByTestId("ask-ai").click();
+    await page.getByTestId("ask-ai-panel").waitFor();
+    await page.getByTestId("ask-ai-question").fill("What is the biggest risk here?");
+    await page.waitForFunction(() => !document.querySelector("[data-testid=ask-ai-ask-button]")?.disabled, null, { timeout: 15000 });
+    await page.getByTestId("ask-ai-ask-button").click();
+    await page.getByTestId("ask-ai-answer").waitFor({ timeout: 20000 });
+    if (await page.getByTestId("ask-ai-make-next").count()) throw new Error("a Set next action button without a next action");
+    await page.getByTestId("drawer-close").click();
+    await aipost("/__reset");
+  });
+
+  await step("AI instructions: Settings, Buy box: owner-operator, financing, and growth goals save; the growth goals and financing appear in the next prompt; desktop1280-work-deal shows Strengths and Risks", async () => {
+    await page.goto(`${BASE}/settings/buy-box`);
+    await page.getByTestId("buy-box-form").waitFor();
+    if ((await page.getByTestId("buy-box-owner-yes").getAttribute("aria-checked")) !== "true") throw new Error("owner-operator should start at Yes");
+    if (await page.getByTestId("buy-box-save").isEnabled()) throw new Error("Save should wait for a change");
+    await page.getByTestId("buy-box-financing").fill("SBA loan and seller note");
+    await page.getByTestId("buy-box-growth").fill("Add two physician groups a year through referrals");
+    await page.getByTestId("buy-box-save").click();
+    await page.getByTestId("buy-box-note").waitFor({ timeout: 15000 });
+    if ((await page.getByTestId("buy-box-note").innerText()).trim() !== "Saved") throw new Error(await page.getByTestId("buy-box-note").innerText());
+    const rows = (await pg.query("select key, value_number, value_text from inputs where owner_id = $1 and key like 'buy_box_%' order by key", [OWNER])).rows;
+    const by = Object.fromEntries(rows.map((r) => [r.key, r]));
+    if (rows.length !== 3 || Number(by.buy_box_owner_operator.value_number) !== 1 || by.buy_box_financing.value_text !== "SBA loan and seller note" || by.buy_box_growth_goals.value_text !== "Add two physician groups a year through referrals") throw new Error(`rows: ${JSON.stringify(rows)}`);
+    if (!(await page.getByTestId("buy-box-line").innerText()).includes("growth goals: Add two physician groups a year through referrals.")) throw new Error("the line the AI reads");
+    await page.screenshot({ path: path.join(OUT, "flow-settings-buy-box.png") });
+    const d = await aiDeal();
+    await aipost("/__reset");
+    await page.goto(`${BASE}/work/deals/${d.id}`);
+    await openKeyFindingStar();
+    const p = (await aiprompts()).key_finding ?? "";
+    if (!p.includes("owner-operator, financing: SBA loan and seller note, growth goals: Add two physician groups a year through referrals.")) throw new Error("the buy box in the prompt");
+    await page.keyboard.press("Escape");
+    // No: the next prompt says so.
+    await page.goto(`${BASE}/settings/buy-box`);
+    await page.getByTestId("buy-box-owner-no").click();
+    await page.getByTestId("buy-box-growth").fill("");
+    await page.getByTestId("buy-box-save").click();
+    await page.getByTestId("buy-box-note").waitFor({ timeout: 15000 });
+    await page.goto(`${BASE}/work/deals/${d.id}`);
+    await openKeyFindingStar();
+    const p2 = (await aiprompts()).key_finding ?? "";
+    if (!p2.includes("not owner-operator (a hired manager runs it), financing: SBA loan and seller note.") || p2.includes("growth goals:")) throw new Error("the buy box after the change");
+    await page.keyboard.press("Escape");
+    // The screenshot of a deal with Strengths and Risks (Dalton Services, the demo deal of the other work-deal shots).
+    const dalton = await dealByName("Dalton Services");
+    await pg.query("update pipeline_items set strengths = $2, risks = $3 where id = $1", [dalton.id, JSON.stringify(["70% of revenue is recurring maintenance contracts", "Two technician leads run the field crews"]), JSON.stringify(["Top customer is 22% of revenue", "Owner still quotes every commercial job"])]);
+    await p1280.goto(`${BASE}/work/deals/${dalton.id}`);
+    await p1280.waitForLoadState("networkidle");
+    if (Number(await p1280.getByTestId("finding-list-strengths").getAttribute("data-count")) !== 2 || Number(await p1280.getByTestId("finding-list-risks").getAttribute("data-count")) !== 2) throw new Error("the Dalton lists");
+    // The two lists sit side by side, their headings on one row.
+    const tops = await p1280.locator("[data-testid=finding-lists] > div").evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
+    if (tops.length !== 2 || tops[0] !== tops[1]) throw new Error(`the lists are not side by side: ${tops.join(",")}`);
+    // Line n of each list starts on the same row, even when one wraps to more lines.
+    const lineTops = await p1280.locator("[data-testid=finding-lists] > div").evaluateAll((els) => els.map((e) => [...e.querySelectorAll("[data-testid=finding-line]")].map((l) => Math.round(l.getBoundingClientRect().top))));
+    if (lineTops[0][1] !== lineTops[1][1]) throw new Error(`the second lines are not level: ${JSON.stringify(lineTops)}`);
+    await p1280.screenshot({ path: path.join(OUT, "desktop1280-work-deal.png"), fullPage: true });
+    await pg.query("update pipeline_items set strengths = null, risks = null where id = $1", [dalton.id]);
+    await pg.query("delete from inputs where key like 'buy_box_%'");
+    await pg.query("delete from pipeline_items where name like '00 Flow AI%'");
   });
 
   await step("Savings ideas: propose now, shown on Home with a count, Edit, Later, Decline (not proposed again), Approve as a reduction action", async () => {

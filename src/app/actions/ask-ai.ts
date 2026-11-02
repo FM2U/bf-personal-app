@@ -14,7 +14,7 @@ import { addPersonTask } from "@/app/actions/outreach";
 import { addItemTask } from "@/app/actions/pipelines";
 import { addProjectTask } from "@/app/actions/projects";
 import { addTodo, suggestQuestions } from "@/app/actions/work";
-import { answerPrompt, fieldPrompt, isRecordPage, nextActionPrompt, nextStepsPrompt, panelSpec, recordNoun, tasksPrompt, validateAnswerReply, validateFieldReply, validateNextActionReply, validateNextStepsReply, type Answer, type AskContext, type NextActionSuggestion, type NextStep } from "@/lib/work/ask-ai";
+import { answerDueDate, answerPrompt, fieldPrompt, isRecordPage, keyFindingPrompt, nextActionPrompt, nextStepsPrompt, panelSpec, recordNoun, setNextActionNote, tasksPrompt, validateAnswerReply, validateFieldReply, validateKeyFindingReply, validateNextActionReply, validateNextStepsReply, type Answer, type AskContext, type KeyFindingDraft, type NextActionSuggestion, type NextStep } from "@/lib/work/ask-ai";
 import { buildPageContext } from "@/lib/work/ask-ai-context";
 import { loadWorkCtx, loadWorkNow, workUpdateNotice } from "@/lib/work/data";
 import { loadAiOrder } from "@/lib/work/home-data";
@@ -192,11 +192,45 @@ export async function draftField(c: AskContext): Promise<{ ok: true; text: strin
 }
 
 /**
+ * The Key finding star (AI instructions, approved 2026-11-02): Strengths, Risks, the Key finding, and Check with the
+ * broker in one reply, from the buyer instructions with the deal's stage line and every fact. Through callForJson
+ * (a reply cut off by the length limit is asked again with double the limit; a reply that fails the check is asked
+ * again once). "Use this" fills the Findings card in the browser; nothing is saved until the card's Save.
+ */
+export async function draftKeyFinding(c: AskContext): Promise<{ ok: true; draft: KeyFindingDraft } | Fail> {
+  const s = await setup();
+  if (isFail(s)) return s;
+  const { sb, ctx } = s;
+  if (c.page !== "deal" || !c.recordId || !UUID.test(c.recordId)) return fail("The key finding is written on one deal or listing.");
+  try {
+    const context = await buildPageContext(sb, ctx.ownerId, { ...c, card: null, field: { key: "key_finding", label: "Key finding", current: c.field?.current ?? null } });
+    if (!context.lines.length) return fail("This deal was not found.");
+    const draft = await callForJson<KeyFindingDraft>({ sb, ownerId: ctx.ownerId, purpose: "ask_key_finding", prompt: keyFindingPrompt(context), maxTokens: 1500, shape: "none", validate: (v) => validateKeyFindingReply(cleanDeep(v)) });
+    return { ok: true, draft };
+  } catch (e) {
+    return aiError(e);
+  }
+}
+
+/**
+ * "Set next action: <action>" under an answer (AI instructions, 2026-11-02): on a record page the action becomes that
+ * record's next action (a person: what the next follow-up is for), due on the date the answer gives (today or later)
+ * or tomorrow; "Next action set". On any other page it becomes a to-do for today; "Added to To-dos for today".
+ */
+export async function setNextActionFromAnswer(c: AskContext, text: string, due: string | null): Promise<{ ok: true; note: string } | Fail> {
+  const s = await setup();
+  if (isFail(s)) return s;
+  const r = await setNextActionFromAi(c, text, { due: answerDueDate(due, s.ctx.today) });
+  if (!r.ok) return r;
+  return { ok: true, note: setNextActionNote(r.where === "a to-do for today" ? "todo" : r.where === "the next follow-up" ? "person" : "record") };
+}
+
+/**
  * "Set as next action" and "Make this the next action": on a record page the text becomes that record's next action
  * (a person: what the next follow-up is for), due tomorrow unless the record already has a later date. On any other
  * page it becomes a personal to-do for today.
  */
-export async function setNextActionFromAi(c: AskContext, text: string): Promise<{ ok: true; where: string } | Fail> {
+export async function setNextActionFromAi(c: AskContext, text: string, opts?: { /** The due date to use (an answer's date or tomorrow) in place of the rule above. */ due?: string | null }): Promise<{ ok: true; where: string } | Fail> {
   const s = await setup();
   if (isFail(s)) return s;
   const { sb, ctx } = s;
@@ -204,13 +238,15 @@ export async function setNextActionFromAi(c: AskContext, text: string): Promise<
   if (!line) return fail("Nothing to set.");
   const id = c.recordId ?? "";
   const tomorrow = addDaysISO(ctx.today, 1);
+  const forced = opts?.due && /^\d{4}-\d{2}-\d{2}$/.test(opts.due) ? opts.due : null;
+  const dueFor = (current: string | null) => forced ?? (current && current > ctx.today ? current : tomorrow);
   const notSaved = (e: { message?: string | null } | null) => fail(isMissingSchemaError(e) ? "Database update needed." : `Not saved: ${e?.message ?? "try again."}`);
   if (isRecordPage(c.page) && UUID.test(id)) {
     if (c.page === "person") {
       const { data } = await sb.from("contacts").select("id,follow_up_date").eq("owner_id", ctx.ownerId).eq("id", id).maybeSingle();
       if (!data) return fail("This person was not found.");
       const current = (data as Row).follow_up_date ? String((data as Row).follow_up_date).slice(0, 10) : null;
-      const { error } = await sb.from("contacts").update({ follow_up_note: line, follow_up_date: current && current > ctx.today ? current : tomorrow }).eq("id", id);
+      const { error } = await sb.from("contacts").update({ follow_up_note: line, follow_up_date: dueFor(current) }).eq("id", id);
       if (error) return notSaved(error);
       revalidatePath("/", "layout");
       return { ok: true, where: "the next follow-up" };
@@ -219,7 +255,7 @@ export async function setNextActionFromAi(c: AskContext, text: string): Promise<
       const { data } = await sb.from("projects").select("id,next_action_due").eq("owner_id", ctx.ownerId).eq("id", id).maybeSingle();
       if (!data) return fail("This project was not found.");
       const current = (data as Row).next_action_due ? String((data as Row).next_action_due).slice(0, 10) : null;
-      const { error } = await sb.from("projects").update({ next_action: line, next_action_due: current && current > ctx.today ? current : tomorrow, next_action_minutes: null }).eq("id", id);
+      const { error } = await sb.from("projects").update({ next_action: line, next_action_due: dueFor(current), next_action_minutes: null }).eq("id", id);
       if (error) return notSaved(error);
       revalidatePath("/", "layout");
       return { ok: true, where: "the next action" };
@@ -227,7 +263,7 @@ export async function setNextActionFromAi(c: AskContext, text: string): Promise<
     const { data } = await sb.from("pipeline_items").select("id,next_action_due").eq("owner_id", ctx.ownerId).eq("id", id).maybeSingle();
     if (!data) return fail("This record was not found.");
     const current = (data as Row).next_action_due ? String((data as Row).next_action_due).slice(0, 10) : null;
-    const { error } = await sb.from("pipeline_items").update({ next_action: line, next_action_due: current && current > ctx.today ? current : tomorrow, next_action_minutes: null }).eq("id", id);
+    const { error } = await sb.from("pipeline_items").update({ next_action: line, next_action_due: dueFor(current), next_action_minutes: null }).eq("id", id);
     if (error) return notSaved(error);
     await releaseSupersededNextActions(ctx, id).catch(() => null);
     await refreshNextActionAlert(ctx).catch(() => null);

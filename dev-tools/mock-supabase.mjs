@@ -548,6 +548,7 @@ google.listen(GOOGLE_PORT, () => console.log(`Mock Google listening on http://lo
 //   "TASK: next_steps"          -> three suggested next steps built from the page title (the Ask AI panel, batch B2; also
 //                                  the suggested tasks of the Tasks card star)
 //   "TASK: ask_page"            -> a bulleted answer to the question with a next action and an email draft (Ask about this page)
+//   "TASK: key_finding"         -> strengths, risks, a key finding, and broker questions (the Key finding star, AI instructions 2026-11-02)
 //   "TASK: field_draft"         -> one line for the field named in the request (the star inside a field; "Use this");
 //                                  with {"field": "plain"} the line as plain text (no JSON)
 //   "TASK: next_action"         -> one next action due two days after the "Today is" date (a Monday when that is a weekend),
@@ -558,14 +559,15 @@ google.listen(GOOGLE_PORT, () => console.log(`Mock Google listening on http://lo
 // Test controls: POST /__mode {"initiative": "valid" | "invalid_once" | "invalid", "listing": "valid" | "invalid", "todos": "valid" | "plain" | "invalid",
 // "field": "valid" | "plain", "cutoff": "none" | "once" (the next next_steps and ask_page replies come back cut off before
 // their JSON closes, with stop_reason max_tokens, once each, like a reply that hit the length limit; the retry with the
-// higher limit gets the full reply), "delay": <ms before every AI reply, 0 by default>}; GET /__calls; GET /__limits (max_tokens per next_steps and ask_page request);
+// higher limit gets the full reply), "delay": <ms before every AI reply, 0 by default>, "answerNext": "action" | "none" | "YYYY-MM-DD"
+// (the Ask about this page answer's next action: the default line, none, or the line with that date)}; GET /__calls; GET /__limits (max_tokens per next_steps and ask_page request);
 // GET /__last_chat (the last chat request's system prompt and messages, to check "Ask AI about this" context); GET /__prompts
 // (the last prompt of each task by its TASK name, to check what the app sent, such as the facts in the Key finding draft); POST /__reset.
 import { createRequire } from "node:module";
 const requireCjs = createRequire(import.meta.url);
 const { mealPlanProposal } = requireCjs("./fixtures/meal-plan.cjs");
 const AI_PORT = Number(process.env.MOCK_AI_PORT || 54330);
-let aiMode = { initiative: "valid", listing: "valid", todos: "valid", field: "valid", cutoff: "none", delay: 0 };
+let aiMode = { initiative: "valid", listing: "valid", todos: "valid", field: "valid", cutoff: "none", delay: 0, answerNext: "action" };
 let aiCalls = [];
 let invalidSent = false;
 /** The tasks whose cut-off reply went out already under cutoff "once". */
@@ -616,7 +618,7 @@ const ai = http.createServer(async (req, res) => {
       return send(res, 200, aiMode);
     }
     if (url.pathname === "/__reset" && req.method === "POST") {
-      aiMode = { initiative: "valid", listing: "valid", todos: "valid", field: "valid", cutoff: "none", delay: 0 };
+      aiMode = { initiative: "valid", listing: "valid", todos: "valid", field: "valid", cutoff: "none", delay: 0, answerNext: "action" };
       aiCalls = [];
       aiLimits = [];
       lastPrompts = {};
@@ -726,10 +728,25 @@ const ai = http.createServer(async (req, res) => {
         const canEmail = !text.includes("Set email to null");
         const reply = {
           bullets: [`**First:** ${first.trim()} comes first on ${page}.`, `**Then:** the rest of the page in due order (you asked: ${q}).`, "**Watch:** anything waiting over 5 days."],
-          next_action: `Deal with ${first.trim()} first`,
+          // "answerNext": "none" answers with no next action; a YYYY-MM-DD value gives that date as next_action_due.
+          next_action: aiMode.answerNext === "none" ? null : `Deal with ${first.trim()} first`,
+          next_action_due: /^\d{4}-\d{2}-\d{2}$/.test(String(aiMode.answerNext ?? "")) ? aiMode.answerNext : null,
           email: canEmail ? { subject: `Quick follow-up on ${first.trim()}`, body: `Hi there,\n\nQuick follow-up on ${first.trim()}. Is there an update on timing?\n\nThanks,\nBram` } : null,
         };
         return send(res, 200, maybeCut("ask_page", JSON.stringify(reply), body));
+      }
+      if (text.includes("TASK: key_finding")) {
+        // AI instructions (2026-11-02): Strengths, Risks, the Key finding, and Check with the broker in one reply.
+        aiCalls.push("key_finding");
+        const page = ((text.match(/^Page: ([^\n]+)/m) || [])[1] || "this deal").replace(/^(Deal|Listing): /, "");
+        const revenue = (text.match(/^- revenue: (\$[\d,]+)/m) || [])[1] || "the stated revenue";
+        const reply = {
+          strengths: [`Mock strength: revenue of ${revenue} with repeat clients`, "Mock strength: a team of coaches delivers the work"],
+          risks: ["Mock risk: the owner's role after the sale is not clear"],
+          key_finding: `Mock key finding: ${page} has steady revenue; the owner transition decides it.`,
+          broker_questions: ["Mock question: which period does the revenue figure cover?", "Mock question: how many clients renew each year?"],
+        };
+        return send(res, 200, maybeCut("key_finding", JSON.stringify(reply), body));
       }
       if (text.includes("TASK: field_draft")) {
         aiCalls.push("field_draft");

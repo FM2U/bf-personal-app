@@ -1,5 +1,5 @@
 -- BF Personal App: database update 0027 (the original listing text, year established, and employees).
--- For the live database, which has 0001 to 0026. Paste this whole file into the Supabase SQL Editor and press Run.
+-- For a database that has 0001 to 0026 (the live database with 0001 to 0027 uses UPDATE_0028_RUN_ONCE.sql). Paste this whole file into the Supabase SQL Editor and press Run.
 -- Expected result: "Success. No rows returned". Safe to run more than once: nothing is duplicated, nothing is deleted, no existing row changes.
 -- What it adds:
 --   pipeline_items.listing_text (the full text pasted into Add a listing, shown in the Original listing text card and read by

@@ -286,3 +286,18 @@ export const PROBE_0027 = "schema_has_0027";
 export const COLUMNS_0027: Record<string, string[]> = {
   pipeline_items: ["listing_text", "year_established", "employees"],
 };
+
+/**
+ * Database update 0028 (AI instructions and Findings, approved 2026-11-02): pipeline_items.strengths and
+ * pipeline_items.risks (the Findings card's two lists, jsonb arrays of up to 3 lines, read by every later AI action as
+ * facts), the three Buy box settings as inputs rows (owner-operator yes, financing and growth goals empty), and
+ * schema_has_0028(). Before it, the Findings card shows DB_UPDATE_NOTICE_0028 under Strengths and Risks and saves the
+ * key finding and the questions without them; the Buy box settings save anyway (the rows are added on Save); every
+ * other screen and both scheduled jobs keep working.
+ */
+export const DB_UPDATE_FILE_0028 = "supabase/UPDATE_0028_RUN_ONCE.sql";
+export const DB_UPDATE_NOTICE_0028 = `Database update needed: paste ${DB_UPDATE_FILE_0028} into the Supabase SQL Editor and run it. Until then, strengths and risks are not kept.`;
+export const PROBE_0028 = "schema_has_0028";
+export const COLUMNS_0028: Record<string, string[]> = {
+  pipeline_items: ["strengths", "risks"],
+};

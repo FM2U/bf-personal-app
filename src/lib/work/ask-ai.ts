@@ -8,7 +8,8 @@
  * questions, and the cost estimate are here; the calls are in src/app/actions/ask-ai.ts.
  */
 
-import { listingTextBlock, NO_FALSE_GAPS_RULE } from "@/lib/work/deal-facts";
+import { buyerInstructions, GENERAL_RULES_LINE, type AiSpot, type BuyerScope } from "@/lib/ai/instructions";
+import { FINDING_LINE_MAX, FINDING_LIST_MAX, listingTextBlock, NO_FALSE_GAPS_RULE } from "@/lib/work/deal-facts";
 
 /** The pages the panel knows. A record page carries the record's id. */
 export type AskPage = "home" | "listings" | "deals" | "deal" | "outreach" | "person" | "rosara" | "project" | "jobs" | "opportunity" | "consulting" | "consulting_item" | "todos" | "targets" | "end_of_day" | "reports";
@@ -81,7 +82,26 @@ export const SUGGESTED_QUESTIONS: Record<AskPage, readonly string[]> = {
  * deal or a listing (Fix 2026-11-02) `deal` is true, the lines carry every fact (src/lib/work/deal-facts.ts), and
  * `listingText` is the original listing text (kept with its paragraphs, cut at LISTING_TEXT_AI_MAX characters).
  */
-export type PageContext = { title: string; lines: string[]; deal?: boolean; listingText?: string | null };
+export type PageContext = {
+  title: string;
+  lines: string[];
+  deal?: boolean;
+  listingText?: string | null;
+  /**
+   * AI instructions (2026-11-02): on a deal or a listing (and on the Screen listings and Deals lists) the buy box and the
+   * stage line the instructions are built from (src/lib/ai/instructions.ts). Absent on every other page, whose prompts
+   * take GENERAL_RULES_LINE.
+   */
+  buyer?: BuyerScope | null;
+};
+
+/**
+ * The instructions of one click (AI instructions, 2026-11-02): on a deal or a listing the shared buyer base, the stage
+ * line, and the spot part; on every other page the general rules line.
+ */
+export function instructionsFor(c: PageContext, spot: AiSpot, fieldLabel?: string | null): string {
+  return c.buyer ? buyerInstructions(c.buyer, spot, fieldLabel) : GENERAL_RULES_LINE;
+}
 
 export const CONTEXT_MAX_LINES = 80;
 export const CONTEXT_MAX_LINE_LENGTH = 240;
@@ -92,6 +112,7 @@ export function trimContext(c: PageContext): PageContext {
   if (c.deal) out.deal = true;
   // The text is cut for the AI where it goes into the prompt (listingTextBlock), at LISTING_TEXT_AI_MAX characters.
   if (c.deal || c.listingText) out.listingText = c.listingText ?? null;
+  if (c.buyer) out.buyer = c.buyer;
   return out;
 }
 
@@ -114,6 +135,8 @@ export const REASON_MAX_LENGTH = 160;
 export function nextStepsPrompt(c: PageContext): string {
   return [
     "TASK: next_steps",
+    instructionsFor(c, "next_steps"),
+    "",
     "Suggest the next steps Bram should take on this record: at most 3, the most useful first.",
     "Each step is one concrete action he can do today or this week (call, email, read, write, ask, book). Each reason is one short line that names the fact on the page that makes it matter.",
     "",
@@ -162,32 +185,77 @@ export const BULLET_MAX_LENGTH = 240;
 export function answerPrompt(c: PageContext, question: string, canEmail: boolean): string {
   return [
     "TASK: ask_page",
+    instructionsFor(c, "ask"),
+    "",
     `Bram asks about this page: "${question.replace(/"/g, "'").slice(0, 400)}"`,
     "Answer from what is on the page only. Short bullets, the most important first, at most 6, each at most 25 words, plain English, name the record and the number.",
-    "When the answer points to one thing Bram should do next, put it in next_action as one line (at most 20 words); otherwise null.",
+    "When the answer points to one clear thing Bram should do next, put it in next_action as one line starting with a verb (at most 20 words), and when the answer names a date for it, that date in next_action_due as YYYY-MM-DD; otherwise both null. Never put two actions in next_action.",
     canEmail ? "When the answer is a message Bram should send (a follow-up, a thank-you, a check-in), also give email: {subject, body} in his direct, friendly voice (first person, short paragraphs); otherwise null." : "Set email to null.",
     "",
     contextBlock(c),
     "",
-    'Return only JSON: {"bullets": ["..."], "next_action": "<one line>" | null, "email": {"subject": "...", "body": "..."} | null}',
+    'Return only JSON: {"bullets": ["..."], "next_action": "<one line>" | null, "next_action_due": "YYYY-MM-DD" | null, "email": {"subject": "...", "body": "..."} | null}',
   ].join("\n");
 }
 
-export type Answer = { bullets: string[]; nextAction: string | null; email: { subject: string; body: string } | null };
+export type Answer = {
+  bullets: string[];
+  /** One clear action (Set next action: <action>), or null when the answer points to none. */
+  nextAction: string | null;
+  /** The date the answer gives for the action (YYYY-MM-DD), or null (the action is then due tomorrow). */
+  nextActionDue: string | null;
+  email: { subject: string; body: string } | null;
+};
+
+/** A next_action value that says there is none ("null", "none", "N/A", "-"). */
+const NO_ACTION = /^(?:null|none|n\/?a|nothing|no action|-+)\.?$/i;
+
+/** The answer's next action as one clean line, or null (none given, or a word that means none). */
+export function answerNextAction(v: unknown): string | null {
+  const line = str(v, STEP_MAX_LENGTH).replace(/^[-•*]\s*/, "").trim();
+  return line && !NO_ACTION.test(line) ? line : null;
+}
+
+/** The answer's date for the action: a real YYYY-MM-DD date, otherwise null. */
+export function answerNextActionDue(v: unknown): string | null {
+  const s = typeof v === "string" ? v.trim().slice(0, 10) : "";
+  return ISO_DATE.test(s) && !Number.isNaN(Date.parse(`${s}T12:00:00Z`)) && new Date(`${s}T12:00:00Z`).toISOString().slice(0, 10) === s ? s : null;
+}
+
+/** The button under an answer (AI instructions, 2026-11-02): "Set next action: <action>", only when the answer has one. */
+export function setNextActionLabel(a: Pick<Answer, "nextAction"> | null | undefined): string | null {
+  return a?.nextAction ? `Set next action: ${a.nextAction}` : null;
+}
+
+/**
+ * The due date of a next action set from an answer: the answer's date when it gives one (today or later; an earlier
+ * date becomes today), otherwise tomorrow.
+ */
+export function answerDueDate(due: string | null | undefined, today: string): string {
+  const d = answerNextActionDue(due);
+  if (!d) return plusDays(today, 1);
+  return d < today ? today : d;
+}
+
+/** The line after "Set next action": on a record "Next action set" (a person: "Next follow-up set"); elsewhere "Added to To-dos for today". */
+export function setNextActionNote(where: "record" | "person" | "todo"): string {
+  return where === "todo" ? "Added to To-dos for today" : where === "person" ? "Next follow-up set" : "Next action set";
+}
 
 export function validateAnswerReply(value: unknown): { ok: true; value: Answer } | { ok: false; error: string } {
-  const v = value as { bullets?: unknown; items?: unknown; text?: unknown; next_action?: unknown; nextAction?: unknown; email?: unknown } | null;
+  const v = value as { bullets?: unknown; items?: unknown; text?: unknown; next_action?: unknown; nextAction?: unknown; next_action_due?: unknown; nextActionDue?: unknown; email?: unknown } | null;
   if (!v || typeof v !== "object") return { ok: false, error: "the reply is not an object" };
   // A plain-text reply read as {items} (Edit batch B): its lines are the bullets.
   const raw = Array.isArray(v.bullets) ? v.bullets : typeof v.bullets === "string" ? [v.bullets] : Array.isArray(v.items) ? v.items : typeof v.text === "string" ? [v.text] : [];
   // A list mark at the start goes ("- ", "* ", "• "); a bold lead-in ("**First:**") stays for the panel to render in bold.
   const bullets = raw.map((b) => str(b, BULLET_MAX_LENGTH).replace(/^(?:[-•]|\*(?!\*))\s*/, "")).filter(Boolean).slice(0, ANSWER_MAX_BULLETS);
   if (!bullets.length) return { ok: false, error: 'the reply needs a "bullets" array with at least one line' };
-  const next = str(v.next_action ?? v.nextAction, STEP_MAX_LENGTH) || null;
+  const next = answerNextAction(v.next_action ?? v.nextAction);
+  const nextDue = next ? answerNextActionDue(v.next_action_due ?? v.nextActionDue) : null;
   const e = v.email as { subject?: unknown; body?: unknown } | null;
   const subject = e && typeof e === "object" ? str(e.subject, 200) : "";
   const body = e && typeof e === "object" && typeof e.body === "string" ? e.body.replace(/\r\n/g, "\n").trim().slice(0, 4000) : "";
-  return { ok: true, value: { bullets, nextAction: next, email: body ? { subject, body } : null } };
+  return { ok: true, value: { bullets, nextAction: next, nextActionDue: nextDue, email: body ? { subject, body } : null } };
 }
 
 /** A field star: the AI writes the field's text from the page (improving what is there when the field holds text). */
@@ -206,6 +274,7 @@ export function fieldPrompt(c: PageContext, field: AskField): string {
   };
   return [
     "TASK: field_draft",
+    instructionsFor(c, "field", field.label),
     `Write ${what[field.key]}.`,
     field.current?.trim() ? `The field holds this now; improve it, keep its meaning: "${field.current.replace(/"/g, "'").slice(0, 600)}"` : "The field is empty.",
     field.extra ? `Also: ${field.extra.slice(0, 400)}` : "",
@@ -314,6 +383,8 @@ export function panelSpec(c: AskContext): PanelSpec {
 export function tasksPrompt(c: PageContext, noun: string): string {
   return [
     "TASK: next_steps",
+    instructionsFor(c, "tasks"),
+    "",
     `Suggest tasks for this ${noun}: at most 3 small concrete things to do besides its next action (send, ask, read, check, book, compare), the most useful first.`,
     "Each task is one line under 15 words, starting with a verb. Each reason is one short line that names the fact on the page that makes it matter. Do not repeat a task already on the page.",
     "",
@@ -353,6 +424,8 @@ export function nextActionPrompt(c: PageContext, today: string, kind: "action" |
   const person = kind === "follow_up";
   return [
     "TASK: next_action",
+    instructionsFor(c, "next_action"),
+    "",
     person
       ? "Suggest Bram's next follow-up with this person: what it is for (one line, starting with a verb) and the date to do it."
       : `Suggest the one next action Bram should take on this ${noun} and when it is due.`,
@@ -397,4 +470,90 @@ export function validateNextActionReply(value: unknown, today: string, kind: "ac
   const m = Number(v.minutes ?? v.block_minutes);
   const minutes = kind === "action" && v.minutes !== null && Number.isFinite(m) && m >= 5 && m <= 480 ? Math.round(m) : null;
   return { ok: true, value: { action, due, minutes, reason: str(v.reason ?? v.why, REASON_MAX_LENGTH) } };
+}
+
+// ---------- The Key finding star (AI instructions, approved 2026-11-02) ----------
+
+/** What the Key finding star writes: Strengths, Risks, the Key finding, and Check with the broker. */
+export type KeyFindingDraft = { strengths: string[]; risks: string[]; keyFinding: string; brokerQuestions: string[] };
+
+/** The Key finding is one sentence under this many words. */
+export const KEY_FINDING_MAX_WORDS = 30;
+
+/** The Key finding star: the buyer instructions with the Key finding spot, the facts, and the strict JSON. */
+export function keyFindingPrompt(c: PageContext): string {
+  return [
+    "TASK: key_finding",
+    instructionsFor(c, "key_finding"),
+    "",
+    contextBlock(c),
+    "",
+    'Return only JSON: {"strengths": ["<the strength, the fact behind it, why it matters>"], "risks": ["<the risk and the fact behind it>"], "key_finding": "<one sentence under 30 words>", "broker_questions": ["<a question for the broker>"]}',
+  ].join("\n");
+}
+
+const wordCount = (s: string) => s.split(/\s+/).filter(Boolean).length;
+
+/** A list from the reply: strings only, trimmed, list marks gone, repeats dropped, at most FINDING_LIST_MAX. */
+function findingLines(v: unknown): string[] | null {
+  if (v === undefined || v === null) return [];
+  if (typeof v === "string") v = [v];
+  if (!Array.isArray(v)) return null;
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const x of v) {
+    if (typeof x !== "string") return null;
+    const line = x.replace(/\s+/g, " ").replace(/^(?:[-•]|\*(?!\*)|\d+[.)])\s*/, "").trim().slice(0, FINDING_LINE_MAX);
+    if (!line || seen.has(line.toLowerCase())) continue;
+    seen.add(line.toLowerCase());
+    out.push(line);
+    if (out.length >= FINDING_LIST_MAX) break;
+  }
+  return out;
+}
+
+/**
+ * The strict check of the Key finding reply: strengths, risks, and broker_questions are lists of text (up to 3 kept
+ * each; "check_with_the_broker" and camelCase keys are read too); key_finding is one sentence under 30 words. A
+ * problem goes back to the AI once (callForJson).
+ */
+export function validateKeyFindingReply(value: unknown): { ok: true; value: KeyFindingDraft } | { ok: false; error: string } {
+  const v = (Array.isArray(value) ? value[0] : value) as Record<string, unknown> | null;
+  if (!v || typeof v !== "object") return { ok: false, error: "the reply is not a JSON object with strengths, risks, key_finding, and broker_questions" };
+  const problems: string[] = [];
+  const strengths = findingLines(v.strengths);
+  const risks = findingLines(v.risks);
+  const brokerQuestions = findingLines(v.broker_questions ?? v.brokerQuestions ?? v.check_with_the_broker ?? v.checkWithTheBroker);
+  if (!strengths) problems.push('"strengths" must be a list of text');
+  if (!risks) problems.push('"risks" must be a list of text');
+  if (!brokerQuestions) problems.push('"broker_questions" must be a list of text');
+  const rawKey = v.key_finding ?? v.keyFinding;
+  const keyFinding = typeof rawKey === "string" ? rawKey.replace(/\s+/g, " ").trim() : "";
+  if (!keyFinding) problems.push('"key_finding" is missing');
+  else if (wordCount(keyFinding) >= KEY_FINDING_MAX_WORDS) problems.push(`"key_finding" has ${wordCount(keyFinding)} words; write one sentence under ${KEY_FINDING_MAX_WORDS} words`);
+  if (problems.length) return { ok: false, error: problems.join(", ") };
+  return { ok: true, value: { strengths: strengths!, risks: risks!, keyFinding, brokerQuestions: brokerQuestions! } };
+}
+
+/**
+ * "Use this" on the Key finding draft: the Key finding and the Strengths and Risks lists take the draft's lines, and the
+ * broker questions are added under Ask the broker after the ones there (a question already there, in any letter case,
+ * is skipped; at most QUESTION_MAX_PER_GROUP lines). Nothing is saved until the card's Save.
+ */
+export function applyKeyFindingDraft(
+  current: { broker: readonly string[] },
+  draft: KeyFindingDraft,
+  maxPerGroup = 12,
+): { keyFinding: string; strengths: string[]; risks: string[]; broker: string[]; added: number } {
+  const broker = current.broker.filter((l) => l.trim()).map((l) => l);
+  const seen = new Set(broker.map((l) => l.trim().toLowerCase()));
+  let added = 0;
+  for (const q of draft.brokerQuestions) {
+    const key = q.trim().toLowerCase();
+    if (!key || seen.has(key) || broker.length >= maxPerGroup) continue;
+    seen.add(key);
+    broker.push(q.trim());
+    added++;
+  }
+  return { keyFinding: draft.keyFinding, strengths: [...draft.strengths], risks: [...draft.risks], broker, added };
 }

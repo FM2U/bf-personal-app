@@ -6,6 +6,8 @@
  * "Email these questions" opens the email editor with the seller and broker groups as bullets (the draft is here too).
  */
 
+import { buyerInstructions, stageLineFor, type AiSpot } from "@/lib/ai/instructions";
+import { defaultBuyBoxSettings, type BuyBoxSettings } from "@/lib/work/buy-box";
 import { dealFactLines, listingTextBlock, NO_FALSE_GAPS_RULE, type DealFacts } from "@/lib/work/deal-facts";
 
 export type QuestionGroupKey = "seller" | "broker" | "self";
@@ -99,7 +101,14 @@ export type DealContext = {
   timeline: string[];
   documentNames: string[];
   existing: QuestionGroups;
+  /** The buy box the instructions name (Settings, Buy box; read on every click). The defaults when not given. */
+  buyBox?: BuyBoxSettings | null;
 };
+
+/** The AI instructions of a click on this deal (src/lib/ai/instructions.ts): the buyer base, the deal's stage line, the spot part. */
+export function dealInstructions(c: DealContext, spot: AiSpot): string {
+  return buyerInstructions({ buyBox: c.buyBox ?? defaultBuyBoxSettings(), stage: stageLineFor(c.facts.stage, c.facts.screened) }, spot);
+}
 
 export const CONTEXT_MAX_LINES = 30;
 
@@ -115,6 +124,8 @@ function contextBlock(c: DealContext): string {
 export function questionsPrompt(c: DealContext): string {
   const existing = QUESTION_GROUPS.map((g) => `${g.label}: ${c.existing[g.key].length ? c.existing[g.key].map((l) => `"${l}"`).join("; ") : "(none)"}`).join("\n");
   return `TASK: open_questions
+${dealInstructions(c, "questions")}
+
 Bram is buying a small business and this deal is at the stage below. Write the open questions that decide whether to keep going, in three groups:
 - "seller": questions to ask the seller (the owner) on a call or by email.
 - "broker": questions to ask the broker (documents, process, price, timing, other bidders).
@@ -185,6 +196,8 @@ export function validateQuestionsReply(value: unknown): { ok: true; value: Quest
 export function todosPrompt(c: DealContext, existingTodos: string[]): string {
   const existing = existingTodos.length ? existingTodos.map((t) => `"${t}"`).join("; ") : "(none)";
   return `TASK: deal_todos
+${dealInstructions(c, "tasks")}
+
 Bram is buying a small business. List up to 5 other things to do on this deal besides its next action: small concrete tasks (send, ask, read, check, book, compare), each one line under 15 words, specific to this deal, in the order to do them. Do not repeat the next action or the items already listed, and do not ask for a fact the facts or the original listing text already give. Fewer items when the facts are thin.
 ${contextBlock(c)}
 Open questions on the deal: ${QUESTION_GROUPS.map((g) => c.existing[g.key].join("; ")).filter(Boolean).join(" | ") || "(none)"}

@@ -14,6 +14,8 @@ import { loadProjectPage, loadRosara, loadRosaraHome, type ProjectRow } from "@/
 import { openTodos, type DealTodo } from "@/lib/work/todos";
 import type { TimelineEvent } from "@/lib/work/timeline";
 import { dealFactLines, dealFactsOf, moneyExact } from "@/lib/work/deal-facts";
+import { stageLineFor, type BuyerScope, type StageLine } from "@/lib/ai/instructions";
+import { loadBuyBoxSettings } from "@/lib/work/buy-box-data";
 import { loadEndOfDay, loadReportsPage, loadTargetsPage } from "@/lib/accountability/data";
 import { endOfDayLines, reportsLines, targetsLines } from "@/lib/accountability/ask-ai";
 
@@ -80,6 +82,8 @@ export async function buildPageContext(sb: SupabaseClient, ownerId: string, c: A
   let head: string[] = [];
   let dealRecord = false;
   let listingText: string | null = null;
+  /** AI instructions (2026-11-02): the stage line of a deal or a listing; null on the Deals list; undefined elsewhere. */
+  let buyerStage: StageLine | null | undefined;
   const id = c.recordId ?? "";
   const nextCard = c.card === "Next action" || c.card === "Next follow-up";
   /** "stage default next action: Ask for the seller call (due in 3 days)" for the next action star. */
@@ -109,12 +113,14 @@ export async function buildPageContext(sb: SupabaseClient, ownerId: string, c: A
       const d = await loadListings(sb, ownerId);
       title = "Screen listings";
       // Fix 2026-11-02: revenue, earnings, and asking price with the multiple, as exact figures.
+      buyerStage = "screening";
       lines = d.listings.map((l) => `listing: ${l.name} | ${l.whatItDoes ?? ""} | ${l.location ?? ""} | revenue ${moneyExact(l.revenue) ?? "not stated"} | ${l.earningsLabel ?? "earnings"} ${moneyExact(l.earnings) ?? "not stated"} | asking ${moneyExact(l.askingPrice) ?? "not stated"}${l.askingMultiple ? ` (${l.askingMultiple})` : ""} | buy box: ${l.buyBox.label}`);
       break;
     }
     case "deals": {
       const d = await loadDeals(sb, ownerId);
       title = "Deals";
+      buyerStage = null;
       lines = d.groups.flatMap((g) => g.deals.map((x) => dealLine(x, today)));
       break;
     }
@@ -128,6 +134,7 @@ export async function buildPageContext(sb: SupabaseClient, ownerId: string, c: A
         lines = [...taskLines(d.todos), ...timelineLines(d.timeline)];
         dealRecord = true;
         listingText = d.listingText;
+        buyerStage = stageLineFor(d.deal.stageName, d.deal.screened);
       }
       break;
     }
@@ -216,5 +223,7 @@ export async function buildPageContext(sb: SupabaseClient, ownerId: string, c: A
     head.push(`the field to fill: ${c.field.label}${c.field.current ? ` (holds: ${c.field.current.slice(0, 200)})` : " (empty)"}`);
     if (c.field.extra) head.push(c.field.extra);
   }
-  return trimContext({ title, lines: [...head, ...lines], ...(dealRecord ? { deal: true, listingText } : {}) });
+  // The buy box is read on every click, so the instructions follow any change in Settings.
+  const buyer: BuyerScope | null = buyerStage === undefined ? null : { buyBox: await loadBuyBoxSettings(sb, ownerId), stage: buyerStage };
+  return trimContext({ title, lines: [...head, ...lines], ...(dealRecord ? { deal: true, listingText } : {}), ...(buyer ? { buyer } : {}) });
 }

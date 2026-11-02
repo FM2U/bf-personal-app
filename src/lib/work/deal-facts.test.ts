@@ -34,6 +34,8 @@ const listing: DealRow = {
   yearEstablished: 2010,
   employees: "20+ associate coaches",
   keyFinding: null,
+  strengths: [],
+  risks: [],
   openQuestions: { seller: ["How many clients renew the extension?"], broker: [], self: [] },
   topTodo: null,
   nextAction: null,

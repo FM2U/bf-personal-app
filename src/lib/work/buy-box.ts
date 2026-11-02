@@ -15,7 +15,50 @@ export const BUY_BOX = {
   maxEarnings: 2_500_000,
   /** Shown as the hint on the To screen card. */
   label: "$1M to $2.5M EBITDA · B2B services · Southeast or East Coast",
+  /** The three parts as the AI instructions and the Buy box settings page name them (AI instructions, 2026-11-02). */
+  sizeRange: "$1M to $2.5M EBITDA (or SDE when there is no EBITDA)",
+  industries: "B2B services (no retail, direct to consumer, or franchises)",
+  regions: "Southeast or East Coast",
 };
+
+/**
+ * The buy box as the AI instructions read it (AI instructions, approved 2026-11-02): the size range, industries, and
+ * regions above, and three settings kept in the inputs table (Settings, Buy box): owner-operator (yes by default),
+ * financing (optional), and growth goals (optional, one line).
+ */
+export type BuyBoxSettings = { sizeRange: string; industries: string; regions: string; ownerOperator: boolean; financing: string | null; growthGoals: string | null };
+
+/** The inputs keys of the three settings (database update 0028 adds the rows; a save adds them when missing). */
+export const BUY_BOX_INPUT_KEYS = { ownerOperator: "buy_box_owner_operator", financing: "buy_box_financing", growthGoals: "buy_box_growth_goals" } as const;
+
+export const BUY_BOX_FINANCING_MAX = 200;
+export const BUY_BOX_GROWTH_MAX = 200;
+
+/** One line of plain text: spaces made single, cut at `max`; null when empty. */
+export function oneLine(v: unknown, max: number): string | null {
+  const s = typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max) : "";
+  return s || null;
+}
+
+/** The buy box from the inputs rows (key, value_number, value_text); a missing row reads as its default. */
+export function buyBoxSettingsFromRows(rows: readonly { key: string; value_number?: unknown; value_text?: unknown }[]): BuyBoxSettings {
+  const by = new Map(rows.map((r) => [r.key, r]));
+  const owner = by.get(BUY_BOX_INPUT_KEYS.ownerOperator);
+  const ownerNum = owner?.value_number === null || owner?.value_number === undefined || owner?.value_number === "" ? null : Number(owner.value_number);
+  return {
+    sizeRange: BUY_BOX.sizeRange,
+    industries: BUY_BOX.industries,
+    regions: BUY_BOX.regions,
+    ownerOperator: ownerNum === null || !Number.isFinite(ownerNum) ? true : ownerNum !== 0,
+    financing: oneLine(by.get(BUY_BOX_INPUT_KEYS.financing)?.value_text, BUY_BOX_FINANCING_MAX),
+    growthGoals: oneLine(by.get(BUY_BOX_INPUT_KEYS.growthGoals)?.value_text, BUY_BOX_GROWTH_MAX),
+  };
+}
+
+/** The buy box with every setting at its default (owner-operator, no financing, no growth goals). */
+export function defaultBuyBoxSettings(): BuyBoxSettings {
+  return buyBoxSettingsFromRows([]);
+}
 
 /** Two-letter codes of the states that fit (the Southeast and the East Coast), with DC. */
 export const BUY_BOX_STATES: Record<string, string> = {

@@ -28,8 +28,10 @@
 #   (x) 0001 to 0025 (the live database on 2026-11-02, evening) plus contacts with the Former colleague role and other roles,
 #       then UPDATE_0026_RUN_ONCE.sql twice
 #   (y) 0001 to 0026 (the live database on 2026-11-02, night) plus a listing with facts, then UPDATE_0027_RUN_ONCE.sql twice
+#   (z) 0001 to 0027 (the live database on 2026-11-02, late) plus a deal with a key finding and one Buy box row already set,
+#       then UPDATE_0028_RUN_ONCE.sql twice
 # Paths b, c, d (UPDATE_RUN_ONCE.sql) and j, k, l also check 0014: tables, policies, functions, sample removal, and reset.
-# UPDATE_RUN_ONCE.sql now ends with 0027, so on paths b, c, d the acquisition, job, and consulting stages are the new ones (the checks allow both).
+# UPDATE_RUN_ONCE.sql now ends with 0028, so on paths b, c, d the acquisition, job, and consulting stages are the new ones (the checks allow both).
 # Every UPDATE_RUN_ONCE.sql path also checks 0012 and 0013.
 # Usage: bash supabase/tests/upgrade_test.sh
 set -euo pipefail
@@ -1126,6 +1128,58 @@ select '0027 checks passed' as result;
 SQL
 for f in UPDATE_RUN_ONCE ALL_MIGRATIONS_RUN_ONCE; do grep -q "schema_has_0027" "$DIR/$f.sql" || { echo "$f.sql is missing 0027"; exit 1; }; done
 
+# (z) Live state on 2026-11-02, late: 0001 to 0027 applied, a deal with a key finding, and the financing setting already
+# typed, then UPDATE_0028_RUN_ONCE.sql twice. Nothing is deleted and no row changes: the two new columns start empty,
+# the deal keeps every field, the Buy box rows are added once (the typed financing row is kept as it is), lists of up
+# to 3 lines save, and a fourth line or a value that is not a list is refused.
+setup bf_upgrade_z 0027
+su postgres -c "$PSQL -d bf_upgrade_z" <<'SQL'
+\set ON_ERROR_STOP 1
+insert into public.owner_profile (owner_id) values ('00000000-0000-0000-0000-000000000001') on conflict do nothing;
+insert into public.pipeline_items (owner_id, pipeline_id, name, screened, status, key_finding, listing_text)
+  select '00000000-0000-0000-0000-000000000001', id, '00 Upgrade Z Deal', true, 'open', 'Recurring revenue, one big customer', 'Listing text.'
+  from public.pipelines where kind = 'acquisition' limit 1;
+insert into public.inputs (owner_id, key, label, category, unit, value_text) values ('00000000-0000-0000-0000-000000000001', 'buy_box_financing', 'Financing', 'Buy box', 'text', 'SBA loan and seller note');
+create table public.upgrade_z_before as select (select count(*) from public.pipeline_items) as items, (select count(*) from public.inputs) as inputs, (select id from public.pipeline_items where name = '00 Upgrade Z Deal') as deal_id;
+SQL
+for run in 1 2; do
+  echo "[bf_upgrade_z] Applying UPDATE_0028_RUN_ONCE.sql (run $run)"
+  su postgres -c "$PSQL -d bf_upgrade_z -f $DIR/UPDATE_0028_RUN_ONCE.sql"
+done
+su postgres -c "$PSQL -d bf_upgrade_z" <<'SQL'
+\set ON_ERROR_STOP 1
+do $$
+declare v_items bigint; v_inputs bigint; v_id uuid; v_owners bigint;
+begin
+  select items, inputs, deal_id into v_items, v_inputs, v_id from public.upgrade_z_before;
+  select count(*) into v_owners from public.owner_profile;
+  assert to_regprocedure('public.schema_has_0028()') is not null, '0028 check function';
+  assert (select count(*) from public.pipeline_items) = v_items, 'no item deleted';
+  assert (select strengths is null and risks is null from public.pipeline_items where id = v_id), 'the new columns start empty';
+  assert (select key_finding = 'Recurring revenue, one big customer' and listing_text = 'Listing text.' and screened from public.pipeline_items where id = v_id), 'other fields kept';
+  assert (select count(*) from public.inputs) = v_inputs + 2 * v_owners + (v_owners - 1), 'two rows added for the owner with financing set, three for any other owner, once';
+  assert (select value_number = 1 and unit = 'boolean' and category = 'Buy box' from public.inputs where key = 'buy_box_owner_operator' and owner_id = '00000000-0000-0000-0000-000000000001'), 'owner-operator defaults to yes';
+  assert (select value_text = 'SBA loan and seller note' from public.inputs where key = 'buy_box_financing' and owner_id = '00000000-0000-0000-0000-000000000001'), 'the typed financing row is kept';
+  assert (select value_text is null from public.inputs where key = 'buy_box_growth_goals' and owner_id = '00000000-0000-0000-0000-000000000001'), 'growth goals start empty';
+  update public.pipeline_items set strengths = '["70% recurring revenue", "Team of 20 runs delivery"]'::jsonb, risks = '["Top client is 30% of revenue"]'::jsonb where id = v_id;
+  assert (select jsonb_array_length(strengths) = 2 and risks->>0 = 'Top client is 30% of revenue' from public.pipeline_items where id = v_id), 'the lists save';
+  assert (select count(*) from pg_constraint where conname in ('pipeline_items_strengths_check', 'pipeline_items_risks_check')) = 2, 'each check once';
+  begin
+    update public.pipeline_items set strengths = '["a", "b", "c", "d"]'::jsonb where id = v_id;
+    raise exception 'a fourth strength was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    update public.pipeline_items set risks = '{"a": 1}'::jsonb where id = v_id;
+    raise exception 'a risks value that is not a list was accepted';
+  exception when check_violation then null;
+  end;
+end $$;
+drop table public.upgrade_z_before;
+select '0028 checks passed' as result;
+SQL
+for f in UPDATE_RUN_ONCE ALL_MIGRATIONS_RUN_ONCE; do grep -q "schema_has_0028" "$DIR/$f.sql" || { echo "$f.sql is missing 0028"; exit 1; }; done
+
 echo "Upgrade paths passed: 0001-0007 + update twice, 0001-0008 + update, 0001-0009 + update twice, 0001-0010 + 0011 update twice,"
 echo "0001-0010 + 0011_0012 update twice, 0001-0011 + 0011_0012 update twice, 0001-0011 + 0012 update twice (edited text kept),"
 echo "0001-0012 + 0013 update twice, 0001-0012 + 0013_0014 update twice, 0001-0013 + 0013_0014 update twice, 0001-0013 + 0014 update twice,"
@@ -1137,4 +1191,5 @@ echo "0001-0022 + 0023 update twice (older notes read as notes, a finding saves 
 echo "0001-0023 + 0024 update twice (CIM review before Broker call, ids and deals kept, the NDA signed default renamed, a future owner),"
 echo "0001-0024 + 0025 update twice (targets and reports kept, the new columns and tables, end_of_day reports, the seed reuses the old target rows),"
 echo "0001-0025 + 0026 update twice (Former colleague contacts moved to Personal network by UPDATE, other roles and fields kept, the check refuses the old key),"
-echo "0001-0026 + 0027 update twice (the listing text, year established, and employees columns start empty, the listing keeps its fields, a bad year is refused)."
+echo "0001-0026 + 0027 update twice (the listing text, year established, and employees columns start empty, the listing keeps its fields, a bad year is refused),"
+echo "0001-0027 + 0028 update twice (strengths and risks start empty, the deal keeps its fields, the Buy box rows added once with a typed row kept, a fourth line refused)."

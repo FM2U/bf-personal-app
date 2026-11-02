@@ -11,11 +11,12 @@ import { evaluateConditions } from "@/lib/engine/rules";
 import { AI_REPLY_CUT_OFF, AI_REPLY_UNUSABLE, AIInvalidReply, AIUnavailable, callForJson, cleanDeep, replySnippet } from "@/lib/ai/claude";
 import { date as fmtDate } from "@/lib/format";
 import { missingForStage } from "@/lib/pipeline";
-import { DB_UPDATE_NOTICE_0021, DB_UPDATE_NOTICE_0027, isMissingSchemaError } from "@/lib/schema-guard";
+import { DB_UPDATE_NOTICE_0021, DB_UPDATE_NOTICE_0027, DB_UPDATE_NOTICE_0028, isMissingSchemaError } from "@/lib/schema-guard";
 import { checkBuyBox, dealSourceTypeFor, isPassReason, LISTING_SOURCES, parseMoneyText } from "@/lib/work/buy-box";
 import { firstUrl, listingNumbers, listingTextToSave, listingPrompt, validateListingReply, withListingUrl, yearOf, type ListingFields } from "@/lib/work/listing-text";
 import { loadWorkPipeline, workUpdateNotice, type WorkPipeline } from "@/lib/work/data";
-import { dealFactsFromRow } from "@/lib/work/deal-facts";
+import { dealFactsFromRow, parseFindingList } from "@/lib/work/deal-facts";
+import { loadBuyBoxSettings } from "@/lib/work/buy-box-data";
 import { cleanQuestions, countQuestions, mergeQuestions, parseOpenQuestions, questionsPrompt, TODO_MAX_LENGTH, todosPrompt, validateQuestionsReply, validateTodosReply, type DealContext, type QuestionGroups } from "@/lib/work/questions";
 import { nextTodoPosition, openTodos, type DealTodo } from "@/lib/work/todos";
 import type { Row } from "@/lib/types";
@@ -62,6 +63,9 @@ const isFail = (v: unknown): v is Fail => !!v && typeof v === "object" && (v as 
 
 /** True when a pipeline_items row read with "*" has the columns of database update 0027 (listing_text, year_established, employees). */
 const has0027 = (item: Row) => Object.prototype.hasOwnProperty.call(item, "listing_text");
+
+/** True when a pipeline_items row read with "*" has the columns of database update 0028 (strengths, risks). */
+const has0028 = (item: Row) => Object.prototype.hasOwnProperty.call(item, "strengths");
 
 function done() {
   revalidatePath("/", "layout");
@@ -193,11 +197,13 @@ export async function markInterested(id: string): Promise<{ ok: true; nextAction
 /** What the AI reads about a deal: every fact, the original listing text, stage, key finding, notes, emails, calls, and document names. */
 async function dealContext(sb: SupabaseClient, pipe: WorkPipeline, item: Row): Promise<DealContext> {
   const stage = item.stage_id ? pipe.byId[item.stage_id] : null;
-  const [{ data: fin }, { data: notes }, { data: comms }, { data: docs }] = await Promise.all([
+  const [{ data: fin }, { data: notes }, { data: comms }, { data: docs }, buyBox] = await Promise.all([
     sb.from("deal_financials").select("revenue,ebitda,sde,asking_price").eq("item_id", item.id).maybeSingle(),
     sb.from("notes").select("body,created_at").eq("record_type", "pipeline_items").eq("record_id", item.id).order("created_at", { ascending: false }).limit(20),
     sb.from("communications").select("occurred_at,method,direction,subject,summary").eq("pipeline_item_id", item.id).order("occurred_at", { ascending: false }).limit(20),
     sb.from("documents").select("file_name,kind").eq("record_type", "pipeline_items").eq("record_id", item.id).order("created_at", { ascending: false }).limit(20),
+    // AI instructions (2026-11-02): the buy box is read on every click, so the instructions follow any change.
+    loadBuyBoxSettings(sb, String(item.owner_id ?? "")),
   ]);
   const timeline = [
     ...((notes ?? []) as Row[]).map((n) => ({ when: String(n.created_at), text: `note: ${String(n.body ?? "").slice(0, 300)}` })),
@@ -213,6 +219,7 @@ async function dealContext(sb: SupabaseClient, pipe: WorkPipeline, item: Row): P
     timeline,
     documentNames: ((docs ?? []) as Row[]).map((d) => String(d.file_name)),
     existing,
+    buyBox,
   };
 }
 
@@ -476,16 +483,25 @@ export async function resetWaiting(id: string): Promise<{ ok: true } | Fail> {
 
 // ---------- The deal page ----------
 
-/** The Findings card: the key finding (several lines) and the open questions as three groups of lines. */
-export async function saveFindings(id: string, input: { keyFinding: string; questions: QuestionGroups }): Promise<{ ok: true; questions: QuestionGroups } | Fail> {
+/**
+ * The Findings card: the key finding (several lines), the Strengths and Risks lists (up to 3 each; AI instructions
+ * 2026-11-02, database update 0028), and the open questions as three groups of lines. Before database update 0028 the
+ * key finding and the questions save, and lists with lines in them return DB_UPDATE_NOTICE_0028 (nothing is saved).
+ */
+export async function saveFindings(id: string, input: { keyFinding: string; questions: QuestionGroups; strengths?: string[]; risks?: string[] }): Promise<{ ok: true; questions: QuestionGroups } | Fail> {
   const s = await setup();
   if (isFail(s)) return s;
   const { sb, ctx, pipe } = s;
   const item = await dealOf(sb, ctx, pipe, id);
   if (isFail(item)) return item;
   const questions = cleanQuestions(input.questions);
-  const { error } = await sb.from("pipeline_items").update({ key_finding: cleanText(input.keyFinding, 2000), open_questions_json: countQuestions(questions) ? questions : null }).eq("id", item.id);
-  if (error) return notSaved(error);
+  const strengths = parseFindingList(input.strengths ?? []);
+  const risks = parseFindingList(input.risks ?? []);
+  const ready = has0028(item);
+  if (!ready && (strengths.length || risks.length)) return fail(DB_UPDATE_NOTICE_0028);
+  const lists = ready && input.strengths !== undefined && input.risks !== undefined ? { strengths: strengths.length ? strengths : null, risks: risks.length ? risks : null } : {};
+  const { error } = await sb.from("pipeline_items").update({ key_finding: cleanText(input.keyFinding, 2000), open_questions_json: countQuestions(questions) ? questions : null, ...lists }).eq("id", item.id);
+  if (error) return isMissingSchemaError(error) ? fail(DB_UPDATE_NOTICE_0028) : notSaved(error);
   done();
   return { ok: true, questions };
 }

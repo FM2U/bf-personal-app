@@ -75,7 +75,7 @@ export const MORE_LINKS: { href: string; label: string; note: string }[] = [
   { href: "/accountability/scores", label: "Scores", note: "Completion scores" },
   { href: "/accountability/partners", label: "Partners", note: "Accountability partners" },
   { href: "/accountability/report-templates", label: "Report templates", note: "Which measures a partner report shows" },
-  { href: "/settings", label: "Settings", note: "Connections, email signature, AI, imports, sample data and reset, profile" },
+  { href: "/settings", label: "Settings", note: "Connections, email signature, AI, buy box, imports, sample data and reset, profile" },
   { href: "/more/old-home", label: "Old Home", note: "The previous home page with its tiles and cards" },
 ];
 
@@ -165,6 +165,7 @@ export const NAV: NavModule[] = [
       { href: "/settings", label: "Connections" },
       { href: "/settings/email", label: "Email signature" },
       { href: "/settings/ai", label: "AI usage and proposals" },
+      { href: "/settings/buy-box", label: "Buy box" },
       { href: "/settings/imports", label: "Data imports" },
       { href: "/settings/partner-access", label: "Partner access" },
       { href: "/settings/initiatives", label: "Initiatives and pipelines" },

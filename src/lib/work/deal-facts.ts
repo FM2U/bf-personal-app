@@ -37,6 +37,9 @@ export type DealFacts = {
   employees: string | null;
   listingUrl: string | null;
   keyFinding: string | null;
+  /** The Findings card's Strengths and Risks (database update 0028; up to 3 each, empty before it). */
+  strengths?: readonly string[];
+  risks?: readonly string[];
   openQuestions: QuestionGroups | null;
   /** The original listing text as pasted (the full text; trimmed for the AI by listingTextForAi). */
   listingText: string | null;
@@ -83,7 +86,8 @@ export function listingTextForAi(raw: string | null | undefined, max = LISTING_T
 
 /**
  * The fact lines of a deal or a listing, one fact a line ("revenue: $3,400,000"), the known ones only, plus the stage
- * (or "listing, not screened yet"), the key finding, and the open questions ("question (Ask the seller): ...").
+ * (or "listing, not screened yet"), the key finding, the strengths and risks ("strength: ...", "risk: ...", AI
+ * instructions 2026-11-02), and the open questions ("question (Ask the seller): ...").
  */
 export function dealFactLines(f: DealFacts): string[] {
   const lines: string[] = [];
@@ -111,6 +115,8 @@ export function dealFactLines(f: DealFacts): string[] {
   add("employees", f.employees);
   add("link", f.listingUrl);
   add("key finding", f.keyFinding);
+  for (const x of f.strengths ?? []) add("strength", x);
+  for (const x of f.risks ?? []) add("risk", x);
   if (f.openQuestions) for (const g of QUESTION_GROUPS) for (const q of f.openQuestions[g.key]) add(`question (${g.label})`, q);
   return lines;
 }
@@ -119,6 +125,36 @@ export function dealFactLines(f: DealFacts): string[] {
 export function listingTextBlock(raw: string | null | undefined): string {
   const t = listingTextForAi(raw);
   return t ? `Original listing text (as pasted):\n"""\n${t}\n"""` : "Original listing text: none saved.";
+}
+
+/** Strengths and risks: at most this many each (the Findings card and the Key finding star). */
+export const FINDING_LIST_MAX = 3;
+export const FINDING_LINE_MAX = 240;
+
+/**
+ * A stored strengths or risks value (jsonb array, or a JSON string of one) as clean lines: trimmed, empty and repeated
+ * lines dropped, at most FINDING_LIST_MAX, each cut at FINDING_LINE_MAX characters. Anything else reads as none.
+ */
+export function parseFindingList(v: unknown): string[] {
+  let value = v;
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      value = null;
+    }
+  }
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const x of value) {
+    const line = typeof x === "string" ? x.replace(/\s+/g, " ").trim().slice(0, FINDING_LINE_MAX) : "";
+    if (!line || seen.has(line.toLowerCase())) continue;
+    seen.add(line.toLowerCase());
+    out.push(line);
+    if (out.length >= FINDING_LIST_MAX) break;
+  }
+  return out;
 }
 
 const numOrNull = (v: unknown): number | null => (v === null || v === undefined || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
@@ -152,6 +188,8 @@ export function dealFactsFromRow(item: Record<string, unknown>, fin: Record<stri
     employees: strOrNull(item.employees),
     listingUrl: strOrNull(item.listing_url),
     keyFinding: strOrNull(item.key_finding),
+    strengths: parseFindingList(item.strengths),
+    risks: parseFindingList(item.risks),
     openQuestions,
     listingText: typeof item.listing_text === "string" && item.listing_text.trim() ? item.listing_text : null,
   };
@@ -179,6 +217,8 @@ export function dealFactsOf(d: DealRow, listingText: string | null): DealFacts {
     employees: d.employees,
     listingUrl: d.listingUrl,
     keyFinding: d.keyFinding,
+    strengths: d.strengths,
+    risks: d.risks,
     openQuestions: d.openQuestions,
     listingText,
   };
