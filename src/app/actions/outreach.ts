@@ -10,7 +10,8 @@ import { checkCommitments, releaseSupersededNextActions } from "@/lib/engine/tas
 import { emailAddressProblem } from "@/lib/email-address";
 import { DB_UPDATE_NOTICE_0022, isMissingSchemaError } from "@/lib/schema-guard";
 import { hasUpdate0022 } from "@/lib/update-0022";
-import { isRole, parsePurposes } from "@/lib/work/outreach";
+import { parsePurposes, roleForDatabase } from "@/lib/work/outreach";
+import { hasUpdate0026 } from "@/lib/update-0026";
 import { TODO_MAX_LENGTH } from "@/lib/work/questions";
 import { nextTodoPosition, type DealTodo } from "@/lib/work/todos";
 import type { Row } from "@/lib/types";
@@ -64,14 +65,14 @@ async function organizationByName(sb: SupabaseClient, ctx: Ctx, name: string | n
 
 export type PersonInput = { name: string; organization: string; role: string; purposes: string[]; email: string; phone: string; linkedin: string; nextFollowUp: string; note: string; title?: string; followUpFor?: string };
 
-function personRow(input: PersonInput, existingNotes: string | null): Row {
+function personRow(input: PersonInput, existingNotes: string | null, has0026: boolean): Row {
   const email = clean(input.email, 200);
   const linkedin = clean(input.linkedin, 300);
   const note = clean(input.note, 300);
   // The one-line note is the first line of the contact's notes; the rest of the notes is kept.
   const rest = String(existingNotes ?? "").split("\n").slice(1).join("\n").trim();
   return {
-    outreach_role: isRole(input.role) ? input.role : null,
+    outreach_role: roleForDatabase(input.role, has0026),
     purposes: parsePurposes(input.purposes),
     email,
     phone: clean(input.phone, 60),
@@ -98,7 +99,7 @@ export async function createPerson(input: PersonInput): Promise<{ ok: true; id: 
   }
   const orgId = await organizationByName(sb, ctx, clean(input.organization, 200));
   if (isFail(orgId)) return orgId;
-  const row = { owner_id: ctx.ownerId, name, organization_id: orgId, ...personRow(input, null) };
+  const row = { owner_id: ctx.ownerId, name, organization_id: orgId, ...personRow(input, null, await hasUpdate0026(sb)) };
   const { data, error } = await sb.from("contacts").insert(row).select("id").single();
   if (error) return notSaved(error);
   done();
@@ -120,7 +121,7 @@ export async function savePersonFacts(id: string, input: PersonInput): Promise<{
   }
   const orgId = await organizationByName(sb, ctx, clean(input.organization, 200));
   if (isFail(orgId)) return orgId;
-  const row = personRow({ ...input, nextFollowUp: person.follow_up_date ? String(person.follow_up_date) : "" }, person.notes as string | null);
+  const row = personRow({ ...input, nextFollowUp: person.follow_up_date ? String(person.follow_up_date) : "" }, person.notes as string | null, await hasUpdate0026(sb));
   delete row.follow_up_date;
   const { error } = await sb.from("contacts").update({ name, organization_id: orgId, ...row }).eq("id", person.id);
   if (error) return notSaved(error);

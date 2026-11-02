@@ -3,12 +3,13 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Mail } from "lucide-react";
-import { addTaskFromAi, askAboutPage, askAiSetup, draftField, setNextActionFromAi, suggestNextSteps, suggestQuestionsFromAi, suggestTasks, type AskSetup } from "@/app/actions/ask-ai";
+import { addTaskFromAi, askAboutPage, askAiSetup, draftField, setNextActionFromAi, suggestNextAction, suggestNextSteps, suggestQuestionsFromAi, suggestTasks, type AskSetup } from "@/app/actions/ask-ai";
 import { draftReasons } from "@/app/actions/accountability";
 import type { ReasonDraft } from "@/lib/accountability/ask-ai";
 import { ComposeEmailDialog } from "@/components/app/compose-email";
 import type { ComposeSetup } from "@/lib/compose-email";
-import { panelSpec, type Answer, type AskContext, type AskField, type NextStep } from "@/lib/work/ask-ai";
+import { panelSpec, type Answer, type AskContext, type AskField, type NextActionSuggestion, type NextStep } from "@/lib/work/ask-ai";
+import { date as fmtDate } from "@/lib/format";
 import { Drawer } from "@/components/app/work/drawer";
 import { AiButton, ROW_BUTTON_BASE, ROW_BUTTON_TONE, RowButton, Thinking } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
@@ -59,6 +60,8 @@ export type AskAiProps = {
   compose?: ComposeSetup | null;
   /** The End of day drafts (batch C). */
   extras?: EodExtras | null;
+  /** The next action star (Edit batch C round 2): "Use this" fills the card's action (or what for), due date, and minutes. */
+  onUseNext?: ((s: NextActionSuggestion) => void) | null;
 };
 
 /** The page-level pill in every Work page header. */
@@ -79,14 +82,14 @@ export function AskAiPill({ context, compose, extras, className }: AskAiProps & 
 const STAR_CIRCLE = "inline-flex shrink-0 items-center justify-center rounded-full border border-violet-rule bg-violet-soft hover:border-violet/40 hover:bg-[#f3ecff]";
 
 /** The purple star at the right of a card header (21px, in a 34px faint circle; hover shows "Ask AI"); opens the panel about that card. */
-export function AiCardStar({ context, compose, extras, className, testId = "ai-card-star" }: AskAiProps & { className?: string; testId?: string }) {
+export function AiCardStar({ context, compose, extras, onUseNext, className, testId = "ai-card-star" }: AskAiProps & { className?: string; testId?: string }) {
   const [open, setOpen] = useState(false);
   return (
     <>
       <button type="button" onClick={() => setOpen(true)} title="Ask AI" aria-label={`Ask AI about ${context.card ?? context.label}`} className={cn(STAR_CIRCLE, "h-[34px] w-[34px]", className)} data-testid={testId} data-card={context.card ?? undefined}>
         <AiStar className="h-[21px] w-[21px]" />
       </button>
-      {open ? <AskAiPanel context={context} compose={compose} extras={extras} open={open} onOpenChange={setOpen} /> : null}
+      {open ? <AskAiPanel context={context} compose={compose} extras={extras} open={open} onOpenChange={setOpen} onUseNext={onUseNext ? (x) => { onUseNext(x); setOpen(false); } : null} /> : null}
     </>
   );
 }
@@ -160,7 +163,7 @@ const VIOLET_BUTTON = "inline-flex h-[30px] items-center justify-center rounded-
 const SOFT_BUTTON = "inline-flex h-[30px] items-center justify-center rounded-[7px] border border-violet-rule bg-violet-soft px-[11px] text-[12.5px] font-medium whitespace-nowrap text-violet hover:bg-[#f3ecff] disabled:pointer-events-none disabled:opacity-50";
 const INPUT = "h-9 w-full min-w-0 rounded-[7px] border border-input bg-white px-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
 
-export function AskAiPanel({ context, compose, extras, open, onOpenChange, onUse }: { context: AskContext; compose?: ComposeSetup | null; extras?: EodExtras | null; open: boolean; onOpenChange: (open: boolean) => void; /** A field star: "Use this" fills the field. */ onUse?: (text: string) => void }) {
+export function AskAiPanel({ context, compose, extras, open, onOpenChange, onUse, onUseNext }: { context: AskContext; compose?: ComposeSetup | null; extras?: EodExtras | null; open: boolean; onOpenChange: (open: boolean) => void; /** A field star: "Use this" fills the field. */ onUse?: (text: string) => void; /** The next action star: "Use this" fills the card's fields. */ onUseNext?: ((s: NextActionSuggestion) => void) | null }) {
   const router = useRouter();
   const spec = panelSpec(context);
   // The End of day drafts (batch C): which of the three the panel shows, by the card it was opened from (all three from the page pill).
@@ -211,6 +214,7 @@ export function AskAiPanel({ context, compose, extras, open, onOpenChange, onUse
   const [setup, setSetup] = useState<AskSetup | null>(null);
   const [setupError, setSetupError] = useState<string | null>(null);
   const [steps, setSteps] = useState<NextStep[] | null>(null);
+  const [nextSuggestion, setNextSuggestion] = useState<NextActionSuggestion | null>(null);
   const [stepsError, setStepsError] = useState<FailState>(null);
   const [stepsLoading, setStepsLoading] = useState(false);
   const [stepsNote, setStepsNote] = useState<string | null>(null);
@@ -233,9 +237,17 @@ export function AskAiPanel({ context, compose, extras, open, onOpenChange, onUse
   const loadSuggestions = async () => {
     if (!suggest) return;
     setSteps(null);
+    setNextSuggestion(null);
     setStepsError(null);
     setStepsNote(null);
     setStepsLoading(true);
+    if (suggest.kind === "next_action") {
+      const r = await suggestNextAction(context);
+      setStepsLoading(false);
+      if (!r.ok) return setStepsError({ error: r.error, reply: r.reply });
+      setNextSuggestion(r.suggestion);
+      return;
+    }
     if (suggest.kind === "questions") {
       const r = await suggestQuestionsFromAi(context);
       setStepsLoading(false);
@@ -387,6 +399,30 @@ export function AskAiPanel({ context, compose, extras, open, onOpenChange, onUse
             </p>
           ) : null}
           {!steps && !stepsLoading && !stepsError && !stepsNote && suggest.kind === "questions" ? <p className="text-[13px] text-muted-foreground">The AI reads the deal and adds questions it has not asked yet to the three groups.</p> : null}
+          {nextSuggestion ? (
+            <div className="rounded-lg border border-violet-rule bg-violet-soft px-4 py-3.5" data-testid="ask-ai-next-action">
+              <p className="text-sm font-medium text-slate-900" data-testid="ask-ai-next-text">
+                {nextSuggestion.action}
+              </p>
+              <p className="mt-1 text-[13px] text-slate-700" data-testid="ask-ai-next-due" data-due={nextSuggestion.due} data-minutes={nextSuggestion.minutes ?? ""}>
+                Due {fmtDate(nextSuggestion.due, "EEE MMM d")}
+                {nextSuggestion.minutes ? ` · ${nextSuggestion.minutes} min` : ""}
+              </p>
+              {nextSuggestion.reason ? <p className="mt-0.5 text-[12.5px] text-muted-foreground">{nextSuggestion.reason}</p> : null}
+              <div className="mt-3 flex flex-wrap gap-2">
+                {onUseNext ? (
+                  <button type="button" onClick={() => onUseNext(nextSuggestion)} className={VIOLET_BUTTON} data-testid="ask-ai-use-next">
+                    {suggest.use}
+                  </button>
+                ) : (
+                  <button type="button" onClick={() => setNext(nextSuggestion.action)} disabled={setting} className={VIOLET_BUTTON} data-testid="ask-ai-set-next">
+                    Set as next action
+                  </button>
+                )}
+              </div>
+              <p className="mt-2 text-[12px] text-muted-foreground">Use this fills the card. Nothing is saved until you press Save.</p>
+            </div>
+          ) : null}
           {steps?.map((s, i) => (
             <div key={i} className="border-b border-slate-100 py-3 first:pt-0 last:border-b-0" data-testid="ask-ai-step">
               <p className="text-sm text-slate-900">{s.text}</p>

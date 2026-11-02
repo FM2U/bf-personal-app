@@ -1,4 +1,4 @@
--- BF Personal App: database update (0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019, 0020, 0021, 0022, 0023, 0024, and 0025).
+-- BF Personal App: database update (0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019, 0020, 0021, 0022, 0023, 0024, 0025, and 0026).
 --   0008: Daily Targets and Outreach Queue.
 --   0009: Stage task lists, stage time limits, required details, stalled items, deal source (proprietary or brokered),
 --         deal-source contacts, and the Deals sourced and Deals advanced targets.
@@ -24,7 +24,8 @@
 --   0024: Edit batch B: Broker call moves after CIM review in the acquisition stages; the NDA signed default becomes "Ask the broker for the CIM".
 --   0025: Batch C: Targets counted from the app's own data (counts_key, archived), work events (next actions and follow-ups done, the Rosara focus done),
 --         End of day rows (reasons, tomorrow's line, sent or skipped, the email as sent), End of day reports as partner reports.
--- For a database that already has 0001 to 0007 (or 0001 to 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019, 0020, 0021, 0022, 0023, or 0024). Paste this whole file into the
+--   0026: Edit batch C round 2: the outreach role "Former colleague" becomes "Personal network" (contacts moved over by UPDATE).
+-- For a database that already has 0001 to 0007 (or 0001 to 0008, 0009, 0010, 0011, 0012, 0013, 0014, 0015, 0016, 0017, 0018, 0019, 0020, 0021, 0022, 0023, 0024, or 0025). Paste this whole file into the
 -- Supabase SQL Editor and press Run. Safe to run more than once: nothing is duplicated.
 -- Generated from supabase/migrations by supabase/build_combined.py.
 
@@ -4356,3 +4357,28 @@ as $$ select true $$;
 
 revoke execute on function public.schema_has_0025() from public, anon;
 grant execute on function public.schema_has_0025() to authenticated, service_role;
+
+-- ===== supabase/migrations/0026_edit_batch_c_round_2.sql =====
+-- 0026: Edit batch C, round 2 (approved 2026-11-02). The outreach role "Former colleague" becomes "Personal network".
+-- Depends on 0022 (contacts.outreach_role and its check). Safe to run more than once. Nothing is deleted: the contacts
+-- that carry the old role keep every other field and only the role key changes, by UPDATE.
+--   1. The role check is replaced: it allows personal_network instead of former_colleague (same list otherwise).
+--   2. Every contact with outreach_role former_colleague gets personal_network.
+--   3. schema_has_0026().
+-- There is no enum type for the role (it is text with a check), so nothing else changes.
+
+-- 1 and 2. The check comes off first, the rows move over, then the new check goes on (a second run finds nothing to move).
+alter table public.contacts drop constraint if exists contacts_outreach_role_check;
+update public.contacts set outreach_role = 'personal_network' where outreach_role = 'former_colleague';
+alter table public.contacts add constraint contacts_outreach_role_check
+  check (outreach_role is null or outreach_role in ('broker', 'lender', 'personal_network', 'service_provider', 'rosara_customer', 'recruiter', 'cofounder_candidate', 'investor', 'other'));
+
+-- 3. Check function
+create or replace function public.schema_has_0026()
+returns boolean
+language sql
+stable
+as $$ select true $$;
+
+revoke execute on function public.schema_has_0026() from public, anon;
+grant execute on function public.schema_has_0026() to authenticated, service_role;

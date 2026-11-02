@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ROW_COLS, ROW_GRIDS, TEXT_GAP } from "@/components/app/work/ui";
+import { FIGURE_COLS_GAP, ROW_COLS, ROW_GRIDS, TEXT_GAP } from "@/components/app/work/ui";
 
 /**
  * The alignment rule (Edit batch B, item 5): every figure and button column on a row has a fixed width sized for its
@@ -91,5 +91,23 @@ describe("the fixed gap before the figure and mark columns (Edit batch C)", () =
   it("Outreach rows: the figures keep their fixed widths (LAST CONTACT and NEXT FOLLOW-UP), so they start at the same x on every row", () => {
     expect(ROW_COLS.lastContact.cls).toMatch(/^w-\[\d+px\]$/);
     expect(ROW_COLS.nextDate.cls).toMatch(/^w-\[\d+px\]$/);
+  });
+});
+
+/**
+ * Edit batch C round 2 (items 1 and 2): the figures are 15.5px semibold (about 8.3px a character), so the figure
+ * columns hold their longest value at that size, and the listing row's three figure columns sit about 28px apart.
+ */
+describe("the figure columns at the 15.5px figure size", () => {
+  const wide = (text: string) => Math.ceil(text.length * 8.3);
+  it("hold the longest value", () => {
+    expect(px(ROW_COLS.money.cls)).toBeGreaterThanOrEqual(wide("Not stated"));
+    expect(px(ROW_COLS.lastContact.cls)).toBeGreaterThanOrEqual(wide("Oct 27 · meeting"));
+    expect(px(ROW_COLS.nextDate.cls)).toBeGreaterThanOrEqual(wide("4 days late"));
+    expect(px(ROW_COLS.count.cls)).toBeGreaterThanOrEqual(wide("99"));
+  });
+  it("REVENUE, EBITDA, and ASKING sit about 28px apart", () => {
+    expect(FIGURE_COLS_GAP.px).toBe(28);
+    expect(FIGURE_COLS_GAP.cls).toBe(`gap-x-${FIGURE_COLS_GAP.px / 4}`);
   });
 });

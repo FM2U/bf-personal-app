@@ -167,7 +167,21 @@ export function ItemNextActionCard({ item, today }: { item: ItemRow; today: stri
   const d = item.nextAction ? dueLabel(item.nextActionDue, today, (x) => fmtDate(x, "MMM d")) : null;
   const hint = item.nextAction ? `Due ${d!.text.toLowerCase() === "today" ? "today" : d!.text}${item.nextActionMinutes ? ` · ${item.nextActionMinutes} min` : ""}` : "Needs a next action";
   return (
-    <WorkCard id="next-action" title="Next action" hint={hint} testId="item-next-action">
+    <WorkCard
+      id="next-action"
+      title="Next action"
+      actions={
+        <>
+          <span className="text-[13px] text-muted-foreground" data-testid="next-action-hint">{hint}</span>
+          <AiCardStar context={{ ...itemAsk(item), card: "Next action" }} onUseNext={(x) => {
+            setAction(x.action);
+            setDue(x.due);
+            setMinutes(x.minutes ? String(x.minutes) : "");
+          }} testId="next-action-star" />
+        </>
+      }
+      testId="item-next-action"
+    >
       <div className={FORM} data-testid="next-action-form">
         <label htmlFor={`${ids}-a`} className={LABEL}>
           Action
@@ -368,7 +382,7 @@ export function OpportunityFactsCard({ item }: { item: ItemRow }) {
           {field("company", "Company")}
           {field("role", "Role")}
           {field("contact", "Contact", "Name, firm")}
-          {field("source", "Source", "Recruiter, a former colleague, a posting")}
+          {field("source", "Source", "Recruiter, personal network, a posting")}
           {field("payRange", "Pay range", "$150K to $170K")}
           {field("location", "Location", "City, ST, on site or remote")}
           <div className="sm:col-span-2">{field("whatItDoes", "What the company does")}</div>

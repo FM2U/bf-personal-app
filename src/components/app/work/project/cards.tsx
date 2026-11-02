@@ -11,7 +11,7 @@ import { projectTasksLabel } from "@/lib/work/projects";
 import { dueLabel } from "@/lib/work/stages";
 import type { TimelineEvent } from "@/lib/work/timeline";
 import type { DealTodo } from "@/lib/work/todos";
-import { AiFieldStar } from "@/components/app/work/ask-ai";
+import { AiCardStar, AiFieldStar } from "@/components/app/work/ask-ai";
 import { Fact, GrowingTextarea, SaveLine, useSave, useSynced } from "@/components/app/work/deal/cards";
 import { ProjectActionButtons } from "@/components/app/work/project-row";
 import { TasksCard } from "@/components/app/work/tasks-card";
@@ -78,7 +78,21 @@ export function ProjectNextActionCard({ project, today }: { project: ProjectRow;
   const d = project.nextAction ? dueLabel(project.nextActionDue, today, (x) => fmtDate(x, "MMM d")) : null;
   const hint = project.status === "closed" ? "Closed project" : project.nextAction ? `Due ${d!.text.toLowerCase() === "today" ? "today" : d!.text}${project.nextActionMinutes ? ` · ${project.nextActionMinutes} min` : ""} · shows on Home` : "No next action set";
   return (
-    <WorkCard id="next-action" title="Next action" hint={hint} testId="project-next-action">
+    <WorkCard
+      id="next-action"
+      title="Next action"
+      actions={
+        <>
+          <span className="text-[13px] text-muted-foreground" data-testid="next-action-hint">{hint}</span>
+          <AiCardStar context={{ ...projectAsk(project), card: "Next action" }} onUseNext={(x) => {
+            setAction(x.action);
+            setDue(x.due);
+            setMinutes(x.minutes ? String(x.minutes) : "");
+          }} testId="next-action-star" />
+        </>
+      }
+      testId="project-next-action"
+    >
       <div className={FORM} data-testid="next-action-form">
         <label htmlFor={`${ids}-a`} className={LABEL}>
           Action

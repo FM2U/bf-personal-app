@@ -4245,7 +4245,9 @@ const expectText = async (page, text) => {
     const status = await page.getByTestId("person-status-line").innerText();
     if (!status.includes("Off-market deals") || !status.includes("Transworld Business Advisors")) throw new Error(`status: ${status}`);
     const why = await page.getByTestId("person-why").innerText();
-    if (!why.includes("Ask for the two owner names and the Summit seller call date") || !why.includes("Asked him for off-market HVAC owners")) throw new Error(`why in touch: ${why}`);
+    // Edit batch C round 2 (item 4): what the follow-up is for lives in Next follow-up only, not in Why in touch.
+    if (why.includes("Ask for the two owner names and the Summit seller call date") || why.includes("Follow-up for") || !why.includes("Asked him for off-market HVAC owners")) throw new Error(`why in touch: ${why}`);
+    if ((await page.getByTestId("fu-what").inputValue()) !== "Ask for the two owner names and the Summit seller call date") throw new Error("What for in Next follow-up");
     if ((await page.getByTestId("person-incoming").getByTestId("incoming-row").count()) !== 2) throw new Error("Mark Reed should have two incoming replies");
     // Add a note sits below the timeline list.
     const noteBelow = await page.getByTestId("person-timeline").evaluate((card) => card.querySelector("[data-testid=note-form]").getBoundingClientRect().top >= card.querySelector("[data-testid=timeline-events]").getBoundingClientRect().bottom - 1);
@@ -5238,7 +5240,8 @@ const expectText = async (page, text) => {
     await page.goto(`${BASE}/work/reports`);
     await page.getByTestId("work-reports").waitFor();
     const labels = await page.getByTestId("week-tile").evaluateAll((els) => els.map((e) => e.dataset.label));
-    if (labels.join("|") !== "Targets met|Deals moved|Listings screened|Network outreach|Follow-ups on time|Days waiting on brokers") throw new Error(`tiles: ${labels.join("|")}`);
+    // Edit batch C round 2 (item 6): Most missed this week in place of Targets met, last.
+    if (labels.join("|") !== "Deals moved|Listings screened|Network outreach|Follow-ups on time|Days waiting on brokers|Most missed this week") throw new Error(`tiles: ${labels.join("|")}`);
     for (const t of ["report-targets", "report-waits", "report-moves", "report-passed"]) if (!(await page.getByTestId(t).count())) throw new Error(`missing card ${t}`);
     // Deals moved this week matches the database (stage moves of screened items with an earlier stage this week).
     const movesShown = Number((await page.getByTestId("report-moves").innerText()).match(/(\d+) moves?/)[1]);
@@ -5251,7 +5254,9 @@ const expectText = async (page, text) => {
     if ((await page.getByTestId("week-view").getAttribute("data-period")) !== "last") throw new Error("Last week did not switch");
     if (!(await page.getByTestId("period-lead").innerText()).startsWith("Week of")) throw new Error("the period lead");
     await page.getByTestId("reports-period-month").click();
-    if (!(await page.getByTestId("report-targets").innerText()).includes("Met on")) throw new Error("the month view rows");
+    // The month: the targets card lists the ones not met in every week or day ("Met on 3 of 12 days"), or says all are met.
+    const monthTargets = await page.getByTestId("report-targets").innerText();
+    if (!monthTargets.includes("Met on") && !monthTargets.includes("Met in") && !(await page.getByTestId("report-targets-all-met").count())) throw new Error(`the month view rows: ${monthTargets}`);
     await page.getByTestId("reports-period-this").click();
     // Sent reports.
     await page.getByTestId("reports-view-sent").click();
@@ -5597,7 +5602,7 @@ const expectText = async (page, text) => {
       if (met !== t.met || t.misses.length !== total - met) throw new Error(`tile ${t.period}: ${t.text} with ${t.misses.length} misses`);
       for (const m of t.misses) if (m.dot !== "rgb(220, 38, 38)" || !/^[A-Z].* (\d+ of \d+|\d+%|not done)$/.test(m.text)) throw new Error(`a miss line: ${JSON.stringify(m)}`);
     }
-    if (!(await page.getByTestId("most-missed").innerText()).match(/^(Most missed: .+, \d+ of the last 7 weeks|Every week met)$/)) throw new Error("Most missed");
+    if (!(await page.getByTestId("most-missed").innerText()).match(/^(Most missed over 7 weeks: .+, \d+ of 7|Every week met)$/)) throw new Error("Most missed");
     await shootBatchC(`${BASE}/work/reports`, "work-reports");
     await page.getByTestId("past-week").nth(2).click();
     await page.locator("[data-testid=week-view][data-period=w3]").waitFor();
@@ -5643,6 +5648,304 @@ const expectText = async (page, text) => {
     // The other Work screens at 1280 and on the phone.
     await shootBatchC(`${BASE}/work`, "work-now");
     await shootBatchC(`${BASE}/work/rosara`, "work-rosara");
+  });
+
+  // ---------- Edit batch C, round 2 (database update 0026): figure contrast, listing popup, next action star, Personal network, Reports regrouped, Met when reached, to-dos on Home ----------
+  /** The computed style of a figure's value and label: size, weight, color, and the gap between them. */
+  const figStyle = (loc) =>
+    loc.evaluate((el) => {
+      const v = el.querySelector("[data-figure-value]");
+      const l = el.querySelector("[data-figure-label]");
+      const vs = getComputedStyle(v);
+      const ls = getComputedStyle(l);
+      const vr = v.getBoundingClientRect();
+      const lr = l.getBoundingClientRect();
+      const gap = lr.top >= vr.bottom ? lr.top - vr.bottom : vr.top - lr.bottom;
+      return { size: vs.fontSize, weight: vs.fontWeight, color: vs.color, labelSize: ls.fontSize, labelWeight: ls.fontWeight, labelColor: ls.color, gap: Math.round(gap), empty: el.dataset.empty === "1", text: v.innerText.trim() };
+    });
+
+  await step("Edit batch C round 2: facts and figures: values 15.5px semibold near-black, labels 11px medium 4px away, empty values muted gray (Facts, record header, listing rows, Outreach, Rosara, Targets, End of day)", async () => {
+    const check = (s, where) => {
+      if (s.size !== "15.5px" || s.labelSize !== "11px" || s.labelWeight !== "500" || s.labelColor !== "rgb(51, 65, 85)") throw new Error(`${where}: ${JSON.stringify(s)}`);
+      if (s.gap < 3 || s.gap > 5) throw new Error(`${where}: the gap is ${s.gap}px`);
+      if (s.empty && (s.color !== "rgb(148, 163, 184)" || s.weight !== "500")) throw new Error(`${where} empty value: ${JSON.stringify(s)}`);
+    };
+    const dalton = await dealByName("Dalton Services");
+    await page.goto(`${BASE}/work/deals/${dalton.id}`);
+    await page.getByTestId("deal-facts").waitFor();
+    const facts = page.locator("[data-testid=deal-facts] [data-testid=facts-grid] > div");
+    let plain = 0;
+    for (let i = 0; i < (await facts.count()); i++) {
+      const s = await figStyle(facts.nth(i));
+      check(s, `deal fact ${s.text}`);
+      if (!s.empty) {
+        plain++;
+        if (s.weight !== "600" || s.color !== "rgb(15, 23, 42)") throw new Error(`deal fact value: ${JSON.stringify(s)}`);
+      }
+    }
+    if (!plain) throw new Error("no deal facts");
+    const header = page.locator("[data-testid=record-figures] > div");
+    for (let i = 0; i < (await header.count()); i++) check(await figStyle(header.nth(i)), "the record header");
+    // An empty fact reads gray: clear the industry for a moment in the database.
+    const industry = (await one("select industry from pipeline_items where id = $1", [dalton.id])).industry;
+    await pg.query("update pipeline_items set industry = null where id = $1", [dalton.id]);
+    try {
+      await page.reload();
+      const ind = page.locator("[data-testid=deal-facts] [data-testid=facts-grid] > div").filter({ hasText: "Industry" });
+      const s = await figStyle(ind);
+      if (!s.empty || s.color !== "rgb(148, 163, 184)" || s.text !== "Not set") throw new Error(`Not set: ${JSON.stringify(s)}`);
+    } finally {
+      await pg.query("update pipeline_items set industry = $2 where id = $1", [dalton.id, industry]);
+    }
+    // The row figures: Screen listings, Outreach, Rosara, Targets, End of day.
+    for (const [url, sel] of [["/work/listings", "[data-testid=listing-row] [data-col=money]"], ["/work/outreach", "[data-testid=person-row] [data-col=lastContact], [data-testid=person-row] [data-col=nextDate]"], ["/work/rosara", "[data-testid=project-tasks], [data-testid=project-next]"], ["/work/targets", "[data-testid^=target-figure-]"], ["/work/end-of-day", "[data-testid=eod-figure]"]]) {
+      await page.goto(`${BASE}${url}`);
+      await page.waitForLoadState("networkidle");
+      const locs = page.locator(sel);
+      const n = await locs.count();
+      if (!n) throw new Error(`no figures on ${url}`);
+      for (let i = 0; i < Math.min(n, 6); i++) if (await locs.nth(i).isVisible()) check(await figStyle(locs.nth(i)), url);
+    }
+  });
+
+  await step("Edit batch C round 2: Screen listings: a listing name opens the centered popup (facts, what it does, the buy box reasons, the original listing link, Edit, Pass, Interested); Escape and a click outside close it; the focus stays inside; Interested from the popup", async () => {
+    await aipost("/__reset");
+    await page.goto(`${BASE}/work/listings`);
+    await page.getByTestId("listing-rows").waitFor();
+    // The three figure columns sit about 28px apart, next to the buttons.
+    const gaps = await page.locator("[data-testid=listing-row]:not([data-hidden='1'])").first().evaluate((row) => {
+      const cols = [...row.querySelectorAll("[data-col=money]")].map((c) => c.getBoundingClientRect());
+      const btn = row.querySelector("[data-col=buttons]").getBoundingClientRect();
+      return { between: cols.slice(1).map((c, i) => Math.round(c.left - cols[i].right)), toButtons: Math.round(btn.left - cols[2].right) };
+    });
+    if (gaps.between.some((g) => g < 26 || g > 30) || gaps.toButtons > 20) throw new Error(`figure columns: ${JSON.stringify(gaps)}`);
+    const row = page.locator("[data-testid=listing-row]:not([data-hidden='1'])").filter({ has: page.getByTestId("listing-name-button") }).first();
+    const id = await row.getAttribute("data-listing");
+    const name = (await row.getByTestId("listing-name-button").innerText()).trim();
+    const db = await one("select i.name, i.listing_url, i.what_it_does from pipeline_items i where i.id = $1", [id]);
+    await row.getByTestId("listing-name-button").click();
+    const pop = page.getByTestId("listing-popup");
+    await pop.waitFor();
+    if ((await page.getByTestId("listing-popup-title").innerText()).trim() !== name) throw new Error("the popup title");
+    const box = await pop.boundingBox();
+    const vw = page.viewportSize().width;
+    if (Math.abs(box.x + box.width / 2 - vw / 2) > 4) throw new Error(`not centered: ${JSON.stringify(box)}`);
+    if ((await page.getByTestId("listing-popup-fact-revenue").count()) !== 1 || (await pop.locator("[data-testid^=listing-popup-fact-]").count()) !== 8) throw new Error("the facts grid");
+    if ((await page.getByTestId("listing-popup-reason").count()) < 1) throw new Error("the buy box reasons");
+    if (!(await page.getByTestId("listing-popup-pill").innerText()).trim()) throw new Error("the buy box pill");
+    if (db.what_it_does && !(await page.getByTestId("listing-popup-what").innerText()).includes(db.what_it_does)) throw new Error("what it does");
+    if (db.listing_url) {
+      const link = page.getByTestId("listing-popup-link");
+      if ((await link.getAttribute("target")) !== "_blank" || !(await link.getAttribute("href")).includes(db.listing_url.replace(/^https?:\/\//, ""))) throw new Error("the original listing link");
+    } else if (!(await page.getByTestId("listing-popup-no-link").count())) throw new Error("no link line");
+    // The focus stays inside the popup.
+    for (let i = 0; i < 14; i++) await page.keyboard.press("Tab");
+    if (!(await page.evaluate(() => !!document.activeElement?.closest("[data-testid=listing-popup]")))) throw new Error("the focus left the popup");
+    for (const [vp, pg_] of [["desktop1280", p1280], ["phone", ph]]) {
+      await pg_.goto(`${BASE}/work/listings`);
+      await pg_.locator(`[data-testid=listing-row][data-listing='${id}'] [data-testid=listing-name-button]`).click();
+      await pg_.getByTestId("listing-popup").waitFor();
+      await pg_.waitForTimeout(300);
+      await pg_.screenshot({ path: path.join(OUT, `${vp}-work-listing-popup.png`) });
+      await pg_.keyboard.press("Escape");
+    }
+    // Escape closes it.
+    await page.keyboard.press("Escape");
+    await pop.waitFor({ state: "detached" });
+    // A click outside closes it.
+    await row.getByTestId("listing-name-button").click();
+    await pop.waitFor();
+    await page.mouse.click(8, 8);
+    await pop.waitFor({ state: "detached" });
+    // Edit opens the Facts form in the popup; Cancel goes back.
+    await row.getByTestId("listing-name-button").click();
+    await page.getByTestId("listing-popup-edit").click();
+    await page.getByTestId("listing-popup-form").waitFor();
+    if ((await page.getByTestId("fact-name").inputValue()) !== db.name) throw new Error("the edit form's listing name");
+    await page.getByTestId("facts-cancel").click();
+    await page.getByTestId("listing-popup-facts").waitFor();
+    // Pass shows the reason menu (above the button); Escape closes it.
+    await page.getByTestId("listing-popup-pass").click();
+    await page.getByTestId("pass-menu").waitFor();
+    await page.getByTestId("listing-popup-pass").click();
+    // Interested from the popup: it closes and the row says what happened; the database agrees.
+    await page.getByTestId("listing-popup-interested").click();
+    await pop.waitFor({ state: "detached" });
+    await page.locator(`[data-testid=listing-row][data-listing='${id}'] [data-testid=listing-result]`).waitFor();
+    if (!(await page.locator(`[data-testid=listing-row][data-listing='${id}']`).innerText()).includes("is now a deal at Interested")) throw new Error("the Interested line");
+    const after = await one("select i.screened, s.name stage from pipeline_items i left join pipeline_stages s on s.id = i.stage_id where i.id = $1", [id]);
+    if (!after.screened || after.stage !== "Interested") throw new Error(`after Interested: ${JSON.stringify(after)}`);
+  });
+
+  await step("Edit batch C round 2: the next action star (deal, project, opportunity, consulting, person): the mock AI suggests one action and a due date; Use this fills Action and Due (and minutes); Save keeps them", async () => {
+    await aipost("/__reset");
+    const dalton = await dealByName("Dalton Services");
+    await page.goto(`${BASE}/work/deals/${dalton.id}`);
+    const card = page.getByTestId("deal-next-action");
+    await card.getByTestId("next-action-star").click();
+    await page.getByTestId("ask-ai-panel").waitFor();
+    if ((await page.getByTestId("ask-ai-title").innerText()).trim() !== "Ask AI about Next action") throw new Error("the panel title");
+    await page.getByTestId("ask-ai-next-action").waitFor({ timeout: 20000 });
+    const text = (await page.getByTestId("ask-ai-next-text").innerText()).trim();
+    const due = await page.getByTestId("ask-ai-next-due").getAttribute("data-due");
+    if (!text.startsWith("Mock next action: confirm the next step on Deal: Dalton Services") || !/^\d{4}-\d{2}-\d{2}$/.test(due) || due < nyDate(0)) throw new Error(`the suggestion: ${text} ${due}`);
+    await page.getByTestId("ask-ai-use-next").click();
+    await page.getByTestId("ask-ai-panel").waitFor({ state: "detached" });
+    if ((await page.getByTestId("na-action").inputValue()) !== text || (await page.getByTestId("na-due").inputValue()) !== due || (await page.getByTestId("na-minutes").inputValue()) !== "30") throw new Error("Use this did not fill Action, Due, and Block");
+    await page.getByTestId("na-save").click();
+    await page.getByTestId("save-ok").first().waitFor();
+    const saved = await dealByName("Dalton Services");
+    if (saved.next_action !== text || saved.next_action_due !== due) throw new Error(`saved: ${JSON.stringify(saved)}`);
+    // The AI read the stage, its default, the timeline, and the tasks.
+    const calls = await (await fetch(`${AIMOCK}/__calls`)).json();
+    if (!calls.includes("next_action")) throw new Error(`calls: ${calls.join(",")}`);
+    // The person's Next follow-up: the star suggests the date and what for (no minutes).
+    const reed = await personByName("Mark Reed");
+    await page.goto(`${BASE}/work/outreach/${reed.id}`);
+    await page.getByTestId("person-next-follow-up").getByTestId("next-action-star").click();
+    await page.getByTestId("ask-ai-next-action").waitFor({ timeout: 20000 });
+    if ((await page.getByTestId("ask-ai-title").innerText()).trim() !== "Ask AI about Next follow-up") throw new Error("the person panel title");
+    const pText = (await page.getByTestId("ask-ai-next-text").innerText()).trim();
+    const pDue = await page.getByTestId("ask-ai-next-due").getAttribute("data-due");
+    if ((await page.getByTestId("ask-ai-next-due").getAttribute("data-minutes")) !== "") throw new Error("a person's suggestion has no minutes");
+    await page.getByTestId("ask-ai-use-next").click();
+    if ((await page.getByTestId("fu-what").inputValue()) !== pText || (await page.getByTestId("fu-date").inputValue()) !== pDue) throw new Error("Use this on the person page");
+    await page.getByTestId("fu-save").click();
+    await page.getByTestId("save-ok").first().waitFor();
+    // The star sits in the Next action card of a project, an opportunity, and a consulting item.
+    const project = await projectByName("Market research");
+    const opp = await itemByName("Harbor Health Partners", "job");
+    const con = await one("select i.id from pipeline_items i join pipelines p on p.id = i.pipeline_id where p.kind = 'consulting' and i.status = 'open' order by i.created_at limit 1");
+    for (const [url, cardId] of [[`/work/rosara/${project.id}`, "project-next-action"], [`/work/jobs/${opp.id}`, "item-next-action"], [`/work/consulting/${con.id}`, "item-next-action"]]) {
+      await page.goto(`${BASE}${url}`);
+      if ((await page.getByTestId(cardId).getByTestId("next-action-star").count()) !== 1) throw new Error(`no star on ${url}`);
+    }
+    await page.getByTestId(`item-next-action`).getByTestId("next-action-star").click();
+    await page.getByTestId("ask-ai-next-action").waitFor({ timeout: 20000 });
+    await page.getByTestId("ask-ai-use-next").click();
+    if (!(await page.getByTestId("na-action").inputValue()).startsWith("Mock next action")) throw new Error("Use this on a consulting item");
+    await page.getByTestId("na-save").click();
+    await page.getByTestId("save-ok").first().waitFor();
+  });
+
+  await step("Edit batch C round 2: Personal network: the person page has no Follow-up for row; Add a person offers Personal network (not Former colleague); the sample's contacts carry it (update 0026)", async () => {
+    const reed = await personByName("Mark Reed");
+    await page.goto(`${BASE}/work/outreach/${reed.id}`);
+    await page.getByTestId("person-why").waitFor();
+    if ((await page.getByTestId("why-follow-up").count()) || (await page.getByTestId("person-why").innerText()).includes("Follow-up for")) throw new Error("Follow-up for is still in Why in touch");
+    await page.goto(`${BASE}/work/outreach?add=1`);
+    const options = await page.getByTestId("person-role").locator("option").allInnerTexts();
+    if (!options.includes("Personal network") || options.some((o) => /former colleague/i.test(o))) throw new Error(`roles: ${options.join("|")}`);
+    if (await page.getByTestId("update-0026-needed").count()) throw new Error("the 0026 line shows after the update");
+    const old = await one("select count(*)::int n from contacts where outreach_role = 'former_colleague'");
+    const now = await one("select count(*)::int n from contacts where outreach_role = 'personal_network'");
+    if (old.n !== 0 || now.n < 1) throw new Error(`roles in the database: ${old.n} old, ${now.n} new`);
+    const carla = await personByName("Carla Jenkins");
+    await page.goto(`${BASE}/work/outreach/${carla.id}`);
+    if (!(await page.getByTestId("pf-role").innerText()).includes("Personal network")) throw new Error("the role on the person page");
+  });
+
+  await step("Edit batch C round 2: to-dos on Home: a to-do due today shows on Next actions with the To-do pill; Show with only To-dos ticked shows only to-do rows; Done checks it off (gone from Home, under Done today on To-dos)", async () => {
+    await pg.query("delete from todos where text like 'Flow R2:%'");
+    await pg.query("insert into todos (owner_id, text, due_on, position) values ($1, 'Flow R2: renew the car registration', $2, 900), ($1, 'Flow R2: no date stays off Home', null, 901), ($1, 'Flow R2: next week stays off Home', $3, 902)", [OWNER, nyDate(0), nyDate(7)]);
+    await page.goto(`${BASE}/work`);
+    await page.getByTestId("home-bento").waitFor();
+    await page.evaluate(() => window.localStorage.removeItem("work-home-show"));
+    await page.reload();
+    const row = page.locator("[data-testid=home-row][data-lane=to-dos]").filter({ hasText: "Flow R2: renew the car registration" });
+    await row.waitFor();
+    if ((await row.getByTestId("lane-pill").innerText()).trim() !== "To-do") throw new Error("the To-do pill");
+    if ((await row.locator("[data-col=minutes]").innerText()).trim()) throw new Error("a to-do has no minutes");
+    if (await page.locator("[data-testid=home-row]").filter({ hasText: "stays off Home" }).count()) throw new Error("a to-do with no date or a later date is on Home");
+    // Show: only To-dos.
+    await page.getByTestId("home-show").click();
+    const opt = page.locator("[data-testid=home-show-option][data-lane='To-dos']");
+    if (Number((await opt.innerText()).match(/(\d+)\s*$/)[1]) < 1) throw new Error("the To-dos count");
+    await opt.locator("input").check();
+    await page.keyboard.press("Escape");
+    const lanes = await page.locator("[data-testid=home-row][data-hidden='0'][data-lane]").evaluateAll((els) => [...new Set(els.filter((e) => e.offsetParent !== null).map((e) => e.dataset.lane))]);
+    if (lanes.join(",") !== "to-dos") throw new Error(`with only To-dos: ${lanes.join(",")}`);
+    if ((await page.getByTestId("home-show").getAttribute("data-label")) !== "Show: 1") throw new Error("the Show pill");
+    // Done checks it off.
+    await row.getByTestId("next-action-done").click();
+    await row.getByTestId("next-action-result").waitFor();
+    await page.waitForFunction(() => ![...document.querySelectorAll("[data-testid=home-row]")].some((e) => e.innerText.includes("Flow R2: renew the car registration")), null, { timeout: 10000 });
+    const done = await one("select done_at from todos where text = 'Flow R2: renew the car registration'");
+    if (!done.done_at) throw new Error("the to-do is not done in the database");
+    await page.goto(`${BASE}/work/todos`);
+    if (!(await page.locator("[data-testid=todos-section][data-section=done]").innerText()).includes("Flow R2: renew the car registration")) {
+      await page.locator("[data-testid=todos-section][data-section=done] [data-testid=section-heading]").click();
+      if (!(await page.locator("[data-testid=todos-section][data-section=done]").innerText()).includes("Flow R2: renew the car registration")) throw new Error("not under Done today");
+    }
+    await page.goto(`${BASE}/work`);
+    await page.evaluate(() => window.localStorage.removeItem("work-home-show"));
+    await pg.query("delete from todos where text like 'Flow R2:%'");
+  });
+
+  await step("Edit batch C round 2: a weekly target reached midweek shows Met on Targets, End of day (and its report preview), and Reports", async () => {
+    const day = new Date(`${nyDate(0)}T12:00:00Z`).getUTCDay();
+    if (day < 1 || day > 4) throw new Error(`run this on Monday to Thursday (the fake clock): day ${day}`);
+    const t = await one("select id, minimum_count from targets where counts_key = 'outreach_contacts' and archived_at is null limit 1");
+    await pg.query("update targets set minimum_count = 1 where id = $1", [t.id]);
+    // Today's End of day was sent earlier in the run (its lines are kept as sent): open it again for this check.
+    const eodRow = await one("select id, status, judged, report_edited from end_of_day where day = $1::date", [nyDate(0)]);
+    if (eodRow) await pg.query("update end_of_day set status = 'open', judged = '[]'::jsonb, report_edited = false where id = $1", [eodRow.id]);
+    try {
+      await page.goto(`${BASE}/work/targets`);
+      const row = page.locator("[data-testid=target-row][data-target='Network outreach']");
+      await row.waitFor();
+      if ((await row.getAttribute("data-mark")) !== "met") throw new Error(`Targets mark: ${await row.getAttribute("data-mark")}`);
+      await page.goto(`${BASE}/work/end-of-day`);
+      const eod = page.locator("[data-testid=eod-target][data-target='Network outreach']");
+      await eod.waitFor();
+      if ((await eod.getAttribute("data-met")) !== "1" || !/\bmet\b/i.test(await eod.getByTestId("eod-figure").innerText())) throw new Error("End of day row");
+      const preview = await page.getByTestId("report-preview").innerText();
+      if (!/Met\s+Network outreach/.test(preview)) throw new Error("the report preview's line");
+      await page.goto(`${BASE}/work/reports`);
+      await page.getByTestId("report-targets").waitFor();
+      if ((await page.getByTestId("report-targets").innerText()).includes("Network outreach")) throw new Error("a met target is listed under What needs you");
+    } finally {
+      await pg.query("update targets set minimum_count = $2 where id = $1", [t.id, t.minimum_count]);
+      if (eodRow) await pg.query("update end_of_day set status = $2, judged = $3::jsonb, report_edited = $4 where id = $1", [eodRow.id, eodRow.status, JSON.stringify(eodRow.judged ?? []), eodRow.report_edited]);
+    }
+    // Below target midweek: under way, not missed.
+    await page.goto(`${BASE}/work/end-of-day`);
+    const eod = page.locator("[data-testid=eod-target][data-target='Network outreach']");
+    const v = await one("select minimum_count from targets where id = $1", [t.id]);
+    const fig = await eod.getByTestId("eod-figure").innerText();
+    const count = Number(fig.split(" of ")[0]);
+    if (count < v.minimum_count && !["now", "0"].includes(await eod.getAttribute("data-met"))) throw new Error(`below target midweek: ${fig}`);
+  });
+
+  await step("Edit batch C round 2: Reports in four groups with one heading each (How the week went, What needs you, What moved, Trend), the same for Last week and the month; Most missed in place of Targets met; nothing repeats", async () => {
+    await page.goto(`${BASE}/work/reports`);
+    await page.getByTestId("week-view").waitFor();
+    for (const per of ["this", "last", "month"]) {
+      await page.getByTestId(`reports-period-${per}`).click();
+      await page.locator(`[data-testid=week-view][data-period=${per}]`).waitFor();
+      const heads = await page.getByTestId("reports-group-heading").evaluateAll((els) => els.map((e) => e.dataset.group));
+      if (heads.join(",") !== "went,needs,moved,trend") throw new Error(`${per} groups: ${heads.join(",")}`);
+      const words = await page.getByTestId("reports-group-heading").evaluateAll((els) => els.map((e) => e.firstElementChild.innerText.trim().toLowerCase()));
+      if (words[0] !== (per === "month" ? "how the month went" : "how the week went") || words[1] !== "what needs you" || words[2] !== "what moved" || !words[3].startsWith("trend")) throw new Error(`${per} headings: ${words.join("|")}`);
+      const labels = await page.getByTestId("week-tile").evaluateAll((els) => els.map((e) => e.dataset.label));
+      if (labels.includes("Targets met") || !labels[5].startsWith("Most missed")) throw new Error(`${per} tiles: ${labels.join("|")}`);
+      // Nothing repeats: a deal moved or a passed listing named in a card is not named in a tile note.
+      const notes = (await page.getByTestId("week-tile").allInnerTexts()).join(" ");
+      const cardNames = await page.locator("[data-testid=report-moves] [data-testid=report-row] span.font-semibold, [data-testid=report-waits] [data-testid=report-row] span.font-semibold").allInnerTexts();
+      for (const n of cardNames) if (n.trim() && notes.includes(n.trim())) throw new Error(`${per}: ${n} is in a tile and a card`);
+      if (await page.locator("[data-testid=report-targets] [data-testid=report-row]").filter({ hasText: /\bMet\b$/ }).count()) throw new Error("a met target under What needs you");
+    }
+    await page.getByTestId("reports-period-this").click();
+    await shootBatchC(`${BASE}/work/reports`, "work-reports");
+  });
+
+  await step("Edit batch C round 2: screenshots at 1280 and on the phone (Screen listings, a deal, a person, Targets, Reports)", async () => {
+    const dalton = await dealByName("Dalton Services");
+    const reed = await personByName("Mark Reed");
+    await shootBatchC(`${BASE}/work/listings`, "work-listings");
+    await shootBatchC(`${BASE}/work/deals/${dalton.id}`, "work-deal");
+    await shootBatchC(`${BASE}/work/outreach/${reed.id}`, "work-person");
+    await shootBatchC(`${BASE}/work/targets`, "work-targets");
   });
 
   await step("Savings ideas: propose now, shown on Home with a count, Edit, Later, Decline (not proposed again), Approve as a reduction action", async () => {

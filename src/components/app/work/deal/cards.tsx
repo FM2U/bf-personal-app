@@ -12,13 +12,14 @@ import { dealAsk } from "@/lib/work/ask-ai";
 import { LISTING_SOURCES, moneyShort, type PassReason } from "@/lib/work/buy-box";
 import type { DealRow, Stage, TimelineEvent } from "@/lib/work/data";
 import { QUESTION_GROUPS, questionsEmailDraft, type QuestionGroupKey, type QuestionGroups } from "@/lib/work/questions";
+import { FIGURE_GAP_CLS, FIGURE_LABEL_CLS, figureValueClass, isEmptyValue } from "@/lib/work/figure-style";
 import { dueLabel } from "@/lib/work/stages";
 import type { DealTodo } from "@/lib/work/todos";
 import { AiCardStar, AiFieldStar } from "@/components/app/work/ask-ai";
 import { NextActionRow } from "@/components/app/work/next-action-row";
 import { TasksCard } from "@/components/app/work/tasks-card";
 import { TimelineEvents } from "@/components/app/work/timeline-list";
-import { PassMenu } from "@/components/app/work/listing-row";
+import { PassMenu } from "@/components/app/work/pass-menu";
 import { LogCallDrawer } from "@/components/app/work/log-call-drawer";
 import { AiButton, Pill, RowButton, WorkCard } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
@@ -186,7 +187,20 @@ export function NextActionCard({ deal, today }: { deal: DealRow; today: string }
   const d = deal.nextAction ? dueLabel(deal.nextActionDue, today, (x) => fmtDate(x, "MMM d")) : null;
   const hint = deal.nextAction ? `Due ${d!.text.toLowerCase() === "today" ? "today" : d!.text}${deal.nextActionMinutes ? ` · ${deal.nextActionMinutes} min` : ""}` : "Needs a next action";
   return (
-    <WorkCard title="Next action" hint={hint} testId="deal-next-action">
+    <WorkCard
+      title="Next action"
+      actions={
+        <>
+          <span className="text-[13px] text-muted-foreground" data-testid="next-action-hint">{hint}</span>
+          <AiCardStar context={{ ...dealAsk(deal), card: "Next action" }} onUseNext={(x) => {
+            setAction(x.action);
+            setDue(x.due);
+            setMinutes(x.minutes ? String(x.minutes) : "");
+          }} testId="next-action-star" />
+        </>
+      }
+      testId="deal-next-action"
+    >
       <div className={FORM} data-testid="next-action-form">
         <label htmlFor={`${ids}-a`} className={LABEL}>
           Action
@@ -423,19 +437,24 @@ function linkLabel(url: string): string {
   }
 }
 
+/**
+ * One fact: the small-caps label, 4px, then the value (Edit batch C round 2, item 1: 15.5px semibold near-black; an
+ * empty value such as "Not set" in the muted gray; src/lib/work/figure-style.ts). Every Facts card uses it.
+ */
 export function Fact({ label, children, testId }: { label: string; children: React.ReactNode; testId?: string }) {
+  const empty = isEmptyValue(children);
   return (
-    <div className="flex min-w-0 flex-col gap-0.5" data-testid={testId}>
-      <span className="label-caps">{label}</span>
-      <b className="min-w-0 text-sm font-medium break-words text-slate-900">{children}</b>
+    <div className={cn("flex min-w-0 flex-col", FIGURE_GAP_CLS)} data-testid={testId} data-empty={empty ? "1" : undefined}>
+      <span className={FIGURE_LABEL_CLS} data-figure-label>{label}</span>
+      <b className={cn("min-w-0 leading-snug break-words", figureValueClass(children))} data-figure-value>{children}</b>
     </div>
   );
 }
 
-export function FactsCard({ deal }: { deal: DealRow }) {
+/** The Facts edit form of a deal or a listing: the deal page's Facts card and the listing popup on Screen listings use it. */
+export function DealFactsForm({ deal, onSaved, onCancel, testId = "facts-form" }: { deal: DealRow; onSaved: () => void; onCancel?: () => void; testId?: string }) {
   const ids = useId();
-  const { pending, state, run, reset } = useSave();
-  const [editing, setEditing] = useState(false);
+  const { pending, state, run } = useSave();
   const initial = (): FactsInput => ({
     name: deal.listingName,
     companyName: deal.companyName ?? "",
@@ -453,12 +472,7 @@ export function FactsCard({ deal }: { deal: DealRow }) {
   });
   const initialKey = JSON.stringify(initial());
   const [f, setF] = useState<FactsInput>(initial);
-  const [prevKey, setPrevKey] = useState(initialKey);
-  if (prevKey !== initialKey) {
-    setPrevKey(initialKey);
-    setF(initial());
-  }
-  const dirty = editing && JSON.stringify(f) !== initialKey;
+  const dirty = JSON.stringify(f) !== initialKey;
   useUnsavedWork(dirty, "The facts are not saved yet.");
   const set = (k: keyof FactsInput) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF((x) => ({ ...x, [k]: e.target.value }));
   const field = (k: keyof FactsInput, label: string, placeholder = "") => (
@@ -481,6 +495,38 @@ export function FactsCard({ deal }: { deal: DealRow }) {
       )}
     </div>
   );
+  return (
+    <div className="grid grid-cols-1 gap-x-3.5 gap-y-2.5 px-[22px] pt-3 pb-5 sm:grid-cols-2" data-testid={testId}>
+      {field("name", "Listing name", "00 Industrial Filtration Distributor")}
+      {field("companyName", "Company name (when known)", "Shown everywhere once set")}
+      <div className="sm:col-span-2">{field("whatItDoes", "What it does", "The product or service and who buys it")}</div>
+      {field("revenue", "Revenue", "$5.6M")}
+      {field("ebitda", "EBITDA", "$1.7M")}
+      {field("sde", "SDE", "")}
+      {field("askingPrice", "Asking price", "$6.0M")}
+      {field("industry", "Industry")}
+      {field("location", "Location", "City, ST")}
+      {field("brokerName", "Broker", "Firm, person")}
+      {field("source", "Source")}
+      <div className="sm:col-span-2">{field("whySelling", "Why selling", "Retiring, no successor")}</div>
+      <div className="sm:col-span-2">{field("listingUrl", "Link", "https://")}</div>
+      <SaveLine state={state}>
+        {onCancel ? (
+          <RowButton onClick={onCancel} disabled={pending} data-testid="facts-cancel">
+            Cancel
+          </RowButton>
+        ) : null}
+        <RowButton tone="primary" disabled={pending || !dirty} onClick={() => run(() => saveFacts(deal.id, f), onSaved)} data-testid="facts-save">
+          {pending ? "Saving..." : "Save"}
+        </RowButton>
+      </SaveLine>
+    </div>
+  );
+}
+
+export function FactsCard({ deal }: { deal: DealRow }) {
+  const [editing, setEditing] = useState(false);
+  const [saved, setSaved] = useState(false);
   const link = deal.listingUrl ? (deal.listingUrl.startsWith("http") ? deal.listingUrl : `https://${deal.listingUrl}`) : null;
   return (
     <WorkCard
@@ -489,11 +535,9 @@ export function FactsCard({ deal }: { deal: DealRow }) {
       actions={
         <RowButton
           onClick={() => {
-            if (editing) setF(initial());
-            reset();
+            setSaved(false);
             setEditing((e) => !e);
           }}
-          disabled={pending}
           data-testid="facts-edit"
         >
           {editing ? "Cancel" : "Edit"}
@@ -502,28 +546,15 @@ export function FactsCard({ deal }: { deal: DealRow }) {
       testId="deal-facts"
     >
       {editing ? (
-        <div className="grid grid-cols-1 gap-x-3.5 gap-y-2.5 px-[22px] pt-3 pb-5 sm:grid-cols-2" data-testid="facts-form">
-          {field("name", "Listing name", "00 Industrial Filtration Distributor")}
-          {field("companyName", "Company name (when known)", "Shown everywhere once set")}
-          <div className="sm:col-span-2">{field("whatItDoes", "What it does", "The product or service and who buys it")}</div>
-          {field("revenue", "Revenue", "$5.6M")}
-          {field("ebitda", "EBITDA", "$1.7M")}
-          {field("sde", "SDE", "")}
-          {field("askingPrice", "Asking price", "$6.0M")}
-          {field("industry", "Industry")}
-          {field("location", "Location", "City, ST")}
-          {field("brokerName", "Broker", "Firm, person")}
-          {field("source", "Source")}
-          <div className="sm:col-span-2">{field("whySelling", "Why selling", "Retiring, no successor")}</div>
-          <div className="sm:col-span-2">{field("listingUrl", "Link", "https://")}</div>
-          <SaveLine state={state}>
-            <RowButton tone="primary" disabled={pending || !dirty} onClick={() => run(() => saveFacts(deal.id, f), () => setEditing(false))} data-testid="facts-save">
-              {pending ? "Saving..." : "Save"}
-            </RowButton>
-          </SaveLine>
-        </div>
+        <DealFactsForm
+          deal={deal}
+          onSaved={() => {
+            setEditing(false);
+            setSaved(true);
+          }}
+        />
       ) : (
-        <div className="grid grid-cols-2 gap-x-[18px] gap-y-3 px-[22px] pt-3 pb-5 md:grid-cols-4" data-testid="facts-grid">
+        <div className="grid grid-cols-2 gap-x-[18px] gap-y-3 px-[22px] pt-3 pb-5 sm:grid-cols-3" data-testid="facts-grid">
           <Fact label="Revenue" testId="fact-revenue">
             {moneyShort(deal.revenue)}
           </Fact>
@@ -548,7 +579,7 @@ export function FactsCard({ deal }: { deal: DealRow }) {
               "Not set"
             )}
           </Fact>
-          {state.kind === "saved" ? (
+          {saved ? (
             <span className="self-end text-[13px] font-medium text-status-met" role="status" data-testid="save-ok">
               Saved
             </span>

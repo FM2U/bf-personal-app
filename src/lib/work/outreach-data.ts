@@ -7,7 +7,7 @@ import { loadComposeSetup, loadGmailSetup, type ComposeSetup, type GmailSetup } 
 import type { Ctx } from "@/lib/engine/helpers";
 import { date as fmtDate } from "@/lib/format";
 import { isValidEmail } from "@/lib/email-address";
-import { DEFAULT_OUTREACH_TARGET, outreachSections, parsePurposes, roleLabel, workWeek, type PurposeKey } from "@/lib/work/outreach";
+import { DEFAULT_OUTREACH_TARGET, normalizeRole, outreachSections, parsePurposes, roleLabel, workWeek, type PurposeKey } from "@/lib/work/outreach";
 import { commKind, commTitle, type TimelineEvent } from "@/lib/work/timeline";
 import { sortTodos, type DealTodo } from "@/lib/work/todos";
 import type { Row } from "@/lib/types";
@@ -57,7 +57,7 @@ export function toPersonRow(c: Row, orgName: string | null, tz: string): PersonR
     name: String(c.name ?? ""),
     organizationId: c.organization_id ? String(c.organization_id) : null,
     organization: orgName,
-    roleKey: c.outreach_role ? String(c.outreach_role) : null,
+    roleKey: normalizeRole(c.outreach_role as string | null),
     roleLabel: roleLabel(c.outreach_role as string | null),
     title: c.title ? String(c.title) : null,
     purposes: parsePurposes(c.purposes),

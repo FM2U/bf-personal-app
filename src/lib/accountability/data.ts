@@ -13,8 +13,8 @@ import { buildFacts } from "@/lib/accountability/facts";
 import { dealBullets, pillOf, reportInnerHtml, targetLine, type ReportData } from "@/lib/accountability/report-email";
 import { PAST_WEEKS, pastWeekPeriodKey, type PeriodKey } from "@/lib/accountability/periods";
 import {
-  countedDays, countIn, DEFAULT_TARGETS, dayNumbers, figure, isCountKey, judgeDay, listNames, metThisWeek, mostMissed, owedFromLastClosed, owedReasons, pastWeeks, shortName,
-  targetView, tileEodLine, tileTargetLine, tileTargets, todayTiles, tomorrowLabel, weekNumbers, weekTiles, workWeekOf,
+  countedDays, countIn, DEFAULT_TARGETS, dayNumbers, figure, isCountKey, judgeDay, listNames, metThisWeek, mostMissed, mostMissedIn, owedFromLastClosed, owedReasons, pastWeeks, shortName,
+  targetView, tileEodLine, tileTargetLine, tileTargets, todayTiles, tomorrowLabel, reportTiles, weekNumbers, weekTiles, workWeekOf,
   type Cadence, type DayNumbers, type EodState, type Facts, type Judged, type Target, type TargetView, type WeekNumbers, type WeekTile,
 } from "@/lib/accountability/targets";
 import type { Row } from "@/lib/types";
@@ -301,7 +301,10 @@ export type PeriodView = {
   /** "Week of Oct 27 to 31 · counted so far; the per-week targets are judged at End of day". */
   lead: string;
   tiles: ReturnType<typeof weekTiles>;
+  /** Every target's row; the "What needs you" card lists only the ones not met (missed, or at risk while the week is open). */
   targets: { name: string; line: string; figure: string; met: boolean }[];
+  /** How many targets are met in the period (the card's hint, since the Targets met tile gave way to Most missed). */
+  met: number;
   /** The period is still being counted (this week before Friday's End of day): an unmet target is under way, not missed. */
   open: boolean;
   waits: Wait[];
@@ -341,18 +344,19 @@ export async function loadReportsPage(sb: SupabaseClient, ctx: Ctx): Promise<Rep
     const w = weekNumbers(targets, bundle.facts, d.period, bundle.waits, bundle.skippedDays, ctx.today);
     const prev = d.last ? weekNumbers(targets, bundle.facts, d.last, bundle.waits, bundle.skippedDays) : null;
     const open = (d.key === "this" || d.key === "month") && weekOpen;
-    const tiles = weekTiles(w, prev);
-    if (d.key === "month") tiles[0] = monthTargetsTile(targets, bundle, month, ctx.today);
-    // While the week is counted, a figure short of its target is plain (under way), not red.
-    if (open) for (const t of tiles) if (t.status === "missed") t.status = "neutral";
-    if (open && tiles[0].note.startsWith("Missed: ")) tiles[0].note = `Still open: ${tiles[0].note.slice(8)}`;
+    // Edit batch C round 2 (item 6): the tiles of "How the week went", with Most missed in place of Targets met.
+    const most = mostMissedIn(targets, bundle.facts, d.period, ctx.today, bundle.skippedDays, d.key === "month");
+    const mostLabel = d.key === "this" ? "Most missed this week" : d.key === "last" ? "Most missed last week" : d.key === "month" ? `Most missed in ${monthName}` : "Most missed that week";
+    const tiles = reportTiles(w, prev, most, { label: mostLabel, open, month: d.key === "month" });
+    const targetRows = targets.map((t) => targetRow(t, bundle, d.period, d.key, ctx.today));
     return {
       key: d.key,
       open,
       label: d.label,
       lead: d.lead,
       tiles,
-      targets: targets.map((t) => targetRow(t, bundle, d.period, d.key, ctx.today)),
+      targets: targetRows,
+      met: targetRows.filter((t) => t.met).length,
       waits: bundle.waits,
       moves: bundle.facts.moves
         .filter((m) => m.on >= d.period.start && m.on <= d.period.end)
@@ -363,20 +367,6 @@ export async function loadReportsPage(sb: SupabaseClient, ctx: Ctx): Promise<Rep
     };
   });
   return { today: ctx.today, partner, periods, sent: groupSent(sentRows, ctx.today), past: pastWeeks(targets, bundle.facts, ctx.today, bundle.skippedDays, PAST_WEEKS), mostMissed: mostMissed(targets, bundle.facts, ctx.today, bundle.skippedDays) };
-}
-
-/** Targets met in a month: the sum over its weeks ("14 of 24"). */
-function monthTargetsTile(targets: Target[], bundle: FactsBundle, month: { start: string; end: string }, today: string): ReturnType<typeof weekTiles>[number] {
-  let met = 0;
-  let total = 0;
-  const parts: number[] = [];
-  for (let s = workWeekOf(month.start).start; s <= today; s = addDaysISO(s, 7)) {
-    const w = weekNumbers(targets, bundle.facts, { start: s, end: addDaysISO(s, 4) }, bundle.waits, bundle.skippedDays, today);
-    met += w.targetsMet.met;
-    total += w.targetsMet.total;
-    parts.push(w.targetsMet.met);
-  }
-  return { label: "Targets met", value: String(met), small: `of ${total}`, note: `${parts.join(", ")} of ${targets.length} by week`, status: total ? (met === total ? "met" : "missed") : "neutral", pct: total ? Math.round((met / total) * 100) : null };
 }
 
 function targetRow(t: Target, bundle: FactsBundle, p: { start: string; end: string }, key: PeriodKey, today: string): PeriodView["targets"][number] {

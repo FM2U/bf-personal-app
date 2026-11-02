@@ -550,6 +550,8 @@ google.listen(GOOGLE_PORT, () => console.log(`Mock Google listening on http://lo
 //   "TASK: ask_page"            -> a bulleted answer to the question with a next action and an email draft (Ask about this page)
 //   "TASK: field_draft"         -> one line for the field named in the request (the star inside a field; "Use this");
 //                                  with {"field": "plain"} the line as plain text (no JSON)
+//   "TASK: next_action"         -> one next action due two days after the "Today is" date (a Monday when that is a weekend),
+//                                  30 minutes (none for a person), built from the page title (the next action star, Edit batch C round 2)
 //   "TASK: ai_order"            -> the rows of the request in reverse order with one reason each (By the AI on Home)
 //   chat (a request with tools) -> a short bulleted answer
 //   anything else               -> HTTP 400, so morning plans, review drafts, and message drafts use their templates
@@ -735,6 +737,18 @@ const ai = http.createServer(async (req, res) => {
         const hit = drafts.find(([re]) => re.test(what));
         if (aiMode.field === "plain") return send(res, 200, aiMessage(hit ? hit[1] : `Mock text for ${page}`));
         return send(res, 200, aiMessage(JSON.stringify({ text: hit ? hit[1] : `Mock text for ${page}` })));
+      }
+      if (text.includes("TASK: next_action")) {
+        aiCalls.push("next_action");
+        const page = (text.match(/^Page: ([^\n]+)/m) || [])[1] || "this record";
+        const today = (text.match(/Today is [A-Za-z]+, (\d{4}-\d{2}-\d{2})/) || [])[1] || nyToday();
+        const d = new Date(`${today}T12:00:00Z`);
+        d.setUTCDate(d.getUTCDate() + 2);
+        if (d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() + 2);
+        if (d.getUTCDay() === 0) d.setUTCDate(d.getUTCDate() + 1);
+        const person = text.includes("Set minutes to null");
+        const reply = { action: person ? `Check in about the next step (${page.replace(/^Person: /, "")})` : `Mock next action: confirm the next step on ${page}`, due: d.toISOString().slice(0, 10), minutes: person ? null : 30, reason: "The stage default and the last timeline line point here" };
+        return send(res, 200, maybeCut("next_action", JSON.stringify(reply), body));
       }
       if (text.includes("TASK: eod_reasons")) {
         aiCalls.push("eod_reasons");

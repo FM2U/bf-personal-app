@@ -1,5 +1,5 @@
 -- BF Personal App: database update 0025 (batch C: Targets, End of day, Reports).
--- For the live database, which has 0001 to 0024. Paste this whole file into the Supabase SQL Editor and press Run.
+-- For a database that has 0001 to 0024 (the live database with 0001 to 0025 uses UPDATE_0026_RUN_ONCE.sql). Paste this whole file into the Supabase SQL Editor and press Run.
 -- Expected result: "Success. No rows returned". Safe to run more than once: nothing is duplicated, nothing is deleted, no existing row changes.
 -- What it adds:
 --   targets.counts_key (what a target counts from the app's own data) and targets.archived_at; the work_events table (next actions

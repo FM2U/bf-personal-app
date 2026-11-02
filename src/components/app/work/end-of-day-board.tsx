@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { approveAndSend, saveReasons, saveReportEdit, saveTomorrow, skipToday, putShortReport } from "@/app/actions/accountability";
 import type { ReasonDraft } from "@/lib/accountability/ask-ai";
 import type { EndOfDayPage } from "@/lib/accountability/data";
-import { END_OF_DAY_TIME, owedReasons, statusItems, todayStrip, type DayNumbers, type Judged, type TodayPart } from "@/lib/accountability/targets";
+import { END_OF_DAY_TIME, judgedMark, MARK_WORD, owedReasons, statusItems, todayStrip, type DayNumbers, type Judged, type TodayPart } from "@/lib/accountability/targets";
 import type { AskContext } from "@/lib/work/ask-ai";
 import { AccountabilityTabs, type EodBadge } from "@/components/app/nav-links";
 import { AiCardStar, AiFieldStar, AskAiPill, type EodExtras } from "@/components/app/work/ask-ai";
@@ -273,7 +273,7 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
                 const ask = j.judged && !j.met && j.commitment && !closed;
                 const given = !!String(reasons[j.targetId] ?? "").trim();
                 return (
-                  <div key={j.targetId} className={cn("grid items-center gap-y-1.5 border-t border-slate-100 px-[22px] py-[13px] first:border-t-0", GRID.cls, GRID.gapCls)} data-testid="eod-target" data-target={j.name} data-met={j.judged ? (j.met ? "1" : "0") : "now"} data-asks={ask ? "1" : "0"}>
+                  <div key={j.targetId} className={cn("grid items-center gap-y-1.5 border-t border-slate-100 px-[22px] py-[13px] first:border-t-0", GRID.cls, GRID.gapCls)} data-testid="eod-target" data-target={j.name} data-met={judgedMark(j) === "met" ? "1" : judgedMark(j) === "missed" ? "0" : "now"} data-asks={ask ? "1" : "0"}>
                     <div className={cn("min-w-0", GRID.textMarginCls)} data-row-text>
                       <Line1>
                         <Name>{j.name}</Name>
@@ -281,8 +281,8 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
                       </Line1>
                       <Line2>{j.line}</Line2>
                     </div>
-                    <StatusMark mark={!j.judged ? "now" : j.met ? "met" : "missed"} />
-                    <Figure value={j.figure} label={!j.judged ? "Under way" : j.met ? "Met" : "Missed"} tone={!j.judged ? "plain" : j.met ? "plain" : "red"} className={cn(FIG, j.judged && j.met && "[&>b]:text-status-met")} testId="eod-figure" />
+                    <StatusMark mark={judgedMark(j)} />
+                    <Figure value={j.figure} label={MARK_WORD[judgedMark(j)]} tone={judgedMark(j) === "missed" ? "red" : "plain"} className={cn(FIG, j.met && "[&>b]:text-status-met")} testId="eod-figure" />
                     {(ask || (closed && j.judged && !j.met && j.commitment)) ? (
                       <div className="col-span-3 mt-0.5 flex flex-wrap items-center gap-2.5">
                         <span className="text-[12.5px] font-medium whitespace-nowrap text-status-missed">Why missed, one line</span>

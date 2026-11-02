@@ -6,6 +6,8 @@ import { requireOwner } from "@/lib/auth";
 import { DB_UPDATE_NOTICE_0022, isMissingSchemaError } from "@/lib/schema-guard";
 import { hasUpdate0022 } from "@/lib/update-0022";
 import { nextPersonalTodoPosition } from "@/lib/work/personal-todos";
+import { addDaysISO } from "@/lib/calc/dates";
+import { loadCtx } from "@/lib/engine/helpers";
 import type { Row } from "@/lib/types";
 
 /**
@@ -35,6 +37,8 @@ async function todoOf(sb: SupabaseClient, ownerId: string, id: string): Promise<
 
 function done() {
   revalidatePath("/work/todos");
+  // Due to-dos also show on Home's Next actions (Edit batch C round 2).
+  revalidatePath("/work");
 }
 
 export async function addPersonalTodo(input: { text: string; due: string }): Promise<{ ok: true; id: string } | Fail> {
@@ -79,6 +83,21 @@ export async function editPersonalTodo(id: string, input: { text: string; due?: 
   if (error) return notSaved(error);
   done();
   return { ok: true };
+}
+
+/** Later on a to-do row on Home (Edit batch C round 2): the to-do moves to tomorrow (the owner's date). */
+export async function deferPersonalTodo(id: string): Promise<{ ok: true; due: string } | Fail> {
+  const s = await setup();
+  if (isFail(s)) return s;
+  const { sb, ownerId } = s;
+  const todo = await todoOf(sb, ownerId, id);
+  if (isFail(todo)) return todo;
+  const ctx = await loadCtx(sb, ownerId);
+  const due = addDaysISO(ctx.today, 1);
+  const { error } = await sb.from("todos").update({ due_on: due }).eq("id", todo.id);
+  if (error) return notSaved(error);
+  done();
+  return { ok: true, due };
 }
 
 export async function deletePersonalTodo(id: string): Promise<{ ok: true } | Fail> {

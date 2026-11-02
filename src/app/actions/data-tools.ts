@@ -13,6 +13,7 @@ import { hasUpdate0021 } from "@/lib/update-0021";
 import { hasUpdate0022 } from "@/lib/update-0022";
 import { hasUpdate0023 } from "@/lib/update-0023";
 import { hasUpdate0025 } from "@/lib/update-0025";
+import { hasUpdate0026 } from "@/lib/update-0026";
 import { addDaysISO } from "@/lib/calc/dates";
 import { documentPath } from "@/lib/documents";
 import { loadWorkPipeline } from "@/lib/work/data";
@@ -68,6 +69,7 @@ export async function loadSampleData(fd: FormData) {
     hasUpdate0023(supabase),
   ]);
   const has0025 = await hasUpdate0025(supabase);
+  const has0026 = await hasUpdate0026(supabase);
   const ent = (entities ?? []) as Row[];
   const workPipe = has0020 ? await loadWorkPipeline(supabase, ownerId) : null;
   // The starter Detailed report template (database update 0017; empty before it).
@@ -91,7 +93,7 @@ export async function loadSampleData(fd: FormData) {
       reportTemplateId: ((detailedTemplate as Row | null)?.id as string | undefined) ?? null,
       dailyReports: await hasUpdate0018(supabase),
       initiatives: has0019 ? Object.fromEntries(((inits ?? []) as Row[]).map((i) => [String(i.name), String(i.id)])) : null,
-      work: workPipe ? { pipelineId: workPipe.id, stages: Object.fromEntries(workPipe.stages.map((st) => [st.name, st.id])), batchB: has0022, batchB2: has0022 && has0023, batchC: has0022 && has0023 && has0025, jobs: pipeOf("job"), consulting: pipeOf("consulting") } : null,
+      work: workPipe ? { pipelineId: workPipe.id, stages: Object.fromEntries(workPipe.stages.map((st) => [st.name, st.id])), batchB: has0022, batchB2: has0022 && has0023, batchC: has0022 && has0023 && has0025, personalNetwork: has0026, jobs: pipeOf("job"), consulting: pipeOf("consulting") } : null,
     },
     () => randomUUID(),
   );

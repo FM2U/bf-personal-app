@@ -240,7 +240,7 @@ export function recordNoun(page: AskPage): string {
  * What the panel offers besides the question box: Suggested next steps (Set as next action), Suggested tasks (Add as
  * a task), or Suggested questions (added to the deal's open questions).
  */
-export type PanelSuggest = { kind: "next_steps" | "tasks" | "questions"; heading: string; button: string; use: string };
+export type PanelSuggest = { kind: "next_steps" | "tasks" | "questions" | "next_action"; heading: string; button: string; use: string };
 
 /**
  * What the Ask AI panel shows for a context (Edit batch B, item 3; pure, tested): opened from a card-header star or a
@@ -272,6 +272,12 @@ export function panelSpec(c: AskContext): PanelSpec {
         return { ...base, questions: ["Which open question matters most?", "What should I ask the broker first?", "Which questions can I answer myself?"], suggest: { kind: "questions", heading: "Suggested questions", button: "Suggest questions", use: "" } };
       case "Next actions":
         return { ...base, questions: ["Which of these should I do first?", "Which can wait until tomorrow?", "Which has been overdue the longest?"], suggest: nextSteps };
+      // Edit batch C round 2 (item 3): the star in a Next action card (deal, project, opportunity, consulting) or the
+      // person's Next follow-up card suggests one next action and its due date; "Use this" fills the card's fields.
+      case "Next action":
+        return { ...base, questions: [`What is the best next step on this ${noun}?`, "What is a realistic due date?", "What is blocking progress?"], suggest: { kind: "next_action", heading: "Suggested next action", button: "Suggest again", use: "Use this" } };
+      case "Next follow-up":
+        return { ...base, questions: ["When should I follow up next?", "What should the follow-up be for?", "What did we last talk about?"], suggest: { kind: "next_action", heading: "Suggested next follow-up", button: "Suggest again", use: "Use this" } };
       case "What to find out":
         return { ...base, questions: ["What should I find out first?", "What is still unknown about this opportunity?", "Which question matters most before the next call?"], suggest: nextSteps };
       // Batch C: the End of day cards. The drafts are the panel's own sections (reasons, the tomorrow line, the short report).
@@ -299,4 +305,80 @@ export function tasksPrompt(c: PageContext, noun: string): string {
     "",
     'Return only JSON: {"steps": [{"text": "<the task, at most 15 words>", "reason": "<one line, at most 20 words>"}, ...]}',
   ].join("\n");
+}
+
+// ---------- The next action star (Edit batch C round 2, item 3) ----------
+
+/** One suggested next action: the action (or, for a person, what the follow-up is for), its due date, minutes, and why. */
+export type NextActionSuggestion = { action: string; due: string; minutes: number | null; reason: string };
+
+export const NEXT_ACTION_MAX_LENGTH = 160;
+/** A due date further out than this is pulled back to it (the suggestion is about the next step, not next quarter). */
+export const NEXT_ACTION_MAX_DAYS = 60;
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+function plusDays(iso: string, n: number): string {
+  const d = new Date(`${iso}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+function weekdayOf(iso: string): string {
+  return ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][new Date(`${iso}T12:00:00Z`).getUTCDay()];
+}
+
+/**
+ * The next action star: one next action and its due date (and minutes when it is a block of work) from the stage, the
+ * stage's default next action, the recent timeline, and the open tasks. For a person: what the next follow-up is for
+ * and its date (no minutes).
+ */
+export function nextActionPrompt(c: PageContext, today: string, kind: "action" | "follow_up", noun: string): string {
+  const person = kind === "follow_up";
+  return [
+    "TASK: next_action",
+    person
+      ? "Suggest Bram's next follow-up with this person: what it is for (one line, starting with a verb) and the date to do it."
+      : `Suggest the one next action Bram should take on this ${noun} and when it is due.`,
+    `Today is ${weekdayOf(today)}, ${today}.`,
+    "Read the stage, the stage's default next action, the recent timeline (newest first), and the open tasks. Pick the step that moves this forward soonest; do not repeat something the timeline shows as done.",
+    `The ${person ? "line" : "action"} is one concrete step, starting with a verb, at most 20 words. The due date is a weekday on or after today, as YYYY-MM-DD.`,
+    person ? "Set minutes to null." : "Minutes: about how long the step takes (5 to 240), or null when it is not a block of work (a reply to wait for, a call someone else books).",
+    "The reason is one short line that names the fact on the page behind the choice.",
+    "",
+    contextBlock(c),
+    "",
+    'Return only JSON: {"action": "<the step>", "due": "YYYY-MM-DD", "minutes": <number or null>, "reason": "<one line>"}',
+  ].join("\n");
+}
+
+/**
+ * Checks the AI's reply to the next action star: the action (also read from "what_for", "text", "next_action"), the due
+ * date (also "due_date", "date", or "due_in_days"; a date before today becomes today, one more than 60 days out becomes
+ * 60 days out, a weekend date moves to the Monday after), the minutes (5 to 480, rounded; otherwise none; never for a
+ * person), and the reason. Fails without an action or a readable date.
+ */
+export function validateNextActionReply(value: unknown, today: string, kind: "action" | "follow_up" = "action"): { ok: true; value: NextActionSuggestion } | { ok: false; error: string } {
+  const v = (Array.isArray(value) ? value[0] : value) as Record<string, unknown> | null;
+  if (!v || typeof v !== "object") return { ok: false, error: "the reply is not an object" };
+  const rawAction = v.action ?? v.what_for ?? v.whatFor ?? v.next_action ?? v.text;
+  const action = str(typeof rawAction === "string" ? rawAction.trim().replace(/^[-•*]\s*/, "") : rawAction, NEXT_ACTION_MAX_LENGTH);
+  if (!action) return { ok: false, error: 'the reply needs an "action" line' };
+  let due: string | null = null;
+  const rawDue = v.due ?? v.due_date ?? v.dueDate ?? v.date;
+  if (typeof rawDue === "string" && ISO_DATE.test(rawDue.trim().slice(0, 10)) && !Number.isNaN(Date.parse(`${rawDue.trim().slice(0, 10)}T12:00:00Z`))) due = rawDue.trim().slice(0, 10);
+  else {
+    const n = Number(v.due_in_days ?? v.dueInDays);
+    if (Number.isFinite(n) && n >= 0) due = plusDays(today, Math.round(n));
+  }
+  if (!due) return { ok: false, error: 'the reply needs a "due" date as YYYY-MM-DD' };
+  if (due < today) due = today;
+  const latest = plusDays(today, NEXT_ACTION_MAX_DAYS);
+  if (due > latest) due = latest;
+  const dow = new Date(`${due}T12:00:00Z`).getUTCDay();
+  if (dow === 6) due = plusDays(due, 2);
+  else if (dow === 0) due = plusDays(due, 1);
+  const m = Number(v.minutes ?? v.block_minutes);
+  const minutes = kind === "action" && v.minutes !== null && Number.isFinite(m) && m >= 5 && m <= 480 ? Math.round(m) : null;
+  return { ok: true, value: { action, due, minutes, reason: str(v.reason ?? v.why, REASON_MAX_LENGTH) } };
 }

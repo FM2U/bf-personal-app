@@ -260,3 +260,14 @@ export const TABLES_0025 = ["work_events", "end_of_day"];
 export const COLUMNS_0025: Record<string, string[]> = {
   targets: ["counts_key", "archived_at"],
 };
+
+/**
+ * Database update 0026 (Edit batch C round 2): the outreach role "Former colleague" becomes "Personal network". The
+ * contacts that carry former_colleague move to personal_network by UPDATE (nothing is deleted), the role check allows
+ * the new key instead of the old one, and schema_has_0026(). Before it, Outreach shows DB_UPDATE_NOTICE_0026 as one line
+ * under the tabs, Personal network is saved under the old key (it reads back as Personal network), and every screen
+ * and both scheduled jobs keep working.
+ */
+export const DB_UPDATE_FILE_0026 = "supabase/UPDATE_0026_RUN_ONCE.sql";
+export const DB_UPDATE_NOTICE_0026 = `Database update needed: paste ${DB_UPDATE_FILE_0026} into the Supabase SQL Editor and run it. Until then, Personal network is saved under its old name.`;
+export const PROBE_0026 = "schema_has_0026";

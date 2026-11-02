@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { answerPrompt, contextLabel, estimateCents, estimateLabel, fieldPrompt, isRecordPage, nextStepsPrompt, panelSpec, recordNoun, splitStepLine, SUGGESTED_QUESTIONS, tasksPrompt, trimContext, validateAnswerReply, validateFieldReply, validateNextStepsReply } from "./ask-ai";
+import { answerPrompt, contextLabel, estimateCents, estimateLabel, fieldPrompt, isRecordPage, nextStepsPrompt, panelSpec, recordNoun, splitStepLine, SUGGESTED_QUESTIONS, tasksPrompt, trimContext, validateAnswerReply, validateFieldReply, validateNextStepsReply, nextActionPrompt, validateNextActionReply, NEXT_ACTION_MAX_DAYS } from "./ask-ai";
 
 describe("the Ask AI panel", () => {
   it("has three suggested questions per page and knows the record pages", () => {
@@ -123,5 +123,67 @@ describe("the panel about a card or a field (Edit batch B, item 3)", () => {
     expect(p).toContain("task: Read the CIM");
     expect(recordNoun("consulting_item")).toBe("engagement");
     expect(recordNoun("listings")).toBe("page");
+  });
+});
+
+/** Edit batch C round 2, item 3: the next action star. */
+describe("the next action star", () => {
+  const today = "2026-11-04"; // a Wednesday
+  it("opens the panel about the Next action card with its own suggestion (one action and a due date)", () => {
+    for (const page of ["deal", "project", "opportunity", "consulting_item"] as const) {
+      const spec = panelSpec({ page, recordId: "x", label: "X", card: "Next action" });
+      expect(spec.suggest).toMatchObject({ kind: "next_action", heading: "Suggested next action", use: "Use this" });
+      expect(spec.title).toBe("Ask AI about Next action");
+      expect(spec.questions).toHaveLength(3);
+    }
+    const p = panelSpec({ page: "person", recordId: "x", label: "Mark Reed", card: "Next follow-up" });
+    expect(p.suggest).toMatchObject({ kind: "next_action", heading: "Suggested next follow-up", use: "Use this" });
+  });
+  it("asks for the step, a due date, minutes, and a reason, from the stage, its default, the timeline, and the tasks", () => {
+    const c = { title: "Deal: Dalton", lines: ["deal: Dalton | stage CIM review", "stage default next action: Ask for the seller call (due in 3 days)", "task: Read the CIM"] };
+    const p = nextActionPrompt(c, today, "action", "deal");
+    expect(p).toContain("TASK: next_action");
+    expect(p).toContain("Today is Wednesday, 2026-11-04.");
+    expect(p).toContain("stage default next action: Ask for the seller call");
+    expect(p).toContain('"due": "YYYY-MM-DD"');
+    expect(p).toContain("Minutes: about how long");
+    expect(p).not.toContain("—");
+    const f = nextActionPrompt(c, today, "follow_up", "person");
+    expect(f).toContain("next follow-up with this person");
+    expect(f).toContain("Set minutes to null.");
+  });
+  it("reads a good reply", () => {
+    expect(validateNextActionReply({ action: "Call Carla about the seller call", due: "2026-11-06", minutes: 30, reason: "The CIM is read" }, today)).toEqual({ ok: true, value: { action: "Call Carla about the seller call", due: "2026-11-06", minutes: 30, reason: "The CIM is read" } });
+  });
+  it("accepts other key names and a number of days", () => {
+    const r = validateNextActionReply({ what_for: "Check in about the Q1 work", due_in_days: 2 }, today, "follow_up");
+    expect(r).toEqual({ ok: true, value: { action: "Check in about the Q1 work", due: "2026-11-06", minutes: null, reason: "" } });
+    expect(validateNextActionReply([{ next_action: "Send the NDA", due_date: "2026-11-05" }], today)).toMatchObject({ ok: true, value: { action: "Send the NDA", due: "2026-11-05" } });
+  });
+  it("keeps the date sensible: not before today, not past 60 days, a weekend moves to Monday", () => {
+    expect(validateNextActionReply({ action: "x", due: "2026-10-01" }, today)).toMatchObject({ value: { due: today } });
+    expect(validateNextActionReply({ action: "x", due: "2027-06-01" }, today)).toMatchObject({ ok: true });
+    const far = validateNextActionReply({ action: "x", due: "2027-06-01" }, today);
+    expect(far.ok && far.value.due <= "2027-01-05").toBe(true);
+    expect(NEXT_ACTION_MAX_DAYS).toBe(60);
+    expect(validateNextActionReply({ action: "x", due: "2026-11-07" }, today)).toMatchObject({ value: { due: "2026-11-09" } });
+    expect(validateNextActionReply({ action: "x", due: "2026-11-08" }, today)).toMatchObject({ value: { due: "2026-11-09" } });
+  });
+  it("keeps minutes only between 5 and 480 and never for a person", () => {
+    expect(validateNextActionReply({ action: "x", due: today, minutes: 2 }, today)).toMatchObject({ value: { minutes: null } });
+    expect(validateNextActionReply({ action: "x", due: today, minutes: 45.4 }, today)).toMatchObject({ value: { minutes: 45 } });
+    expect(validateNextActionReply({ action: "x", due: today, minutes: null }, today)).toMatchObject({ value: { minutes: null } });
+    expect(validateNextActionReply({ action: "x", due: today, minutes: 30 }, today, "follow_up")).toMatchObject({ value: { minutes: null } });
+  });
+  it("refuses a reply without an action or a readable date (the call asks again)", () => {
+    expect(validateNextActionReply({ due: today }, today)).toMatchObject({ ok: false });
+    expect(validateNextActionReply({ action: "x", due: "next Tuesday" }, today)).toEqual({ ok: false, error: 'the reply needs a "due" date as YYYY-MM-DD' });
+    expect(validateNextActionReply("Call him tomorrow", today)).toMatchObject({ ok: false });
+    expect(validateNextActionReply(null, today)).toMatchObject({ ok: false });
+  });
+  it("cuts a long action and drops a list mark", () => {
+    const r = validateNextActionReply({ action: `- ${"word ".repeat(80)}`, due: today }, today);
+    expect(r.ok && r.value.action.length).toBe(160);
+    expect(r.ok && r.value.action.startsWith("word")).toBe(true);
   });
 });

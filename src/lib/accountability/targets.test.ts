@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  askedForReason, cadenceLine, countIn, countsLine, targetPill, todayStrip, countedDays, DEFAULT_TARGETS, dayNumbers, EMPTY_FACTS, figure, judgeDay, judgedOn, judgeWeek, markOf, missedLine, metThisWeek, mostMissed, noReasonText, owedFromLastClosed, owedReasons, pastWeeks, reportSummary, statusItems, stripOf, targetView, tileEodLine, tileTargetLine, tileTargets, todayTiles, tomorrowLabel, weekNumbers, weekTiles, workWeekOf,
+  askedForReason, judgedMark, mostMissedIn, reportTiles, MARK_WORD, cadenceLine, countIn, countsLine, targetPill, todayStrip, countedDays, DEFAULT_TARGETS, dayNumbers, EMPTY_FACTS, figure, judgeDay, judgedOn, judgeWeek, markOf, missedLine, metThisWeek, mostMissed, noReasonText, owedFromLastClosed, owedReasons, pastWeeks, reportSummary, statusItems, stripOf, targetView, tileEodLine, tileTargetLine, tileTargets, todayTiles, tomorrowLabel, weekNumbers, weekTiles, workWeekOf,
   type Facts, type Target,
 } from "./targets";
 import { dealBullets, pillOf, reportInnerHtml, reportSubject, reportText, targetLine, type ReportData } from "./report-email";
@@ -156,7 +156,10 @@ describe("the strip, the figures, Past weeks, Most missed", () => {
   it("a per-week strip: the last 7 weeks plus this one, with the streak", () => {
     const s = stripOf(byName("Deals moved a stage"), facts, FRI);
     expect(s.cells).toHaveLength(8);
-    expect(s.cells[7].state).toBe("now");
+    // Edit batch C round 2: 3 moves of 2 this week, so this week's cell is met before Friday's End of day.
+    expect(s.cells[7].state).toBe("met");
+    expect(stripOf(byName("Network outreach"), facts, FRI).cells[7].state).toBe("now");
+    expect(stripOf(byName("Network outreach"), facts, FRI, { judgedToday: true }).cells[7].state).toBe("missed");
     expect(s.cells[6].state).toBe("missed");
     expect(s.text).toBe("Last 8 weeks · met 0 of 7 · missed 7 in a row");
   });
@@ -318,5 +321,73 @@ describe("Edit batch C: the target pill, what a target counts, exceeded reads me
     expect(n.actionsDoneList).toEqual([{ name: "Meridian Industrial Coatings", label: "Finish the model" }, { name: "Dalton Services", label: "Call Carla" }]);
     const one = dayNumbers({ ...EMPTY_FACTS, comms: [{ on: FRI, method: "call", contactId: "p1", contactName: "A", broker: false }] }, FRI, [], 5);
     expect(todayStrip(one, 5).find((p) => p.key === "calls")!.words).toBe("call");
+  });
+});
+
+describe("Edit batch C round 2: a weekly target is Met as soon as it is reached", () => {
+  it("judgedMark: met when reached (even midweek), missed only once judged below, under way otherwise", () => {
+    expect(judgedMark({ met: true, judged: false })).toBe("met");
+    expect(judgedMark({ met: true, judged: true })).toBe("met");
+    expect(judgedMark({ met: false, judged: false })).toBe("now");
+    expect(judgedMark({ met: false, judged: true })).toBe("missed");
+    expect(MARK_WORD[judgedMark({ met: true, judged: false })]).toBe("Met");
+  });
+  it("on a Wednesday End of day a per-week target already reached reads Met; one below reads Under way", () => {
+    const wed = judgeDay(targets, facts, WED);
+    const moved = wed.find((j) => j.name === "Deals moved a stage")!;
+    // The week counts every move of the week (the fixture also holds Friday's): over its target before Friday.
+    expect(moved).toMatchObject({ judged: false, met: true, figure: "3 of 2" });
+    expect(judgedMark(moved)).toBe("met");
+    const outreach = wed.find((j) => j.name === "Network outreach")!;
+    expect(judgedMark(outreach)).toBe("now");
+    const fri = judgeDay(targets, facts, FRI);
+    expect(judgedMark(fri.find((j) => j.name === "Network outreach")!)).toBe("missed");
+  });
+  it("the report preview's target lines say Met for a weekly target reached midweek", () => {
+    const wed = judgeDay(targets, facts, WED);
+    const data: ReportData = {
+      partnerName: "Jake Morgan", partnerFirst: "Jake", dateLong: "Wednesday, Nov 4, 2026", dateShort: "Wednesday, Nov 4", withWeek: false,
+      pill: { text: "x", status: "neutral" }, today: [], deals: [], owed: [], week: null, tomorrow: { label: "Tomorrow", text: null },
+      targets: wed.map((j) => ({ met: j.met, judged: j.judged, line: targetLine(j, null), commitment: j.commitment, reason: null })),
+    };
+    const text = reportText(data);
+    expect(text).toContain("- Met: Deals moved a stage 3 of 2");
+    expect(text).toMatch(/- Under way: Network outreach/);
+    expect(reportInnerHtml(data)).toContain("Met</span>&nbsp; Deals moved a stage 3 of 2");
+  });
+  it("the Targets row: the mark is Met midweek once the week's count reaches the target", () => {
+    expect(targetView(byName("Deals moved a stage"), facts, WED).mark).toBe("met");
+    expect(targetView(byName("Network outreach"), facts, WED).mark).toBe("now");
+  });
+});
+
+describe("Edit batch C round 2: Reports regrouped", () => {
+  const week = workWeekOf(FRI);
+  it("Most missed this week: the target furthest below its target; none when all are met", () => {
+    const m = mostMissedIn(targets, facts, week, FRI);
+    expect(m).not.toBeNull();
+    expect(m!.share).toBeLessThan(1);
+    // Rosara focus done (0 of 1) is the furthest behind.
+    expect(m!.name).toBe("Rosara focus done");
+    expect(mostMissedIn([byName("Deals moved a stage")], facts, week, FRI)).toBeNull();
+  });
+  it("Most missed over a month: the target missed in most judged weeks", () => {
+    const m = mostMissedIn(targets, facts, { start: "2026-11-01", end: FRI }, "2026-11-30", [], true);
+    expect(m?.weeks?.of).toBeGreaterThan(0);
+    expect(m?.figure).toMatch(/ of \d+ weeks$/);
+  });
+  it("six tiles: no Targets met, Most missed last, nothing that the cards list (no names in the notes)", () => {
+    const w = weekNumbers(targets, facts, week, [{ name: "Dalton Services", who: "Carla", what: "the CIM", since: "Oct 30", days: 6 }], [], FRI);
+    const last = weekNumbers(targets, facts, { start: "2026-10-26", end: "2026-10-30" }, [], []);
+    const tiles = reportTiles(w, last, mostMissedIn(targets, facts, week, FRI), { label: "Most missed this week", open: true });
+    expect(tiles.map((t) => t.label)).toEqual(["Deals moved", "Listings screened", "Network outreach", "Follow-ups on time", "Days waiting on brokers", "Most missed this week"]);
+    expect(tiles.find((t) => t.label === "Deals moved")!.note).toBe("Last week 1");
+    expect(tiles.some((t) => /Dalton|Meridian|BrightPath|Mark Reed|Priya/.test(t.note))).toBe(false);
+    expect(tiles.find((t) => t.label === "Follow-ups on time")!.note).toBe("2 of 3 on time");
+    expect(tiles[5]).toMatchObject({ value: "Rosara focus", note: "Furthest behind so far", status: "neutral" });
+    // While the week is open nothing reads as missed.
+    expect(tiles.some((t) => t.status === "missed")).toBe(false);
+    const closed = reportTiles(w, last, null, { label: "Most missed last week", open: false });
+    expect(closed[5]).toMatchObject({ value: "None", note: "Every target met", status: "met" });
   });
 });

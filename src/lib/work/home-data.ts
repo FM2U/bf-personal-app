@@ -4,6 +4,8 @@ import { loadWorkCtx, loadWorkNow, type WorkNowData } from "@/lib/work/data";
 import type { AiOrder } from "@/lib/work/lanes";
 import { loadPipelinesHome, type PipelinesHome } from "@/lib/work/pipelines-data";
 import { loadRosaraHome, type RosaraHome } from "@/lib/work/projects-data";
+import { loadHomeTodos } from "@/lib/work/personal-todos-data";
+import type { PersonalTodo } from "@/lib/work/personal-todos";
 import { loadTargetsTile, type TargetsTile } from "@/lib/accountability/data";
 import type { Row } from "@/lib/types";
 
@@ -21,6 +23,8 @@ export type HomeData = WorkNowData & {
   hourLocal: number;
   /** The Targets today tile (batch C): two or three target lines, Targets met, End of day with the reasons-left line. */
   targets: TargetsTile;
+  /** The personal to-dos due today or earlier (Edit batch C round 2): rows on Next actions with the To-do lane pill. */
+  todos: PersonalTodo[];
 };
 
 /** The AI's order for a day, from the cache, or null. */
@@ -42,10 +46,11 @@ export async function loadHome(sb: SupabaseClient, ownerId: string): Promise<Hom
     aiOrder: null,
     hourLocal: 9,
     targets: { available: false, notice: null, today: now.today, lines: [], met: { met: 0, total: 0, names: "" }, eod: { state: "open", badge: "5:30", line: "" } },
+    todos: [],
   };
   if (!now.available) return empty;
   const ctx = await loadWorkCtx(sb, ownerId);
-  const [rosara, pipelines, aiOrder, targets] = await Promise.all([loadRosaraHome(sb, ctx), loadPipelinesHome(sb, ctx), loadAiOrder(sb, ownerId, ctx.today), loadTargetsTile(sb, ctx)]);
+  const [rosara, pipelines, aiOrder, targets, todos] = await Promise.all([loadRosaraHome(sb, ctx), loadPipelinesHome(sb, ctx), loadAiOrder(sb, ownerId, ctx.today), loadTargetsTile(sb, ctx), loadHomeTodos(sb, ctx)]);
   const hourLocal = Number(new Intl.DateTimeFormat("en-US", { timeZone: ctx.tz, hour: "numeric", hour12: false }).format(new Date())) || 0;
-  return { ...empty, rosara, pipelines, aiOrder, hourLocal: hourLocal % 24, targets };
+  return { ...empty, rosara, pipelines, aiOrder, hourLocal: hourLocal % 24, targets, todos };
 }

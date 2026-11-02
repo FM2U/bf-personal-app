@@ -25,8 +25,10 @@
 #       then UPDATE_0024_RUN_ONCE.sql twice
 #   (w) 0001 to 0024 (the live database on 2026-11-02) plus the 0008 and 0016 targets, a partner, a daily report, and sample rows,
 #       then UPDATE_0025_RUN_ONCE.sql twice
+#   (x) 0001 to 0025 (the live database on 2026-11-02, evening) plus contacts with the Former colleague role and other roles,
+#       then UPDATE_0026_RUN_ONCE.sql twice
 # Paths b, c, d (UPDATE_RUN_ONCE.sql) and j, k, l also check 0014: tables, policies, functions, sample removal, and reset.
-# UPDATE_RUN_ONCE.sql now ends with 0025, so on paths b, c, d the acquisition, job, and consulting stages are the new ones (the checks allow both).
+# UPDATE_RUN_ONCE.sql now ends with 0026, so on paths b, c, d the acquisition, job, and consulting stages are the new ones (the checks allow both).
 # Every UPDATE_RUN_ONCE.sql path also checks 0012 and 0013.
 # Usage: bash supabase/tests/upgrade_test.sh
 set -euo pipefail
@@ -1038,6 +1040,52 @@ select '0025 checks passed' as result;
 SQL
 for f in UPDATE_RUN_ONCE ALL_MIGRATIONS_RUN_ONCE; do grep -q "schema_has_0025" "$DIR/$f.sql" || { echo "$f.sql is missing 0025"; exit 1; }; done
 
+# (x) Live state on 2026-11-02, evening: 0001 to 0025 applied, three contacts with the Former colleague role (one with a
+# follow-up and a note), a broker, and a contact with no role, then UPDATE_0026_RUN_ONCE.sql twice. Nothing is deleted:
+# every contact stays with its other fields, the old role becomes personal_network, the others keep theirs, the check
+# refuses the old key and accepts the new one.
+setup bf_upgrade_x 0025
+su postgres -c "$PSQL -d bf_upgrade_x" <<'SQL'
+\set ON_ERROR_STOP 1
+insert into public.contacts (owner_id, name, outreach_role, follow_up_date, follow_up_note, notes) values
+  ('00000000-0000-0000-0000-000000000001', 'Carla Former', 'former_colleague', current_date + 3, 'Ask for the hiring manager', 'Met at the old job'),
+  ('00000000-0000-0000-0000-000000000001', 'Jamal Former', 'former_colleague', null, null, null),
+  ('00000000-0000-0000-0000-000000000001', 'Sam Former', 'former_colleague', null, null, null),
+  ('00000000-0000-0000-0000-000000000001', 'Tom Broker', 'broker', null, null, null);
+create table public.upgrade_x_before as
+  select (select count(*) from public.contacts) as contacts, (select id from public.contacts where name = 'Carla Former') as carla_id;
+SQL
+for run in 1 2; do
+  echo "[bf_upgrade_x] Applying UPDATE_0026_RUN_ONCE.sql (run $run)"
+  su postgres -c "$PSQL -d bf_upgrade_x -f $DIR/UPDATE_0026_RUN_ONCE.sql"
+done
+su postgres -c "$PSQL -d bf_upgrade_x" <<'SQL'
+\set ON_ERROR_STOP 1
+do $$
+declare v_contacts bigint; v_carla uuid;
+begin
+  select contacts, carla_id into v_contacts, v_carla from public.upgrade_x_before;
+  assert to_regprocedure('public.schema_has_0026()') is not null, '0026 check function';
+  assert (select count(*) from public.contacts) = v_contacts, 'no contact deleted';
+  assert (select count(*) from public.contacts where outreach_role = 'former_colleague') = 0, 'no contact keeps the old role';
+  assert (select count(*) from public.contacts where outreach_role = 'personal_network') = 3, 'the three moved to Personal network';
+  assert (select outreach_role from public.contacts where name = 'Tom Broker') = 'broker', 'other roles kept';
+  assert (select outreach_role from public.contacts where name = 'Existing contact') is null, 'no role stays no role';
+  assert (select id from public.contacts where name = 'Carla Former') = v_carla, 'same row (UPDATE, not a new contact)';
+  assert (select follow_up_note from public.contacts where id = v_carla) = 'Ask for the hiring manager' and (select notes from public.contacts where id = v_carla) = 'Met at the old job', 'other fields kept';
+  assert (select count(*) from pg_constraint where conname = 'contacts_outreach_role_check') = 1, 'the role check once';
+  begin
+    insert into public.contacts (owner_id, name, outreach_role) values ('00000000-0000-0000-0000-000000000001', 'Old key', 'former_colleague');
+    raise exception 'the old key was accepted';
+  exception when check_violation then null;
+  end;
+end $$;
+insert into public.contacts (owner_id, name, outreach_role) values ('00000000-0000-0000-0000-000000000001', 'New key', 'personal_network');
+drop table public.upgrade_x_before;
+select '0026 checks passed' as result;
+SQL
+for f in UPDATE_RUN_ONCE ALL_MIGRATIONS_RUN_ONCE; do grep -q "schema_has_0026" "$DIR/$f.sql" || { echo "$f.sql is missing 0026"; exit 1; }; done
+
 echo "Upgrade paths passed: 0001-0007 + update twice, 0001-0008 + update, 0001-0009 + update twice, 0001-0010 + 0011 update twice,"
 echo "0001-0010 + 0011_0012 update twice, 0001-0011 + 0011_0012 update twice, 0001-0011 + 0012 update twice (edited text kept),"
 echo "0001-0012 + 0013 update twice, 0001-0012 + 0013_0014 update twice, 0001-0013 + 0013_0014 update twice, 0001-0013 + 0014 update twice,"
@@ -1047,4 +1095,5 @@ echo "0001-0020 + 0021 update twice (defaults renamed, questions converted once,
 echo "0001-0021 + 0022 update twice (last contact filled, to-dos read as deal tasks, consulting and job stages reshaped, future owner too),"
 echo "0001-0022 + 0023 update twice (older notes read as notes, a finding saves with its source, the pay range saves),"
 echo "0001-0023 + 0024 update twice (CIM review before Broker call, ids and deals kept, the NDA signed default renamed, a future owner),"
-echo "0001-0024 + 0025 update twice (targets and reports kept, the new columns and tables, end_of_day reports, the seed reuses the old target rows)."
+echo "0001-0024 + 0025 update twice (targets and reports kept, the new columns and tables, end_of_day reports, the seed reuses the old target rows),"
+echo "0001-0025 + 0026 update twice (Former colleague contacts moved to Personal network by UPDATE, other roles and fields kept, the check refuses the old key)."

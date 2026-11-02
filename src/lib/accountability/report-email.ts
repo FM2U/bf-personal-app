@@ -7,7 +7,7 @@
  * list with the reasons, the week tiles, and the tomorrow line. The same data makes the plain-text part.
  */
 import { barHtml, EMAIL_COLORS, escapeHtml, FONT, pillHtml, type TileStatus } from "@/lib/calc/partner-report";
-import { listNames, shortName, type Judged, type ReportTile } from "@/lib/accountability/targets";
+import { judgedMark, listNames, MARK_WORD, shortName, type Judged, type ReportTile } from "@/lib/accountability/targets";
 
 export type ReportData = {
   partnerName: string;
@@ -55,8 +55,10 @@ function tiles(list: ReportTile[]): string {
 
 function targetRows(d: ReportData): string {
   const rows = d.targets.map((t) => {
-    const st: TileStatus = !t.judged ? "neutral" : t.met ? "met" : "missed";
-    const word = !t.judged ? "Under way" : t.met ? "Met" : "Missed";
+    // Met as soon as reached, under way while below target and not yet judged (Edit batch C round 2, item 7).
+    const mark = judgedMark(t);
+    const st: TileStatus = mark === "now" ? "neutral" : mark;
+    const word = MARK_WORD[mark];
     const reason = t.judged && !t.met && t.commitment ? `<div style="font-size:13px;line-height:18px;color:${EMAIL_COLORS.muted}">Commitment. ${escapeHtml(t.reason?.trim() || "(reason still to give)")}</div>` : "";
     return (
       `<tr><td valign="top" width="14" style="width:14px;padding:3px 0;color:${EMAIL_COLORS.bar[st]};font-size:13px;line-height:18px;${FONT}">&#9679;</td>` +
@@ -118,7 +120,7 @@ export function reportText(d: ReportData, short = false): string {
     lines.push("", "DEALS", ...(d.deals.length ? d.deals.map((x) => `- ${x}`) : ["No move today."]));
   }
   lines.push("", "TARGETS");
-  for (const t of d.targets) lines.push(`- ${!t.judged ? "Under way" : t.met ? "Met" : "Missed"}: ${t.line}${t.judged && !t.met && t.commitment ? ` Commitment. ${t.reason?.trim() || "(reason still to give)"}` : ""}`);
+  for (const t of d.targets) lines.push(`- ${MARK_WORD[judgedMark(t)]}: ${t.line}${t.judged && !t.met && t.commitment ? ` Commitment. ${t.reason?.trim() || "(reason still to give)"}` : ""}`);
   for (const o of d.owed) lines.push(`- Owed: ${o}`);
   if (d.week) lines.push("", d.week.label.toUpperCase(), ...tileLines(d.week.tiles));
   lines.push("", d.tomorrow.label.toUpperCase(), d.tomorrow.text || "(no line yet)");

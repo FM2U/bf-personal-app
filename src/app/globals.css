@@ -180,6 +180,11 @@ select:not([multiple]):not([size]) {
   letter-spacing: 0.09em;
   text-transform: uppercase;
 }
+/* Facts and figures labels (Edit batch C round 2, item 1): the same small caps at 11px, medium weight. */
+.label-caps.figure-label {
+  font-size: 11px;
+  font-weight: 500;
+}
 
 /* Field labels held to two lines, sitting at the bottom of a two-line space so inputs in a row stay aligned. */
 .field-label {

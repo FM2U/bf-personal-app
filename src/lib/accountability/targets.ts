@@ -224,6 +224,15 @@ export function markOf(t: Pick<Target, "number">, value: number, periodEnd: stri
 
 export const MARK_WORD: Record<Mark, string> = { met: "Met", missed: "Missed", now: "Under way" };
 
+/**
+ * The mark of a judged line (End of day, its report preview and email, Reports; Edit batch C round 2, item 7): Met as
+ * soon as the count reaches the target, even midweek for a per-week target; Missed only once it is judged (a weekday's
+ * End of day, Friday's for a per-week target) below target; Under way otherwise.
+ */
+export function judgedMark(j: { met: boolean; judged: boolean }): Mark {
+  return j.met ? "met" : j.judged ? "missed" : "now";
+}
+
 // ---------- The cell strip and the streak ----------
 
 export type Cell = { state: "met" | "missed" | "now" | "off" | "future"; title: string; period: Period };
@@ -272,7 +281,8 @@ export function stripOf(t: Target, f: Facts, today: string, opts: { skippedDays?
     cells.push({ state: m ? "met" : "missed", title: `Week of ${p.start}: ${figure(t, v)}`, period: p });
   }
   const v = countIn(t.key, f, thisWeek.start, thisWeek.end).value;
-  cells.push({ state: opts.judgedToday && weekdayShort(today) === "Fri" ? (isMet(t, v) ? "met" : "missed") : "now", title: `This week so far: ${figure(t, v)}`, period: thisWeek });
+  // Met as soon as the week's count reaches the target (Edit batch C round 2); missed only after Friday's End of day.
+  cells.push({ state: isMet(t, v) ? "met" : (opts.judgedToday && weekdayShort(today) === "Fri") || today > thisWeek.end ? "missed" : "now", title: `This week so far: ${figure(t, v)}`, period: thisWeek });
   let run = 0;
   for (let i = results.length - 1; i >= 0 && results[i]; i--) run++;
   let miss = 0;
@@ -639,6 +649,71 @@ export function weekTiles(w: WeekNumbers, last: WeekNumbers | null): ReportTile[
       : { label: "Network outreach", value: String(w.outreach.value), note: "", status: "neutral", pct: null },
     { label: "Follow-ups on time", value: `${w.followUps.value}%`, note: w.followUps.detail, status: w.followUps.parts?.done ? (w.followUps.value >= 100 ? "met" : "missed") : "neutral", pct: w.followUps.parts?.done ? clamp(w.followUps.value) : null },
     { label: "Days waiting on brokers", value: w.waitAverage.n ? w.waitAverage.days.toFixed(1) : "0", note: w.waitAverage.n ? `${w.waitAverage.n} open ${w.waitAverage.n === 1 ? "wait" : "waits"}${w.waitAverage.longest ? ` · ${shortName(w.waitAverage.longest.name)} ${w.waitAverage.longest.days} days` : ""}` : "No open waits", status: "neutral", pct: null },
+  ];
+  return tiles;
+}
+
+// ---------- Reports, regrouped (Edit batch C round 2, item 6) ----------
+
+/** The target furthest behind in a period: its name, figure, and how far along (0 to 1); null when every target is met. */
+export type MostMissedIn = { name: string; figure: string; share: number; weeks?: { missed: number; of: number } } | null;
+
+/**
+ * "Most missed this week" (or last week, a past week): the target furthest below its target, by share of the target
+ * reached (a per-weekday target against number times the weekdays counted up to today, less skipped days). Over a
+ * month: the target missed in most of the month's judged weeks (ties go to the one furthest behind this week).
+ */
+export function mostMissedIn(targets: readonly Target[], f: Facts, p: Period, today: string, skipped: readonly string[] = [], month = false): MostMissedIn {
+  if (month) {
+    const misses = new Map<string, number>();
+    let weeks = 0;
+    for (let s = workWeekOf(p.start).start; s <= today; s = addDaysISO(s, 7)) {
+      const end = addDaysISO(s, 4);
+      if (end >= today) continue;
+      weeks++;
+      for (const m of judgeWeek(targets, f, s, skipped).missed) misses.set(m.name, (misses.get(m.name) ?? 0) + 1);
+    }
+    let best: MostMissedIn = null;
+    for (const t of targets) {
+      const n = misses.get(t.name) ?? 0;
+      if (n > 0 && (!best || n > (best.weeks?.missed ?? 0))) best = { name: t.name, figure: `${n} of ${weeks} weeks`, share: 1 - n / weeks, weeks: { missed: n, of: weeks } };
+    }
+    return best;
+  }
+  const upTo = today < p.end ? { start: p.start, end: today } : p;
+  const days = Math.max(1, weekdaysIn(upTo) - skipped.filter((d) => d >= upTo.start && d <= upTo.end).length);
+  let best: MostMissedIn = null;
+  for (const t of targets) {
+    const v = countIn(t.key, f, p.start, p.end).value;
+    const required = t.cadence === "day" ? t.number * days : t.number;
+    if (required <= 0 || v >= required) continue;
+    const share = v / required;
+    if (!best || share < best.share) best = { name: t.name, figure: t.cadence === "day" ? `${v} of ${required}` : countable(t.key).unit === "yesno" ? "not done" : figure(t, v), share };
+  }
+  return best;
+}
+
+/**
+ * The six tiles of "How the week went" on Reports (Edit batch C round 2, item 6): Deals moved, Listings screened,
+ * Network outreach, Follow-ups on time, Days waiting on brokers, and Most missed (in place of Targets met). Nothing
+ * repeats what the cards below show: the moves, the passes, and the waits are listed in the cards, so the tiles carry
+ * last week's figure instead of the names, and Most missed names the target without its figure (the figure is in the
+ * Targets card). `open`: the period is still being counted, so nothing reads as missed yet.
+ */
+export function reportTiles(w: WeekNumbers, last: WeekNumbers | null, most: MostMissedIn, opts: { label: string; open: boolean; month?: boolean }): ReportTile[] {
+  const lastLine = (n: number | null) => (last && n !== null ? `Last week ${n}` : "");
+  const tiles: ReportTile[] = [
+    { label: "Deals moved", value: String(w.deals.value), note: lastLine(last ? last.deals.value : null), status: "neutral", pct: null },
+    { label: "Listings screened", value: String(w.screened.value), note: lastLine(last ? last.screened.value : null), status: "neutral", pct: null },
+    w.outreach.target && !opts.month
+      ? { label: "Network outreach", value: String(w.outreach.value), small: `of ${w.outreach.target}`, note: last ? `Last week ${last.outreach.value}` : "", status: w.outreach.value >= w.outreach.target ? "met" : opts.open ? "neutral" : "missed", pct: clamp((w.outreach.value / w.outreach.target) * 100) }
+      : { label: "Network outreach", value: String(w.outreach.value), note: lastLine(last ? last.outreach.value : null), status: "neutral", pct: null },
+    // Counts only (no names): the people are on Outreach and in the Waiting card, so nothing repeats.
+    { label: "Follow-ups on time", value: `${w.followUps.value}%`, note: w.followUps.parts?.done ? `${w.followUps.parts.onTime} of ${w.followUps.parts.done} on time` : "None due", status: w.followUps.parts?.done ? (w.followUps.value >= 100 ? "met" : opts.open ? "neutral" : "missed") : "neutral", pct: w.followUps.parts?.done ? clamp(w.followUps.value) : null },
+    { label: "Days waiting on brokers", value: w.waitAverage.n ? w.waitAverage.days.toFixed(1) : "0", note: w.waitAverage.n ? `Average of ${w.waitAverage.n} open ${w.waitAverage.n === 1 ? "wait" : "waits"}` : "No open waits", status: "neutral", pct: null },
+    most
+      ? { label: opts.label, value: shortTargetName(most.name), note: most.weeks ? `Missed ${most.weeks.missed} of ${most.weeks.of} weeks` : opts.open ? "Furthest behind so far" : "Furthest behind", status: opts.open ? "neutral" : "missed", pct: null }
+      : { label: opts.label, value: "None", note: opts.open ? "Every target met so far" : "Every target met", status: opts.open ? "neutral" : "met", pct: null },
   ];
   return tiles;
 }

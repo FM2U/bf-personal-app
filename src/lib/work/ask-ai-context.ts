@@ -4,11 +4,11 @@ import { loadCtx } from "@/lib/engine/helpers";
 import { date as fmtDate } from "@/lib/format";
 import type { AskContext, PageContext } from "@/lib/work/ask-ai";
 import { trimContext } from "@/lib/work/ask-ai";
-import { loadDealPage, loadDeals, loadListings, loadWorkCtx, loadWorkNow, type DealRow } from "@/lib/work/data";
+import { loadDealPage, loadDeals, loadListings, loadPipelineOfKind, loadWorkCtx, loadWorkNow, type DealRow } from "@/lib/work/data";
 import { dueLabel } from "@/lib/work/stages";
 import { lastContactLabel, orgRoleLine, purposeLabel } from "@/lib/work/outreach";
 import { loadOutreach, loadPersonPage, type PersonRow } from "@/lib/work/outreach-data";
-import { loadTodos } from "@/lib/work/personal-todos-data";
+import { loadHomeTodos, loadTodos } from "@/lib/work/personal-todos-data";
 import { loadItemPage, loadPipelineBoard, loadPipelinesHome, type ItemRow } from "@/lib/work/pipelines-data";
 import { loadProjectPage, loadRosara, loadRosaraHome, type ProjectRow } from "@/lib/work/projects-data";
 import { openTodos, type DealTodo } from "@/lib/work/todos";
@@ -58,12 +58,15 @@ function timelineLines(events: readonly TimelineEvent[], n = 10): string[] {
 
 /** The card a star sits on keeps only the lines that belong to it (the record's own line always stays). */
 const CARD_TAGS: Record<string, string[]> = {
-  "Next actions": ["deal:", "person:", "project:", "opportunity:", "consulting:"],
+  "Next actions": ["deal:", "person:", "project:", "opportunity:", "consulting:", "to-do:"],
   Tasks: ["task:"],
   "Open questions": ["question:", "key finding:"],
   "What to find out": ["question:"],
   "Weekly focus": ["focus:", "project:"],
   "Suggested next steps": [],
+  // Edit batch C round 2: the next action star reads the whole record (stage, default, timeline, tasks).
+  "Next action": [],
+  "Next follow-up": [],
   Reasons: ["target:", "listings screened:", "deals moved:", "calls:", "network outreach:", "next actions done:", "waiting on broker:"],
   "What matters tomorrow": ["tomorrow line:", "deals moved:", "waiting on broker:", "next actions done:", "target:"],
   Report: [],
@@ -76,9 +79,18 @@ export async function buildPageContext(sb: SupabaseClient, ownerId: string, c: A
   let lines: string[] = [];
   let head: string[] = [];
   const id = c.recordId ?? "";
+  const nextCard = c.card === "Next action" || c.card === "Next follow-up";
+  /** "stage default next action: Ask for the seller call (due in 3 days)" for the next action star. */
+  const stageDefault = async (kind: "acquisition" | "job" | "consulting", stageId: string | null): Promise<string[]> => {
+    if (!nextCard || !stageId) return [];
+    const pipe = await loadPipelineOfKind(sb, ownerId, kind);
+    const st = pipe?.byId[stageId];
+    if (!st) return [];
+    return [`stage default next action: ${st.defaultTitle ?? "none"}${st.defaultTitle && st.defaultDueInDays !== null ? ` (due in ${st.defaultDueInDays} days)` : ""}`, ...(pipe!.stages.find((x) => x.position === st.position + 1 && x.outcome === "open") ? [`next stage: ${pipe!.stages.find((x) => x.position === st.position + 1)!.name}`] : [])];
+  };
   switch (c.page) {
     case "home": {
-      const [now, rosara, pipes] = await Promise.all([loadWorkNow(sb, ownerId), loadRosaraHome(sb, ctx), loadPipelinesHome(sb, await loadWorkCtx(sb, ownerId))]);
+      const [now, rosara, pipes, todos] = await Promise.all([loadWorkNow(sb, ownerId), loadRosaraHome(sb, ctx), loadPipelinesHome(sb, await loadWorkCtx(sb, ownerId)), loadHomeTodos(sb, ctx)]);
       title = `Home (Work on now), ${fmtDate(today, "EEEE, MMM d")}`;
       lines = [
         ...now.deals.map((d) => dealLine(d, today)),
@@ -87,6 +99,7 @@ export async function buildPageContext(sb: SupabaseClient, ownerId: string, c: A
         ...rosara.actions.map((p) => projectLine(p, today)),
         ...pipes.jobs.map((i) => itemLine(i, today)),
         ...pipes.consulting.map((i) => itemLine(i, today)),
+        ...todos.map((t) => `to-do: ${t.text} (due ${t.dueOn ? dueLabel(t.dueOn, today, fmt).text : "no date"})`),
       ];
       break;
     }
@@ -106,7 +119,7 @@ export async function buildPageContext(sb: SupabaseClient, ownerId: string, c: A
       const d = await loadDealPage(sb, ownerId, id);
       if (d.deal) {
         title = `Deal: ${d.deal.name}`;
-        head = [dealLine(d.deal, today), `facts: ${[d.deal.whatItDoes, d.deal.location, d.deal.industry, d.deal.brokerName ? `broker ${d.deal.brokerName}` : null, d.deal.whySelling ? `why selling: ${d.deal.whySelling}` : null].filter(Boolean).join(" | ")}`];
+        head = [dealLine(d.deal, today), ...(await stageDefault("acquisition", d.deal.stageId)), `facts: ${[d.deal.whatItDoes, d.deal.location, d.deal.industry, d.deal.brokerName ? `broker ${d.deal.brokerName}` : null, d.deal.whySelling ? `why selling: ${d.deal.whySelling}` : null].filter(Boolean).join(" | ")}`];
         lines = [
           ...(d.deal.keyFinding ? [`key finding: ${d.deal.keyFinding}`] : []),
           ...QUESTION_GROUPS.flatMap((g) => d.deal!.openQuestions[g.key].map((q) => `question (${g.label}): ${q}`)),
@@ -160,7 +173,7 @@ export async function buildPageContext(sb: SupabaseClient, ownerId: string, c: A
       const d = await loadItemPage(sb, ownerId, kind, id);
       if (d.item) {
         title = `${kind === "job" ? "Opportunity" : "Consulting"}: ${d.item.name}`;
-        head = [itemLine(d.item, today), `facts: ${[d.item.location, d.item.payRange ? `pay ${d.item.payRange}` : null, d.item.source ? `source ${d.item.source}` : null, d.item.scope ? `scope: ${d.item.scope}` : null, d.item.startDate ? `start ${d.item.startDate}` : null].filter(Boolean).join(" | ")}`];
+        head = [itemLine(d.item, today), ...(await stageDefault(kind, d.item.stageId)), `facts: ${[d.item.location, d.item.payRange ? `pay ${d.item.payRange}` : null, d.item.source ? `source ${d.item.source}` : null, d.item.scope ? `scope: ${d.item.scope}` : null, d.item.startDate ? `start ${d.item.startDate}` : null].filter(Boolean).join(" | ")}`];
         lines = [...d.item.findOut.map((q) => `question: ${q}`), ...taskLines(d.todos), ...timelineLines(d.timeline)];
       }
       break;
@@ -191,6 +204,7 @@ export async function buildPageContext(sb: SupabaseClient, ownerId: string, c: A
       break;
     }
   }
+  if (nextCard) head.push(`today: ${fmtDate(today, "EEEE")}, ${today}`);
   if (c.card && CARD_TAGS[c.card]) {
     const tags = CARD_TAGS[c.card];
     if (tags.length) lines = lines.filter((l) => tags.some((t) => l.startsWith(t) || l.includes(` ${t}`)));

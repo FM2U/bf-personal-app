@@ -11,7 +11,8 @@ import { addDaysISO, daysBetween, weekBounds } from "@/lib/calc/dates";
 export const OUTREACH_ROLES = [
   { key: "broker", label: "Broker" },
   { key: "lender", label: "Lender" },
-  { key: "former_colleague", label: "Former colleague" },
+  // Edit batch C round 2 (item 5): "Former colleague" became "Personal network" (stored as personal_network since update 0026).
+  { key: "personal_network", label: "Personal network" },
   { key: "service_provider", label: "Service provider" },
   { key: "rosara_customer", label: "Rosara customer" },
   { key: "recruiter", label: "Recruiter" },
@@ -36,8 +37,30 @@ export function isRole(v: unknown): v is OutreachRole {
   return OUTREACH_ROLES.some((r) => r.key === v);
 }
 
+/** Stored role keys from before a rename, and the role they are now (update 0026 moves the rows over by UPDATE). */
+export const RENAMED_ROLES: Record<string, OutreachRole> = { former_colleague: "personal_network" };
+
+/** The role a stored key means today: "former_colleague" (before update 0026) reads as personal_network; unknown keys are null. */
+export function normalizeRole(key: string | null | undefined): OutreachRole | null {
+  const k = String(key ?? "");
+  if (RENAMED_ROLES[k]) return RENAMED_ROLES[k];
+  return isRole(k) ? k : null;
+}
+
 export function roleLabel(key: string | null | undefined): string | null {
-  return OUTREACH_ROLES.find((r) => r.key === key)?.label ?? null;
+  const k = normalizeRole(key);
+  return OUTREACH_ROLES.find((r) => r.key === k)?.label ?? null;
+}
+
+/**
+ * The key saved for a role. Before database update 0026 the database still allows only the old key, so Personal
+ * network is saved as "former_colleague" (it reads back as Personal network); after it, as "personal_network".
+ */
+export function roleForDatabase(role: unknown, has0026: boolean): string | null {
+  const k = normalizeRole(typeof role === "string" ? role : null);
+  if (!k) return null;
+  if (!has0026) for (const [old, now] of Object.entries(RENAMED_ROLES)) if (now === k) return old;
+  return k;
 }
 
 export function purposeLabel(key: string): string {

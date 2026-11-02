@@ -3,6 +3,8 @@ import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
 import { loadTabCounts, workUpdateNotice } from "@/lib/work/data";
 import { loadOutreach } from "@/lib/work/outreach-data";
+import { DB_UPDATE_NOTICE_0026 } from "@/lib/schema-guard";
+import { hasUpdate0026 } from "@/lib/update-0026";
 import { WorkTabs } from "@/components/app/nav-links";
 import { AskAiPill } from "@/components/app/work/ask-ai";
 import { OutreachBoard } from "@/components/app/work/outreach-board";
@@ -25,6 +27,8 @@ export default async function OutreachPage({ searchParams }: { searchParams: Pro
   const ctx = await loadCtx(supabase, ownerId);
   const tabs = await loadTabCounts(supabase, ownerId, ctx.today);
   const adding = sp.add === "1";
+  // Update 0026 (the Personal network role): one quiet line under the tabs until it runs; nothing else waits on it.
+  const needs0026 = !notice && !(await hasUpdate0026(supabase));
   const header = (
     <>
       <WorkHeader
@@ -41,6 +45,11 @@ export default async function OutreachPage({ searchParams }: { searchParams: Pro
         }
       />
       <WorkTabs toScreen={tabs.toScreen} outreachDue={tabs.outreachDue} />
+      {needs0026 ? (
+        <p className="mt-2 text-[12.5px] text-status-soon" role="status" data-testid="update-0026-needed">
+          {DB_UPDATE_NOTICE_0026}
+        </p>
+      ) : null}
     </>
   );
   if (notice) {

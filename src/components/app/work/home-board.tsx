@@ -28,6 +28,7 @@ import { LogCallDrawer } from "@/components/app/work/log-call-drawer";
 import { NextActionRow } from "@/components/app/work/next-action-row";
 import { OutreachActionRow, PurposePills } from "@/components/app/work/person-row";
 import { ProjectActionRow } from "@/components/app/work/project-row";
+import { TodoActionRow } from "@/components/app/work/todo-row";
 import { useSections } from "@/components/app/work/sections";
 import { ShowFilter } from "@/components/app/work/show-filter";
 import { Due, Figure, FilterRow, Line1, Line2, Name, Pill, PinnedBlock, ProgressMark, RowButton, RowButtons, RowLink, RowShell, SectionHeading, TargetBar, Thinking, What, WorkCard, type PillTone } from "@/components/app/work/ui";
@@ -40,6 +41,7 @@ import { cn } from "@/lib/utils";
  * Overdue, Due today, Needs a next action. The card header holds "Order: Soonest first | By the AI": By the AI asks
  * the AI once a day for the order of the day's actions (cached; "Order again" asks again) and shows one purple
  * reason under each row; Soonest first is the default and costs nothing; the choice is remembered in this browser.
+ * Edit batch C round 2: personal to-dos due today or earlier join Next actions with a "To-do" lane pill.
  * Edit batch C: "Show: All" after the filter pills narrows Next actions and Waiting on someone to the ticked lanes
  * (the pill counts follow, remembered in this browser), and the AI order numbers sit in their own column.
  * Right third, stacked: Waiting on someone, Outreach, Rosara (the weekly focus, the next project action, the
@@ -121,8 +123,12 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
       const lane: Lane = i.kind === "job" ? "Job search" : "Consulting";
       push(lane, i.id, { key: actionKey(lane, i.id), lane, id: i.id, name: i.name, action: i.nextAction, due: i.nextActionDue, minutes: i.nextActionMinutes, meta: [i.stageName, i.title].filter(Boolean).join(", ") }, { status: i.status, waitLevel: i.waitLevel, nextAction: i.nextAction, nextActionDue: i.nextActionDue, name: i.name }, (reason) => <ItemActionRow item={i} today={today} reason={reason} />);
     }
+    // Edit batch C round 2: personal to-dos due today or earlier, with the To-do lane pill (no minutes).
+    for (const t of data.todos) {
+      push("To-dos", t.id, { key: actionKey("To-dos", t.id), lane: "To-dos", id: t.id, name: t.text, action: t.text, due: t.dueOn, minutes: null, meta: "Personal to-do" }, { status: "open", waitLevel: "none", nextAction: t.text, nextActionDue: t.dueOn, name: t.text }, (reason) => <TodoActionRow todo={t} today={today} reason={reason} />);
+    }
     return out;
-  }, [deals, data.outreach.due, data.rosara.actions, data.pipelines.jobs, data.pipelines.consulting, today]);
+  }, [deals, data.outreach.due, data.rosara.actions, data.pipelines.jobs, data.pipelines.consulting, data.todos, today]);
   const rows = useMemo(() => allRows.filter((r) => laneShown(r.lane, show)), [allRows, show]);
 
   const sectionsOf = useMemo(() => {

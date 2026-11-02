@@ -124,3 +124,36 @@ describe("the Show filter on Home (Edit batch C, item 2)", () => {
     expect(parseShowChoice(JSON.stringify([]))).toBeNull();
   });
 });
+
+/** Edit batch C round 2 (approved 2026-11-02): personal to-dos due today or earlier join Next actions. */
+describe("to-dos on Home's Next actions", () => {
+  it("key as todo:<id> and read back as the To-dos lane", () => {
+    expect(actionKey("To-dos", "t1")).toBe("todo:t1");
+    expect(laneOfKey("todo:t1")).toBe("To-dos");
+  });
+  it("merge with the other lanes by due date (no minutes), after the other lanes on the same day", () => {
+    const rows = [
+      a("To-dos", "Renew the car registration", { due: "2026-10-30" }),
+      a("Deals", "Dalton", { due: today }),
+      a("To-dos", "Call the dentist", { due: today }),
+      a("Outreach", "Mark Reed", { due: "2026-11-01" }),
+      a("To-dos", "Book flights", { due: "2026-11-05" }),
+    ];
+    const s = mergeLanes(rows, today);
+    expect(s.overdue.map((r) => r.id)).toEqual(["Renew the car registration", "Mark Reed"]);
+    expect(s.today.map((r) => r.id)).toEqual(["Dalton", "Call the dentist"]);
+    expect(s.needs).toEqual([]);
+    expect([...s.overdue, ...s.today].filter((r) => r.lane === "To-dos").every((r) => r.minutes === null)).toBe(true);
+  });
+  it("the Show filter's To-dos narrows to them", () => {
+    expect([...SHOW_LANES]).toContain("To-dos");
+    const only = toggleShow(null, "To-dos");
+    expect(laneShown("To-dos", only)).toBe(true);
+    expect(laneShown("Deals", only)).toBe(false);
+  });
+  it("are in the AI order prompt like any other row", () => {
+    const p = aiOrderPrompt([a("To-dos", "t9", { name: "Call the dentist", action: "Call the dentist" })], today);
+    expect(p).toContain("key=todo:t9 | lane=To-dos | name=Call the dentist");
+    expect(validateAiOrderReply({ order: [{ key: "todo:t9", reason: "Two minutes" }] }, ["todo:t9"])).toEqual({ ok: true, value: { order: ["todo:t9"], reasons: { "todo:t9": "Two minutes" } } });
+  });
+});

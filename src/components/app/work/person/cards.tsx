@@ -15,7 +15,7 @@ import type { IncomingReply, PersonRecordLink, PersonRow } from "@/lib/work/outr
 import type { TimelineEvent } from "@/lib/work/timeline";
 import type { DealTodo } from "@/lib/work/todos";
 import { PersonFactsForm } from "@/components/app/work/add-person";
-import { AiFieldStar } from "@/components/app/work/ask-ai";
+import { AiCardStar, AiFieldStar } from "@/components/app/work/ask-ai";
 import { Fact, GrowingTextarea, SaveLine, useSave, useSynced } from "@/components/app/work/deal/cards";
 import { LogCallDrawer } from "@/components/app/work/log-call-drawer";
 import { PurposePills } from "@/components/app/work/person-row";
@@ -26,7 +26,8 @@ import { cn } from "@/lib/utils";
 
 /**
  * The cards of the person page (/work/outreach/[id]) under the record-page rule (batch B, approved 2026-10-31).
- * Left: Why in touch (purpose, what the follow-up is for, the one-line note), Next follow-up (date, what for; Save,
+ * Left: Why in touch (purpose and the one-line note; what the follow-up is for lives in Next follow-up as "What for"
+ * since Edit batch C round 2), Next follow-up (date, what for, the AI star that suggests both; Save,
  * Done, Later), Tasks. Right: Facts (Edit), Incoming (Gmail replies not yet on the timeline, Log it), Timeline
  * (notes, emails, calls; Add a note below), Decision (Archive or Reopen). Each card saves through its own server
  * action; the page re-reads after a successful save.
@@ -100,7 +101,6 @@ export function WhyInTouchCard({ person }: { person: PersonRow }) {
     <WorkCard title="Why in touch" hint="Edit in Facts" testId="person-why">
       <div className="flex flex-col px-[22px] pt-1 pb-3">
         {line("Purpose", person.purposes.length ? <span className="inline-flex flex-wrap gap-1.5"><PurposePills purposes={person.purposes} /></span> : <span className="text-slate-400">Not set</span>, "why-purpose")}
-        {line("Follow-up for", person.followUpFor ?? <span className="text-slate-400">Not set</span>, "why-follow-up")}
         {line("Note", person.note ?? <span className="text-slate-400">No note yet</span>, "why-note")}
       </div>
     </WorkCard>
@@ -141,7 +141,23 @@ export function NextFollowUpCard({ person, today }: { person: PersonRow; today: 
       router.refresh();
     });
   return (
-    <WorkCard title="Next follow-up" hint={hint} testId="person-next-follow-up">
+    <WorkCard
+      title="Next follow-up"
+      actions={
+        <>
+          <span className="text-[13px] text-muted-foreground" data-testid="next-action-hint">{hint}</span>
+          <AiCardStar
+            context={{ ...personAsk(person), card: "Next follow-up" }}
+            onUseNext={(x) => {
+                setWhat(x.action);
+                setDate(x.due);
+              }}
+            testId="next-action-star"
+          />
+        </>
+      }
+      testId="person-next-follow-up"
+    >
       <div className={FORM} data-testid="follow-up-form">
         <label htmlFor={`${ids}-d`} className={LABEL}>
           Date
@@ -308,9 +324,9 @@ export function PersonFactsCard({ person, records, today }: { person: PersonRow;
             {lastContactLabel(person.lastContactOn, person.lastContactKind, today, (d) => fmtDate(d, "MMM d"))}
           </Fact>
           {records.length ? (
-            <div className="col-span-2 flex min-w-0 flex-col gap-0.5" data-testid="pf-records">
-              <span className="label-caps">Main contact on</span>
-              <span className="flex flex-wrap gap-x-3 gap-y-1 text-sm font-medium">
+            <div className="col-span-2 flex min-w-0 flex-col gap-1" data-testid="pf-records">
+              <span className="label-caps figure-label">Main contact on</span>
+              <span className="flex flex-wrap gap-x-3 gap-y-1 text-[15.5px] font-semibold">
                 {records.map((r) => (
                   <a key={r.id} href={r.href} className="text-primary-strong hover:underline">
                     {r.name}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  contactKindLabel, counterLabel, followUpHint, lastContactLabel, matchesOutreachFilter, matchesPersonSearch, nextDateChoices, nextFollowUpLabel,
+  contactKindLabel, normalizeRole, OUTREACH_ROLES, roleForDatabase, counterLabel, followUpHint, lastContactLabel, matchesOutreachFilter, matchesPersonSearch, nextDateChoices, nextFollowUpLabel,
   orgRoleLine, outreachFilterCounts, outreachSectionOf, outreachSections, parsePurposes, purposesText, roleLabel, weeklyOutreach, weekdayShort, workWeek, type OutreachPerson,
 } from "./outreach";
 
@@ -27,7 +27,9 @@ describe("purposes and roles", () => {
   });
 
   it("labels the roles", () => {
-    expect(roleLabel("former_colleague")).toBe("Former colleague");
+    // Edit batch C round 2: Former colleague is Personal network; the old stored key reads as the new role.
+    expect(roleLabel("personal_network")).toBe("Personal network");
+    expect(roleLabel("former_colleague")).toBe("Personal network");
     expect(roleLabel("cofounder_candidate")).toBe("Co-founder candidate");
     expect(roleLabel("nope")).toBeNull();
   });
@@ -107,5 +109,26 @@ describe("the figures and the date choices", () => {
     expect(choices[0].label(fmt)).toBe("Nov 6 (Fri)");
     // From a Thursday, three days on is a Sunday: moved to Monday.
     expect(nextDateChoices("2026-11-05").map((c) => c.date)).toEqual(["2026-11-09", "2026-11-16", "2026-12-07"]);
+  });
+});
+
+describe("the Personal network role (Edit batch C round 2, update 0026)", () => {
+  it("is in the role list in place of Former colleague", () => {
+    expect(OUTREACH_ROLES.map((r) => r.label)).toContain("Personal network");
+    expect(OUTREACH_ROLES.map((r) => r.label)).not.toContain("Former colleague");
+    expect(OUTREACH_ROLES.map((r) => r.key)).not.toContain("former_colleague");
+  });
+  it("reads the old key as Personal network", () => {
+    expect(normalizeRole("former_colleague")).toBe("personal_network");
+    expect(normalizeRole("broker")).toBe("broker");
+    expect(normalizeRole("nope")).toBeNull();
+    expect(normalizeRole(null)).toBeNull();
+  });
+  it("saves the new key after update 0026 and the old key before it (the database check allows only that one)", () => {
+    expect(roleForDatabase("personal_network", true)).toBe("personal_network");
+    expect(roleForDatabase("personal_network", false)).toBe("former_colleague");
+    expect(roleForDatabase("former_colleague", true)).toBe("personal_network");
+    expect(roleForDatabase("broker", false)).toBe("broker");
+    expect(roleForDatabase("nope", true)).toBeNull();
   });
 });

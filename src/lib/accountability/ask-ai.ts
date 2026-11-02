@@ -4,7 +4,7 @@
  * of day, and Reports (what the AI reads; nothing more).
  */
 import type { EndOfDayPage, ReportsPage, TargetsPage } from "@/lib/accountability/data";
-import { MARK_WORD, type Judged } from "@/lib/accountability/targets";
+import { judgedMark, MARK_WORD, type Judged } from "@/lib/accountability/targets";
 
 export type ReasonDraft = { targetId: string; name: string; reason: string };
 
@@ -21,7 +21,7 @@ export function endOfDayLines(p: EndOfDayPage): string[] {
     `network outreach: ${n.outreachToday.value} today, ${n.outreachWeek.value} this week`,
     `next actions done: ${n.actionsDone.value}${n.actionsDone.detail ? ` (${n.actionsDone.detail})` : ""}`,
     ...n.waits.map((w) => `waiting on broker: ${w.name}, ${w.days} days${w.who ? `, ${w.who}` : ""}${w.what ? `, for ${w.what}` : ""}`),
-    ...p.judged.map((j) => `target: ${j.name} | ${j.line} | ${j.judged ? (j.met ? "met" : "missed") : "under way"} ${j.figure}${j.commitment ? " | commitment" : ""}${p.reasons[j.targetId] ? ` | reason given: ${p.reasons[j.targetId]}` : ""}`),
+    ...p.judged.map((j) => `target: ${j.name} | ${j.line} | ${MARK_WORD[judgedMark(j)].toLowerCase()} ${j.figure}${j.commitment ? " | commitment" : ""}${p.reasons[j.targetId] ? ` | reason given: ${p.reasons[j.targetId]}` : ""}`),
     `tomorrow line: ${p.tomorrow.trim() || "(empty)"}`,
   ];
   return lines;

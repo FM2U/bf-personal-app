@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nextPersonalTodoPosition, todoDueLabel, todoSectionOf, todoSections, type PersonalTodo } from "./personal-todos";
+import { homeTodos, nextPersonalTodoPosition, todoDueLabel, todoSectionOf, todoSections, type PersonalTodo } from "./personal-todos";
 
 const today = "2026-11-03";
 const t = (id: string, dueOn: string | null, doneAt: string | null = null, position = 1, createdAt = "2026-11-01T10:00:00Z"): PersonalTodo => ({ id, text: id, dueOn, doneAt, position, createdAt });
@@ -31,5 +31,12 @@ describe("the To-dos sections", () => {
     expect(todoDueLabel("2026-10-31", today, fmt)).toEqual({ text: "3 days late", tone: "over" });
     expect(todoDueLabel("2026-11-14", today, fmt)).toEqual({ text: "11-14", tone: "later" });
     expect(todoDueLabel(null, today, fmt)).toEqual({ text: "", tone: "none" });
+  });
+});
+
+describe("the to-dos Home shows (Edit batch C round 2)", () => {
+  it("open to-dos due today or earlier, oldest first; no date, later dates, and done ones stay off Home", () => {
+    const list = [t("later", "2026-11-04"), t("today", today), t("none", null), t("old", "2026-10-30"), t("done", "2026-11-01", "2026-11-03T09:00:00Z")];
+    expect(homeTodos(list, today).map((x) => x.id)).toEqual(["old", "today"]);
   });
 });

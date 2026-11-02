@@ -1,13 +1,13 @@
 /**
  * The lanes of Home (batch B2, approved 2026-10-31): Next actions merges every lane into one list. A deal row has no
- * pill; outreach follow-ups, Rosara project actions, Job search opportunities, and Consulting items carry a lane
- * pill. Pure and tested in src/lib/work/lanes.test.ts: the row key per lane, the sections (Overdue, Due today, Needs
+ * pill; outreach follow-ups, Rosara project actions, Job search opportunities, Consulting items, and (Edit batch C
+ * round 2) personal to-dos due today or earlier carry a lane pill ("To-do"). Pure and tested in src/lib/work/lanes.test.ts: the row key per lane, the sections (Overdue, Due today, Needs
  * a next action), the filter counts, the AI order (the reply's check, the cache, and how a cached order is applied
  * to the rows on the page), and the prompt the AI gets.
  */
 import { daysBetween } from "@/lib/calc/dates";
 
-export type Lane = "Deals" | "Outreach" | "Rosara" | "Job search" | "Consulting";
+export type Lane = "Deals" | "Outreach" | "Rosara" | "Job search" | "Consulting" | "To-dos";
 
 /** The lanes with a pill (deals have none). */
 export type LanePillName = Exclude<Lane, "Deals">;
@@ -33,7 +33,7 @@ export type HomeAction = {
   dayInStage?: number | null;
 };
 
-const PREFIX: Record<Lane, string> = { Deals: "deal", Outreach: "person", Rosara: "project", "Job search": "job", Consulting: "consulting" };
+const PREFIX: Record<Lane, string> = { Deals: "deal", Outreach: "person", Rosara: "project", "Job search": "job", Consulting: "consulting", "To-dos": "todo" };
 
 export function actionKey(lane: Lane, id: string): string {
   return `${PREFIX[lane]}:${id}`;
@@ -57,7 +57,7 @@ export function laneSectionOf(a: Pick<HomeAction, "action" | "due">, today: stri
 }
 
 /** Within a section: soonest due first (overdue: the oldest first), then by lane order (deals first), then by name. */
-const LANE_ORDER: Lane[] = ["Deals", "Outreach", "Rosara", "Job search", "Consulting"];
+const LANE_ORDER: Lane[] = ["Deals", "Outreach", "Rosara", "Job search", "Consulting", "To-dos"];
 
 export function compareActions(a: HomeAction, b: HomeAction): number {
   const da = a.due ?? "9999";
@@ -92,8 +92,8 @@ export function matchesActionSearch(a: Pick<HomeAction, "name" | "meta">, query:
 
 /**
  * "Show: All" after the filter pills on Home: a checklist of the lanes (several allowed, Reset at the bottom). It
- * narrows Next actions and Waiting on someone, and the counts on the other pills follow it. To-dos is in the list so
- * the choice reads the same as the menu; Home lists no personal to-dos today, so it narrows nothing on its own.
+ * narrows Next actions and Waiting on someone, and the counts on the other pills follow it. To-dos narrows the personal
+ * to-dos due today or earlier that sit on Next actions (Edit batch C round 2).
  */
 export const SHOW_LANES = ["Deals", "Outreach", "Rosara", "Job search", "Consulting", "To-dos"] as const;
 export type ShowLane = (typeof SHOW_LANES)[number];

@@ -60,7 +60,7 @@ export function AddOpportunityCard({ today, onClose }: { today: string; onClose:
         {text("company", "Company", "Harbor Health Partners")}
         {text("role", "Role", "Director of Operations")}
         {text("contact", "Contact", "Nina Reyes, Korn Ferry")}
-        {text("source", "Source", "Recruiter, a former colleague, a posting")}
+        {text("source", "Source", "Recruiter, personal network, a posting")}
         {text("location", "Location", "Charlotte, NC, on site")}
         {text("payRange", "Pay range", "$150K to $170K")}
         {text("whatItDoes", "What the company does", "Multi-site home health", true)}

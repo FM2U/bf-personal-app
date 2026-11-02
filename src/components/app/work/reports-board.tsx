@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
  * right drawer with when it was opened and the reply. Edit batch C (item 7): the Past weeks tiles moved here from
  * Targets, under "The week": the met count, the week, and each miss on its own line (red dot, target, figure); a
  * tile opens that week (its pill shows while it is open). Most missed sits on the Past weeks heading.
+ * Edit batch C round 2 (item 6): The week in four groups with one short heading each (WeekView); Sent reports unchanged.
  */
 const STORAGE_KEY = "work-reports-sent-sections";
 const FIG = "w-[82px]";
@@ -82,10 +83,7 @@ export function ReportsBoard({ data, title, tabs, view: viewAtStart, period: per
       </PinnedBlock>
 
       {view === "week" ? (
-        <>
-          <WeekView p={p} first={first} />
-          <PastWeeks past={data.past} mostMissed={data.mostMissed} active={period} onOpen={(k) => pickPeriod(k, true)} />
-        </>
+        <WeekView p={p} first={first} past={data.past} mostMissed={data.mostMissed} active={period} onOpen={(k) => pickPeriod(k, true)} />
       ) : (
         <WorkCard title="Sent reports" hint={`To ${first} by email · a sent report never changes`} testId="sent-reports-card">
           <div className="px-[22px] pb-2" data-testid="sent-sections">
@@ -136,32 +134,58 @@ export function ReportsBoard({ data, title, tabs, view: viewAtStart, period: per
   );
 }
 
-function WeekView({ p, first }: { p: PeriodView; first: string }) {
+/**
+ * One short heading over each group of The week (Edit batch C round 2, item 6): charcoal small caps on a hairline, with
+ * an optional quiet note at the right.
+ */
+function GroupHeading({ children, note, testId }: { children: React.ReactNode; note?: React.ReactNode; testId: string }) {
   return (
-    <div data-testid="week-view" data-period={p.key}>
-      <p className="mb-3 text-[13px] text-muted-foreground" data-testid="period-lead">
-        {p.lead}
-      </p>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4" data-testid="week-tiles">
-        {p.tiles.map((t) => (
-          <div key={t.label} className="flex min-w-0 flex-col gap-0.5 rounded-xl border border-border bg-white px-4 py-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] md:px-5 md:py-4" data-testid="week-tile" data-label={t.label}>
-            <b className={cn("tabular text-[22px] leading-tight font-semibold tracking-[-0.01em] md:text-[26px]", t.status === "met" ? "text-status-met" : t.status === "missed" ? "text-status-missed" : "text-slate-900")}>
-              {t.value}
-              {t.small ? <span className="ml-1 text-[13px] font-medium text-muted-foreground">{t.small}</span> : null}
-            </b>
-            <span className="label-caps mt-0.5">{t.label}</span>
-            <span className="mt-1 min-h-[19px] text-[12.5px] text-muted-foreground">{t.note}</span>
-          </div>
-        ))}
-      </div>
-      <div className="mt-4 grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
-        <div className="flex flex-col gap-4">
-          <WorkCard title={`Targets ${p.words}`} hint={`${p.targets.filter((t) => t.met).length} of ${p.targets.length} met`} testId="report-targets">
+    <h2 className="label-caps mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-rule pb-[7px]" data-testid="reports-group-heading" data-group={testId}>
+      <span>{children}</span>
+      {note ? <span className="text-xs font-normal tracking-normal text-muted-foreground normal-case sm:ml-auto">{note}</span> : null}
+    </h2>
+  );
+}
+
+/**
+ * The week, in four groups (Edit batch C round 2, item 6), the same for This week, Last week, a past week, and the
+ * month: "How the week went" (six tiles: Deals moved, Listings screened, Network outreach, Follow-ups on time, Days
+ * waiting on brokers, Most missed), "What needs you" (the targets missed, or at risk while the week is open, and who
+ * keeps you waiting), "What moved" (deals moved, passed by reason), and "Trend" (the past weeks tiles with Most missed
+ * over 7 weeks). Nothing repeats between a tile and a card: the tiles carry last week's figures, the cards the names.
+ */
+function WeekView({ p, first, past, mostMissed, active, onOpen }: { p: PeriodView; first: string; past: WeekTile[]; mostMissed: ReportsPage["mostMissed"]; active: PeriodKey; onOpen: (k: PeriodKey) => void }) {
+  const needs = p.targets.filter((t) => !t.met);
+  const month = p.key === "month";
+  return (
+    <div className="flex flex-col gap-6" data-testid="week-view" data-period={p.key}>
+      <section data-testid="reports-group-went">
+        <GroupHeading testId="went" note={<span data-testid="period-lead">{p.lead}</span>}>
+          {month ? "How the month went" : "How the week went"}
+        </GroupHeading>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4" data-testid="week-tiles">
+          {p.tiles.map((t) => (
+            <div key={t.label} className="flex min-w-0 flex-col gap-0.5 rounded-xl border border-border bg-white px-4 py-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] md:px-5 md:py-4" data-testid="week-tile" data-label={t.label}>
+              <b className={cn("tabular truncate text-[22px] leading-tight font-semibold tracking-[-0.01em] md:text-[26px]", t.status === "met" ? "text-status-met" : t.status === "missed" ? "text-status-missed" : t.value === "None" ? "text-slate-400" : "text-slate-900")}>
+                {t.value}
+                {t.small ? <span className="ml-1 text-[13px] font-medium text-muted-foreground">{t.small}</span> : null}
+              </b>
+              <span className="label-caps mt-0.5">{t.label}</span>
+              <span className="mt-1 min-h-[19px] text-[12.5px] text-muted-foreground">{t.note}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section data-testid="reports-group-needs">
+        <GroupHeading testId="needs">What needs you</GroupHeading>
+        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+          <WorkCard title={p.open ? `Targets at risk ${p.words}` : `Targets missed ${p.words}`} hint={`${p.met} of ${p.targets.length} met`} testId="report-targets">
             <Rows>
-              {p.targets.map((t) => (
-                <Row key={t.name} name={t.name} line={t.line} figure={t.figure} label={t.met ? "Met" : p.open ? "Under way" : "Missed"} tone={t.met ? "met" : p.open ? "plain" : "missed"} />
+              {needs.map((t) => (
+                <Row key={t.name} name={t.name} line={t.line} figure={t.figure} label={p.open ? "Under way" : "Missed"} tone={p.open ? "plain" : "missed"} />
               ))}
-              {!p.targets.length ? <p className="px-[22px] py-3 text-[13px] text-muted-foreground">No targets yet.</p> : null}
+              {!p.targets.length ? <p className="px-[22px] py-3 text-[13px] text-muted-foreground">No targets yet.</p> : !needs.length ? <p className="px-[22px] py-3 text-[13px] text-status-met" data-testid="report-targets-all-met">Every target is met {p.words}.</p> : null}
             </Rows>
           </WorkCard>
           <WorkCard title={`Waiting on brokers ${p.key === "this" ? "" : "now"}`.trim()} hint="Amber at 5 days, red at 10" testId="report-waits">
@@ -173,8 +197,12 @@ function WeekView({ p, first }: { p: PeriodView; first: string }) {
             </Rows>
           </WorkCard>
         </div>
-        <div className="flex flex-col gap-4">
-          <WorkCard title={`Deals moved ${p.words}`} hint={`${p.moves.length} ${p.moves.length === 1 ? "move" : "moves"}${p.key === "month" ? ", newest first" : ""}`} testId="report-moves">
+      </section>
+
+      <section data-testid="reports-group-moved">
+        <GroupHeading testId="moved">What moved</GroupHeading>
+        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+          <WorkCard title={`Deals moved ${p.words}`} hint={`${p.moves.length} ${p.moves.length === 1 ? "move" : "moves"}${month ? ", newest first" : ""}`} testId="report-moves">
             <Rows>
               {p.moves.slice(0, 8).map((m, i) => (
                 <Row key={`${m.name}-${i}`} name={m.name} line={m.line} figure={m.when} label="Day" tone="plain" />
@@ -192,7 +220,9 @@ function WeekView({ p, first }: { p: PeriodView; first: string }) {
             </Rows>
           </WorkCard>
         </div>
-      </div>
+      </section>
+
+      <PastWeeks past={past} mostMissed={mostMissed} active={active} onOpen={onOpen} />
       <p className="sr-only">{first}</p>
     </div>
   );
@@ -219,14 +249,16 @@ function Row({ name, line, figure, label, tone }: { name: string; line: string; 
 function PastWeeks({ past, mostMissed, active, onOpen }: { past: WeekTile[]; mostMissed: ReportsPage["mostMissed"]; active: PeriodKey; onOpen: (k: PeriodKey) => void }) {
   if (!past.length) return null;
   return (
-    <section className="mt-5" data-testid="past-weeks">
-      <div className="label-caps mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-rule pb-[7px]">
-        <span>Past weeks</span>
-        <span className="text-[12.5px] font-medium tracking-normal text-muted-foreground normal-case">targets met, of {past[0].total}</span>
-        <span className="text-xs font-normal tracking-normal text-muted-foreground normal-case sm:ml-auto" data-testid="most-missed">
-          {mostMissed ? `Most missed: ${mostMissed.name}, ${mostMissed.n} of the last ${mostMissed.of} weeks` : "Every week met"}
-        </span>
-      </div>
+    <section data-testid="past-weeks">
+      <GroupHeading
+        testId="trend"
+        note={
+          <span data-testid="most-missed">{mostMissed ? `Most missed over ${mostMissed.of} weeks: ${mostMissed.name}, ${mostMissed.n} of ${mostMissed.of}` : "Every week met"}</span>
+        }
+      >
+        Trend
+        <span className="ml-2 text-[12.5px] font-medium tracking-normal text-muted-foreground normal-case">past weeks, targets met of {past[0].total}</span>
+      </GroupHeading>
       <div className="grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 md:gap-4 xl:grid-cols-4">
         {past.map((w, i) => {
           const key = pastWeekPeriodKey(i + 1);

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { progressSegments, type WaitLevel } from "@/lib/work/stages";
+import { FIGURE_GAP_CLS, FIGURE_LABEL_CLS, figureValueClass, isEmptyValue, type FigureTone } from "@/lib/work/figure-style";
 import { cn } from "@/lib/utils";
 
 /**
@@ -23,6 +24,9 @@ import { cn } from "@/lib/utils";
  * Edit batch C (items 4 and 8): on Outreach, Targets, and End of day the text column keeps a reserved 32px gap
  * (TEXT_GAP) before the first figure or mark column, so wrapped text never touches it; the grids are in ROW_GRIDS.
  */
+
+/** The space between the figure columns of a listing row (REVENUE, EBITDA, ASKING; Edit batch C round 2, item 2): about 28px. */
+export const FIGURE_COLS_GAP = { px: 28, cls: "gap-x-7" } as const;
 
 /** The reserved gap between a row's text and its first figure or mark column (Edit batch C, items 4 and 8). */
 export const TEXT_GAP = { px: 32, cls: "sm:gap-x-8" } as const;
@@ -52,14 +56,14 @@ export const ROW_COLS = {
   button: { cls: "min-w-[68px]", longest: "Saving" },
   /** The Done and Later pair, or the one Set next action link that takes the pair's place. */
   buttonPair: { cls: "w-[142px]", longest: "Set the next action" },
-  /** LAST CONTACT: "Oct 27 · meeting" (the label is 12 letters in small caps). */
-  lastContact: { cls: "w-[128px]", longest: "Oct 27 · meeting" },
+  /** LAST CONTACT: "Oct 27 · meeting" at the 15.5px figure size (Edit batch C round 2). */
+  lastContact: { cls: "w-[140px]", longest: "Oct 27 · meeting" },
   /** NEXT FOLLOW-UP and NEXT: "4 days late" (the label NEXT FOLLOW-UP is the wider part; it shows in full, Edit batch C item 4). */
   nextDate: { cls: "w-[132px]", longest: "NEXT FOLLOW-UP" },
   /** TASKS: a count. */
   count: { cls: "w-[44px]", longest: "99" },
-  /** The money figures on listing rows: "Not stated". */
-  money: { cls: "w-[80px]", longest: "Not stated" },
+  /** The money figures on listing rows: "Not stated" at the 15.5px figure size (Edit batch C round 2). */
+  money: { cls: "w-[88px]", longest: "Not stated" },
   /** The wider buttons: Interested, Set the next action. */
   wideButton: { cls: "min-w-[90px]", longest: "Interested" },
 } as const;
@@ -251,12 +255,15 @@ export function Line3({ children, className }: { children: React.ReactNode; clas
   return <div className={cn("mt-0.5 text-[12.5px] text-muted-foreground italic", className)}>{children}</div>;
 }
 
-/** A small figure with its label under it, right-aligned, in a fixed-width column (the money figures on listing rows). */
+/**
+ * A figure with its label under it, right-aligned, in a fixed-width column (the money figures on listing rows). The
+ * value and label follow the facts and figures style (Edit batch C round 2, item 1: src/lib/work/figure-style.ts).
+ */
 export function Stat({ value, label, className, testId, col = "money" }: { value: React.ReactNode; label: React.ReactNode; className?: string; testId?: string; /** The fixed column (ROW_COLS) this figure sits in. */ col?: keyof typeof ROW_COLS }) {
   return (
-    <div className={cn("flex flex-col items-start leading-tight sm:items-end", ROW_COLS[col].cls, className)} data-testid={testId} data-col={col}>
-      <b className="tabular truncate text-[13.5px] font-semibold text-slate-900">{value}</b>
-      <span className="label-caps mt-0.5 truncate">{label}</span>
+    <div className={cn("flex flex-col items-start leading-tight sm:items-end", FIGURE_GAP_CLS, ROW_COLS[col].cls, className)} data-testid={testId} data-col={col} data-empty={isEmptyValue(value) ? "1" : undefined}>
+      <b className={cn("tabular max-w-full truncate", figureValueClass(value))} data-figure-value>{value}</b>
+      <span className={cn(FIGURE_LABEL_CLS, "max-w-full truncate")} data-figure-label>{label}</span>
     </div>
   );
 }
@@ -469,12 +476,14 @@ export function WorkHeader({ title, right, crumb, under }: { title: React.ReactN
  * A labeled figure (batch B): the value above its small uppercase label, right-aligned on wide screens. The value's
  * color follows a tone (amber for today, red for overdue, gray for none). Figures sit 28px apart (`Figures`). On a
  * row the figure sits in a fixed column (`col`, ROW_COLS) so it lines up on every row; the record header leaves it.
+ * Edit batch C round 2 (item 1): the value 15.5px semibold near-black, an empty value muted gray, the label 11px
+ * medium small caps 4px under it (src/lib/work/figure-style.ts).
  */
-export function Figure({ value, label, tone = "plain", className, testId, col }: { value: React.ReactNode; label: React.ReactNode; tone?: "plain" | "today" | "over" | "later" | "none" | "amber" | "red"; className?: string; testId?: string; col?: keyof typeof ROW_COLS }) {
+export function Figure({ value, label, tone = "plain", className, testId, col }: { value: React.ReactNode; label: React.ReactNode; tone?: FigureTone; className?: string; testId?: string; col?: keyof typeof ROW_COLS }) {
   return (
-    <div className={cn("flex flex-col items-start leading-tight sm:items-end", col ? ROW_COLS[col].cls : "min-w-[72px]", className)} data-testid={testId} data-tone={tone} data-col={col}>
-      <b className={cn("tabular max-w-full truncate text-[13.5px] font-semibold whitespace-nowrap", tone === "today" || tone === "amber" ? "text-status-soon" : tone === "over" || tone === "red" ? "text-status-missed" : tone === "none" ? "text-slate-400" : "text-slate-900")}>{value}</b>
-      <span className="label-caps mt-0.5 max-w-full truncate whitespace-nowrap">{label}</span>
+    <div className={cn("flex flex-col items-start leading-tight sm:items-end", FIGURE_GAP_CLS, col ? ROW_COLS[col].cls : "min-w-[72px]", className)} data-testid={testId} data-tone={tone} data-col={col} data-empty={isEmptyValue(value) ? "1" : undefined}>
+      <b className={cn("tabular max-w-full truncate whitespace-nowrap", figureValueClass(value, tone))} data-figure-value>{value}</b>
+      <span className={cn(FIGURE_LABEL_CLS, "max-w-full truncate whitespace-nowrap")} data-figure-label>{label}</span>
     </div>
   );
 }
@@ -507,7 +516,7 @@ export function TargetBar({ count, target, pct, hint, className, testId = "outre
 }
 
 /** A lane pill on a Home row (Outreach, Rosara, Job search, Consulting; deals have none): one soft blue for all four. */
-export function LanePill({ lane, className }: { lane: "Outreach" | "Rosara" | "Job search" | "Consulting"; className?: string }) {
+export function LanePill({ lane, className }: { lane: "Outreach" | "Rosara" | "Job search" | "Consulting" | "To-do"; className?: string }) {
   return (
     <Pill tone="blue" className={className} testId="lane-pill">
       {lane}

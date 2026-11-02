@@ -14,7 +14,7 @@ import { addPersonTask } from "@/app/actions/outreach";
 import { addItemTask } from "@/app/actions/pipelines";
 import { addProjectTask } from "@/app/actions/projects";
 import { addTodo, suggestQuestions } from "@/app/actions/work";
-import { answerPrompt, fieldPrompt, isRecordPage, nextStepsPrompt, panelSpec, recordNoun, tasksPrompt, validateAnswerReply, validateFieldReply, validateNextStepsReply, type Answer, type AskContext, type NextStep } from "@/lib/work/ask-ai";
+import { answerPrompt, fieldPrompt, isRecordPage, nextActionPrompt, nextStepsPrompt, panelSpec, recordNoun, tasksPrompt, validateAnswerReply, validateFieldReply, validateNextActionReply, validateNextStepsReply, type Answer, type AskContext, type NextActionSuggestion, type NextStep } from "@/lib/work/ask-ai";
 import { buildPageContext } from "@/lib/work/ask-ai-context";
 import { loadWorkCtx, loadWorkNow, workUpdateNotice } from "@/lib/work/data";
 import { loadAiOrder } from "@/lib/work/home-data";
@@ -23,6 +23,7 @@ import { orgRoleLine } from "@/lib/work/outreach";
 import { loadPipelinesHome } from "@/lib/work/pipelines-data";
 import { loadRosaraHome } from "@/lib/work/projects-data";
 import { nextPersonalTodoPosition } from "@/lib/work/personal-todos";
+import { loadHomeTodos } from "@/lib/work/personal-todos-data";
 import type { Row } from "@/lib/types";
 
 /**
@@ -109,6 +110,29 @@ export async function suggestTasks(c: AskContext): Promise<{ ok: true; steps: Ne
     if (!context.lines.length) return fail("This record was not found.");
     const steps = await callForJson<NextStep[]>({ sb, ownerId: ctx.ownerId, purpose: "ask_tasks", prompt: tasksPrompt(context, recordNoun(c.page)), maxTokens: 1200, shape: "items", validate: (v) => validateNextStepsReply(cleanDeep(v)) });
     return { ok: true, steps };
+  } catch (e) {
+    return aiError(e);
+  }
+}
+
+/**
+ * The next action star (Edit batch C round 2, item 3): one next action and its due date (minutes when it is a block of
+ * work) for a deal, a project, an opportunity, or a consulting item; for a person, what the next follow-up is for and
+ * its date. Read from the stage, the stage's default, the recent timeline, and the open tasks; "Use this" fills the
+ * card's fields in the browser (nothing is saved until Save). Through callForJson, so a reply cut off by the length
+ * limit is asked again with double the limit.
+ */
+export async function suggestNextAction(c: AskContext): Promise<{ ok: true; suggestion: NextActionSuggestion } | Fail> {
+  const s = await setup();
+  if (isFail(s)) return s;
+  const { sb, ctx } = s;
+  if (!isRecordPage(c.page) || !c.recordId || !UUID.test(c.recordId)) return fail("A suggested next action is for one record (a deal, a person, a project, an opportunity, or a consulting item).");
+  const kind = c.page === "person" ? "follow_up" : "action";
+  try {
+    const context = await buildPageContext(sb, ctx.ownerId, { ...c, card: kind === "follow_up" ? "Next follow-up" : "Next action" });
+    if (!context.lines.length) return fail("This record was not found.");
+    const suggestion = await callForJson<NextActionSuggestion>({ sb, ownerId: ctx.ownerId, purpose: "ask_next_action", prompt: nextActionPrompt(context, ctx.today, kind, recordNoun(c.page)), maxTokens: 800, shape: "none", validate: (v) => validateNextActionReply(cleanDeep(v), ctx.today, kind) });
+    return { ok: true, suggestion };
   } catch (e) {
     return aiError(e);
   }
@@ -223,12 +247,14 @@ export async function setNextActionFromAi(c: AskContext, text: string): Promise<
 /** The day's next actions (due today or earlier) across every lane, as the AI and the cache see them. */
 async function todaysActions(sb: SupabaseClient, ownerId: string): Promise<{ actions: HomeAction[]; today: string }> {
   const wctx = await loadWorkCtx(sb, ownerId);
-  const [now, rosara, pipes] = await Promise.all([loadWorkNow(sb, ownerId), loadRosaraHome(sb, wctx), loadPipelinesHome(sb, wctx)]);
+  const [now, rosara, pipes, todos] = await Promise.all([loadWorkNow(sb, ownerId), loadRosaraHome(sb, wctx), loadPipelinesHome(sb, wctx), loadHomeTodos(sb, wctx)]);
   const all: HomeAction[] = [
     ...now.deals.map((d) => ({ key: actionKey("Deals", d.id), lane: "Deals" as const, id: d.id, name: d.name, action: d.nextAction, due: d.nextActionDue, minutes: d.nextActionMinutes, meta: [d.stageName, d.whatItDoes, d.location].filter(Boolean).join(", "), waitingOn: d.waitLevel !== "none" ? d.waitingOn : null, waitDays: d.waitDays, dayInStage: d.dayInStage })),
     ...now.outreach.due.map((p) => ({ key: actionKey("Outreach", p.id), lane: "Outreach" as const, id: p.id, name: p.name, action: p.followUpFor ?? "Follow up", due: p.nextFollowUp, minutes: null, meta: orgRoleLine(p) })),
     ...rosara.actions.map((p) => ({ key: actionKey("Rosara", p.id), lane: "Rosara" as const, id: p.id, name: p.name, action: p.nextAction, due: p.nextActionDue, minutes: p.nextActionMinutes, meta: p.milestone ?? "" })),
     ...pipes.jobs.map((i) => ({ key: actionKey("Job search", i.id), lane: "Job search" as const, id: i.id, name: i.name, action: i.nextAction, due: i.nextActionDue, minutes: i.nextActionMinutes, meta: [i.stageName, i.title, i.location].filter(Boolean).join(", "), waitingOn: i.waitLevel !== "none" ? i.waitingOn : null, waitDays: i.waitDays, dayInStage: i.dayInStage })),
+    // Edit batch C round 2: the personal to-dos due today or earlier, like any other row.
+    ...todos.map((t) => ({ key: actionKey("To-dos", t.id), lane: "To-dos" as const, id: t.id, name: t.text, action: t.text, due: t.dueOn, minutes: null, meta: "Personal to-do" })),
     ...pipes.consulting.map((i) => ({ key: actionKey("Consulting", i.id), lane: "Consulting" as const, id: i.id, name: i.name, action: i.nextAction, due: i.nextActionDue, minutes: i.nextActionMinutes, meta: [i.stageName, i.title].filter(Boolean).join(", "), waitingOn: i.waitLevel !== "none" ? i.waitingOn : null, waitDays: i.waitDays, dayInStage: i.dayInStage })),
   ];
   const s = mergeLanes(all, wctx.today);
