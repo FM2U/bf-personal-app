@@ -1,21 +1,23 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { BASE_BUY_BOX_PREFERENCE, BASE_BUYER, BASE_GROWTH, BASE_JUDGE, BASE_RULES, baseInstructions, buyBoxLine, buyerInstructions, FINANCING_LINES, financingLineFor, GENERAL_RULES_LINE, KEY_FINDING_SPOT, STAGE_LINES, stageLineFor, spotInstructions, type AiSpot } from "./instructions";
+import { BASE_BUY_BOX_PREFERENCE, BASE_BUYER, BASE_GROWTH, BASE_JUDGE, BASE_RULES, WRITING_RULES, baseInstructions, buyBoxLine, buyerInstructions, FINANCING_LINES, financingLineFor, GENERAL_RULES_LINE, KEY_FINDING_SPOT, STAGE_LINES, stageLineFor, spotInstructions, type AiSpot } from "./instructions";
 import { BUY_BOX_INPUT_KEYS, buyBoxSettingsFromRows, defaultBuyBoxSettings, type BuyBoxSettings } from "@/lib/work/buy-box";
-import { answerDueDate, answerNextAction, answerNextActionDue, answerPrompt, applyKeyFindingDraft, fieldPrompt, keyFindingPrompt, nextActionPrompt, nextStepsPrompt, setNextActionLabel, setNextActionNote, tasksPrompt, trimContext, validateAnswerReply, validateKeyFindingReply, type PageContext } from "@/lib/work/ask-ai";
+import { answerDueDate, answerNextAction, answerNextActionDue, answerPrompt, applyKeyFindingDraft, fieldPrompt, keyFindingPrompt, stripDashes, nextActionPrompt, nextStepsPrompt, setNextActionLabel, setNextActionNote, tasksPrompt, trimContext, validateAnswerReply, validateKeyFindingReply, type PageContext } from "@/lib/work/ask-ai";
 import { questionsPrompt, todosPrompt, emptyQuestions, type DealContext } from "@/lib/work/questions";
 import { dealFactLines, dealFactsFromRow, parseFindingList } from "@/lib/work/deal-facts";
 
 /** The approved spec (docs/2026-11-02-ai-instructions.md, quoted here): the texts must be used verbatim. */
 const SPEC_BASE_1 = "The buyer is an independent searcher sourcing, screening and evaluating small business acquisitions. The goal is to buy one good business, own and run it, and grow it. Judge both whether this is a good business and whether it fits the buyer.";
-const SPEC_JUDGE = "Judge the business on, in this order of weight: how revenue repeats; customer concentration; owner dependence and whether the team runs it; margins and their trend; where growth comes from and whether it lasts; how customers are won and what that costs; competition and switching costs; market tailwinds and headwinds (demand trends, regulation, reimbursement, technology); capital needs; price versus earnings; fit with the buy box and growth goals.";
-const SPEC_RULES = "Use only the facts and listing text below. Do not count marketing claims as strengths without a figure behind them. Only say information is missing when it is absent from the facts and the listing text; name the field and who to ask. Plain words, no hype.";
+const SPEC_JUDGE = "Judge the business on, in this order of weight: how revenue repeats; customer concentration; owner dependence and whether the team runs it; margins and their trend; where growth comes from and whether it lasts; how customers are won and what that costs; competition and switching costs; market tailwinds and headwinds (demand trends, regulation, reimbursement, technology); capital needs; price versus earnings; fit with the buy box and its paths to growth.";
+const SPEC_RULES = "Use only the facts and listing text below. Do not count marketing claims as strengths without a figure behind them. Only say information is missing when it is absent from the facts and the listing text; name the field and who to ask.";
 /** Revision 1 (approved 2026-11-02): the two sentences added to the shared base, verbatim, and the financing lines. */
 const SPEC_GROWTH = "A clear path to growth is required for a good fit; a deal with no credible path counts as a risk.";
 const SPEC_PREFERENCE = "The buy box is a preference, not a hard rule; say plainly when a business outside it is still worth pursuing.";
 const SPEC_DEBT = "Financing: equity plus debt; check whether earnings can comfortably carry a loan.";
 const SPEC_EQUITY = "Financing: all equity.";
+/** Revision 2 (approved 2026-11-02): the writing rules, verbatim. */
+const SPEC_WRITING = "Writing rules: No metaphors, no jargon, no colloquialisms. Use literal words that say exactly what is meant. Standard business terms are allowed (moat, runway, tailwind, headwind, churn, recurring revenue, add-backs, working capital, SDE, EBITDA, multiple, customer concentration, owner dependence) only when the specific fact is named next to the term. When judging something, say for whom it is good or bad (buyer or seller) and compared with what. Never call a price strong, cheap, fair or high unless the facts give a basis. No em-dashes.";
 const SPEC_KEY_FINDING = `Write:
 Strengths: up to 3, each naming the fact behind it and why it matters to the buyer.
 Risks: up to 3, each naming the fact behind it.
@@ -41,6 +43,17 @@ describe("the AI instructions: the shared base", () => {
     expect(base.indexOf(SPEC_PREFERENCE)).toBe(base.indexOf(buyBoxLine(set())) + buyBoxLine(set()).length + 1);
     expect(base.indexOf(SPEC_GROWTH)).toBe(base.indexOf(SPEC_JUDGE) + SPEC_JUDGE.length + 1);
     expect(base).not.toMatch(/Bram|\u2014|\u2013|growth goals:|financing:/);
+  });
+
+  it("revision 2: the writing rules verbatim, once, right after the general rules; the judge list ends with its paths to growth", () => {
+    expect(WRITING_RULES).toBe(SPEC_WRITING);
+    const base = baseInstructions(set());
+    expect(base.endsWith(`${SPEC_RULES}\n\n${SPEC_WRITING}`)).toBe(true);
+    expect(base.split(SPEC_WRITING).length).toBe(2);
+    expect(base).not.toMatch(/Plain words|no hype|growth goals/i);
+    expect(BASE_JUDGE.endsWith("; fit with the buy box and its paths to growth.")).toBe(true);
+    expect(GENERAL_RULES_LINE).toContain(SPEC_WRITING);
+    expect(GENERAL_RULES_LINE).not.toMatch(/Plain words|no hype/i);
   });
 
   it("fills the buy box from the settings: core and stretch ranges, industries with the excluded types, regions, owner-operator", () => {
@@ -72,16 +85,16 @@ describe("the AI instructions: the shared base", () => {
   });
 });
 
-describe("the AI instructions: the financing line (revision 1)", () => {
-  it("says equity plus debt or all equity only at Model, IOI or LOI, and Diligence", () => {
+describe("the AI instructions: the financing line (revision 1, from Model onward in revision 2)", () => {
+  it("says equity plus debt or all equity only from Model onward: Model, Partner presentation, IOI or LOI, Diligence, Closed", () => {
     expect(FINANCING_LINES.equity_plus_debt).toBe(SPEC_DEBT);
     expect(FINANCING_LINES.equity).toBe(SPEC_EQUITY);
-    for (const st of ["Model", "IOI or LOI", "Diligence"]) {
+    for (const st of ["Model", "Partner presentation", "IOI or LOI", "Diligence", "Closed"]) {
       expect(financingLineFor(st, true, "equity_plus_debt")).toBe(SPEC_DEBT);
       expect(financingLineFor(st, true, "equity")).toBe(SPEC_EQUITY);
       expect(financingLineFor(st, true, null)).toBe(SPEC_EQUITY);
     }
-    for (const st of ["Interested", "NDA signed", "CIM review", "Broker call", "Seller call", "Partner presentation", "Passed", null]) expect(financingLineFor(st, true, "equity_plus_debt")).toBeNull();
+    for (const st of ["Interested", "NDA signed", "CIM review", "Broker call", "Seller call", "Passed", null]) expect(financingLineFor(st, true, "equity_plus_debt")).toBeNull();
     // A listing (not screened) gets nothing, whatever its stage field says.
     expect(financingLineFor("Model", false, "equity_plus_debt")).toBeNull();
   });
@@ -92,6 +105,8 @@ describe("the AI instructions: the financing line (revision 1)", () => {
     expect(model.indexOf(SPEC_DEBT)).toBeLessThan(model.indexOf(spotInstructions("tasks")));
     const cim = buyerInstructions({ buyBox: set(), stage: "after_cim", financing: financingLineFor("CIM review", true, "equity_plus_debt") }, "tasks");
     expect(cim).not.toMatch(/Financing:|financing/i);
+    const partner = buyerInstructions({ buyBox: set(), stage: stageLineFor("Partner presentation", true), financing: financingLineFor("Partner presentation", true, "equity_plus_debt") }, "tasks");
+    expect(partner).toContain(SPEC_DEBT);
   });
 });
 
@@ -154,12 +169,15 @@ describe("the AI instructions: the spot part per action", () => {
       expect(p.indexOf(SPEC_RULES), name).toBeLessThan(p.indexOf("Page: Deal: Dalton Services"));
       expect(p.indexOf(spotInstructions(spot, "Next action")), name).toBeLessThan(p.indexOf("- name: Dalton Services"));
       expect(p, name).not.toContain(GENERAL_RULES_LINE);
+      expect(p.split(SPEC_WRITING).length, name).toBe(2);
+      expect(p, name).not.toMatch(/Plain words, no hype/);
     }
   });
 
   it("keeps the other records' prompts and adds the general rules line only", () => {
     for (const p of [answerPrompt(other, "What next?", false), nextStepsPrompt(other), fieldPrompt(other, { key: "project_note", label: "Note" })]) {
       expect(p).toContain(GENERAL_RULES_LINE);
+      expect(p.split(SPEC_WRITING).length).toBe(2);
       expect(p).not.toContain(SPEC_BASE_1);
     }
   });
@@ -214,6 +232,14 @@ describe("the Key finding star", () => {
     expect(validateKeyFindingReply({ strengths: [1], risks: [], key_finding: "x" }).ok).toBe(false);
     expect(validateKeyFindingReply({ strengths: [], risks: [] }).ok).toBe(false);
     expect(validateKeyFindingReply("text").ok).toBe(false);
+  });
+
+  it("revision 2: strips em-dashes and en-dashes used as dashes from every returned line", () => {
+    expect(stripDashes("Strong price \u2014 but the owner leaves")).toBe("Strong price, but the owner leaves");
+    expect(stripDashes("Revenue grew \u2013 slowly")).toBe("Revenue grew, slowly");
+    expect(stripDashes("Weeks 3\u20135 and a well-run team")).toBe("Weeks 3\u20135 and a well-run team");
+    const r = validateKeyFindingReply({ strengths: ["70% recurring \u2014 steady cash"], risks: ["Owner leaves \u2013 clients may follow"], growth_paths: ["Employer groups \u2014 70% of clients"], key_finding: "The deal depends on the clients \u2014 loyal to the company or the owner.", broker_questions: ["Which period \u2013 2024 or 2025?"] });
+    expect(r).toEqual({ ok: true, value: { strengths: ["70% recurring, steady cash"], risks: ["Owner leaves, clients may follow"], growthPaths: ["Employer groups, 70% of clients"], keyFinding: "The deal depends on the clients, loyal to the company or the owner.", brokerQuestions: ["Which period, 2024 or 2025?"] } });
   });
 
   it("checks the growth paths: a list of text, up to 3 in the order given (the main one first), camelCase read too; none when missing", () => {

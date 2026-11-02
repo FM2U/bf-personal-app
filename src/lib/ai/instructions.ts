@@ -3,9 +3,9 @@
  * docs/2026-11-02-ai-instructions.md), pure and tested in src/lib/ai/instructions.test.ts. They are built fresh on
  * every click from three parts, and the AI sees only what applies to that click:
  *   1. the shared base: who the buyer is, the buy box (filled from Settings, Buy box) and that it is a preference, how
- *      to judge a business and that a clear path to growth is required, and the general rules;
- *   2. the stage line, chosen from the deal's state (screening, after the CIM, diligence), and at Model, IOI or LOI, and
- *      Diligence the deal's financing line (AI instructions revision 1);
+ *      to judge a business and that a clear path to growth is required, the general rules, and the writing rules;
+ *   2. the stage line, chosen from the deal's state (screening, after the CIM, diligence), and from Model onward the
+ *      deal's financing line (AI instructions revision 1; revision 2 added Partner presentation and Closed);
  *   3. the spot part: what this click writes (the Key finding, questions, tasks, the next action, an answer, a field).
  * The facts block (src/lib/work/deal-facts.ts) follows the instructions in every prompt. Records that are not deals
  * (a person, a project, an opportunity, a consulting item) and the other pages keep their own prompts and take
@@ -20,14 +20,21 @@ export const BASE_BUYER =
 
 /** How to judge a business, in order of weight (verbatim). */
 export const BASE_JUDGE =
-  "Judge the business on, in this order of weight: how revenue repeats; customer concentration; owner dependence and whether the team runs it; margins and their trend; where growth comes from and whether it lasts; how customers are won and what that costs; competition and switching costs; market tailwinds and headwinds (demand trends, regulation, reimbursement, technology); capital needs; price versus earnings; fit with the buy box and growth goals.";
+  "Judge the business on, in this order of weight: how revenue repeats; customer concentration; owner dependence and whether the team runs it; margins and their trend; where growth comes from and whether it lasts; how customers are won and what that costs; competition and switching costs; market tailwinds and headwinds (demand trends, regulation, reimbursement, technology); capital needs; price versus earnings; fit with the buy box and its paths to growth.";
 
-/** The general rules of the shared base (verbatim). */
+/**
+ * Revision 2 (verbatim): the writing rules. They follow the general rules of the shared base and the general rules line
+ * of the other records, and lead the system prompt of every AI call (src/lib/ai/claude.ts), so every AI output follows them.
+ */
+export const WRITING_RULES =
+  "Writing rules: No metaphors, no jargon, no colloquialisms. Use literal words that say exactly what is meant. Standard business terms are allowed (moat, runway, tailwind, headwind, churn, recurring revenue, add-backs, working capital, SDE, EBITDA, multiple, customer concentration, owner dependence) only when the specific fact is named next to the term. When judging something, say for whom it is good or bad (buyer or seller) and compared with what. Never call a price strong, cheap, fair or high unless the facts give a basis. No em-dashes.";
+
+/** The general rules of the shared base (verbatim). Revision 2: the writing rules replace "Plain words, no hype." */
 export const BASE_RULES =
-  "Use only the facts and listing text below. Do not count marketing claims as strengths without a figure behind them. Only say information is missing when it is absent from the facts and the listing text; name the field and who to ask. Plain words, no hype.";
+  "Use only the facts and listing text below. Do not count marketing claims as strengths without a figure behind them. Only say information is missing when it is absent from the facts and the listing text; name the field and who to ask.";
 
-/** The one line that records which are not deals take (plain words, facts only, no false gaps). */
-export const GENERAL_RULES_LINE = "Plain words, no hype. Use only the facts on the page below. Only say information is missing when it is absent from the page; name the field and who to ask.";
+/** The rules records which are not deals take (facts only, no false gaps), then the writing rules (revision 2). */
+export const GENERAL_RULES_LINE = `Use only the facts on the page below. Only say information is missing when it is absent from the page; name the field and who to ask.\n\n${WRITING_RULES}`;
 
 /** Revision 1 (verbatim): the buy box is a preference. Follows the buy box line. */
 export const BASE_BUY_BOX_PREFERENCE = "The buy box is a preference, not a hard rule; say plainly when a business outside it is still worth pursuing.";
@@ -54,9 +61,9 @@ export function buyBoxLine(b: BuyBoxSettings): string {
   return `Buy box: ${parts.join(", ")}.`.replace(/\.\.$/, ".");
 }
 
-/** The shared base: who the buyer is; the buy box and that it is a preference; how to judge and that growth is required; the rules. */
+/** The shared base: who the buyer is; the buy box and that it is a preference; how to judge and that growth is required; the rules; the writing rules. */
 export function baseInstructions(b: BuyBoxSettings): string {
-  return [BASE_BUYER, `${buyBoxLine(b)} ${BASE_BUY_BOX_PREFERENCE}`, `${BASE_JUDGE} ${BASE_GROWTH}`, BASE_RULES].join("\n\n");
+  return [BASE_BUYER, `${buyBoxLine(b)} ${BASE_BUY_BOX_PREFERENCE}`, `${BASE_JUDGE} ${BASE_GROWTH}`, BASE_RULES, WRITING_RULES].join("\n\n");
 }
 
 // ---------- The stage line ----------
@@ -108,10 +115,13 @@ export const FINANCING_LINES: Record<DealFinancing, string> = {
   equity_plus_debt: "Financing: equity plus debt; check whether earnings can comfortably carry a loan.",
 };
 
-/** The stages where the AI is told how the deal is financed. Earlier stages get nothing about financing. */
-export const FINANCING_STAGES: readonly string[] = ["Model", "IOI or LOI", "Diligence"];
+/**
+ * The stages where the AI is told how the deal is financed (revision 2: from Model onward, so Partner presentation and
+ * Closed too). Earlier stages get nothing about financing.
+ */
+export const FINANCING_STAGES: readonly string[] = ["Model", "Partner presentation", "IOI or LOI", "Diligence", "Closed"];
 
-/** The financing line of a deal at Model, IOI or LOI, or Diligence; null at every other stage and on a listing. */
+/** The financing line of a deal from Model onward (FINANCING_STAGES); null at every other stage and on a listing. */
 export function financingLineFor(stage: string | null | undefined, screened: boolean, financing: DealFinancing | null | undefined): string | null {
   if (!screened || !FINANCING_STAGES.includes(String(stage ?? "").trim())) return null;
   return FINANCING_LINES[financing === "equity_plus_debt" ? "equity_plus_debt" : "equity"];
@@ -157,7 +167,7 @@ export type BuyerScope = {
   buyBox: BuyBoxSettings;
   /** Null on a list of deals in several stages (no stage line). */
   stage: StageLine | null;
-  /** The deal's financing line (financingLineFor): only at Model, IOI or LOI, and Diligence; null or absent otherwise. */
+  /** The deal's financing line (financingLineFor): only from Model onward; null or absent otherwise. */
   financing?: string | null;
 };
 

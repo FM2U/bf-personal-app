@@ -494,6 +494,14 @@ export function keyFindingPrompt(c: PageContext): string {
 
 const wordCount = (s: string) => s.split(/\s+/).filter(Boolean).length;
 
+/**
+ * Revision 2 safety net: an em-dash or en-dash with spaces around it (U+2014, U+2013) becomes ", " in every Key finding line.
+ * The reply is already cleaned by cleanDeep (fixDashes); this keeps the Key finding free of dashes even without it.
+ */
+export function stripDashes(s: string): string {
+  return s.replace(/ +[\u2014\u2013] +/g, ", ");
+}
+
 /** A list from the reply: strings only, trimmed, list marks gone, repeats dropped, at most FINDING_LIST_MAX. */
 function findingLines(v: unknown): string[] | null {
   if (v === undefined || v === null) return [];
@@ -503,7 +511,7 @@ function findingLines(v: unknown): string[] | null {
   const seen = new Set<string>();
   for (const x of v) {
     if (typeof x !== "string") return null;
-    const line = x.replace(/\s+/g, " ").replace(/^(?:[-•]|\*(?!\*)|\d+[.)])\s*/, "").trim().slice(0, FINDING_LINE_MAX);
+    const line = stripDashes(x.replace(/\s+/g, " ")).replace(/^(?:[-•]|\*(?!\*)|\d+[.)])\s*/, "").trim().slice(0, FINDING_LINE_MAX);
     if (!line || seen.has(line.toLowerCase())) continue;
     seen.add(line.toLowerCase());
     out.push(line);
@@ -531,7 +539,7 @@ export function validateKeyFindingReply(value: unknown): { ok: true; value: KeyF
   if (!growthPaths) problems.push('"growth_paths" must be a list of text');
   if (!brokerQuestions) problems.push('"broker_questions" must be a list of text');
   const rawKey = v.key_finding ?? v.keyFinding;
-  const keyFinding = typeof rawKey === "string" ? rawKey.replace(/\s+/g, " ").trim() : "";
+  const keyFinding = typeof rawKey === "string" ? stripDashes(rawKey.replace(/\s+/g, " ")).trim() : "";
   if (!keyFinding) problems.push('"key_finding" is missing');
   else if (wordCount(keyFinding) >= KEY_FINDING_MAX_WORDS) problems.push(`"key_finding" has ${wordCount(keyFinding)} words; write one sentence under ${KEY_FINDING_MAX_WORDS} words`);
   if (problems.length) return { ok: false, error: problems.join(", ") };

@@ -45,7 +45,7 @@ export type DealFacts = {
   growthPaths?: readonly string[];
   /**
    * How the deal is financed (database update 0029; "equity" before it). Not a fact line: the instructions add the
-   * financing line only at Model, IOI or LOI, and Diligence (src/lib/ai/instructions.ts, financingLineFor).
+   * financing line only from Model onward (src/lib/ai/instructions.ts, financingLineFor).
    */
   financing?: DealFinancing | null;
   openQuestions: QuestionGroups | null;

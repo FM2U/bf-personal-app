@@ -84,7 +84,7 @@ export async function buildPageContext(sb: SupabaseClient, ownerId: string, c: A
   let listingText: string | null = null;
   /** AI instructions (2026-11-02): the stage line of a deal or a listing; null on the Deals list; undefined elsewhere. */
   let buyerStage: StageLine | null | undefined;
-  /** AI instructions revision 1: the deal's financing line (only at Model, IOI or LOI, and Diligence). */
+  /** AI instructions revision 1: the deal's financing line (only from Model onward; revision 2). */
   let financing: string | null = null;
   const id = c.recordId ?? "";
   const nextCard = c.card === "Next action" || c.card === "Next follow-up";

@@ -6241,7 +6241,9 @@ const expectText = async (page, text) => {
   // ---------- AI instructions and Findings (approved 2026-11-02), revision 1 ----------
   const AI_NAME = "00 Flow AI Physician Coaching Company";
   const AI_BASE = "The buyer is an independent searcher sourcing, screening and evaluating small business acquisitions. The goal is to buy one good business, own and run it, and grow it. Judge both whether this is a good business and whether it fits the buyer.";
-  const AI_RULES = "Use only the facts and listing text below. Do not count marketing claims as strengths without a figure behind them. Only say information is missing when it is absent from the facts and the listing text; name the field and who to ask. Plain words, no hype.";
+  const AI_RULES = "Use only the facts and listing text below. Do not count marketing claims as strengths without a figure behind them. Only say information is missing when it is absent from the facts and the listing text; name the field and who to ask.";
+  // Revision 2 (verbatim): the writing rules follow the general rules.
+  const AI_WRITING = "Writing rules: No metaphors, no jargon, no colloquialisms. Use literal words that say exactly what is meant. Standard business terms are allowed (moat, runway, tailwind, headwind, churn, recurring revenue, add-backs, working capital, SDE, EBITDA, multiple, customer concentration, owner dependence) only when the specific fact is named next to the term. When judging something, say for whom it is good or bad (buyer or seller) and compared with what. Never call a price strong, cheap, fair or high unless the facts give a basis. No em-dashes.";
   const AI_SCREENING = "Stage: screening. Give a quick view of business quality and any deal-breakers.";
   const AI_AFTER_CIM = "Stage: after the CIM. Test the main claims and the growth story.";
   // Revision 1 (verbatim).
@@ -6292,8 +6294,8 @@ const expectText = async (page, text) => {
     for (const id of ["update-0028-needed", "update-0029-needed", "findings-save"]) if (await page.getByTestId(id).count()) throw new Error(`${id} should not show`);
     await openKeyFindingStar();
     const p = (await aiprompts()).key_finding ?? "";
-    for (const want of [AI_BASE, AI_RULES, AI_SCREENING, AI_GROWTH, AI_PREFERENCE, `${AI_BUY_BOX} ${AI_PREFERENCE}`, "Growth paths: up to 3 concrete ways to grow this business", '"growth_paths"', "revenue: $7,843,427", FX_SENTENCE]) if (!p.includes(want)) throw new Error(`the Key finding prompt is missing "${want.slice(0, 60)}"`);
-    if (p.indexOf(AI_SCREENING) > p.indexOf("revenue: $7,843,427") || p.includes(AI_AFTER_CIM) || /growth goals:|Financing:/.test(p)) throw new Error("the stage line, the order, or a financing line on a listing");
+    for (const want of [AI_BASE, AI_RULES, `${AI_RULES}\n\n${AI_WRITING}`, "fit with the buy box and its paths to growth.", AI_SCREENING, AI_GROWTH, AI_PREFERENCE, `${AI_BUY_BOX} ${AI_PREFERENCE}`, "Growth paths: up to 3 concrete ways to grow this business", '"growth_paths"', "revenue: $7,843,427", FX_SENTENCE]) if (!p.includes(want)) throw new Error(`the Key finding prompt is missing "${want.slice(0, 60)}"`);
+    if (p.indexOf(AI_SCREENING) > p.indexOf("revenue: $7,843,427") || p.includes(AI_AFTER_CIM) || /growth goals|Financing:|Plain words, no hype/.test(p)) throw new Error("the stage line, the order, or a financing line on a listing");
     const panel = page.getByTestId("ask-ai-key-finding");
     if (Number(await panel.getByTestId("ask-ai-kf-growth").getAttribute("data-count")) !== 3 || Number(await panel.getByTestId("ask-ai-kf-strengths").getAttribute("data-count")) !== 2) throw new Error("the panel's lists");
     await page.screenshot({ path: path.join(OUT, "flow-work-key-finding.png") });
