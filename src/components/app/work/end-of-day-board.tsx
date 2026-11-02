@@ -5,25 +5,30 @@ import { useRouter } from "next/navigation";
 import { approveAndSend, saveReasons, saveReportEdit, saveTomorrow, skipToday, putShortReport } from "@/app/actions/accountability";
 import type { ReasonDraft } from "@/lib/accountability/ask-ai";
 import type { EndOfDayPage } from "@/lib/accountability/data";
-import { END_OF_DAY_TIME, owedReasons, statusItems, type Judged } from "@/lib/accountability/targets";
+import { END_OF_DAY_TIME, owedReasons, statusItems, todayStrip, type DayNumbers, type Judged, type TodayPart } from "@/lib/accountability/targets";
 import type { AskContext } from "@/lib/work/ask-ai";
 import { AccountabilityTabs, type EodBadge } from "@/components/app/nav-links";
 import { AiCardStar, AiFieldStar, AskAiPill, type EodExtras } from "@/components/app/work/ask-ai";
 import { StatusMark } from "@/components/app/work/targets-ui";
-import { Confirm, Figure, Line1, Line2, Line3, Name, Pill, PinnedBlock, RowButton, Rows, WorkCard, WorkHeader } from "@/components/app/work/ui";
+import { Drawer } from "@/components/app/work/drawer";
+import { Confirm, Figure, Line1, Line2, Name, Pill, PinnedBlock, ROW_GRIDS, RowButton, Rows, WorkCard, WorkHeader } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
 
 /**
- * End of day (batch C, approved 2026-10-31; decisions on v3 and v4): the status line with the three things to do
- * before sending (each a link to its card, the state live); "Today, counted" from the app's data; the Targets card
- * with the status mark left of the figure, the Commitment pill, and a one-line reason box on each missed Commitment
- * (the field star drafts it; "Same reason for all" fills every box); "What matters tomorrow" as a three-line box
- * that grows, with the star and the muted line under it; the "Report to <partner>" card with the email exactly as it
- * will be sent, Edit in place, Approve and send (with "N commitments have no reason yet", Give them or Send anyway),
- * then "Sent 5:41 pm", and Skip today with a reason. Weekday targets are judged daily; weekly ones on Friday.
+ * End of day (batch C, approved 2026-10-31; decisions on v3 and v4; Edit batch C items 9 to 12): the status line
+ * with the three things to do before sending (each a link to its card, the state live). Two equal columns at desktop
+ * width (stacked on the phone). Left, what Bram does: the one-line Today strip ("Today: 4 screened · 0 moved · ..."),
+ * each figure opening a small drawer with the items behind it; the Targets card with the status mark left of the
+ * figure after a reserved 32px gap, the Commitment pill, and a one-line reason box on each missed Commitment (the
+ * field star drafts it; "Same reason for all" fills every box), with reasons owed from a skipped day under their own
+ * small heading "Owed from Fri Oct 30"; "What matters tomorrow" as a three-line box that grows. Right: the "Report to
+ * <partner>" card with the email exactly as it will be sent, Edit in place, Approve and send (with "N commitments
+ * have no reason yet", Give them or Send anyway), then "Sent 5:41 pm", and Skip today with a reason. Weekday targets
+ * are judged daily; weekly ones on Friday.
  */
 const INPUT = "h-9 w-full min-w-0 rounded-[7px] border border-input bg-white px-2.5 text-[13px] text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:bg-slate-50 disabled:text-slate-500";
 const FIG = "w-[82px]";
+const GRID = ROW_GRIDS.eodTarget;
 
 const newRequestId = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID().replace(/-/g, "") : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`);
 
@@ -56,6 +61,8 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
   const [pending, start] = useTransition();
   const [sending, startSend] = useTransition();
   const [focused, setFocused] = useState<string | null>(null);
+  /** The Today strip part whose drawer is open. */
+  const [drawer, setDrawer] = useState<TodayPart | null>(null);
   const requestId = useRef(newRequestId());
   const previewRef = useRef<HTMLDivElement>(null);
   const tomorrowRef = useRef<HTMLTextAreaElement>(null);
@@ -230,23 +237,9 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
         </p>
       ) : null}
 
-      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_400px] min-[1400px]:grid-cols-[minmax(0,1fr)_460px]">
-        <div className="flex flex-col gap-4">
-          <WorkCard title="Today, counted" hint="From what you did in the app" testId="eod-counted">
-            <Rows>
-              <CountedRow name="Listings screened" line={n.screened.detail || "None screened yet"} figures={[{ value: String(n.screened.value), label: "Screened" }]} />
-              <CountedRow
-                name="Deals moved"
-                what={n.moves.length ? n.moves.map((m) => `${m.name}, ${m.from ?? "new"} to ${m.to}`).join(" · ") : undefined}
-                line={n.moves.length ? undefined : "No stage move today"}
-                finding={n.moves.find((m) => m.keyFinding)?.keyFinding ? `Key finding: ${n.moves.find((m) => m.keyFinding)!.keyFinding}` : undefined}
-                figures={[{ value: String(n.moves.length), label: "Moved" }]}
-              />
-              <CountedRow name="Calls and emails" line={[n.calls.detail ? `Calls: ${n.calls.detail}` : "", n.emails.detail ? `Emails: ${n.emails.detail}` : ""].filter(Boolean).join(" · ") || (n.calls.value + n.emails.value ? `${n.outreachToday.value} on Outreach` : "None logged yet")} figures={[{ value: String(n.calls.value), label: "Calls" }, { value: String(n.emails.value), label: "Emails" }]} />
-              <CountedRow name="Next actions done" line={n.actionsDone.detail || "None marked Done yet"} figures={[{ value: String(n.actionsDone.value), label: "Done" }]} />
-              <CountedRow name="Waiting on brokers" line={n.allWaits.length ? n.allWaits.map((w) => `${w.name} ${w.days} ${w.days === 1 ? "day" : "days"}${w.who ? ` (${w.who})` : ""}`).join(" · ") : "Nobody is keeping you waiting"} figures={[{ value: String(n.waits.length), label: `Over ${data.threshold} days`, tone: n.waits.length ? "over" : "plain" }]} />
-            </Rows>
-          </WorkCard>
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2" data-testid="eod-columns">
+        <div className="flex min-w-0 flex-col gap-4" data-testid="eod-left">
+          <TodayStrip parts={todayStrip(n, data.threshold)} onOpen={setDrawer} />
 
           <WorkCard
             id="eod-targets"
@@ -280,8 +273,8 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
                 const ask = j.judged && !j.met && j.commitment && !closed;
                 const given = !!String(reasons[j.targetId] ?? "").trim();
                 return (
-                  <div key={j.targetId} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-3 gap-y-1.5 border-t border-slate-100 px-[22px] py-[13px] first:border-t-0 sm:gap-x-4" data-testid="eod-target" data-target={j.name} data-met={j.judged ? (j.met ? "1" : "0") : "now"} data-asks={ask ? "1" : "0"}>
-                    <div className="min-w-0">
+                  <div key={j.targetId} className={cn("grid items-center gap-y-1.5 border-t border-slate-100 px-[22px] py-[13px] first:border-t-0", GRID.cls, GRID.gapCls)} data-testid="eod-target" data-target={j.name} data-met={j.judged ? (j.met ? "1" : "0") : "now"} data-asks={ask ? "1" : "0"}>
+                    <div className={cn("min-w-0", GRID.textMarginCls)} data-row-text>
                       <Line1>
                         <Name>{j.name}</Name>
                         {j.commitment ? <Pill tone="blue">Commitment</Pill> : null}
@@ -315,14 +308,19 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
                   </div>
                 );
               })}
-              {owedPrev
-                ? owedPrev.items.map((j) => (
-                    <div key={owedKey(j)} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-3 gap-y-1.5 border-t border-slate-100 px-[22px] py-[13px] sm:gap-x-4" data-testid="eod-owed" data-target={j.name}>
-                      <div className="min-w-0">
+            </Rows>
+            {owedPrev ? (
+              <div className="pt-1" data-testid="eod-owed-group">
+                <div className="label-caps mx-[22px] mt-1 border-b border-rule py-1.5 pb-[7px]" data-testid="eod-owed-heading">
+                  Owed from {owedPrev.dayLabel}
+                </div>
+                <Rows className="pt-0">
+                  {owedPrev.items.map((j) => (
+                    <div key={owedKey(j)} className={cn("grid items-center gap-y-1.5 border-t border-slate-100 px-[22px] py-[13px] first:border-t-0", GRID.cls, GRID.gapCls)} data-testid="eod-owed" data-target={j.name}>
+                      <div className={cn("min-w-0", GRID.textMarginCls)} data-row-text>
                         <Line1>
                           <Name>{j.name}</Name>
                           <Pill tone="blue">Commitment</Pill>
-                          <Pill tone="amber">Owed from {owedPrev.dayLabel}</Pill>
                         </Line1>
                         <Line2>{j.line}</Line2>
                       </div>
@@ -333,9 +331,10 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
                         <input value={reasons[owedKey(j)] ?? ""} onChange={(e) => setReasons((r) => ({ ...r, [owedKey(j)]: e.target.value }))} onBlur={(e) => saveReason({ [owedKey(j)]: e.target.value })} placeholder="The reason still owed from the skipped day" disabled={closed} className={cn(INPUT, "flex-1 basis-[240px]")} data-testid="reason-input" data-target={j.name} />
                       </div>
                     </div>
-                  ))
-                : null}
-            </Rows>
+                  ))}
+                </Rows>
+              </div>
+            ) : null}
             <p className="px-[22px] pt-1 pb-4 text-[12.5px] text-muted-foreground" data-testid="eod-targets-note">
               {data.friday ? "It is Friday, so the per-week targets are judged today. " : data.weekday ? "The per-week targets are judged on Friday; today judges the per-weekday ones. " : "No targets are judged on a weekend. "}
               Only commitments ask for a reason; the reason goes into the report as written.
@@ -368,7 +367,7 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
           </WorkCard>
         </div>
 
-        <div className="flex flex-col gap-4">
+        <div className="flex min-w-0 flex-col gap-4" data-testid="eod-right">
           <WorkCard
             id="report-card"
             title={`Report to ${first}`}
@@ -456,27 +455,65 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
           </WorkCard>
         </div>
       </div>
+      {drawer ? <TodayDrawer part={drawer} n={n} threshold={data.threshold} dateLabel={data.dateLabel} onClose={() => setDrawer(null)} /> : null}
     </>
   );
 }
 
-function CountedRow({ name, what, line, finding, figures }: { name: string; what?: string; line?: string; finding?: string; figures: { value: string; label: string; tone?: "plain" | "over" }[] }) {
+/** The one-line Today strip (Edit batch C, item 10): each figure is a link that opens the drawer listing its items. */
+function TodayStrip({ parts, onOpen }: { parts: TodayPart[]; onOpen: (p: TodayPart) => void }) {
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3.5 gap-y-1.5 border-t border-slate-100 px-[22px] py-[13px] first:border-t-0 sm:gap-x-[18px]" data-testid="counted-row" data-name={name}>
-      <div className="min-w-0">
-        <Line1>
-          <Name>{name}</Name>
-          {what ? <span className="min-w-0 text-[13px] text-muted-foreground">{what}</span> : null}
-        </Line1>
-        {line ? <Line2>{line}</Line2> : null}
-        {finding ? <Line3>{finding}</Line3> : null}
-      </div>
-      <div className="flex items-end gap-x-4 whitespace-nowrap sm:gap-x-5" data-row-right>
-        {figures.map((f) => (
-          <Figure key={f.label} value={f.value} label={f.label} tone={f.tone ?? "plain"} className="w-[88px] items-end sm:w-[96px]" testId="counted-figure" />
-        ))}
-      </div>
-    </div>
+    <section className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-border bg-white px-[22px] py-3 text-[13px] text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.04)]" data-testid="eod-today">
+      <span className="font-semibold text-slate-900">Today:</span>
+      {parts.map((p, i) => (
+        // The dot follows its figure, so a wrapped second line never starts with one.
+        <span key={p.key} className="inline-flex items-center gap-2 whitespace-nowrap">
+          <button type="button" onClick={() => onOpen(p)} className={cn("font-medium hover:underline", p.key === "waits" && p.value ? "text-status-missed" : "text-primary-strong")} data-testid="eod-today-part" data-key={p.key} data-count={p.value}>
+            <span className="tabular">{p.value}</span> {p.words}
+          </button>
+          {i < parts.length - 1 ? <span className="text-slate-400" aria-hidden>·</span> : null}
+        </span>
+      ))}
+    </section>
   );
 }
 
+const DRAWER_TITLE: Record<TodayPart["key"], string> = { screened: "Listings screened today", moved: "Deals moved today", calls: "Calls today", emails: "Emails sent today", done: "Next actions done today", waits: "Waiting on someone" };
+
+/** The drawer behind one figure of the Today strip: the items it counts, one per row. */
+function TodayDrawer({ part, n, threshold, dateLabel, onClose }: { part: TodayPart; n: DayNumbers; threshold: number; dateLabel: string; onClose: () => void }) {
+  type Item = { name: string; detail?: string | null; note?: string | null; tone?: "red" | "green" | "plain" };
+  let items: Item[] = [];
+  let empty = "None yet today.";
+  if (part.key === "screened") items = n.screenedList.map((x) => ({ name: x.name, detail: x.outcome === "interested" ? "Interested" : `Passed${x.reason ? `: ${x.reason}` : ""}`, tone: x.outcome === "interested" ? "green" : "plain" }));
+  else if (part.key === "moved") {
+    items = n.moves.map((m) => ({ name: m.name, detail: `${m.from ?? "New"} to ${m.to}${m.lane !== "Deals" ? ` · ${m.lane}` : ""}`, note: m.keyFinding ? `Key finding: ${m.keyFinding}` : null }));
+    empty = "No stage move today.";
+  } else if (part.key === "calls") items = n.contactsList.filter((c) => c.kind === "call").map((c) => ({ name: c.name, detail: c.method === "video" ? "Video call" : c.method === "meeting" ? "Meeting" : "Call" }));
+  else if (part.key === "emails") items = n.contactsList.filter((c) => c.kind === "email").map((c) => ({ name: c.name, detail: "Email sent" }));
+  else if (part.key === "done") items = n.actionsDoneList.map((a) => ({ name: a.name, detail: a.label || null }));
+  else {
+    items = n.waits.map((w) => ({ name: w.name, detail: `${w.days} days${w.who ? ` · ${w.who}` : ""}`, note: w.what ? `Waiting on: ${w.what}${w.since ? `, since ${w.since}` : ""}` : null, tone: w.days >= threshold * 2 ? "red" : "plain" }));
+    empty = `Nobody has kept you waiting over ${threshold} days.`;
+  }
+  return (
+    <Drawer open onOpenChange={(o) => !o && onClose()} title={DRAWER_TITLE[part.key]} sub={`${dateLabel} · ${part.value} ${part.words}`} testId="eod-today-drawer">
+      {items.length ? (
+        <ul className="-mx-7 flex flex-col" data-testid="eod-today-items" data-key={part.key}>
+          {items.map((it, i) => (
+            <li key={`${it.name}-${i}`} className="border-t border-slate-100 px-7 py-2.5 first:border-t-0" data-testid="eod-today-item">
+              <div className="text-sm font-semibold text-slate-900">{it.name}</div>
+              {it.detail ? <div className={cn("mt-0.5 text-[13px]", it.tone === "red" ? "font-medium text-status-missed" : it.tone === "green" ? "font-medium text-status-met" : "text-slate-700")}>{it.detail}</div> : null}
+              {it.note ? <div className="mt-0.5 text-[12.5px] text-muted-foreground italic">{it.note}</div> : null}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-[13px] text-muted-foreground" data-testid="eod-today-empty">
+          {empty}
+        </p>
+      )}
+      <p className="mt-4 text-[12.5px] text-muted-foreground">Counted from what you did in the app. The report&apos;s Today tiles show the same figures.</p>
+    </Drawer>
+  );
+}

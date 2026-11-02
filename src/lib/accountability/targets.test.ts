@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  askedForReason, cadenceLine, countIn, countedDays, DEFAULT_TARGETS, dayNumbers, EMPTY_FACTS, figure, judgeDay, judgedOn, judgeWeek, markOf, missedLine, metThisWeek, mostMissed, noReasonText, owedFromLastClosed, owedReasons, pastWeeks, reportSummary, statusItems, stripOf, targetView, tileEodLine, tileTargetLine, tileTargets, todayTiles, tomorrowLabel, weekNumbers, weekTiles, workWeekOf,
+  askedForReason, cadenceLine, countIn, countsLine, targetPill, todayStrip, countedDays, DEFAULT_TARGETS, dayNumbers, EMPTY_FACTS, figure, judgeDay, judgedOn, judgeWeek, markOf, missedLine, metThisWeek, mostMissed, noReasonText, owedFromLastClosed, owedReasons, pastWeeks, reportSummary, statusItems, stripOf, targetView, tileEodLine, tileTargetLine, tileTargets, todayTiles, tomorrowLabel, weekNumbers, weekTiles, workWeekOf,
   type Facts, type Target,
 } from "./targets";
 import { dealBullets, pillOf, reportInnerHtml, reportSubject, reportText, targetLine, type ReportData } from "./report-email";
@@ -291,5 +291,32 @@ describe("the AI reasons reply", () => {
     expect(plain.ok && plain.value.map((d) => d.targetId)).toEqual(["t1", "t3"]);
     expect(validateReasonsReply({ reasons: [] }, asked).ok).toBe(false);
     expect(validateReasonsReply("no", asked).ok).toBe(false);
+  });
+});
+
+describe("Edit batch C: the target pill, what a target counts, exceeded reads met, the Today strip", () => {
+  it("the pill carries the number and the cadence; the line under the name says only what it counts", () => {
+    expect(targets.map(targetPill)).toEqual(["5 / weekday", "5 / week", "10 / week", "100% on time", "2 / week", "1 / week"]);
+    expect(countsLine(byName("Listings screened"))).toBe("Counts Pass or Interested on Screen listings");
+    const v = targetView(byName("Listings screened"), facts, FRI);
+    expect(v.pill).toBe("5 / weekday");
+    expect(v.line).toBe("Counts Pass or Interested on Screen listings");
+    expect(v.line).not.toMatch(/target|Per week/);
+  });
+  it("a figure over its target is met (14 of 10 is right, not capped)", () => {
+    const busy: Facts = { ...facts, comms: Array.from({ length: 14 }, (_, i) => ({ on: "2026-11-03", method: "email", contactId: `x${i}`, contactName: `X ${i}`, broker: false })) };
+    const w = targetView(byName("Network outreach"), busy, FRI);
+    expect(w.figures[0]).toMatchObject({ value: "14 of 10", tone: "met" });
+    expect(w.mark).toBe("met");
+  });
+  it("the Today strip: six figures in order with their words, each with the items behind it", () => {
+    const n = dayNumbers(facts, FRI, [{ name: "Summit Logistics Group", days: 11, who: "Mark Reed", what: "A seller call", since: "Oct 26" }, { name: "Oakline Dental Lab", days: 2, who: null, what: "The CIM", since: null }], 5);
+    expect(todayStrip(n, 5).map((p) => `${p.value} ${p.words}`)).toEqual(["3 screened", "1 moved", "2 calls", "2 emails", "2 next actions done", "1 waiting over 5 days"]);
+    expect(n.screenedList.map((x) => `${x.name} ${x.outcome} ${x.reason ?? ""}`.trim())).toEqual(["Fri 1 passed Too small", "Fri 2 passed Retail", "Industrial Filtration Distributor interested"]);
+    expect(n.contactsList.filter((c) => c.kind === "call").map((c) => c.name)).toEqual(["Priya Natarajan", "Carla Jenkins"]);
+    expect(n.contactsList.filter((c) => c.kind === "email").map((c) => c.name)).toEqual(["Tom Baker", "Someone not on Outreach"]);
+    expect(n.actionsDoneList).toEqual([{ name: "Meridian Industrial Coatings", label: "Finish the model" }, { name: "Dalton Services", label: "Call Carla" }]);
+    const one = dayNumbers({ ...EMPTY_FACTS, comms: [{ on: FRI, method: "call", contactId: "p1", contactName: "A", broker: false }] }, FRI, [], 5);
+    expect(todayStrip(one, 5).find((p) => p.key === "calls")!.words).toBe("call");
   });
 });

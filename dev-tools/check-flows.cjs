@@ -4557,7 +4557,9 @@ const expectText = async (page, text) => {
     const cards = await page.locator("[data-testid=work-opportunity] section h2").allInnerTexts();
     if (cards.map((t) => t.trim()).join("|") !== "What to find out|Next action|Tasks|Facts|Timeline|Decision") throw new Error(`cards: ${cards.join("|")}`);
     if ((await page.getByTestId("find-out-line").count()) !== 3) throw new Error("three lines to find out");
-    if ((await page.getByTestId("item-stage-pill").innerText()).trim() !== "Conversation · day 5") throw new Error(`stage pill: ${await page.getByTestId("item-stage-pill").innerText()}`);
+    // The day in the stage from the database (the sample moves Harbor back a week on a Friday, Edit batch C item 6).
+    const harborDay = (await one("select ($2::date - (stage_entered_at at time zone 'America/New_York')::date + 1)::int d from pipeline_items where id = $1", [harbor.id, nyDate(0)])).d;
+    if ((await page.getByTestId("item-stage-pill").innerText()).trim() !== `Conversation · day ${harborDay}`) throw new Error(`stage pill: ${await page.getByTestId("item-stage-pill").innerText()} (day ${harborDay} in the database)`);
     if (!(await page.getByTestId("fact-pay").innerText()).includes("$150K to $170K")) throw new Error("the pay range in Facts");
     if ((await page.getByTestId("figure-next").innerText()).replace(/\s+/g, " ").trim().toLowerCase() !== "today next action") throw new Error("NEXT ACTION figure");
     if (!(await page.getByTestId("figure-last").innerText()).includes("email")) throw new Error("LAST CONTACT figure");
@@ -4705,7 +4707,7 @@ const expectText = async (page, text) => {
     if ((await one("select next_action from projects where id = $1", [rowKey.split(":")[1]])).next_action !== null) throw new Error("Done on the Home row");
   });
 
-  await step("Ask AI: the page pill (suggested questions, a cost line, an answer with Make this the next action and Open in email), a card star (Tasks), a field star (Use this fills the field), Set as next action on a record page, all with the mock AI", async () => {
+  await step("Ask AI: the page pill (suggested questions, no cost line, an answer with Make this the next action and Open in email), a card star (Tasks), a field star (Use this fills the field), Set as next action on a record page, all with the mock AI", async () => {
     await aipost("/__reset");
     await page.goto(`${BASE}/work`);
     await page.getByTestId("home-bento").waitFor();
@@ -4715,7 +4717,9 @@ const expectText = async (page, text) => {
     await page.getByTestId("ask-ai-pills").waitFor({ timeout: 15000 });
     const pills = await page.getByTestId("ask-ai-pill").allInnerTexts();
     if (pills.length !== 3 || pills[0] !== "What should I do first today?") throw new Error(`pills: ${pills.join("|")}`);
-    if (!(await page.getByTestId("ask-ai-estimate").innerText()).match(/One call is (about \d+ cents?|under 1 cent)\./)) throw new Error("the cost line");
+    // Edit batch C (item 13): no cost line in the panel; the month's spend is in Settings.
+    await page.waitForFunction(() => !document.querySelector("[data-testid=ask-ai-pill]")?.disabled, null, { timeout: 15000 });
+    if ((await page.getByTestId("ask-ai-estimate").count()) || (await page.getByTestId("ask-ai-panel").innerText()).includes("One call is")) throw new Error("the cost line is still in the panel");
     if (await page.getByTestId("ask-ai-steps").count()) throw new Error("no Suggested next steps on Home");
     await page.getByTestId("ask-ai-pill").first().click();
     await page.getByTestId("ask-ai-answer").waitFor({ timeout: 20000 });
@@ -4903,14 +4907,14 @@ const expectText = async (page, text) => {
     await aipost("/__mode", { delay: 0 });
   });
 
-  await step("Edit batch B: the Ask AI panel opens before its content loads (title and questions at once, the cost line later)", async () => {
+  await step("Edit batch B: the Ask AI panel opens before its content loads (title and questions at once, ready once the server answers; no cost line, Edit batch C)", async () => {
     const dalton = await dealByName("Dalton Services");
     await page.goto(`${BASE}/work/deals/${dalton.id}`);
     await page.getByTestId("deal-todos").waitFor();
     await page.waitForLoadState("networkidle");
     // Every server action answers 4 seconds late: the panel must not wait for it. (The clock is not measured: under the
     // fake clock of late-evening.sh the browser's own timing is not steady; what counts is that the title and the
-    // questions are there while the server has not answered yet, and that the cost line arrives after.)
+    // questions are there while the server has not answered yet, and that the questions turn usable after.)
     const slow = async (route, req) => {
       if (req.method() === "POST" && req.headers()["next-action"]) await new Promise((r) => setTimeout(r, 4000));
       await route.continue().catch(() => null);
@@ -4922,9 +4926,10 @@ const expectText = async (page, text) => {
     await page.getByTestId("ask-ai-pills").waitFor();
     const opened = Date.now() - t0;
     if ((await page.getByTestId("ask-ai-title").innerText()).trim() !== "Ask AI about Tasks" || (await page.getByTestId("ask-ai-pill").count()) !== 3) throw new Error("the panel's own title and questions");
-    if (await page.getByTestId("ask-ai-estimate").count()) throw new Error(`the cost line arrived before the server answered (the panel took ${opened} ms)`);
-    await page.getByTestId("ask-ai-estimate").waitFor({ timeout: 20000 });
-    if (Date.now() - t0 < 3500) throw new Error("the cost line should come from the server");
+    if (!(await page.getByTestId("ask-ai-pill").first().isDisabled())) throw new Error(`the questions were usable before the server answered (the panel took ${opened} ms)`);
+    await page.waitForFunction(() => !document.querySelector("[data-testid=ask-ai-pill]")?.disabled, null, { timeout: 20000 });
+    if (Date.now() - t0 < 3500) throw new Error("the ready state should come from the server");
+    if ((await page.getByTestId("ask-ai-estimate").count()) || (await page.getByTestId("ask-ai-panel").innerText()).includes("One call is")) throw new Error("the cost line is still in the panel");
     await page.unroute("**/*", slow);
     await page.getByTestId("drawer-close").click();
     await page.getByTestId("ask-ai-panel").waitFor({ state: "hidden" });
@@ -5061,14 +5066,14 @@ const expectText = async (page, text) => {
     await brokers.getByTestId("target-edit-number").fill("4");
     await brokers.getByTestId("target-edit-cadence").selectOption("day");
     await brokers.getByTestId("target-edit-save").click();
-    await page.waitForFunction(() => document.querySelectorAll("[data-testid=target-row]")[1]?.innerText.includes("Per weekday · target 4"));
+    await page.waitForFunction(() => document.querySelectorAll("[data-testid=target-row]")[1]?.querySelector("[data-testid=target-pill]")?.innerText.trim() === "4 / weekday");
     const edited = await one("select period, minimum_count from targets where name = 'Brokers contacted'");
     if (edited.period !== "day" || edited.minimum_count !== 4) throw new Error(`edit: ${JSON.stringify(edited)}`);
     await page.getByTestId("target-row").nth(1).getByTestId("target-edit-button").click();
     await page.getByTestId("target-row").nth(1).getByTestId("target-edit-number").fill("5");
     await page.getByTestId("target-row").nth(1).getByTestId("target-edit-cadence").selectOption("week");
     await page.getByTestId("target-row").nth(1).getByTestId("target-edit-save").click();
-    await page.waitForFunction(() => document.querySelectorAll("[data-testid=target-row]")[1]?.innerText.includes("Per week · target 5"));
+    await page.waitForFunction(() => document.querySelectorAll("[data-testid=target-row]")[1]?.querySelector("[data-testid=target-pill]")?.innerText.trim() === "5 / week");
     // Add a target.
     await page.getByTestId("add-target-button").click();
     await page.getByTestId("add-target-name").fill("Calls a day");
@@ -5089,8 +5094,8 @@ const expectText = async (page, text) => {
     await page.waitForFunction(() => document.querySelectorAll("[data-testid=target-row]").length === 6);
     const gone = await one("select archived_at from targets where name = 'Calls a day'");
     if (!gone || !gone.archived_at) throw new Error("Remove should archive, not delete");
-    // Past weeks: four tiles; the legend; Most missed names a target.
-    if ((await page.getByTestId("past-week").count()) !== 4) throw new Error("four past weeks");
+    // Past weeks: one line of four links (Edit batch C; the tiles are on Reports); the legend.
+    if ((await page.getByTestId("past-week-link").count()) !== 4) throw new Error("four past weeks");
     if ((await page.getByTestId("legend-mark").count()) !== 3) throw new Error("the legend's three marks");
     // The old Targets page is still reachable under More.
     await page.goto(`${BASE}/more`);
@@ -5109,10 +5114,10 @@ const expectText = async (page, text) => {
     if (!(await page.getByTestId("eod-step-reasons").innerText()).includes(`${owed} left`)) throw new Error("the status line should count the reasons left");
     if (!(await page.getByTestId("eod-step-tomorrow").innerText()).includes("empty")) throw new Error("the tomorrow line starts empty");
     if ((await page.getByTestId("eod-owed").count()) < 1) throw new Error("the owed row from the skipped day is missing");
-    // Today, counted: the figures match the database (calls and emails logged today).
+    // The Today strip: the figures match the database (calls and emails logged today).
     const comms = await one("select count(*)::int n from communications where direction <> 'incoming' and method in ('call','meeting','video') and (occurred_at at time zone 'America/New_York')::date = $1", [eodDay()]);
-    const calls = await page.getByTestId("counted-row").nth(2).getByTestId("counted-figure").first().innerText();
-    if (!calls.startsWith(String(comms.n))) throw new Error(`calls counted ${calls} vs ${comms.n} in the database`);
+    const calls = await page.locator("[data-testid=eod-today-part][data-key=calls]").getAttribute("data-count");
+    if (calls !== String(comms.n)) throw new Error(`calls counted ${calls} vs ${comms.n} in the database`);
     // The report card: the partner from the sample (Jake Morgan, report frequency daily), the email with the greeting and the closing lines.
     if (!(await page.getByTestId("report-meta").innerText()).includes("Jake Morgan")) throw new Error("the report should go to the sample's Jake Morgan");
     const preview = await page.getByTestId("report-preview").innerText();
@@ -5146,7 +5151,7 @@ const expectText = async (page, text) => {
     // A weak day on purpose: the demo seed screens several listings "today", so the target is raised for the check.
     // (Just above today's count, so the screenshots read like a real short day: "6 of 8".)
     await page.goto(`${BASE}/work/end-of-day`);
-    const screenedToday = Number((await page.getByTestId("counted-row").first().getByTestId("counted-figure").first().innerText()).match(/\d+/)[0]);
+    const screenedToday = Number(await page.locator("[data-testid=eod-today-part][data-key=screened]").getAttribute("data-count"));
     await pg.query("update targets set minimum_count = $1 where name = 'Listings screened'", [Math.max(5, screenedToday + 2)]);
     await page.goto(`${BASE}/work/end-of-day`);
     await page.getByTestId("work-end-of-day").waitFor();
@@ -5316,6 +5321,328 @@ const expectText = async (page, text) => {
     await page.goto(`${BASE}/work`);
     await page.getByTestId("home-targets").scrollIntoViewIfNeeded();
     await page.getByTestId("home-targets").screenshot({ path: path.join(OUT, "flow-work-home-targets-tile.png") });
+  });
+
+  // ---------- Edit batch C (no database update): Show filter, aligned rows, target pills, End of day 50/50, Past weeks on Reports, AI spend ----------
+  /** The right edge of the text a row actually draws (wrapped lines included), and the left of its first fixed column. */
+  const textGap = (selector, colSelector) =>
+    page.locator(selector).evaluateAll(
+      (els, colSel) =>
+        els
+          .filter((e) => getComputedStyle(e).display !== "none" && e.getBoundingClientRect().height > 0)
+          .map((e) => {
+            const text = e.querySelector("[data-row-text]");
+            const col = e.querySelector(colSel);
+            if (!text || !col) return null;
+            let right = 0;
+            const walk = document.createTreeWalker(text, NodeFilter.SHOW_TEXT);
+            for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+              if (!n.textContent.trim()) continue;
+              const r = document.createRange();
+              r.selectNodeContents(n);
+              for (const rect of r.getClientRects()) right = Math.max(right, rect.right);
+            }
+            for (const el of text.querySelectorAll("[data-testid=target-pill], [data-testid=purpose-pill], [data-testid=status-mark], input")) right = Math.max(right, el.getBoundingClientRect().right);
+            return { gap: Math.round(col.getBoundingClientRect().left - right), x: Math.round(col.getBoundingClientRect().left) };
+          })
+          .filter(Boolean),
+      colSelector,
+    );
+  const shootBatchC = async (url, name, prep) => {
+    for (const [vp, pg_] of [["desktop1280", p1280], ["phone", ph]]) {
+      await pg_.goto(url);
+      await pg_.waitForLoadState("networkidle");
+      if (prep) await prep(pg_);
+      await pg_.screenshot({ path: path.join(OUT, `${vp}-${name}.png`), fullPage: true });
+    }
+  };
+
+  await step("Edit batch C: Home Show filter: pick lanes (rows and the pill counts follow, Waiting follows Deals, remembered after a reload), Reset back to All", async () => {
+    await page.goto(`${BASE}/work`);
+    await page.getByTestId("home-bento").waitFor();
+    await page.evaluate(() => window.localStorage.removeItem("work-home-show"));
+    await page.reload();
+    await page.getByTestId("home-show").waitFor();
+    if ((await page.getByTestId("home-show").innerText()).trim() !== "Show: All") throw new Error("the pill should start at Show: All");
+    const pill = async (k) => Number(await page.getByTestId(`home-filter-${k}`).getAttribute("data-count"));
+    const allBefore = await pill("all");
+    // The pill sits right after the filter pills, before Find.
+    const order = await page.getByTestId("home-filters").evaluate((row) => [...row.querySelectorAll("button, input")].map((e) => e.dataset.testid).filter(Boolean));
+    if (order.indexOf("home-show") !== order.indexOf("home-filter-needs") + 1 || order.indexOf("home-show") > order.indexOf("home-search")) throw new Error(`the Show pill's place: ${order.join(",")}`);
+    await page.getByTestId("home-show").click();
+    await page.getByTestId("home-show-menu").waitFor();
+    const lanes = await page.getByTestId("home-show-option").evaluateAll((els) => els.map((e) => e.dataset.lane));
+    if (lanes.join("|") !== "Deals|Outreach|Rosara|Job search|Consulting|To-dos") throw new Error(`the checklist: ${lanes.join("|")}`);
+    const outreachN = Number(await page.locator("[data-testid=home-show-option][data-lane=Outreach] span.tabular").innerText());
+    await page.locator("[data-testid=home-show-option][data-lane=Outreach] input").check();
+    await page.waitForFunction(() => document.querySelector("[data-testid=home-show]")?.innerText.trim() === "Show: 1");
+    const shownLanes = await page.locator("[data-testid=now-actions] [data-testid=home-row]").evaluateAll((els) => [...new Set(els.map((e) => e.dataset.lane))]);
+    if (shownLanes.join(",") !== "outreach") throw new Error(`rows under Show: Outreach: ${shownLanes.join(",")}`);
+    if ((await pill("all")) !== outreachN) throw new Error(`the All pill should count the Outreach rows: ${await pill("all")} vs ${outreachN}`);
+    if (!(await page.getByTestId("now-wait-empty").count())) throw new Error("Waiting on someone lists deals, so it empties without Deals");
+    await page.locator("[data-testid=home-show-option][data-lane=Deals] input").check();
+    await page.waitForFunction(() => document.querySelector("[data-testid=home-show]")?.innerText.trim() === "Show: 2");
+    const two = await page.locator("[data-testid=now-actions] [data-testid=home-row]").evaluateAll((els) => [...new Set(els.map((e) => e.dataset.lane))].sort());
+    if (two.join(",") !== "deals,outreach") throw new Error(`rows under Show: 2: ${two.join(",")}`);
+    if (await page.getByTestId("now-wait-empty").count()) throw new Error("Waiting on someone should list the deals again");
+    await page.keyboard.press("Escape");
+    await page.getByTestId("home-show-menu").waitFor({ state: "hidden" });
+    // Remembered in this browser.
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector("[data-testid=home-show]")?.innerText.trim() === "Show: 2", null, { timeout: 15000 });
+    if ((await page.getByTestId("home-show").getAttribute("data-label")) !== "Show: 2") throw new Error("the choice was not remembered");
+    await page.getByTestId("home-show").click();
+    await page.screenshot({ path: path.join(OUT, "flow-work-home-show.png") });
+    await page.getByTestId("home-show-reset").click();
+    await page.waitForFunction(() => document.querySelector("[data-testid=home-show]")?.innerText.trim() === "Show: All");
+    if ((await pill("all")) !== allBefore) throw new Error(`Reset should bring every row back: ${await pill("all")} vs ${allBefore}`);
+    if ((await page.evaluate(() => window.localStorage.getItem("work-home-show"))) !== null) throw new Error("Reset should forget the choice");
+  });
+
+  await step("Edit batch C: AI order numbers in their own column, level with the name line, clear of the stage mark and the lane pill", async () => {
+    await page.goto(`${BASE}/work`);
+    await page.getByTestId("home-order-ai").click();
+    await page.getByTestId("ai-order-rows").waitFor({ timeout: 20000 });
+    await page.waitForFunction(() => document.querySelectorAll("[data-testid=ai-order-rows] [data-testid=ai-order-number]").length > 2, null, { timeout: 20000 });
+    const rows = await page.locator("[data-testid=ai-order-rows] [data-testid=home-row]").evaluateAll((els) =>
+      els.map((e) => {
+        const badge = e.querySelector("[data-testid=ai-order-number]").getBoundingClientRect();
+        const first = e.querySelector("[data-testid=progress-mark], [data-testid=lane-pill]") ?? e.querySelector("[data-row-text] span");
+        const f = first.getBoundingClientRect();
+        return { n: e.querySelector("[data-testid=ai-order-number]").innerText.trim(), x: Math.round(badge.left), gap: Math.round(f.left - badge.right), dy: Math.round(Math.abs(badge.top + badge.height / 2 - (f.top + f.height / 2))) };
+      }),
+    );
+    if (rows.length < 3) throw new Error(`only ${rows.length} numbered rows`);
+    if (new Set(rows.map((r) => r.x)).size !== 1) throw new Error(`the numbers shift: ${JSON.stringify(rows)}`);
+    for (const r of rows) {
+      if (r.gap < 10) throw new Error(`number ${r.n} sits ${r.gap}px from the stage mark or lane pill`);
+      if (r.dy > 3) throw new Error(`number ${r.n} is ${r.dy}px off the name line`);
+    }
+    await page.screenshot({ path: path.join(OUT, "flow-work-ai-order-numbers.png") });
+    await page.getByTestId("home-order-soonest").click();
+  });
+
+  await step("Edit batch C: Collapse all and Expand all on Rosara (Due today and Active open by default) and on To-dos", async () => {
+    await page.goto(`${BASE}/work/rosara`);
+    await page.evaluate(() => window.localStorage.removeItem("disclosure:work-rosara-sections"));
+    await page.reload();
+    await page.getByTestId("project-row").first().waitFor();
+    const state = () => page.getByTestId("project-section").evaluateAll((els) => Object.fromEntries(els.filter((e) => Number(e.querySelector("[data-testid=section-heading]")?.dataset.count)).map((e) => [e.dataset.section, e.dataset.collapsed])));
+    const start = await state();
+    // Due today (when it has rows) and Active start open; Closed starts collapsed.
+    if ((start.today && start.today !== "0") || start.active !== "0" || start.closed !== "1") throw new Error(`the default: ${JSON.stringify(start)}`);
+    const control = page.getByTestId("projects-card").getByTestId("collapse-all");
+    if ((await control.innerText()).trim() !== "Collapse all") throw new Error("the control should read Collapse all");
+    await control.click();
+    if (Object.values(await state()).some((v) => v !== "1") || (await control.innerText()).trim() !== "Expand all") throw new Error(`after Collapse all: ${JSON.stringify(await state())}`);
+    await control.click();
+    if (Object.values(await state()).some((v) => v !== "0")) throw new Error(`after Expand all: ${JSON.stringify(await state())}`);
+    await page.evaluate(() => window.localStorage.removeItem("disclosure:work-rosara-sections"));
+    await page.goto(`${BASE}/work/todos`);
+    await page.getByTestId("todos-card").waitFor();
+    const todos = page.getByTestId("todos-card").getByTestId("collapse-all");
+    await todos.click();
+    if ((await page.locator("[data-testid=todos-section][data-collapsed='0'] [data-testid=section-heading]:not([data-count='0'])").count())) throw new Error("To-dos Collapse all");
+    await todos.click();
+    await page.evaluate(() => window.localStorage.removeItem("disclosure:work-todos-sections"));
+  });
+
+  await step("Edit batch C: Outreach rows: the purpose pills on a third line, NEXT FOLLOW-UP in full, the figures at the same x, the text 32px clear of them", async () => {
+    const lena = await personByName("Lena Fischer");
+    await pg.query("update contacts set notes = $2 where id = $1", [lena.id, "Co-founder candidate at the Offer step; she wants the equity split in writing, a one-year cliff, and a clear line on who owns the caregiver hub code before she leaves her current job in January"]);
+    try {
+      await page.goto(`${BASE}/work/outreach`);
+      await page.getByTestId("person-row").first().waitFor();
+      const rows = await page.locator("[data-testid=outreach-row][data-hidden='0'] [data-testid=person-row]").evaluateAll((els) =>
+        els.map((e) => {
+          const line1 = e.querySelector("[data-row-text] > div").getBoundingClientRect();
+          const note = e.querySelector("[data-row-text] > div:nth-child(2)");
+          const pills = e.querySelector("[data-testid=person-purposes]");
+          const label = e.querySelector("[data-testid=person-next-follow-up] .label-caps");
+          return { id: e.dataset.person, below: pills ? pills.getBoundingClientRect().top >= (note ? note.getBoundingClientRect().bottom : line1.bottom) - 1 : true, inLine1: !!e.querySelector("[data-row-text] > div:first-child [data-testid=purpose-pill]"), cut: label.scrollWidth > label.clientWidth + 1, label: label.innerText };
+        }),
+      );
+      if (rows.length < 8) throw new Error(`only ${rows.length} rows`);
+      for (const r of rows) {
+        if (!r.below || r.inLine1) throw new Error(`the purpose pills should sit on their own line under the note (${r.id})`);
+        if (r.cut || r.label !== "NEXT FOLLOW-UP") throw new Error(`NEXT FOLLOW-UP is cut off: ${r.label}`);
+      }
+      const gaps = await textGap("[data-testid=outreach-row][data-hidden='0'] [data-testid=person-row]", "[data-testid=person-figures]");
+      if (new Set(gaps.map((g) => g.x)).size !== 1) throw new Error(`the figures shift: ${JSON.stringify(gaps.map((g) => g.x))}`);
+      const close = gaps.filter((g) => g.gap < 32);
+      if (close.length) throw new Error(`text within 32px of the figures: ${JSON.stringify(close)}`);
+      for (const c of ["lastContact", "nextDate"]) {
+        const xs = await page.locator("[data-testid=outreach-row][data-hidden='0'] [data-testid=person-row]").evaluateAll((els, col) => [...new Set(els.map((e) => Math.round(e.querySelector(`[data-col=${col}]`).getBoundingClientRect().left)))], c);
+        if (xs.length !== 1) throw new Error(`${c} sits at x ${xs.join(", ")}`);
+      }
+    } finally {
+      await pg.query("update contacts set notes = $2 where id = $1", [lena.id, lena.notes]);
+    }
+    await shootBatchC(`${BASE}/work/outreach`, "work-outreach");
+  });
+
+  await step("Edit batch C: Targets: the target pill, the line says what it counts, the mark 32px clear of the text and at the same x, Past weeks links open Reports at that week", async () => {
+    await page.goto(`${BASE}/work/targets`);
+    await page.getByTestId("target-row").first().waitFor();
+    const pills = await page.getByTestId("target-pill").allInnerTexts();
+    if (pills.map((t) => t.trim()).join("|") !== "5 / weekday|5 / week|10 / week|100% on time|2 / week|1 / week") throw new Error(`pills: ${pills.join("|")}`);
+    const style = await page.getByTestId("target-pill").first().evaluate((el) => { const cs = getComputedStyle(el); return [cs.borderTopColor, cs.backgroundColor, cs.color, cs.fontSize, cs.borderTopWidth].join("|"); });
+    if (style !== "rgb(213, 219, 227)|rgba(0, 0, 0, 0)|rgb(51, 65, 85)|12.5px|1px") throw new Error(`the pill: ${style}`);
+    const lines = await page.getByTestId("target-line").allInnerTexts();
+    if (!lines.every((l) => l.startsWith("Counts ")) || lines.some((l) => /target \d|Per week/.test(l))) throw new Error(`lines: ${lines.join(" | ")}`);
+    // A long name wraps inside its column and still keeps 32px from the mark.
+    await pg.query("update targets set name = 'Listings screened from the broker newsletters and the two marketplaces every weekday' where name = 'Listings screened'");
+    try {
+      await page.reload();
+      await page.getByTestId("target-row").first().waitFor();
+      const gaps = await textGap("[data-testid=target-row]", "[data-testid=status-mark]");
+      if (gaps.length !== 6 || new Set(gaps.map((g) => g.x)).size !== 1) throw new Error(`the marks shift: ${JSON.stringify(gaps)}`);
+      if (gaps.some((g) => g.gap < 32)) throw new Error(`text within 32px of the mark: ${JSON.stringify(gaps)}`);
+      const figs = await page.getByTestId("target-row").evaluateAll((els) => [...new Set(els.map((e) => Math.round(e.querySelector("[data-row-right]").getBoundingClientRect().left)))]);
+      if (figs.length !== 1) throw new Error(`the figures shift: ${figs.join(",")}`);
+    } finally {
+      await pg.query("update targets set name = 'Listings screened' where name like 'Listings screened from%'");
+    }
+    // Past weeks: one line at the top, four links to Reports.
+    await page.reload();
+    const line = await page.getByTestId("past-weeks-line").innerText();
+    if (!/^Past weeks:\s*\d\/\d\s*·\s*\d\/\d\s*·\s*\d\/\d\s*·\s*\d\/\d/.test(line.trim())) throw new Error(`the Past weeks line: ${line}`);
+    const top = await page.evaluate(() => document.querySelector("[data-testid=past-weeks-line]").getBoundingClientRect().top < document.querySelector("[data-testid=targets-card]").getBoundingClientRect().top);
+    if (!top) throw new Error("the Past weeks line should sit above the Targets card");
+    if (await page.getByTestId("past-week").count()) throw new Error("the tiles moved to Reports");
+    const periods = await page.getByTestId("past-week-link").evaluateAll((els) => els.map((e) => e.getAttribute("href")));
+    if (periods.join(",") !== "/work/reports?period=last,/work/reports?period=w2,/work/reports?period=w3,/work/reports?period=w4") throw new Error(`links: ${periods.join(",")}`);
+    await shootBatchC(`${BASE}/work/targets`, "work-targets");
+    await page.getByTestId("past-week-link").nth(1).click();
+    await page.waitForURL(/\/work\/reports\?period=w2$/);
+    await page.locator("[data-testid=week-view][data-period=w2]").waitFor();
+    if ((await page.getByTestId("reports-period-w2").getAttribute("aria-pressed")) !== "true") throw new Error("the week's pill should show, pressed");
+    if (!(await page.getByTestId("period-lead").innerText()).startsWith("Week of")) throw new Error("the period lead");
+  });
+
+  await step("Edit batch C: End of day: two equal columns, the Today strip with its drawers, owed reasons under their own heading, the 32px gap, Approve and send", async () => {
+    await aipost("/__reset");
+    await gpost("/__reset");
+    if (!(await one("select count(*)::int n from google_connections where scopes like '%gmail.send%'")).n) {
+      await page.goto(`${BASE}/api/google/connect`);
+      await page.waitForURL(/\/settings\?google=connected/);
+    }
+    // Today opens again (the Batch C steps sent it), so the reasons owed from the sample's skipped day show and the send can run.
+    // The Batch C send gave the owed reason (it is written back to the skipped day): owed again for this check.
+    await pg.query("delete from end_of_day where day = $1", [eodDay()]);
+    const skippedBefore = await one("select day::text, reasons from end_of_day where status = 'skipped' and day < $1 order by day desc limit 1", [eodDay()]);
+    if (skippedBefore) await pg.query("update end_of_day set reasons = '{}'::jsonb where day = $1", [skippedBefore.day]);
+    await page.goto(`${BASE}/work/end-of-day`);
+    await page.getByTestId("eod-today").waitFor();
+    if (await page.getByTestId("eod-counted").count()) throw new Error("Today, counted should be gone");
+    const box = await page.evaluate(() => { const l = document.querySelector("[data-testid=eod-left]").getBoundingClientRect(); const r = document.querySelector("[data-testid=eod-right]").getBoundingClientRect(); return { lw: Math.round(l.width), rw: Math.round(r.width), lt: Math.round(l.top), rt: Math.round(r.top), strip: Math.round(document.querySelector("[data-testid=eod-today]").getBoundingClientRect().top) }; });
+    if (Math.abs(box.lw - box.rw) > 2 || box.lt !== box.rt) throw new Error(`the two columns: ${JSON.stringify(box)}`);
+    if (box.strip !== box.lt) throw new Error("the Today strip should open the left column");
+    // The strip: six figures in order; calls and emails match the database.
+    const parts = await page.getByTestId("eod-today-part").evaluateAll((els) => els.map((e) => [e.dataset.key, Number(e.dataset.count), e.innerText.trim()]));
+    if (parts.map((p) => p[0]).join(",") !== "screened,moved,calls,emails,done,waits") throw new Error(`the strip: ${JSON.stringify(parts)}`);
+    const strip = (await page.getByTestId("eod-today").innerText()).replace(/\s+/g, " ");
+    if (!/^Today: \d+ screened · \d+ moved · \d+ calls? · \d+ emails? · \d+ next actions? done · \d+ waiting over \d+ days$/.test(strip)) throw new Error(`the strip reads: ${strip}`);
+    const db = await one(`select count(*) filter (where method = 'email')::int emails, count(*) filter (where method in ('call','meeting','video'))::int calls from communications
+      where direction <> 'incoming' and not awaiting_log and (occurred_at at time zone 'America/New_York')::date = $1`, [eodDay()]);
+    if (parts[2][1] !== db.calls || parts[3][1] !== db.emails) throw new Error(`calls and emails ${parts[2][1]}, ${parts[3][1]} vs ${db.calls}, ${db.emails} in the database`);
+    // Each figure opens its drawer listing exactly the items it counts.
+    for (const [key, n] of parts) {
+      await page.locator(`[data-testid=eod-today-part][data-key=${key}]`).click();
+      await page.getByTestId("eod-today-drawer").waitFor();
+      const items = await page.getByTestId("eod-today-item").count();
+      if (items !== n || (n === 0 && !(await page.getByTestId("eod-today-empty").count()))) throw new Error(`the ${key} drawer lists ${items}, the strip says ${n}`);
+      if (key === "screened" && n && !(await page.getByTestId("eod-today-items").innerText()).match(/Passed|Interested/)) throw new Error("the screened drawer names Passed or Interested");
+      if (key === "screened") await page.getByTestId("eod-today-drawer").screenshot({ path: path.join(OUT, "flow-work-eod-today-drawer.png") });
+      await page.getByTestId("drawer-close").click();
+      await page.getByTestId("eod-today-drawer").waitFor({ state: "hidden" });
+    }
+    // Reasons owed from the skipped day: their own heading below today's targets.
+    if (!(await page.getByTestId("eod-owed").count())) throw new Error("the sample's skipped day should owe a reason");
+    const heading = (await page.getByTestId("eod-owed-heading").innerText()).trim();
+    if (!/^OWED FROM [A-Z][a-z]{2} [A-Z][a-z]{2} \d{1,2}$/i.test(heading)) throw new Error(`the heading: ${heading}`);
+    const below = await page.evaluate(() => { const rows = [...document.querySelectorAll("[data-testid=eod-target]")]; const h = document.querySelector("[data-testid=eod-owed-heading]").getBoundingClientRect(); const o = document.querySelector("[data-testid=eod-owed]").getBoundingClientRect(); return h.top >= rows[rows.length - 1].getBoundingClientRect().bottom - 1 && o.top >= h.bottom - 1; });
+    if (!below) throw new Error("the owed rows sit under their heading, below today's targets");
+    if ((await page.getByTestId("eod-owed").first().innerText()).includes("Owed from")) throw new Error("the owed pill should be gone from the row");
+    // The 32px gap and the same x on every target row (today's and the owed ones).
+    const gaps = await textGap("[data-testid=eod-target], [data-testid=eod-owed]", "[data-testid=status-mark]");
+    if (new Set(gaps.map((g) => g.x)).size !== 1 || gaps.some((g) => g.gap < 32)) throw new Error(`target rows: ${JSON.stringify(gaps)}`);
+    // The report preview's Today notes are not cut off in the wider column.
+    const cut = await page.getByTestId("report-preview").evaluate((el) => [...el.querySelectorAll("td, div, span")].filter((e) => e.children.length === 0 && e.textContent.trim() && (e.scrollWidth > e.clientWidth + 1 || e.scrollHeight > e.clientHeight + 1) && getComputedStyle(e).overflow !== "visible").map((e) => e.textContent.trim()));
+    if (cut.length) throw new Error(`cut off in the preview: ${cut.join(" | ")}`);
+    // The phone stacks the two columns.
+    await ph.goto(`${BASE}/work/end-of-day`);
+    await ph.getByTestId("eod-today").waitFor();
+    const stacked = await ph.evaluate(() => document.querySelector("[data-testid=eod-right]").getBoundingClientRect().top >= document.querySelector("[data-testid=eod-left]").getBoundingClientRect().bottom - 1);
+    if (!stacked) throw new Error("the phone should stack the columns");
+    await shootBatchC(`${BASE}/work/end-of-day`, "work-end-of-day");
+    // Approve and send.
+    await page.goto(`${BASE}/work/end-of-day`);
+    await page.getByTestId("report-send").click();
+    await Promise.race([page.getByTestId("sent-line").waitFor({ timeout: 20000 }), page.getByTestId("send-check").waitFor({ timeout: 20000 })]);
+    if (await page.getByTestId("send-check").count()) await page.getByTestId("send-check-anyway").click();
+    await page.getByTestId("sent-line").waitFor({ timeout: 20000 });
+    const sent = await gsent();
+    if (sent.length !== 1 || sent[0].to !== "jake.morgan@example.com") throw new Error(`sent: ${JSON.stringify(sent.map((m) => m.to))}`);
+    if ((await one("select status from end_of_day where day = $1", [eodDay()])).status !== "sent") throw new Error("the day should be sent");
+  });
+
+  await step("Edit batch C: Reports: the Past weeks tiles under The week, each miss on its own line (red dot, target, figure), a tile opens its week", async () => {
+    await page.goto(`${BASE}/work/reports`);
+    await page.getByTestId("week-view").waitFor();
+    const tiles = await page.getByTestId("past-week").evaluateAll((els) => els.map((e) => ({ period: e.dataset.period, met: Number(e.dataset.met), text: e.querySelector("b").innerText, misses: [...e.querySelectorAll("[data-testid=past-week-miss]")].map((m) => ({ dot: getComputedStyle(m.querySelector("i")).backgroundColor, text: m.innerText.replace(/\s+/g, " ").trim() })) })));
+    if (tiles.map((t) => t.period).join(",") !== "last,w2,w3,w4") throw new Error(`tiles: ${JSON.stringify(tiles.map((t) => t.period))}`);
+    for (const t of tiles) {
+      const [met, total] = t.text.split(" of ").map(Number);
+      if (met !== t.met || t.misses.length !== total - met) throw new Error(`tile ${t.period}: ${t.text} with ${t.misses.length} misses`);
+      for (const m of t.misses) if (m.dot !== "rgb(220, 38, 38)" || !/^[A-Z].* (\d+ of \d+|\d+%|not done)$/.test(m.text)) throw new Error(`a miss line: ${JSON.stringify(m)}`);
+    }
+    if (!(await page.getByTestId("most-missed").innerText()).match(/^(Most missed: .+, \d+ of the last 7 weeks|Every week met)$/)) throw new Error("Most missed");
+    await shootBatchC(`${BASE}/work/reports`, "work-reports");
+    await page.getByTestId("past-week").nth(2).click();
+    await page.locator("[data-testid=week-view][data-period=w3]").waitFor();
+    await page.waitForURL(/period=w3$/);
+    if ((await page.getByTestId("reports-period-w3").getAttribute("aria-pressed")) !== "true") throw new Error("the week's pill");
+    await page.getByTestId("reports-period-this").click();
+    if (await page.getByTestId("reports-period-w3").count()) throw new Error("an older week's pill shows only while it is open");
+  });
+
+  await step("Edit batch C: Settings shows AI this month: $N of $cap; the Ask AI panel has no cost line and warns only within 10% of the cap", async () => {
+    const month = `${nyDate(0).slice(0, 7)}-01`;
+    const spend = async () => Number((await one("select coalesce(sum(cost_usd), 0)::float s from ai_usage where created_at >= $1::date", [month])).s);
+    await page.goto(`${BASE}/settings`);
+    const line = (await page.getByTestId("ai-spend-line").innerText()).trim();
+    const m = line.match(/^AI this month: \$(\d+\.\d\d) of \$(\d+\.\d\d)$/);
+    if (!m) throw new Error(`the line: ${line}`);
+    const cap = Number(m[2]);
+    if (Math.abs(Number(m[1]) - (await spend())) > 0.01) throw new Error(`spend ${m[1]} vs ${await spend()} in the database`);
+    // Far from the cap: no warning.
+    await page.goto(`${BASE}/work`);
+    await page.getByTestId("ask-ai").click();
+    await page.waitForFunction(() => !document.querySelector("[data-testid=ask-ai-pill]")?.disabled, null, { timeout: 15000 });
+    if (await page.getByTestId("ask-ai-cap-warning").count()) throw new Error("no warning far from the cap");
+    if ((await page.getByTestId("ask-ai-panel").innerText()).includes("One call is")) throw new Error("the cost line");
+    await page.getByTestId("drawer-close").click();
+    // Within 10% of the cap: the quiet amber line.
+    const add = Math.max(0, cap * 0.95 - (await spend()));
+    await pg.query("insert into ai_usage (owner_id, purpose, model, cost_usd) values ($1, 'test_near_cap', 'test', $2)", [OWNER, add]);
+    try {
+      await page.reload();
+      await page.getByTestId("ask-ai").click();
+      await page.getByTestId("ask-ai-cap-warning").waitFor({ timeout: 15000 });
+      const warn = await page.getByTestId("ask-ai-cap-warning").evaluate((el) => [el.innerText, getComputedStyle(el).color].join("|"));
+      if (!warn.startsWith("AI this month: $") || !warn.endsWith("rgb(180, 83, 9)")) throw new Error(`the warning: ${warn}`);
+      await page.getByTestId("ask-ai-panel").screenshot({ path: path.join(OUT, "flow-work-ask-ai-near-cap.png") });
+      await page.getByTestId("drawer-close").click();
+      await page.goto(`${BASE}/settings`);
+      await page.getByTestId("ai-spend-line").waitFor();
+      await page.getByTestId("ai-spend-line").screenshot({ path: path.join(OUT, "flow-settings-ai-spend.png") });
+    } finally {
+      await pg.query("delete from ai_usage where purpose = 'test_near_cap'");
+    }
+    // The other Work screens at 1280 and on the phone.
+    await shootBatchC(`${BASE}/work`, "work-now");
+    await shootBatchC(`${BASE}/work/rosara`, "work-rosara");
   });
 
   await step("Savings ideas: propose now, shown on Home with a count, Edit, Later, Decline (not proposed again), Approve as a reduction action", async () => {

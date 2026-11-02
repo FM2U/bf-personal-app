@@ -5,7 +5,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireOwner } from "@/lib/auth";
 import { addDaysISO } from "@/lib/calc/dates";
 import { AI_REPLY_CUT_OFF, AI_REPLY_UNUSABLE, AIInvalidReply, AIUnavailable, aiBudget, callForJson, cleanDeep, replySnippet } from "@/lib/ai/claude";
-import { env, isAIConfigured } from "@/lib/env";
+import { capWarning } from "@/lib/ai/spend";
+import { isAIConfigured } from "@/lib/env";
 import { loadCtx, refreshNextActionAlert, type Ctx } from "@/lib/engine/helpers";
 import { releaseSupersededNextActions } from "@/lib/engine/tasks";
 import { isMissingSchemaError } from "@/lib/schema-guard";
@@ -13,7 +14,7 @@ import { addPersonTask } from "@/app/actions/outreach";
 import { addItemTask } from "@/app/actions/pipelines";
 import { addProjectTask } from "@/app/actions/projects";
 import { addTodo, suggestQuestions } from "@/app/actions/work";
-import { answerPrompt, estimateCents, estimateLabel, fieldPrompt, isRecordPage, nextStepsPrompt, panelSpec, recordNoun, tasksPrompt, validateAnswerReply, validateFieldReply, validateNextStepsReply, type Answer, type AskContext, type NextStep } from "@/lib/work/ask-ai";
+import { answerPrompt, fieldPrompt, isRecordPage, nextStepsPrompt, panelSpec, recordNoun, tasksPrompt, validateAnswerReply, validateFieldReply, validateNextStepsReply, type Answer, type AskContext, type NextStep } from "@/lib/work/ask-ai";
 import { buildPageContext } from "@/lib/work/ask-ai-context";
 import { loadWorkCtx, loadWorkNow, workUpdateNotice } from "@/lib/work/data";
 import { loadAiOrder } from "@/lib/work/home-data";
@@ -47,18 +48,11 @@ function aiError(e: unknown): Fail {
   return fail(e instanceof AIUnavailable ? e.message : `The AI request failed: ${e instanceof Error ? e.message : String(e)}`);
 }
 
-/** The app's price figures (per million tokens), or null when it has none (then no estimate is shown). */
-function prices(): { input: number; output: number } | null {
-  const input = Number(env.aiInputPricePerMTok);
-  const output = Number(env.aiOutputPricePerMTok);
-  return Number.isFinite(input) && Number.isFinite(output) && input > 0 && output > 0 ? { input, output } : null;
-}
-
 export type AskSetup = {
   ok: true;
   questions: string[];
-  /** "about 1 cent" for one call with this page as context, or null when the app has no cost figures. */
-  estimate: string | null;
+  /** The quiet amber line when the month's AI spend is within 10% of the cap (Edit batch C, item 13), or null. */
+  capWarning: string | null;
   /** The panel offers suggestions (next steps on a record page, tasks or questions from a card star). */
   suggests: boolean;
   /** The AI is set up and under its cap (otherwise the reason). */
@@ -67,28 +61,24 @@ export type AskSetup = {
 };
 
 /**
- * What the panel checks before any call: the cost estimate and whether the AI can be called. The panel's title,
- * questions, and sections come from panelSpec in the browser, so the panel opens at once and this fills in.
+ * What the panel checks before any call: whether the AI can be called, and the spend warning near the monthly cap
+ * (Edit batch C: no cost line per call; the month's spend is in Settings). The panel's title, questions, and sections
+ * come from panelSpec in the browser, so the panel opens at once and this fills in.
  */
 export async function askAiSetup(c: AskContext): Promise<AskSetup | Fail> {
   const s = await setup();
   if (isFail(s)) return s;
   const { sb, ctx } = s;
   let notReady: string | null = null;
+  let warning: string | null = null;
   if (!isAIConfigured()) notReady = "The AI is not set up yet. Add ANTHROPIC_API_KEY in Vercel.";
   else {
     const budget = await aiBudget(sb, ctx.ownerId);
     if (budget.blocked) notReady = `The AI monthly cap of $${budget.cap.toFixed(2)} is reached. AI requests resume next month, or raise the cap in Settings.`;
-  }
-  const p = prices();
-  let estimate: string | null = null;
-  if (p) {
-    const context = await buildPageContext(sb, ctx.ownerId, c).catch(() => ({ title: c.label, lines: [] as string[] }));
-    const chars = context.title.length + context.lines.reduce((n, l) => n + l.length + 2, 0) + 600;
-    estimate = estimateLabel(estimateCents(chars, 500, p.input, p.output));
+    else warning = capWarning(budget.spent, budget.cap);
   }
   const spec = panelSpec(c);
-  return { ok: true, questions: spec.questions, estimate, suggests: !!spec.suggest, ready: !notReady, notReady };
+  return { ok: true, questions: spec.questions, capWarning: warning, suggests: !!spec.suggest, ready: !notReady, notReady };
 }
 
 /** Suggested next steps: up to three with a one-line reason, for a record page or for the card a star was pressed on. */

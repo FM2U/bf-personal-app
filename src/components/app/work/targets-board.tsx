@@ -5,29 +5,47 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { addTarget, editTarget, removeTarget, setCommitment } from "@/app/actions/accountability";
 import type { TargetsPage } from "@/lib/accountability/data";
-import { COUNTABLES, missedLine, type TargetView } from "@/lib/accountability/targets";
+import { COUNTABLES, type TargetView } from "@/lib/accountability/targets";
+import { pastWeekPeriodKey } from "@/lib/accountability/periods";
 import { date as fmtDate } from "@/lib/format";
-import { StatusMark, StripRow, Switch, TargetsLegend } from "@/components/app/work/targets-ui";
-import { Figure, Line1, Name, RowButton, Rows, WorkCard } from "@/components/app/work/ui";
+import { StatusMark, StripRow, Switch, TargetPill, TargetsLegend } from "@/components/app/work/targets-ui";
+import { Figure, Line1, Name, ROW_GRIDS, RowButton, Rows, WorkCard } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
 
 /**
- * Targets (batch C, approved 2026-10-31): one row per target: the name, "Per weekday · target 5 · counts ...", the
- * strip of small cells with its met count and streak; the status mark in its own column; two labeled figures (Today
+ * Targets (batch C, approved 2026-10-31; Edit batch C): "Past weeks: 2/6 · 3/6 · 2/6 · 3/6" at the top, each figure
+ * a link to that week on Reports (the tiles with the misses live there now). One row per target: the name with the
+ * target pill ("5 / weekday", "10 / week", "100% on time"), the line of what it counts, the strip of small cells with
+ * its met count and streak; the status mark in its own column after a reserved 32px gap; two labeled figures (Today
  * and This week, or This week and Last week) in fixed columns; the Commitment switch and Edit (inline: the number,
- * the cadence, Save, Cancel, Remove target). Add a target (the header button, ?add=1) opens the form above the list. The legend at the foot. Past weeks as four
- * tiles with what was missed, and "Most missed". Everything is counted from what Bram does in the app.
+ * the cadence, Save, Cancel, Remove target). Add a target (the header button, ?add=1) opens the form above the list.
+ * The legend at the foot. Everything is counted from what Bram does in the app; a figure over its target is met.
  */
 const INPUT = "h-9 w-full min-w-0 rounded-[7px] border border-input bg-white px-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
 const SMALL_INPUT = "h-[30px] rounded-[6px] border border-input bg-white px-2 text-[13px] text-slate-900 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
 const LABEL = "text-xs font-medium text-muted-foreground";
 /** The fixed figure column (the alignment rule): "19 of 25" at 13.5px semibold, "THIS WEEK" in small caps. */
 const FIG = "w-[82px]";
+const GRID = ROW_GRIDS.target;
 
 export function TargetsBoard({ data, adding = false }: { data: TargetsPage; adding?: boolean }) {
   const router = useRouter();
   return (
     <div className="flex flex-col gap-4">
+      {data.past.length ? (
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-[10px] border border-border bg-white px-[18px] py-2.5 text-[13px] text-muted-foreground shadow-[0_1px_2px_rgba(15,23,42,0.04)]" data-testid="past-weeks-line">
+          <span className="font-medium text-slate-800">Past weeks:</span>
+          {data.past.map((w, i) => (
+            <span key={w.weekStart} className="inline-flex items-center gap-2">
+              {i ? <span className="text-slate-400" aria-hidden>·</span> : null}
+              <Link href={`/work/reports?period=${pastWeekPeriodKey(i + 1)}`} className="tabular font-medium text-primary-strong hover:underline" title={`Week of ${fmtDate(w.weekStart, "MMM d")}: ${w.met} of ${w.total} targets met. Opens Reports.`} aria-label={`Week of ${fmtDate(w.weekStart, "MMM d")}: ${w.met} of ${w.total} targets met`} data-testid="past-week-link" data-period={pastWeekPeriodKey(i + 1)} data-met={w.met}>
+                {w.met}/{w.total}
+              </Link>
+            </span>
+          ))}
+          <span className="text-xs text-slate-400 sm:ml-auto">Newest first · each opens that week on Reports</span>
+        </p>
+      ) : null}
       {adding ? <AddTargetForm onClose={() => router.push("/work/targets", { scroll: false })} /> : null}
       <WorkCard
         title="Targets"
@@ -53,29 +71,6 @@ export function TargetsBoard({ data, adding = false }: { data: TargetsPage; addi
         <TargetsLegend />
       </WorkCard>
 
-      <section data-testid="past-weeks">
-        <div className="label-caps mt-1 mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-rule pb-[7px]">
-          <span>Past weeks</span>
-          <span className="text-[12.5px] font-medium tracking-normal text-muted-foreground normal-case">targets met, of {data.targets.length}</span>
-          <span className="text-xs font-normal tracking-normal text-muted-foreground normal-case sm:ml-auto" data-testid="most-missed">
-            {data.mostMissed ? `Most missed: ${data.mostMissed.name}, ${data.mostMissed.n} of the last ${data.mostMissed.of} weeks · ` : "Every week met · "}
-            <Link href="/work/reports" className="font-medium text-primary-strong hover:underline">
-              Open Reports
-            </Link>
-          </span>
-        </div>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
-          {data.past.map((w) => (
-            <div key={w.weekStart} className="flex min-w-0 flex-col gap-0.5 rounded-xl border border-border bg-white px-4 py-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] md:px-5 md:py-4" data-testid="past-week" data-met={w.met}>
-              <b className={cn("tabular text-[22px] leading-tight font-semibold tracking-[-0.01em] md:text-[26px]", w.total && w.met === w.total ? "text-status-met" : w.total && w.met * 2 < w.total ? "text-status-missed" : "text-slate-900")}>
-                {w.met} of {w.total}
-              </b>
-              <span className="label-caps mt-0.5">Week of {fmtDate(w.weekStart, "MMM d")}</span>
-              <span className="mt-1 min-h-[38px] text-[12.5px] text-muted-foreground">{missedLine(w)}</span>
-            </div>
-          ))}
-        </div>
-      </section>
     </div>
   );
 }
@@ -116,10 +111,11 @@ function TargetRow({ t }: { t: TargetView }) {
       router.refresh();
     });
   return (
-    <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2 border-t border-slate-100 px-[22px] py-[13px] first:border-t-0 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto] sm:gap-x-4" data-testid="target-row" data-target={t.name} data-mark={t.mark} data-commitment={commit ? "1" : "0"}>
-      <div className="col-span-2 min-w-0 sm:col-span-1">
+    <div className={cn("grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2 border-t border-slate-100 px-[22px] py-[13px] first:border-t-0", GRID.cls, GRID.gapCls)} data-testid="target-row" data-target={t.name} data-mark={t.mark} data-commitment={commit ? "1" : "0"}>
+      <div className={cn("col-span-2 min-w-0 sm:col-span-1", GRID.textMarginCls)} data-row-text>
         <Line1>
           <Name>{t.name}</Name>
+          <TargetPill text={t.pill} />
         </Line1>
         {editing ? (
           <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground" data-testid="target-edit">
@@ -151,13 +147,13 @@ function TargetRow({ t }: { t: TargetView }) {
           </p>
         ) : null}
       </div>
-      <StatusMark mark={t.mark} className="justify-self-start sm:justify-self-end" />
+      <StatusMark mark={t.mark} className="justify-self-start" />
       <div className="flex items-end gap-x-5 whitespace-nowrap sm:gap-x-6" data-row-right>
         {t.figures.map((f) => (
           <Figure key={f.label} value={f.value} label={f.label} tone={f.tone === "met" ? "plain" : f.tone === "missed" ? "red" : f.tone === "none" ? "none" : "plain"} className={cn(FIG, f.tone === "met" && "[&>b]:text-status-met")} testId={`target-figure-${f.label.replace(/\s/g, "-").toLowerCase()}`} />
         ))}
       </div>
-      <div className="col-span-2 flex items-center justify-between gap-3.5 border-t border-slate-100 pt-2 whitespace-nowrap sm:col-span-1 sm:justify-end sm:border-t-0 sm:pt-0" data-col="buttons">
+      <div className="col-span-2 flex items-center justify-between gap-3.5 border-t border-slate-100 pt-2 whitespace-nowrap sm:col-span-1 sm:border-t-0 sm:pt-0" data-col="buttons">
         <Switch on={commit} onChange={toggle} label="Commitment" disabled={pending} testId="commitment-switch" className="min-w-[120px]" />
         <RowButton onClick={() => setEditing((e) => !e)} disabled={editing} className="w-[68px]" data-testid="target-edit-button">
           Edit

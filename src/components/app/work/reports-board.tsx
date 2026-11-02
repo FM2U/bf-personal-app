@@ -2,7 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { PeriodKey, PeriodView, ReportsPage, SentRow } from "@/lib/accountability/data";
+import type { PeriodKey, PeriodView, ReportsPage, SentRow, WeekTile } from "@/lib/accountability/data";
+import { pastWeekPeriodKey, periodPills } from "@/lib/accountability/periods";
+import { shortTargetName } from "@/lib/accountability/targets";
+import { date as fmtDate } from "@/lib/format";
 import { Drawer } from "@/components/app/work/drawer";
 import { useSections } from "@/components/app/work/sections";
 import { CollapseAllButton, Figure, Line1, Line2, Name, Pill, PinnedBlock, Rows, SectionHeading, WorkCard } from "@/components/app/work/ui";
@@ -14,7 +17,9 @@ import { cn } from "@/lib/utils";
  * screened, Outreach, Follow-ups on time, Days waiting on brokers) and the cards Targets, Waiting on brokers, Deals
  * moved, Passed by reason; "Sent reports" lists the reports by week (Find, Collapse all) with "Daily, Fri Oct 31 ·
  * Sent 5:41 pm · <partner> reviewed / Sent / Skipped · <partner> replied"; a row opens the report as sent in the
- * right drawer with when it was opened and the reply.
+ * right drawer with when it was opened and the reply. Edit batch C (item 7): the Past weeks tiles moved here from
+ * Targets, under "The week": the met count, the week, and each miss on its own line (red dot, target, figure); a
+ * tile opens that week (its pill shows while it is open). Most missed sits on the Past weeks heading.
  */
 const STORAGE_KEY = "work-reports-sent-sections";
 const FIG = "w-[82px]";
@@ -33,7 +38,13 @@ export function ReportsBoard({ data, title, tabs, view: viewAtStart, period: per
   const ui = useSections(STORAGE_KEY, states, !!q);
   const pick = (v: "week" | "sent") => {
     setView(v);
-    router.replace(v === "sent" ? "/work/reports?view=sent" : "/work/reports", { scroll: false });
+    router.replace(v === "sent" ? "/work/reports?view=sent" : period === "this" ? "/work/reports" : `/work/reports?period=${period}`, { scroll: false });
+  };
+  /** A period pill or a Past weeks tile: the period shows, and the address keeps it (a reload or a link opens it again). */
+  const pickPeriod = (k: PeriodKey, toTop = false) => {
+    setPeriod(k);
+    if (view === "week") router.replace(k === "this" ? "/work/reports" : `/work/reports?period=${k}`, { scroll: false });
+    if (toTop) window.scrollTo({ top: 0, behavior: "smooth" });
   };
   return (
     <>
@@ -49,8 +60,8 @@ export function ReportsBoard({ data, title, tabs, view: viewAtStart, period: per
             ))}
           </span>
           <span className="mx-0.5 hidden h-5 w-px bg-border sm:block" aria-hidden />
-          {data.periods.map((per) => (
-            <button key={per.key} type="button" onClick={() => setPeriod(per.key)} aria-pressed={period === per.key} className={cn("inline-flex items-center rounded-full border px-3 py-1 text-[12.5px] font-medium whitespace-nowrap", period === per.key ? "border-primary-border bg-primary-soft text-primary-strong" : "border-border bg-white text-slate-600 hover:bg-slate-50")} data-testid={`reports-period-${per.key}`}>
+          {periodPills(data.periods, period).map((per) => (
+            <button key={per.key} type="button" onClick={() => pickPeriod(per.key)} aria-pressed={period === per.key} className={cn("inline-flex items-center rounded-full border px-3 py-1 text-[12.5px] font-medium whitespace-nowrap", period === per.key ? "border-primary-border bg-primary-soft text-primary-strong" : "border-border bg-white text-slate-600 hover:bg-slate-50")} data-testid={`reports-period-${per.key}`}>
               {per.label}
             </button>
           ))}
@@ -71,7 +82,10 @@ export function ReportsBoard({ data, title, tabs, view: viewAtStart, period: per
       </PinnedBlock>
 
       {view === "week" ? (
-        <WeekView p={p} first={first} />
+        <>
+          <WeekView p={p} first={first} />
+          <PastWeeks past={data.past} mostMissed={data.mostMissed} active={period} onOpen={(k) => pickPeriod(k, true)} />
+        </>
       ) : (
         <WorkCard title="Sent reports" hint={`To ${first} by email · a sent report never changes`} testId="sent-reports-card">
           <div className="px-[22px] pb-2" data-testid="sent-sections">
@@ -195,6 +209,51 @@ function Row({ name, line, figure, label, tone }: { name: string; line: string; 
       </div>
       <Figure value={figure} label={label} tone={tone === "missed" ? "red" : tone === "amber" ? "amber" : "plain"} className={cn(FIG, tone === "met" && "[&>b]:text-status-met")} testId="report-figure" />
     </div>
+  );
+}
+
+/**
+ * The Past weeks tiles (moved from Targets, Edit batch C item 7): "2 of 6", the week, then each miss on its own line
+ * with a red dot, the target's short name, and its figure ("Listings 21 of 25"). A tile opens that week above.
+ */
+function PastWeeks({ past, mostMissed, active, onOpen }: { past: WeekTile[]; mostMissed: ReportsPage["mostMissed"]; active: PeriodKey; onOpen: (k: PeriodKey) => void }) {
+  if (!past.length) return null;
+  return (
+    <section className="mt-5" data-testid="past-weeks">
+      <div className="label-caps mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-rule pb-[7px]">
+        <span>Past weeks</span>
+        <span className="text-[12.5px] font-medium tracking-normal text-muted-foreground normal-case">targets met, of {past[0].total}</span>
+        <span className="text-xs font-normal tracking-normal text-muted-foreground normal-case sm:ml-auto" data-testid="most-missed">
+          {mostMissed ? `Most missed: ${mostMissed.name}, ${mostMissed.n} of the last ${mostMissed.of} weeks` : "Every week met"}
+        </span>
+      </div>
+      <div className="grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 md:gap-4 xl:grid-cols-4">
+        {past.map((w, i) => {
+          const key = pastWeekPeriodKey(i + 1);
+          return (
+            <button key={w.weekStart} type="button" onClick={() => onOpen(key)} aria-pressed={active === key} className={cn("flex min-w-0 flex-col gap-0.5 rounded-xl border bg-white px-4 py-3.5 text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:bg-[#fbfcfe] md:px-5 md:py-4", active === key ? "border-primary-border" : "border-border")} data-testid="past-week" data-period={key} data-met={w.met}>
+              <b className={cn("tabular text-[22px] leading-tight font-semibold tracking-[-0.01em] md:text-[26px]", w.total && w.met === w.total ? "text-status-met" : w.total && w.met * 2 < w.total ? "text-status-missed" : "text-slate-900")}>
+                {w.met} of {w.total}
+              </b>
+              <span className="label-caps mt-0.5">Week of {fmtDate(w.weekStart, "MMM d")}</span>
+              {w.missed.length ? (
+                <ul className="mt-1.5 flex flex-col gap-1" data-testid="past-week-misses">
+                  {w.missed.map((m) => (
+                    <li key={m.name} className="flex items-center gap-2 text-[12.5px] text-slate-700" data-testid="past-week-miss">
+                      <i className="block h-1.5 w-1.5 shrink-0 rounded-full bg-status-missed-solid" aria-hidden />
+                      <span className="min-w-0 flex-1">{shortTargetName(m.name)}</span>
+                      <span className="tabular shrink-0 font-medium text-status-missed">{m.figure}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <span className="mt-1.5 text-[12.5px] font-medium text-status-met">Every target met</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 

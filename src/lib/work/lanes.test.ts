@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actionKey, aiOrderPrompt, applyAiOrder, laneOfKey, laneSectionOf, matchesActionSearch, mergeLanes, orderedAtLabel, parseOrderChoice, validateAiOrderReply, type HomeAction } from "./lanes";
+import { actionKey, aiOrderPrompt, applyAiOrder, laneOfKey, laneSectionOf, laneShown, matchesActionSearch, mergeLanes, normalizeShow, orderedAtLabel, parseOrderChoice, parseShowChoice, SHOW_LANES, showLabel, toggleShow, validateAiOrderReply, type HomeAction } from "./lanes";
 
 const today = "2026-11-03";
 const a = (lane: HomeAction["lane"], id: string, over: Partial<HomeAction> = {}): HomeAction => ({ key: actionKey(lane, id), lane, id, name: id, action: "Do it", due: today, minutes: null, meta: "", ...over });
@@ -90,5 +90,37 @@ describe("the AI order", () => {
     expect(prompt).toContain("minutes=60");
     expect(prompt).toContain("key=job:Harbor");
     expect(prompt).not.toContain("—");
+  });
+});
+
+describe("the Show filter on Home (Edit batch C, item 2)", () => {
+  it("lists the six lanes of the menu", () => {
+    expect([...SHOW_LANES]).toEqual(["Deals", "Outreach", "Rosara", "Job search", "Consulting", "To-dos"]);
+  });
+  it("starts at All; ticking lanes shows only those, several allowed; the pill counts them", () => {
+    expect(showLabel(null)).toBe("Show: All");
+    const one = toggleShow(null, "Outreach");
+    expect(one).toEqual(["Outreach"]);
+    const two = toggleShow(one, "Deals");
+    expect(two).toEqual(["Deals", "Outreach"]);
+    expect(showLabel(two)).toBe("Show: 2");
+    expect(laneShown("Deals", two)).toBe(true);
+    expect(laneShown("Rosara", two)).toBe(false);
+    expect(laneShown("Rosara", null)).toBe(true);
+  });
+  it("unticking the last lane, or ticking all six, is All again", () => {
+    expect(toggleShow(["Rosara"], "Rosara")).toBeNull();
+    let c: ReturnType<typeof toggleShow> = null;
+    for (const l of SHOW_LANES) c = toggleShow(c, l);
+    expect(c).toBeNull();
+    expect(normalizeShow([])).toBeNull();
+  });
+  it("reads the remembered choice back safely (bad or old values are All)", () => {
+    expect(parseShowChoice(JSON.stringify(["Consulting", "Deals"]))).toEqual(["Deals", "Consulting"]);
+    expect(parseShowChoice(JSON.stringify(["Deals", "Nope"]))).toEqual(["Deals"]);
+    expect(parseShowChoice("not json")).toBeNull();
+    expect(parseShowChoice(JSON.stringify({ Deals: true }))).toBeNull();
+    expect(parseShowChoice(null)).toBeNull();
+    expect(parseShowChoice(JSON.stringify([]))).toBeNull();
   });
 });

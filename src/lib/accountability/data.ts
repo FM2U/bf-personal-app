@@ -6,13 +6,14 @@ import { date as fmtDate, formatInZone } from "@/lib/format";
 import { DB_UPDATE_NOTICE_0025 } from "@/lib/schema-guard";
 import { hasUpdate0025 } from "@/lib/update-0025";
 import { displayName } from "@/lib/work/names";
-import { passReasonLabel } from "@/lib/work/buy-box";
 import { loadPipelineOfKind, loadWorkCtx, workUpdateNotice, type WorkCtx, type WorkPipeline } from "@/lib/work/data";
 import { weekdayShort } from "@/lib/work/outreach";
 import { daysWaiting } from "@/lib/work/stages";
+import { buildFacts } from "@/lib/accountability/facts";
 import { dealBullets, pillOf, reportInnerHtml, targetLine, type ReportData } from "@/lib/accountability/report-email";
+import { PAST_WEEKS, pastWeekPeriodKey, type PeriodKey } from "@/lib/accountability/periods";
 import {
-  countedDays, countIn, DEFAULT_TARGETS, dayNumbers, EMPTY_FACTS, figure, isCountKey, judgeDay, listNames, metThisWeek, mostMissed, owedFromLastClosed, owedReasons, pastWeeks, shortName,
+  countedDays, countIn, DEFAULT_TARGETS, dayNumbers, figure, isCountKey, judgeDay, listNames, metThisWeek, mostMissed, owedFromLastClosed, owedReasons, pastWeeks, shortName,
   targetView, tileEodLine, tileTargetLine, tileTargets, todayTiles, tomorrowLabel, weekNumbers, weekTiles, workWeekOf,
   type Cadence, type DayNumbers, type EodState, type Facts, type Judged, type Target, type TargetView, type WeekNumbers, type WeekTile,
 } from "@/lib/accountability/targets";
@@ -96,59 +97,15 @@ export async function loadFacts(sb: SupabaseClient, ctx: WorkCtx, since: string)
   const [{ data: items }, { data: hist }, { data: comms }, { data: events }, { data: eods }, { data: people }] = await Promise.all([
     sb.from("pipeline_items").select("id,name,company_name,pipeline_id,status,stage_id,pass_reason,key_finding,waiting_on,waiting_since,next_action,screened,broker_name,primary_contact_id").eq("owner_id", ctx.ownerId).limit(5000),
     sb.from("stage_history").select("id,item_id,stage_id,entered_at").eq("owner_id", ctx.ownerId).order("entered_at").limit(20000),
-    sb.from("communications").select("id,occurred_at,method,direction,contact_id").eq("owner_id", ctx.ownerId).gte("occurred_at", `${since}T00:00:00Z`).limit(5000),
+    sb.from("communications").select("id,occurred_at,method,direction,contact_id,awaiting_log").eq("owner_id", ctx.ownerId).gte("occurred_at", `${since}T00:00:00Z`).limit(5000),
     sb.from("work_events").select("kind,record_type,record_id,label,happened_on,on_time,meta").eq("owner_id", ctx.ownerId).gte("happened_on", since).limit(5000),
     sb.from("end_of_day").select("day,status").eq("owner_id", ctx.ownerId).eq("status", "skipped").gte("day", since).limit(500),
     sb.from("contacts").select("id,name,outreach_role").eq("owner_id", ctx.ownerId).limit(5000),
   ]);
   const personById = new Map(((people ?? []) as Row[]).map((p) => [String(p.id), p]));
-  const itemById = new Map(((items ?? []) as Row[]).map((i) => [String(i.id), i]));
   const nameOf = (i: Row) => displayName({ name: String(i.name), companyName: (i.company_name as string | null) ?? null });
-
-  // Stage history by item, in order: the first stage is the screening (Passed or Interested); every later stage is a move.
-  const byItem = new Map<string, Row[]>();
-  for (const h of (hist ?? []) as Row[]) {
-    if (!h.stage_id) continue;
-    const list = byItem.get(String(h.item_id)) ?? [];
-    list.push(h);
-    byItem.set(String(h.item_id), list);
-  }
-  const facts: Facts = { ...EMPTY_FACTS, screened: [], moves: [], comms: [], followUps: [], actionsDone: [], focusDone: [] };
-  const passes: FactsBundle["passes"] = [];
-  for (const [itemId, rows] of byItem) {
-    const item = itemById.get(itemId);
-    if (!item) continue;
-    const lane = laneOf[String(item.pipeline_id)];
-    if (!lane) continue;
-    let prev: { name: string; outcome: string } | null = null;
-    for (const h of rows) {
-      const stage = stageById[String(h.stage_id)];
-      if (!stage) continue;
-      const on = local(String(h.entered_at));
-      if (!prev) {
-        if (lane === "Deals" && (stage.name === "Interested" || stage.name === "Passed") && on >= since) {
-          const reason = stage.name === "Passed" ? passReasonLabel((item.pass_reason as string | null) ?? null) : null;
-          facts.screened.push({ on, outcome: stage.name === "Passed" ? "passed" : "interested", name: nameOf(item), reason });
-          if (stage.name === "Passed") passes.push({ on, name: nameOf(item), reason });
-        }
-      } else if (stage.name !== prev.name && on >= since) {
-        if (stage.outcome === "open" || stage.outcome === "won") facts.moves.push({ on, name: nameOf(item), from: prev.name, to: stage.name, keyFinding: (item.key_finding as string | null) ?? null, lane });
-        else if (stage.name === "Passed" && lane === "Deals") passes.push({ on, name: nameOf(item), reason: passReasonLabel((item.pass_reason as string | null) ?? null) });
-      }
-      prev = stage;
-    }
-  }
-  for (const c of (comms ?? []) as Row[]) {
-    if (c.direction === "incoming") continue;
-    const contact = c.contact_id ? personById.get(String(c.contact_id)) : null;
-    facts.comms.push({ on: local(String(c.occurred_at)), method: String(c.method), contactId: c.contact_id ? String(c.contact_id) : null, contactName: contact?.name ? String(contact.name) : null, broker: contact?.outreach_role === "broker" });
-  }
-  for (const e of (events ?? []) as Row[]) {
-    const on = String(e.happened_on).slice(0, 10);
-    if (e.kind === "follow_up_done") facts.followUps.push({ on, onTime: e.on_time !== false, name: String(e.label ?? "") });
-    else if (e.kind === "next_action_done") facts.actionsDone.push({ on, name: String(e.label ?? ""), label: String((e.meta as Row | null)?.action ?? "") });
-    else if (e.kind === "focus_done") facts.focusDone.push({ on, text: String(e.label ?? "") });
-  }
+  // The counting itself is pure and shared (src/lib/accountability/facts.ts).
+  const { facts, passes } = buildFacts({ items: (items ?? []) as Row[], history: (hist ?? []) as Row[], comms: (comms ?? []) as Row[], events: (events ?? []) as Row[], people: (people ?? []) as Row[], stageById, laneOf, since, local });
   const waits: Wait[] = ((items ?? []) as Row[])
     .filter((i) => i.status === "open" && String(i.waiting_on ?? "").trim() && laneOf[String(i.pipeline_id)] === "Deals" && i.stage_id && stageById[String(i.stage_id)]?.outcome === "open")
     .map((i) => {
@@ -336,7 +293,7 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
 
 // ---------- Reports ----------
 
-export type PeriodKey = "this" | "last" | "month";
+export type { PeriodKey };
 
 export type PeriodView = {
   key: PeriodKey;
@@ -358,7 +315,7 @@ export type SentRow = { id: string; day: string; title: string; summary: string;
 
 export type SentSection = { key: string; label: string; hint: string; rows: SentRow[]; collapsed: boolean };
 
-export type ReportsPage = { today: string; partner: Partner | null; periods: PeriodView[]; sent: SentSection[] };
+export type ReportsPage = { today: string; partner: Partner | null; periods: PeriodView[]; sent: SentSection[]; /** The four full weeks before this one, newest first (the Past weeks tiles, Edit batch C item 7). */ past: WeekTile[]; mostMissed: { name: string; n: number; of: number } | null };
 
 export async function loadReportsPage(sb: SupabaseClient, ctx: Ctx): Promise<ReportsPage> {
   const wctx = await loadWorkCtx(sb, ctx.ownerId);
@@ -372,12 +329,18 @@ export async function loadReportsPage(sb: SupabaseClient, ctx: Ctx): Promise<Rep
   const defs: { key: PeriodKey; label: string; period: { start: string; end: string }; lead: string; words: string; last: { start: string; end: string } | null }[] = [
     { key: "this", label: "This week", period: week, lead: `Week of ${fmtDate(week.start, "MMM d")} to ${fmtDate(week.end, "d")} · ${weekOpen ? "counted so far; the per-week targets are judged at End of day on Friday" : "judged at End of day on Friday"}`, words: "this week", last },
     { key: "last", label: "Last week", period: last, lead: `Week of ${fmtDate(last.start, "MMM d")} to ${fmtDate(last.end, "d")}`, words: "last week", last: { start: addDaysISO(last.start, -7), end: addDaysISO(last.start, -3) } },
+    // The older weeks of Past weeks (opened from Targets or a tile; their pill shows only while one is open).
+    ...Array.from({ length: PAST_WEEKS - 1 }, (_, i) => {
+      const start = addDaysISO(week.start, -7 * (i + 2));
+      const period = { start, end: addDaysISO(start, 4) };
+      return { key: pastWeekPeriodKey(i + 2), label: `Week of ${fmtDate(start, "MMM d")}`, period, lead: `Week of ${fmtDate(start, "MMM d")} to ${fmtDate(period.end, "d")}`, words: `the week of ${fmtDate(start, "MMM d")}`, last: { start: addDaysISO(start, -7), end: addDaysISO(start, -3) } };
+    }),
     { key: "month", label: monthName, period: month, lead: `${monthName} · ${fmtDate(month.start, "MMM d")} to ${fmtDate(ctx.today, "MMM d")} · this week counted so far`, words: `in ${monthName}`, last: null },
   ];
   const periods: PeriodView[] = defs.map((d) => {
     const w = weekNumbers(targets, bundle.facts, d.period, bundle.waits, bundle.skippedDays, ctx.today);
     const prev = d.last ? weekNumbers(targets, bundle.facts, d.last, bundle.waits, bundle.skippedDays) : null;
-    const open = d.key !== "last" && weekOpen;
+    const open = (d.key === "this" || d.key === "month") && weekOpen;
     const tiles = weekTiles(w, prev);
     if (d.key === "month") tiles[0] = monthTargetsTile(targets, bundle, month, ctx.today);
     // While the week is counted, a figure short of its target is plain (under way), not red.
@@ -399,7 +362,7 @@ export async function loadReportsPage(sb: SupabaseClient, ctx: Ctx): Promise<Rep
       words: d.words,
     };
   });
-  return { today: ctx.today, partner, periods, sent: groupSent(sentRows, ctx.today) };
+  return { today: ctx.today, partner, periods, sent: groupSent(sentRows, ctx.today), past: pastWeeks(targets, bundle.facts, ctx.today, bundle.skippedDays, PAST_WEEKS), mostMissed: mostMissed(targets, bundle.facts, ctx.today, bundle.skippedDays) };
 }
 
 /** Targets met in a month: the sum over its weeks ("14 of 24"). */

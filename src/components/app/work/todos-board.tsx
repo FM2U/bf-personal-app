@@ -8,7 +8,7 @@ import { date as fmtDate } from "@/lib/format";
 import { TODO_SECTIONS, todoDueLabel, type PersonalTodo, type TodoSectionKey } from "@/lib/work/personal-todos";
 import type { TodosData } from "@/lib/work/personal-todos-data";
 import { useSections } from "@/components/app/work/sections";
-import { Due, RowButton, SectionHeading } from "@/components/app/work/ui";
+import { CollapseAllButton, Due, RowButton, SectionHeading } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
 
 /**
@@ -60,6 +60,9 @@ export function TodosBoard({ data }: { data: TodosData }) {
   };
   return (
     <section className="w-full max-w-[720px] rounded-xl border border-border bg-white px-[22px] pt-1 pb-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]" data-testid="todos-card">
+      <div className="-mb-1 flex justify-end pt-2">
+        <CollapseAllButton allCollapsed={ui.allCollapsed} onClick={ui.toggleAll} />
+      </div>
       {TODO_SECTIONS.map((s) => {
         const list = sections[s.key];
         const closed = ui.isCollapsed(s.label);

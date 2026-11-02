@@ -3,6 +3,9 @@ import { buildWorkSample, SAMPLE_PROJECT_NAMES, WORK_SAMPLE_NAMES } from "./samp
 import { checkBuyBox } from "./buy-box";
 import { STAGE_DEFAULTS, WORK_STAGES } from "./stages";
 import { outreachSections, parsePurposes } from "./outreach";
+import { addDaysISO } from "@/lib/calc/dates";
+import { buildFacts } from "@/lib/accountability/facts";
+import { countIn, workWeekOf } from "@/lib/accountability/targets";
 
 const stages = Object.fromEntries([...WORK_STAGES, "Closed", "Passed", "Lost"].map((n, i) => [n, `st-${i}`]));
 let n = 0;
@@ -217,5 +220,82 @@ describe("the batch C sample (Jake, End of day rows, work events)", () => {
     expect(w.partners).toHaveLength(0);
     expect(w.endOfDay).toHaveLength(0);
     expect(w.workEvents).toHaveLength(0);
+  });
+});
+
+describe("the sample's week figures (Edit batch C, item 6), counted by the app's one counting function", () => {
+  const jobsStages = ["Contact", "Conversation", "Interview", "Offer", "Accepted", "Declined", "Not chosen"];
+  const consultingStages = ["Lead", "Proposal", "Engagement", "Paid", "Done", "Lost"];
+  const dealStages = [...WORK_STAGES, "Closed", "Passed", "Lost"];
+  const outcome = (name: string) => (["Passed", "Lost", "Declined", "Not chosen"].includes(name) ? "lost" : ["Accepted", "Done", "Closed"].includes(name) ? "won" : "open");
+  const ids = (pipe: string, names: string[]) => Object.fromEntries(names.map((n, i) => [n, `${pipe}-${i}`]));
+  const pipes: Record<string, Record<string, string>> = { "p-acq": ids("st", dealStages), "p-job": ids("j", jobsStages), "p-con": ids("c", consultingStages) };
+  const stageById = Object.fromEntries(Object.values(pipes).flatMap((m) => Object.entries(m).map(([name, id]) => [id, { name, outcome: outcome(name) }])));
+
+  /** The sample as the app reads it after the load: the rows, the stage history with its dates, then the facts. */
+  const weekOf = (today: string) => {
+    let k = 0;
+    const s = buildWorkSample({ pipelineId: "p-acq", stages: pipes["p-acq"], batchB: true, batchB2: true, batchC: true, jobs: { pipelineId: "p-job", stages: pipes["p-job"] }, consulting: { pipelineId: "p-con", stages: pipes["p-con"] } }, () => `00000000-0000-4000-8000-${String(++k).padStart(12, "0")}`, today);
+    const at = (daysAgo: number, hour: number) => `${addDaysISO(today, -daysAgo)}T${hour}:00:00Z`;
+    const history = s.stageDates.flatMap((d) => {
+      const item = s.items.find((i) => i.id === d.itemId)!;
+      const map = pipes[String(item.pipeline_id)];
+      return [...d.history.map((h) => ({ item_id: d.itemId, stage_id: map[h.stageName], entered_at: at(h.daysAgo, 13) })), { item_id: d.itemId, stage_id: item.stage_id, entered_at: at(d.enteredDaysAgo, 14) }];
+    });
+    const since = addDaysISO(workWeekOf(today).start, -63);
+    const { facts } = buildFacts({ items: s.items, history, comms: s.communications, events: s.workEvents, people: s.contacts, stageById, laneOf: { "p-acq": "Deals", "p-job": "Job search", "p-con": "Consulting" }, since, local: (ts) => ts.slice(0, 10) });
+    const week = workWeekOf(today);
+    const count = (key: "deals_moved" | "outreach_contacts" | "listings_screened", start = week.start, end = week.end) => countIn(key, facts, start, end).value;
+    return { s, facts, count, week };
+  };
+
+  it.each([
+    ["Wednesday", "2026-11-04", 3],
+    ["Thursday", "2026-11-05", 4],
+    ["Friday", "2026-11-06", 5],
+  ])("on a %s: deals moved 2 to 3, outreach 6 to 12, listings a few short of 5 a weekday", (_, today, days) => {
+    const { count } = weekOf(today);
+    expect(count("deals_moved")).toBeGreaterThanOrEqual(2);
+    expect(count("deals_moved")).toBeLessThanOrEqual(3);
+    expect(count("outreach_contacts")).toBeGreaterThanOrEqual(6);
+    expect(count("outreach_contacts")).toBeLessThanOrEqual(12);
+    const screened = count("listings_screened");
+    expect(screened).toBeLessThan(5 * days);
+    expect(screened).toBeGreaterThanOrEqual(5 * days - 4);
+  });
+
+  it("early in the week the figures are small, never more than a week's target", () => {
+    for (const today of ["2026-11-02", "2026-11-03"]) {
+      const { count } = weekOf(today);
+      expect(count("deals_moved")).toBeLessThanOrEqual(1);
+      expect(count("outreach_contacts")).toBeLessThanOrEqual(5);
+      expect(count("listings_screened")).toBeLessThan(10);
+    }
+  });
+
+  it.each(["2026-11-04", "2026-11-06"])("the past weeks look like weeks (today %s): moves spread out (never 12 of 2), outreach met some weeks, listings met some weeks", (today) => {
+    const { count, week } = weekOf(today);
+    const weeks = [1, 2, 3, 4].map((w) => ({ start: addDaysISO(week.start, -7 * w), end: addDaysISO(week.start, -7 * w + 4) }));
+    const moves = weeks.map((p) => count("deals_moved", p.start, p.end));
+    const outreach = weeks.map((p) => count("outreach_contacts", p.start, p.end));
+    const listings = weeks.map((p) => count("listings_screened", p.start, p.end));
+    expect(Math.max(...moves)).toBeLessThanOrEqual(6);
+    expect(outreach.some((n) => n >= 10) && outreach.some((n) => n < 10)).toBe(true);
+    expect(listings.some((n) => n >= 25) && listings.some((n) => n < 25)).toBe(true);
+    expect(Math.max(...outreach)).toBeLessThanOrEqual(14);
+  });
+
+  it("keeps the mockup's dates where the tests and screens rely on them, and every passed listing is a listed sample name", () => {
+    const { s } = weekOf("2026-11-04");
+    const dalton = s.items.find((i) => i.name === "Dalton Services")!;
+    expect(s.stageDates.find((d) => d.itemId === dalton.id)!.enteredDaysAgo).toBe(3);
+    for (const d of s.stageDates) {
+      const days = [...d.history.map((h) => h.daysAgo), d.enteredDaysAgo];
+      for (let i = 1; i < days.length; i++) expect(days[i]).toBeLessThanOrEqual(days[i - 1]);
+    }
+    for (const i of s.items) expect(WORK_SAMPLE_NAMES).toContain(i.name);
+    const passedListings = s.items.filter((i) => i.stage_id === pipes["p-acq"].Passed).map((i) => i.name);
+    expect(passedListings.length).toBeGreaterThan(40);
+    expect(new Set(passedListings).size).toBe(passedListings.length);
   });
 });

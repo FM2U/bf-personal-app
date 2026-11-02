@@ -1,6 +1,7 @@
 import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
 import { accountabilityNotice, loadEodBadge, loadReportsPage } from "@/lib/accountability/data";
+import { parsePeriodKey } from "@/lib/accountability/periods";
 import { AccountabilityTabs } from "@/components/app/nav-links";
 import { AskAiPill } from "@/components/app/work/ask-ai";
 import { ReportsBoard } from "@/components/app/work/reports-board";
@@ -12,7 +13,8 @@ export const metadata = { title: "Reports" };
 /**
  * Reports (batch C, approved 2026-10-31): the pinned title, Ask AI, the Accountability tabs, and the segmented choice
  * "The week | Sent reports" with the period pills and Find; then the six figure tiles and the four cards, or the sent
- * reports by week (src/components/app/work/reports-board.tsx).
+ * reports by week (src/components/app/work/reports-board.tsx). ?period=last, w2, w3, w4, or month opens that period
+ * (the Past weeks line on Targets links here, Edit batch C item 7).
  */
 export default async function ReportsPage({ searchParams }: { searchParams: Promise<{ view?: string; period?: string }> }) {
   const { supabase, ownerId } = await requireOwner();
@@ -48,7 +50,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
   }
   return (
     <WorkShell testId="work-reports">
-      <ReportsBoard data={d} title={title} tabs={<AccountabilityTabs eodBadge={badge} tight />} view={sp.view === "sent" ? "sent" : "week"} period={sp.period === "last" || sp.period === "month" ? sp.period : "this"} />
+      <ReportsBoard data={d} title={title} tabs={<AccountabilityTabs eodBadge={badge} tight />} view={sp.view === "sent" ? "sent" : "week"} period={parsePeriodKey(sp.period)} />
     </WorkShell>
   );
 }

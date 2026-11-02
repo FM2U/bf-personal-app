@@ -1,11 +1,13 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { todayInTz } from "@/lib/calc/dates";
+import { addDaysISO, todayInTz } from "@/lib/calc/dates";
+import { buildFacts } from "@/lib/accountability/facts";
+import { countIn } from "@/lib/accountability/targets";
 import { loadComposeSetup, loadGmailSetup, type ComposeSetup, type GmailSetup } from "@/lib/compose-email";
 import type { Ctx } from "@/lib/engine/helpers";
 import { date as fmtDate } from "@/lib/format";
 import { isValidEmail } from "@/lib/email-address";
-import { DEFAULT_OUTREACH_TARGET, outreachSections, parsePurposes, roleLabel, weeklyOutreach, workWeek, type PurposeKey } from "@/lib/work/outreach";
+import { DEFAULT_OUTREACH_TARGET, outreachSections, parsePurposes, roleLabel, workWeek, type PurposeKey } from "@/lib/work/outreach";
 import { commKind, commTitle, type TimelineEvent } from "@/lib/work/timeline";
 import { sortTodos, type DealTodo } from "@/lib/work/todos";
 import type { Row } from "@/lib/types";
@@ -90,8 +92,12 @@ export async function loadOutreachCounter(sb: SupabaseClient, ctx: Ctx): Promise
     sb.from("communications").select("occurred_at,method,direction,contact_id,awaiting_log").eq("owner_id", ctx.ownerId).gte("occurred_at", `${start}T00:00:00Z`).limit(2000),
     loadOutreachTarget(sb, ctx.ownerId),
   ]);
-  const comms = ((data ?? []) as Row[]).filter((c) => !c.awaiting_log).map((c) => ({ occurredOn: todayInTz(ctx.tz, new Date(String(c.occurred_at))), method: String(c.method), direction: String(c.direction), contactId: c.contact_id ? String(c.contact_id) : null }));
-  return weeklyOutreach(comms, ctx.today, target);
+  // Counted by the same function as the Network outreach target (Edit batch C, item 6), so the counter, the target, and
+  // End of day always agree.
+  const { facts } = buildFacts({ items: [], history: [], comms: (data ?? []) as Row[], events: [], people: [], stageById: {}, laneOf: {}, since: start, local: (ts) => todayInTz(ctx.tz, new Date(ts)) });
+  const t = Number.isFinite(target) && target > 0 ? Math.round(target) : DEFAULT_OUTREACH_TARGET;
+  const count = countIn("outreach_contacts", facts, start, addDaysISO(start, 4)).value;
+  return { count, target: t, pct: Math.min(100, Math.round((count / t) * 100)) };
 }
 
 async function loadPeople(sb: SupabaseClient, ownerId: string, tz: string): Promise<PersonRow[]> {

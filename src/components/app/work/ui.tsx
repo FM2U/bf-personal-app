@@ -20,7 +20,24 @@ import { cn } from "@/lib/utils";
  * The alignment rule (Edit batch B, item 5): every row keeps fixed-width columns for its figures and buttons, sized
  * for the longest case ("4 days late", "120 min"), so nothing shifts between rows when text wraps or a value is
  * longer; the text columns wrap inside their own width. The widths are in ROW_COLS (one place to edit, tested).
+ * Edit batch C (items 4 and 8): on Outreach, Targets, and End of day the text column keeps a reserved 32px gap
+ * (TEXT_GAP) before the first figure or mark column, so wrapped text never touches it; the grids are in ROW_GRIDS.
  */
+
+/** The reserved gap between a row's text and its first figure or mark column (Edit batch C, items 4 and 8). */
+export const TEXT_GAP = { px: 32, cls: "sm:gap-x-8" } as const;
+
+/**
+ * The fixed grids of the target rows (Edit batch C, item 8): the text column takes what is left and wraps; every other
+ * column has a fixed width, so the mark and the figures sit at the same x on every row. `gap` is the grid's column gap
+ * and `textMargin` the text cell's right margin: together they make TEXT_GAP before the mark.
+ */
+export const ROW_GRIDS = {
+  /** Targets: the text, the status mark (22px), the two figures (82px each, 24px apart), the Commitment switch and Edit. */
+  target: { cls: "sm:grid-cols-[minmax(0,1fr)_22px_188px_202px]", gap: 16, gapCls: "sm:gap-x-4", textMargin: 16, textMarginCls: "sm:mr-4" },
+  /** End of day: the text, the status mark (22px), the figure (82px). */
+  eodTarget: { cls: "grid-cols-[minmax(0,1fr)_22px_82px]", gap: 16, gapCls: "gap-x-4", textMargin: 16, textMarginCls: "mr-4" },
+} as const;
 
 /**
  * The fixed row columns (the alignment rule). Each is a Tailwind width class plus the longest text it was sized for;
@@ -37,8 +54,8 @@ export const ROW_COLS = {
   buttonPair: { cls: "w-[142px]", longest: "Set the next action" },
   /** LAST CONTACT: "Oct 27 · meeting" (the label is 12 letters in small caps). */
   lastContact: { cls: "w-[128px]", longest: "Oct 27 · meeting" },
-  /** NEXT FOLLOW-UP and NEXT: "4 days late" (the label NEXT FOLLOW-UP is the wider part). */
-  nextDate: { cls: "w-[112px]", longest: "NEXT FOLLOW-UP" },
+  /** NEXT FOLLOW-UP and NEXT: "4 days late" (the label NEXT FOLLOW-UP is the wider part; it shows in full, Edit batch C item 4). */
+  nextDate: { cls: "w-[132px]", longest: "NEXT FOLLOW-UP" },
   /** TASKS: a count. */
   count: { cls: "w-[44px]", longest: "99" },
   /** The money figures on listing rows: "Not stated". */
@@ -139,7 +156,7 @@ export function CollapseAllButton({ allCollapsed, onClick, className }: { allCol
  * right end. `prefix` names the test ids ("deals-filter-wait", "deals-search"). It is the last row of the PinnedBlock,
  * which adds the space and the hairline under it.
  */
-export function FilterRow<K extends string>({ prefix, filters, active, counts, onPick, query, onQuery, placeholder = "Find", collapse, className, searchClassName }: { prefix: string; filters: readonly { key: K; label: string; /** A thin vertical hairline before this pill (a second group of pills). */ sepBefore?: boolean }[]; active: K; counts: Record<K, number>; onPick: (k: K) => void; query: string; onQuery: (q: string) => void; placeholder?: string; collapse?: { allCollapsed: boolean; onClick: () => void } | null; className?: string; searchClassName?: string }) {
+export function FilterRow<K extends string>({ prefix, filters, active, counts, onPick, query, onQuery, placeholder = "Find", collapse, className, searchClassName, extra }: { prefix: string; filters: readonly { key: K; label: string; /** A thin vertical hairline before this pill (a second group of pills). */ sepBefore?: boolean }[]; active: K; counts: Record<K, number>; onPick: (k: K) => void; query: string; onQuery: (q: string) => void; placeholder?: string; collapse?: { allCollapsed: boolean; onClick: () => void } | null; className?: string; searchClassName?: string; /** One more control right after the pills (the Show pill on Home). */ extra?: React.ReactNode }) {
   return (
     <div className={cn("flex flex-wrap items-center gap-2", className)} data-testid={`${prefix}-filters`}>
       {filters.map((f) => {
@@ -161,6 +178,7 @@ export function FilterRow<K extends string>({ prefix, filters, active, counts, o
           </span>
         );
       })}
+      {extra}
       <input
         type="search"
         value={query}
@@ -188,11 +206,11 @@ export function Rows({ children, className, testId }: { children: React.ReactNod
  * One row: the text on the left (two or three lines, wrapping inside its own width), the figures and buttons on the
  * right. The right side keeps its content's fixed widths (ROW_COLS), so the columns sit at the same x on every row.
  */
-export function RowShell({ children, right, className, href, testId, dataAttrs, stack = false }: { children: React.ReactNode; right?: React.ReactNode; className?: string; href?: string; testId?: string; dataAttrs?: Record<string, string>; /** The figures and buttons go under the text (narrow columns). */ stack?: boolean }) {
-  const cls = cn("grid grid-cols-1 items-center gap-x-[18px] gap-y-1.5 border-t border-slate-100 px-[22px] py-[13px] first:border-t-0", !stack && "sm:grid-cols-[minmax(0,1fr)_auto]", href && "cursor-pointer hover:bg-[#fbfcfe]", className);
+export function RowShell({ children, right, className, href, testId, dataAttrs, stack = false, textGap = false }: { children: React.ReactNode; right?: React.ReactNode; className?: string; href?: string; testId?: string; dataAttrs?: Record<string, string>; /** The figures and buttons go under the text (narrow columns). */ stack?: boolean; /** The reserved 32px gap before the figures (TEXT_GAP; Outreach rows). */ textGap?: boolean }) {
+  const cls = cn("grid grid-cols-1 items-center gap-x-[18px] gap-y-1.5 border-t border-slate-100 px-[22px] py-[13px] first:border-t-0", !stack && "sm:grid-cols-[minmax(0,1fr)_auto]", textGap && TEXT_GAP.cls, href && "cursor-pointer hover:bg-[#fbfcfe]", className);
   const body = (
     <>
-      <div className="min-w-0">{children}</div>
+      <div className="min-w-0" data-row-text>{children}</div>
       {right ? <div className={cn("flex flex-wrap items-center gap-x-3.5 gap-y-2 whitespace-nowrap", !stack && "sm:justify-end", stack && "mt-1")} data-row-right>{right}</div> : null}
     </>
   );

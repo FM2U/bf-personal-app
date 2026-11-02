@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireOwner } from "@/lib/auth";
 import { env, isAIConfigured, isGoogleConfigured, isPlaidConfigured } from "@/lib/env";
 import { aiBudget } from "@/lib/ai/claude";
+import { aiSpendLine, nearCap } from "@/lib/ai/spend";
 import { getGoogleConnection } from "@/lib/google";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -146,6 +147,9 @@ export default async function ConnectionsPage({ searchParams }: { searchParams: 
             <CardDescription>The AI stops when the monthly cap is reached.</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
+            <p className={nearCap(budget.spent, budget.cap) || budget.blocked ? "tabular text-sm font-medium text-status-soon" : "tabular text-sm font-medium text-slate-900"} data-testid="ai-spend-line">
+              {aiSpendLine(budget.spent, budget.cap)}
+            </p>
             <DetailGrid
               items={[
                 { label: "Model", value: env.anthropicModel },

@@ -8,7 +8,10 @@
  * purposes, next follow-ups, and notes across every section, calls and emails on their timelines, three incoming
  * replies not yet logged (two on Mark Reed), tasks on two people, and five personal to-dos. Batch B2 (database
  * update 0023): nine Rosara projects (plus one closed) with milestones, next actions, tasks, notes, and two
- * findings; five job opportunities across the stages plus three closed; four consulting items plus two closed. Pure:
+ * findings; five job opportunities across the stages plus three closed; four consulting items plus two closed. Edit
+ * batch C (with update 0025): the weeks spread out so this week reads like a real one (stage moves about 2 to 3 by
+ * midweek, outreach 6 to 12 against 10, listings screened a few short of 5 a weekday), from passed listings and light
+ * check-ins over the past weeks; every figure is counted by the app's one counting function. Pure:
  * dates are relative to `today`; tested in src/lib/work/sample.test.ts.
  * Unlike the rest of the sample data these names come from the approved mockup and do not start with "Sample";
  * every row is still recorded in sample_records, so Remove sample data deletes them (the to-dos go with their deal).
@@ -67,6 +70,31 @@ export type WorkSample = {
   workEvents: R[];
 };
 
+const PLACES = ["Riverside", "Bluegrass", "Magnolia", "Piedmont", "Cumberland", "Lakeview", "Tidewater", "Palmetto", "Red Clay", "Ironwood", "Northgate", "Cedar Point", "Granite", "Heritage", "Keystone", "Blue Ridge", "Clearwater", "Sandhill", "Fall Line", "Harborview"];
+const BROKERS = ["BizBuySell", "Sunbelt", "Transworld", "Murphy", "Benchmark"];
+type ScreenedKind = { kind: string; what: string; industry: string; pass: string; money: { revenue?: number; ebitda?: number; sde?: number; asking?: number }; locations: string[] };
+const SCREENED_KINDS: ScreenedKind[] = [
+  { kind: "Auto Glass", what: "Windshield repair and replacement for drivers and small fleets", industry: "Auto services", pass: "too_small", money: { revenue: 1_300_000, sde: 260_000, asking: 700_000 }, locations: ["Augusta, GA", "Columbia, SC", "Mobile, AL"] },
+  { kind: "Pool Care", what: "Weekly pool cleaning and repair for 350 homes", industry: "Pool services", pass: "too_small", money: { revenue: 900_000, sde: 210_000, asking: 520_000 }, locations: ["Tampa, FL", "Savannah, GA"] },
+  { kind: "Dry Cleaners", what: "Three dry cleaning storefronts with a central plant", industry: "Retail services", pass: "retail_dtc", money: { revenue: 1_600_000, sde: 340_000, asking: 800_000 }, locations: ["Raleigh, NC", "Richmond, VA"] },
+  { kind: "Coffee Roasters", what: "Coffee roasting with two cafes and online sales", industry: "Food and beverage", pass: "retail_dtc", money: { revenue: 2_400_000, sde: 450_000, asking: 1_500_000 }, locations: ["Asheville, NC", "Charleston, SC"] },
+  { kind: "Learning Centers", what: "Two franchise tutoring centers for grades K to 12", industry: "Education", pass: "franchise", money: { revenue: 1_200_000, sde: 300_000, asking: 650_000 }, locations: ["Durham, NC", "Knoxville, TN"] },
+  { kind: "Pest Defense", what: "Residential pest control, 900 recurring accounts", industry: "Pest control", pass: "location", money: { revenue: 2_600_000, ebitda: 700_000, asking: 2_400_000 }, locations: ["Phoenix, AZ", "Tucson, AZ", "Las Vegas, NV"] },
+  { kind: "Industrial Supply", what: "MRO distribution to plants across four states", industry: "Industrial distribution", pass: "too_big", money: { revenue: 62_000_000, ebitda: 9_500_000, asking: 55_000_000 }, locations: ["Birmingham, AL", "Greenville, SC"] },
+  { kind: "Staffing Group", what: "Light industrial staffing for two distribution centers", industry: "Staffing", pass: "no_growth_path", money: { revenue: 8_000_000, ebitda: 1_100_000, asking: 4_200_000 }, locations: ["Dalton, GA", "Chattanooga, TN"] },
+  { kind: "Septic and Drain", what: "Septic pumping and drain service for homes and farms", industry: "Home services", pass: "location", money: { revenue: 2_200_000, ebitda: 650_000, asking: 2_000_000 }, locations: ["Boise, ID", "Spokane, WA", "Fresno, CA"] },
+  { kind: "Pizza Franchise", what: "Four pizza franchise locations", industry: "Restaurants", pass: "franchise", money: { revenue: 3_100_000, sde: 420_000, asking: 1_100_000 }, locations: ["Orlando, FL", "Jacksonville, FL"] },
+  { kind: "Medical Billing", what: "Billing and coding for 40 physician practices", industry: "Healthcare services", pass: "too_small", money: { revenue: 1_100_000, sde: 280_000, asking: 750_000 }, locations: ["Nashville, TN", "Atlanta, GA"] },
+  { kind: "Packaging", what: "Corrugated packaging for food and beverage plants", industry: "Packaging", pass: "too_big", money: { revenue: 48_000_000, ebitda: 7_800_000, asking: 42_000_000 }, locations: ["Spartanburg, SC", "Macon, GA"] },
+];
+
+/** The i-th passed listing of the screening weeks: a place and a kind of business, each pair once. */
+export function screenedListing(i: number): { name: string; row: Record<string, unknown>; money: ScreenedKind["money"] } {
+  const t = SCREENED_KINDS[(i + 5 * Math.floor(i / PLACES.length)) % SCREENED_KINDS.length];
+  const name = `${PLACES[i % PLACES.length]} ${t.kind}`;
+  return { name, row: { name, what_it_does: t.what, industry: t.industry, location: t.locations[i % t.locations.length], source: "Broker newsletter", broker_name: BROKERS[i % BROKERS.length], pass_reason: t.pass }, money: t.money };
+}
+
 /** Every sample name the Work module adds (listings, deals, brokers, firms), so tests can tell them apart. */
 export const WORK_SAMPLE_NAMES = [
   "Apex Precision Machining", "Sunny Smiles Franchise, 3 units", "Harbor Point Boat Storage", "Northstar Managed IT", "Cascade Outdoor Retail",
@@ -84,6 +112,8 @@ export const WORK_SAMPLE_NAMES = [
   "Harbor Health Partners", "Lumen Industrial Holdings", "Crestline Services", "Atlas Freight", "Riverbend Health", "Georgia Home Care Association", "Sunrise Home Care", "Bain, Atlanta", "Alvarez Advisory",
   // Batch C: the accountability partner of the approved mockup.
   "Jake Morgan",
+  // Edit batch C: the passed listings that make the weeks of screening (generated, never "Sample").
+  ...Array.from({ length: 140 }, (_, i) => screenedListing(i).name),
 ];
 
 /** The nine starting projects (approved 2026-10-31, decisions on v4), in the order of the Rosara page. */
@@ -361,6 +391,12 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
   const endOfDay: R[] = [];
   const workEvents: R[] = [];
   if (s.batchC) {
+    // Edit batch C (item 6): this week reads like a real week. Monday is `k` days ago.
+    const dow = new Date(`${today}T12:00:00Z`).getUTCDay();
+    const k = (dow + 6) % 7;
+    spreadStageMoves(stageDates, k, new Set([dalton, coastal, ridgeline]));
+    addScreenedListings({ k, today, items, stageDates, deals: s.pipelineId, stageNameOf: (id) => Object.entries(s.stages).find(([, v]) => v === id)?.[0] ?? null, addPassed: (row, money, daysAgo) => entered(add({ ...row, stage_id: stage("Passed") }, money), daysAgo) });
+    addOutreachTouches({ k, today, contacts, communications, newId });
     const jake = newId();
     partners.push({ id: jake, name: "Jake Morgan", is_pseudonym: false, email: "jake.morgan@example.com", sections: ["commitments"], schedule: "weekly", delivery_methods: ["email"], report_frequency: "daily", next_report_on: ahead(7), is_active: true, notes: "Gets the End of day report by email, weekdays at 5:30." });
     // The last four weekdays before today (newest first): d1 skipped, d2 to d4 sent.
@@ -396,8 +432,7 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
     const actions: [number, string, string][] = [[1, "Meridian Industrial Coatings", "Start the 7-year model"], [1, "Market research", "Call two agency owners"], [2, "Dalton Services", "Ask the broker for the CIM"], [2, "Harbor Health Partners", "Prepare for the COO call"], [3, "BrightPath Home Care", "Sign the NDA"], [4, "Pinecrest Landscaping", "Submit the LOI"], [8, "Coastal Fleet Maintenance", "Ask for the seller call"], [9, "Summit Logistics Group", "Read the CIM"], [10, "Rosara platform", "Write the onboarding flow"], [15, "Oakline Dental Lab", "Sign the NDA"], [16, "Ridgeline Commercial Roofing", "Book the partner meeting"], [22, "Meridian Industrial Coatings", "Ask for tax returns"], [23, "Business model", "Draft the pricing page"], [29, "Pinecrest Landscaping", "Finish the model"], [36, "Dalton Services", "Sign the NDA"], [43, "Valley Print Group", "Seller call"]];
     for (const [days, name, action] of actions) ev("next_action_done", days, name, { record_type: "pipeline_items", meta: { action } });
     // The focus done on the Thursday of most past weeks (not this week, not three weeks ago).
-    const dow = new Date(`${today}T12:00:00Z`).getUTCDay();
-    const monday = addDaysISO(today, -(dow === 0 ? 6 : dow - 1));
+    const monday = addDaysISO(today, -k);
     for (const weeksBack of [1, 2, 4, 5, 6, 7]) {
       const thu = addDaysISO(monday, -7 * weeksBack + 3);
       workEvents.push({ id: newId(), kind: "focus_done", record_type: "inputs", record_id: null, label: "This week: ten agency owner conversations", happened_on: thu, happened_at: `${thu}T15:00:00Z`, on_time: null, meta: {} });
@@ -484,3 +519,104 @@ function buildSampleReports(i: { d2: string; d3: string; d4: string; partnerFirs
 
 const DAY_LONG: Record<string, string> = { Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday", Fri: "Friday", Sat: "Saturday", Sun: "Sunday" };
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// ---------- Edit batch C (item 6): the weeks spread out, so this week reads realistically ----------
+
+/**
+ * Stage moves this week: only the three named deals may move this week (Dalton Services, the fleet repair shop, and
+ * Ridgeline, when their dates fall in it), so Deals moved reads about 2 to 3 by midweek, not 12. Every other move
+ * that would land this week goes back one, two, or three weeks (same weekday), with everything before it on that
+ * item, so the order of its stages holds and the past weeks get their share.
+ */
+const STRETCH = 2;
+
+export function spreadStageMoves(stageDates: WorkSample["stageDates"], k: number, mayMoveThisWeek: ReadonlySet<string>) {
+  let turn = 0;
+  for (const d of stageDates) {
+    // The earlier stages twice as far apart (the current stage keeps its day count), so no past week piles up moves.
+    for (const h of d.history) h.daysAgo = d.enteredDaysAgo + Math.round((h.daysAgo - d.enteredDaysAgo) * STRETCH);
+    const count = 1 + d.history.length;
+    let offset = 0;
+    // Newest first: the current stage, then the history from the latest back to the screening (not a move).
+    for (let i = 0; i < count; i++) {
+      const hist = i === 0 ? null : d.history[d.history.length - i];
+      const days = hist ? hist.daysAgo : d.enteredDaysAgo;
+      const screening = i === count - 1;
+      if (!offset && !screening && days <= k && !(i === 0 && mayMoveThisWeek.has(d.itemId))) offset = 7 * (1 + (turn++ % 3));
+      if (!offset) continue;
+      if (hist) hist.daysAgo += offset;
+      else d.enteredDaysAgo += offset;
+    }
+  }
+}
+
+/** Listings screened per weekday: this week (today 3 so far), then the four weeks before it, Monday to Friday. */
+const SCREENED_THIS_WEEK: Record<string, number> = { Mon: 5, Tue: 4, Wed: 6, Thu: 4, Fri: 5 };
+const SCREENED_PAST: number[][] = [[5, 6, 4, 5, 4], [5, 5, 6, 5, 5], [4, 3, 5, 4, 2], [5, 6, 5, 5, 4]];
+
+/**
+ * The listings screened over this week and the four before it: a few short of the 5 a weekday target this week, met in
+ * some past weeks. The mockup's deals already count where their first stage is Interested or Passed; passed listings
+ * fill the rest of each day.
+ */
+function addScreenedListings(i: { k: number; today: string; items: Record<string, unknown>[]; stageDates: WorkSample["stageDates"]; deals: string; stageNameOf: (stageId: string) => string | null; addPassed: (row: Record<string, unknown>, money: ScreenedKind["money"], daysAgo: number) => void }) {
+  const have = new Map<number, number>();
+  for (const d of i.stageDates) {
+    const item = i.items.find((x) => x.id === d.itemId);
+    if (!item || item.pipeline_id !== i.deals) continue;
+    const first = d.history.length ? { name: d.history[0].stageName, days: d.history[0].daysAgo } : { name: i.stageNameOf(String(item.stage_id)), days: d.enteredDaysAgo };
+    if (first.name === "Interested" || first.name === "Passed") have.set(first.days, (have.get(first.days) ?? 0) + 1);
+  }
+  const want = new Map<number, number>();
+  for (let d = 0; d <= i.k; d++) {
+    const day = addDaysISO(i.today, -d);
+    if (isWeekday(day)) want.set(d, d === 0 ? 3 : SCREENED_THIS_WEEK[weekdayShort(day)] ?? 4);
+  }
+  SCREENED_PAST.forEach((week, w) => week.forEach((n, dayIndex) => want.set(i.k + 7 * (w + 1) - dayIndex, n)));
+  let next = 0;
+  for (const [d, n] of [...want.entries()].sort((a, b) => a[0] - b[0])) {
+    for (let x = have.get(d) ?? 0; x < n && next < 140; x++) {
+      const l = screenedListing(next++);
+      i.addPassed(l.row, l.money, d);
+    }
+  }
+}
+
+/** Outreach emails and calls per weekday: this week (today 1 so far), then the seven weeks before it, Monday to Friday. */
+const OUTREACH_THIS_WEEK: Record<string, number> = { Mon: 3, Tue: 2, Wed: 3, Thu: 2, Fri: 2 };
+const OUTREACH_PAST: number[][] = [[3, 2, 2, 2, 2], [2, 1, 2, 2, 1], [2, 2, 2, 2, 2], [1, 2, 1, 2, 1], [2, 2, 1, 2, 2], [3, 2, 3, 2, 2], [1, 1, 2, 1, 1]];
+const TOUCHES: { method: "email" | "call"; subject: (first: string) => string; summary: string }[] = [
+  { method: "email", subject: (f) => `Checked in with ${f}`, summary: "Short update on the search; asked what is new on their side." },
+  { method: "call", subject: (f) => `Catch-up call with ${f}`, summary: "Quick catch-up; nothing new to log." },
+  { method: "email", subject: () => "Sent the one-page buy box", summary: "Shared the buy box and asked for anyone who comes to mind." },
+];
+
+/**
+ * The emails and calls on Outreach over this week and the seven before it: 6 to 12 this week by midweek to Friday
+ * against the target of 10, met in some past weeks. The mockup's calls and emails count first; light check-ins with
+ * the people who have a next follow-up date fill each day (never the overdue or the no-date ones).
+ */
+function addOutreachTouches(i: { k: number; today: string; contacts: Record<string, unknown>[]; communications: Record<string, unknown>[]; newId: () => string }) {
+  const counts = (c: Record<string, unknown>) => c.direction !== "incoming" && !c.awaiting_log && !!c.contact_id && ["email", "call", "meeting", "video"].includes(String(c.method));
+  const have = new Map<string, number>();
+  for (const c of i.communications) if (counts(c)) have.set(String(c.occurred_at).slice(0, 10), (have.get(String(c.occurred_at).slice(0, 10)) ?? 0) + 1);
+  const people = i.contacts.filter((c) => c.follow_up_date && String(c.follow_up_date) >= i.today);
+  if (!people.length) return;
+  const want = new Map<number, number>();
+  for (let d = 0; d <= i.k; d++) {
+    const day = addDaysISO(i.today, -d);
+    if (isWeekday(day)) want.set(d, d === 0 ? 1 : OUTREACH_THIS_WEEK[weekdayShort(day)] ?? 2);
+  }
+  OUTREACH_PAST.forEach((week, w) => week.forEach((n, dayIndex) => want.set(i.k + 7 * (w + 1) - dayIndex, n)));
+  let turn = 0;
+  for (const [d, n] of [...want.entries()].sort((a, b) => a[0] - b[0])) {
+    const day = addDaysISO(i.today, -d);
+    for (let x = have.get(day) ?? 0; x < n; x++) {
+      const p = people[turn % people.length];
+      const t = TOUCHES[turn % TOUCHES.length];
+      turn++;
+      const first = String(p.name).split(" ")[0];
+      i.communications.push({ id: i.newId(), occurred_at: `${day}T${String(13 + (x % 4)).padStart(2, "0")}:20:00Z`, method: t.method, direction: "outgoing", contact_id: p.id, organization_id: p.organization_id ?? null, subject: t.subject(first), summary: t.summary, is_outreach: true, purpose: "general", ...(t.method === "call" ? { call_minutes: 15 } : {}) });
+    }
+  }
+}

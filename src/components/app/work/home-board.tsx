@@ -13,7 +13,7 @@ import type { AskContext } from "@/lib/work/ask-ai";
 import type { DealRow, ListingTile, WorkNowData } from "@/lib/work/data";
 import { waitSections } from "@/lib/work/home";
 import type { HomeData } from "@/lib/work/home-data";
-import { actionKey, applyAiOrder, compareActions, laneSectionOf, matchesActionSearch, ORDER_STORAGE_KEY, orderedAtLabel, parseOrderChoice, type AiOrder, type HomeAction, type Lane, type LaneSectionKey, type OrderChoice } from "@/lib/work/lanes";
+import { actionKey, applyAiOrder, compareActions, laneSectionOf, laneShown, matchesActionSearch, ORDER_STORAGE_KEY, orderedAtLabel, parseOrderChoice, parseShowChoice, SHOW_LANES, SHOW_STORAGE_KEY, type AiOrder, type HomeAction, type Lane, type LaneSectionKey, type OrderChoice, type ShowLane } from "@/lib/work/lanes";
 import { compareNames } from "@/lib/work/names";
 import { contactKindLabel, orgRoleLine, overdueLabel } from "@/lib/work/outreach";
 import type { PersonRow as PersonRowData } from "@/lib/work/outreach-data";
@@ -29,6 +29,7 @@ import { NextActionRow } from "@/components/app/work/next-action-row";
 import { OutreachActionRow, PurposePills } from "@/components/app/work/person-row";
 import { ProjectActionRow } from "@/components/app/work/project-row";
 import { useSections } from "@/components/app/work/sections";
+import { ShowFilter } from "@/components/app/work/show-filter";
 import { Due, Figure, FilterRow, Line1, Line2, Name, Pill, PinnedBlock, ProgressMark, RowButton, RowButtons, RowLink, RowShell, SectionHeading, TargetBar, Thinking, What, WorkCard, type PillTone } from "@/components/app/work/ui";
 import { WaitingRow } from "@/components/app/work/waiting-row";
 import { cn } from "@/lib/utils";
@@ -39,6 +40,8 @@ import { cn } from "@/lib/utils";
  * Overdue, Due today, Needs a next action. The card header holds "Order: Soonest first | By the AI": By the AI asks
  * the AI once a day for the order of the day's actions (cached; "Order again" asks again) and shows one purple
  * reason under each row; Soonest first is the default and costs nothing; the choice is remembered in this browser.
+ * Edit batch C: "Show: All" after the filter pills narrows Next actions and Waiting on someone to the ticked lanes
+ * (the pill counts follow, remembered in this browser), and the AI order numbers sit in their own column.
  * Right third, stacked: Waiting on someone, Outreach, Rosara (the weekly focus, the next project action, the
  * counts), Job search (the next conversation, the next interview, the counts), Screen listings, Deals at a glance.
  */
@@ -92,8 +95,14 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
     if (c === "ai" && !aiOrder) askOrder(false);
   };
 
+  // ---------- The Show filter (Edit batch C, item 2): the lanes on the page, remembered in this browser ----------
+  const savedShowRaw = useSyncExternalStore(noSubscribe, () => readRaw(SHOW_STORAGE_KEY), () => null);
+  const savedShow = useMemo(() => parseShowChoice(savedShowRaw), [savedShowRaw]);
+  const [chosenShow, setChosenShow] = useState<{ lanes: ShowLane[] | null } | null>(null);
+  const show = chosenShow ? chosenShow.lanes : savedShow;
+
   // ---------- The rows of every lane ----------
-  const rows = useMemo<Row[]>(() => {
+  const allRows = useMemo<Row[]>(() => {
     const out: Row[] = [];
     const push = (lane: Lane, id: string, action: HomeAction, extra: Pick<Row, "status" | "waitLevel" | "nextAction" | "nextActionDue" | "name">, render: Row["render"]) => {
       const section = laneSectionOf(action, today);
@@ -114,6 +123,7 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
     }
     return out;
   }, [deals, data.outreach.due, data.rosara.actions, data.pipelines.jobs, data.pipelines.consulting, today]);
+  const rows = useMemo(() => allRows.filter((r) => laneShown(r.lane, show)), [allRows, show]);
 
   const sectionsOf = useMemo(() => {
     const by: Record<LaneSectionKey, Row[]> = { overdue: [], today: [], needs: [] };
@@ -123,7 +133,15 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
     by.needs.sort((a, b) => compareNames(a.name, b.name));
     return by;
   }, [rows]);
-  const waiting = useMemo(() => waitSections(deals, threshold).map((w) => ({ ...w, deals: [...w.deals].sort((a, b) => b.waitDays - a.waitDays || compareNames(a.name, b.name)) })), [deals, threshold]);
+  const allWaiting = useMemo(() => waitSections(deals, threshold).map((w) => ({ ...w, deals: [...w.deals].sort((a, b) => b.waitDays - a.waitDays || compareNames(a.name, b.name)) })), [deals, threshold]);
+  // Waiting on someone lists deals, so it follows the Deals tick.
+  const waiting = useMemo(() => (laneShown("Deals", show) ? allWaiting : allWaiting.map((w) => ({ ...w, deals: [] }))), [allWaiting, show]);
+  const laneCounts = useMemo(() => {
+    const c = Object.fromEntries(SHOW_LANES.map((l) => [l, 0])) as Record<ShowLane, number>;
+    for (const r of allRows) c[r.lane]++;
+    c.Deals += allWaiting.reduce((s, w) => s + w.deals.length, 0);
+    return c;
+  }, [allRows, allWaiting]);
 
   const rowMatches = (r: Row, f: DealFilter) => matchesFilter({ name: r.name, status: r.status, nextAction: r.nextAction, nextActionDue: r.nextActionDue, waitLevel: r.waitLevel }, f, today);
   const counts = useMemo(() => {
@@ -151,17 +169,31 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
     setFilter(f);
     sections.resetOverrides();
   };
+  const pickShow = (lanes: ShowLane[] | null) => {
+    setChosenShow({ lanes });
+    try {
+      if (lanes) window.localStorage.setItem(SHOW_STORAGE_KEY, JSON.stringify(lanes));
+      else window.localStorage.removeItem(SHOW_STORAGE_KEY);
+    } catch {
+      /* no storage: the choice holds until the page reloads */
+    }
+    sections.resetOverrides();
+  };
 
   const actionCount = rows.length;
   const waitCount = waiting.reduce((s, w) => s + w.deals.length, 0);
   const aiRows = useMemo(() => (aiOrder ? applyAiOrder([...sectionsOf.overdue, ...sectionsOf.today], aiOrder.order) : []), [aiOrder, sectionsOf]);
   const byAi = order === "ai" && !!aiOrder;
 
-  /** One row box; with a number (the AI order) the row sits beside a small purple badge. */
+  /**
+   * One row box; with a number (the AI order) the row sits beside a small purple badge in its own 54px column (the
+   * card's 22px edge, the 18px badge, a 14px gap), level with the name line, so it never touches the stage mark or the
+   * lane pill (Edit batch C, item 1).
+   */
   const rowBox = (r: Row, number?: number) => (
-    <div key={r.key} className={cn("border-t border-slate-100 first:border-t-0", number !== undefined && "grid grid-cols-[40px_minmax(0,1fr)]", !shownRow(r) && "hidden")} data-testid="home-row" data-lane={r.lane.toLowerCase().replace(" ", "-")} data-key={r.key} data-hidden={shownRow(r) ? "0" : "1"}>
+    <div key={r.key} className={cn("border-t border-slate-100 first:border-t-0", number !== undefined && "grid grid-cols-[54px_minmax(0,1fr)] items-start", !shownRow(r) && "hidden")} data-testid="home-row" data-lane={r.lane.toLowerCase().replace(" ", "-")} data-key={r.key} data-hidden={shownRow(r) ? "0" : "1"}>
       {number !== undefined ? (
-        <span className="pt-[15px] pl-[22px]">
+        <span className="pt-[11px] pl-[22px]" data-col="ai-number">
           <span className="tabular inline-flex h-[18px] w-[18px] items-center justify-center rounded-full border border-violet/30 bg-violet-soft text-[11px] font-semibold text-violet" aria-hidden data-testid="ai-order-number">
             {number}
           </span>
@@ -175,7 +207,7 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
     <>
       <PinnedBlock testId="home-sticky">
         {header}
-        <FilterRow prefix="home" filters={DEAL_FILTERS} active={filter} counts={counts} onPick={pick} query={query} onQuery={setQuery} placeholder="Find" collapse={{ allCollapsed: sections.allCollapsed, onClick: sections.toggleAll }} className="-mt-2" />
+        <FilterRow prefix="home" filters={DEAL_FILTERS} active={filter} counts={counts} onPick={pick} query={query} onQuery={setQuery} placeholder="Find" collapse={{ allCollapsed: sections.allCollapsed, onClick: sections.toggleAll }} className="-mt-2" extra={<ShowFilter choice={show} counts={laneCounts} onChange={pickShow} />} />
       </PinnedBlock>
 
       <div className="grid grid-cols-1 items-start gap-[18px] lg:h-[calc(100vh-272px)] lg:min-h-[460px] lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] lg:items-stretch" data-testid="home-bento">
@@ -252,7 +284,7 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
             </div>
           ) : (
             <p className="px-[22px] py-4 text-[13px] text-muted-foreground" data-testid="now-actions-empty">
-              Nothing is due today and every record has a next action. Deals, Outreach, Rosara, Job search, and Consulting list every next action.
+              {show ? "Nothing is due today in the lanes ticked under Show." : "Nothing is due today and every record has a next action. Deals, Outreach, Rosara, Job search, and Consulting list every next action."}
             </p>
           )}
         </WorkCard>
@@ -281,7 +313,7 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
               </div>
             ) : (
               <p className="px-[22px] py-4 text-[13px] text-muted-foreground" data-testid="now-wait-empty">
-                Nobody is keeping you waiting.
+                {laneShown("Deals", show) ? "Nobody is keeping you waiting." : "Deals is not ticked under Show."}
               </p>
             )}
           </WorkCard>

@@ -56,6 +56,20 @@ export function cadenceLine(t: Pick<Target, "key" | "cadence" | "number">): stri
   return `${t.cadence === "day" ? "Per weekday" : "Per week"} · target ${n} · counts ${c.counts}`;
 }
 
+/**
+ * The target pill after a target's name (Edit batch C, item 5): "5 / weekday", "10 / week", "100% on time", "1 / week".
+ * A percent target is on time by what it counts; every other target is a number per weekday or per week.
+ */
+export function targetPill(t: Pick<Target, "key" | "cadence" | "number">): string {
+  if (countable(t.key).unit === "percent") return `${t.number}% on time`;
+  return `${t.number} / ${t.cadence === "day" ? "weekday" : "week"}`;
+}
+
+/** The line under a target's name once the pill carries the number: only what it counts ("Counts Pass or Interested on Screen listings"). */
+export function countsLine(t: Pick<Target, "key">): string {
+  return `Counts ${countable(t.key).counts}`;
+}
+
 // ---------- The facts the app counts from ----------
 
 export type Facts = {
@@ -273,7 +287,10 @@ export function stripOf(t: Target, f: Facts, today: string, opts: { skippedDays?
 export type Fig = { value: string; label: string; tone: "plain" | "met" | "missed" | "none" };
 
 export type TargetView = Target & {
+  /** What the target counts (the pill carries the number and the cadence). */
   line: string;
+  /** "5 / weekday", "10 / week", "100% on time". */
+  pill: string;
   strip: Strip;
   mark: Mark;
   /** Today and This week (per weekday), or This week and Last week (per week). */
@@ -293,7 +310,8 @@ export function targetView(t: Target, f: Facts, today: string, opts: { skippedDa
     const mark = markOf(t, todayCount, today, today, opts.judgedToday);
     return {
       ...t,
-      line: cadenceLine(t),
+      line: countsLine(t),
+      pill: targetPill(t),
       strip,
       mark: isWeekday(today) ? mark : markOf(t, weekSum, week.end, today),
       figures: [
@@ -309,7 +327,8 @@ export function targetView(t: Target, f: Facts, today: string, opts: { skippedDa
   const mark = markOf(t, cur.value, week.end, today, opts.judgedToday && weekdayShort(today) === "Fri");
   return {
     ...t,
-    line: cadenceLine(t),
+    line: countsLine(t),
+    pill: targetPill(t),
     strip,
     mark,
     figures: [
@@ -507,9 +526,15 @@ export type DayNumbers = {
   waits: { name: string; days: number; who: string | null; what: string | null; since: string | null }[];
   /** Every open wait (for the average on Reports). */
   allWaits: { name: string; days: number; who: string | null; what: string | null; since: string | null }[];
+  /** What the Today strip's drawers list (Edit batch C, item 10): the listings screened with the pass reason or Interested. */
+  screenedList: { name: string; outcome: "passed" | "interested"; reason: string | null }[];
+  /** The calls (calls, meetings, video calls) and emails sent today, with the person's name. */
+  contactsList: { name: string; kind: "call" | "email"; method: string }[];
+  /** The next actions marked Done today, with the record and the action. */
+  actionsDoneList: { name: string; label: string }[];
 };
 
-/** The counted facts of one day (End of day's "Today, counted" card and the email's Today tiles). */
+/** The counted facts of one day (End of day's Today strip and its drawers, and the email's Today tiles). */
 export function dayNumbers(f: Facts, day: string, waits: DayNumbers["allWaits"], threshold: number): DayNumbers {
   const week = workWeekOf(day);
   return {
@@ -522,7 +547,28 @@ export function dayNumbers(f: Facts, day: string, waits: DayNumbers["allWaits"],
     actionsDone: countIn("next_actions_done", f, day, day),
     waits: waits.filter((w) => w.days > threshold),
     allWaits: waits,
+    screenedList: f.screened.filter((x) => x.on === day).map((x) => ({ name: x.name, outcome: x.outcome, reason: x.reason })),
+    contactsList: f.comms.filter((c) => c.on === day && (c.method === "email" || isCall(c.method))).map((c) => ({ name: c.contactName ?? "Someone not on Outreach", kind: c.method === "email" ? ("email" as const) : ("call" as const), method: c.method })),
+    actionsDoneList: f.actionsDone.filter((x) => x.on === day).map((x) => ({ name: x.name, label: x.label })),
   };
+}
+
+/**
+ * The Today strip at the top of End of day (Edit batch C, item 10): "Today: 4 screened · 0 moved · 0 calls · 0 emails
+ * · 0 next actions done · 2 waiting over 5 days". Each part is a link to its drawer. The figures are the same counts
+ * as the report's Today tiles (dayNumbers).
+ */
+export type TodayPart = { key: "screened" | "moved" | "calls" | "emails" | "done" | "waits"; value: number; words: string };
+
+export function todayStrip(n: DayNumbers, threshold: number): TodayPart[] {
+  return [
+    { key: "screened", value: n.screened.value, words: "screened" },
+    { key: "moved", value: n.moves.length, words: "moved" },
+    { key: "calls", value: n.calls.value, words: n.calls.value === 1 ? "call" : "calls" },
+    { key: "emails", value: n.emails.value, words: n.emails.value === 1 ? "email" : "emails" },
+    { key: "done", value: n.actionsDone.value, words: n.actionsDone.value === 1 ? "next action done" : "next actions done" },
+    { key: "waits", value: n.waits.length, words: `waiting over ${threshold} days` },
+  ];
 }
 
 const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)));

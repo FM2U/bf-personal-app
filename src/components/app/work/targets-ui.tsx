@@ -114,6 +114,18 @@ export function TargetsLegend() {
   );
 }
 
+/**
+ * The target pill after a target's name (Edit batch C, item 5): no fill, a 1px slate outline (#d5dbe3), charcoal
+ * text at 12.5px: "5 / weekday", "10 / week", "100% on time", "1 / week".
+ */
+export function TargetPill({ text, className }: { text: string; className?: string }) {
+  return (
+    <span className={cn("tabular inline-flex items-center rounded-full border border-rule bg-transparent px-[9px] py-px text-[12.5px] leading-[18px] font-medium whitespace-nowrap text-heading", className)} data-testid="target-pill">
+      {text}
+    </span>
+  );
+}
+
 /** The Commitment switch: a 32px track with a white knob, cobalt when on, the label in cobalt and bold when on. */
 export function Switch({ on, onChange, label, disabled, testId, className }: { on: boolean; onChange: (on: boolean) => void; label: string; disabled?: boolean; testId?: string; className?: string }) {
   return (

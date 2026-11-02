@@ -88,6 +88,55 @@ export function matchesActionSearch(a: Pick<HomeAction, "name" | "meta">, query:
   return !q || a.name.toLowerCase().includes(q) || a.meta.toLowerCase().includes(q);
 }
 
+// ---------- The Show filter (Edit batch C, item 2) ----------
+
+/**
+ * "Show: All" after the filter pills on Home: a checklist of the lanes (several allowed, Reset at the bottom). It
+ * narrows Next actions and Waiting on someone, and the counts on the other pills follow it. To-dos is in the list so
+ * the choice reads the same as the menu; Home lists no personal to-dos today, so it narrows nothing on its own.
+ */
+export const SHOW_LANES = ["Deals", "Outreach", "Rosara", "Job search", "Consulting", "To-dos"] as const;
+export type ShowLane = (typeof SHOW_LANES)[number];
+
+/** The choice is remembered in this browser under this key. */
+export const SHOW_STORAGE_KEY = "work-home-show";
+
+/** The chosen lanes, or null for All (nothing saved, nothing valid saved, none chosen, or every lane chosen). */
+export function parseShowChoice(raw: string | null | undefined): ShowLane[] | null {
+  if (!raw) return null;
+  let v: unknown;
+  try {
+    v = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(v)) return null;
+  return normalizeShow(v.filter((x): x is ShowLane => (SHOW_LANES as readonly string[]).includes(String(x))));
+}
+
+/** In the menu's order, each lane once; none or all of them is All (null). */
+export function normalizeShow(lanes: readonly ShowLane[] | null): ShowLane[] | null {
+  if (!lanes) return null;
+  const out = SHOW_LANES.filter((l) => lanes.includes(l));
+  return out.length === 0 || out.length === SHOW_LANES.length ? null : out;
+}
+
+/** Ticks or unticks one lane. From All, ticking a lane shows only that lane. */
+export function toggleShow(choice: readonly ShowLane[] | null, lane: ShowLane): ShowLane[] | null {
+  if (!choice) return normalizeShow([lane]);
+  return normalizeShow(choice.includes(lane) ? choice.filter((l) => l !== lane) : [...choice, lane]);
+}
+
+/** "Show: All" or "Show: 2" (how many lanes are chosen). */
+export function showLabel(choice: readonly ShowLane[] | null): string {
+  return choice ? `Show: ${choice.length}` : "Show: All";
+}
+
+/** Is a lane on the page under the choice? */
+export function laneShown(lane: ShowLane, choice: readonly ShowLane[] | null): boolean {
+  return !choice || choice.includes(lane);
+}
+
 // ---------- The AI order ----------
 
 export type OrderChoice = "soonest" | "ai";

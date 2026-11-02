@@ -319,8 +319,24 @@ select:not([multiple]):not([size]) {
     padding-top: 6px;
   }
 }
-/* The tile row's negative margin would hang 4px past the card on the right. */
+/* The tile row's negative margin would hang 4px past the card on the right. Edit batch C (item 12): in the preview the
+   tiles in a row share one height and a tile's note shows whole instead of stopping after two lines; the sent email
+   keeps its fixed tile size. */
 .report-preview [style*="margin:0 -4px"],
 .report-preview [style*="margin: 0 -4px"] {
   margin: 0 !important;
+  display: flex;
+  flex-wrap: wrap;
+}
+.report-preview [style*="max-width:140px"],
+.report-preview [style*="max-width: 140px"] {
+  display: flex !important;
+}
+.report-preview [style*="max-width:140px"] td,
+.report-preview [style*="max-width: 140px"] td {
+  vertical-align: top;
+}
+.report-preview [style*="height:30px;overflow:hidden"] {
+  height: auto !important;
+  min-height: 30px;
 }

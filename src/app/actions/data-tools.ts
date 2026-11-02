@@ -144,7 +144,19 @@ async function finishWorkSample(sb: SupabaseClient, ownerId: string, today: stri
   for (const n of work.noteDates) await sb.from("notes").update({ created_at: at(n.daysAgo, 15) }).eq("id", n.noteId);
   // An item meant to start without a next action (the stage trigger filled the default on insert).
   if (work.noActionItems.length) await sb.from("pipeline_items").update({ next_action: null, next_action_due: null }).in("id", work.noActionItems);
+  // Items with no earlier stages (the passed listings of the screening weeks, Edit batch C) are dated in one update
+  // per day, so the load stays quick with a hundred of them.
+  const single = new Map<number, string[]>();
+  for (const d of work.stageDates) if (!d.history.length) single.set(d.enteredDaysAgo, [...(single.get(d.enteredDaysAgo) ?? []), d.itemId]);
+  for (const [daysAgo, ids] of single) {
+    for (let i = 0; i < ids.length; i += 100) {
+      const chunk = ids.slice(i, i + 100);
+      await sb.from("pipeline_items").update({ stage_entered_at: at(daysAgo, 14) }).in("id", chunk);
+      await sb.from("stage_history").update({ entered_at: at(daysAgo, 14) }).in("item_id", chunk).is("exited_at", null);
+    }
+  }
   for (const d of work.stageDates) {
+    if (!d.history.length) continue;
     await sb.from("pipeline_items").update({ stage_entered_at: at(d.enteredDaysAgo, 14) }).eq("id", d.itemId);
     await sb.from("stage_history").update({ entered_at: at(d.enteredDaysAgo, 14) }).eq("item_id", d.itemId).is("exited_at", null);
     if (d.history.length) {

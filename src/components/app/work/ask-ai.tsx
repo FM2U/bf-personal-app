@@ -20,8 +20,8 @@ import { cn } from "@/lib/utils";
  * card), and the star inside a field (visible only while the field is empty or being edited; the panel writes the
  * field and "Use this" fills it). The purple star is the one mark that means AI; the card and field stars sit in a
  * faint purple circle. The panel (a right-side drawer, about 480px, 28px gutters) opens at once with its title, its
- * three suggested questions, and its sections (panelSpec, in the browser); the cost line and the suggestions load
- * into it. Opened from a card or a field the whole panel is about that thing: "Ask AI about Tasks" with questions
+ * three suggested questions, and its sections (panelSpec, in the browser); the ready state and the suggestions load
+ * into it (Edit batch C: no cost line; a quiet amber line only when the month's spend is within 10% of the cap). Opened from a card or a field the whole panel is about that thing: "Ask AI about Tasks" with questions
  * about the tasks and "Suggest tasks for this deal" (Add as a task); "Ask AI about the Key finding field" with the
  * draft and questions about the field. The page-level questions and next steps show only from the page pill.
  * Everything AI-related is purple; every AI button shares the one thinking state (grayed, a spinner, "Thinking").
@@ -322,7 +322,6 @@ export function AskAiPanel({ context, compose, extras, open, onOpenChange, onUse
   };
 
   const ready = !!setup?.ready;
-  const estimate = setup?.estimate ? `One call is ${setup.estimate}.` : null;
   const pills = spec.questions;
 
   return (
@@ -335,6 +334,11 @@ export function AskAiPanel({ context, compose, extras, open, onOpenChange, onUse
       {setup && !setup.ready ? (
         <p className="mb-4 rounded-lg border border-status-soon-border bg-status-soon-bg px-3.5 py-2.5 text-[13px] text-status-soon" role="status" data-testid="ask-ai-not-ready">
           {setup.notReady}
+        </p>
+      ) : null}
+      {setup?.ready && setup.capWarning ? (
+        <p className="mb-4 text-[12.5px] text-status-soon" role="status" data-testid="ask-ai-cap-warning">
+          {setup.capWarning}
         </p>
       ) : null}
 
@@ -361,7 +365,6 @@ export function AskAiPanel({ context, compose, extras, open, onOpenChange, onUse
               </div>
             </div>
           ) : null}
-          {!draft && !drafting && !draftError && estimate ? <p className="text-xs text-muted-foreground">{estimate}</p> : null}
         </section>
       ) : null}
 
@@ -434,7 +437,7 @@ export function AskAiPanel({ context, compose, extras, open, onOpenChange, onUse
               {reasonsNote ? <p className="mt-2 text-[13px] text-status-met" role="status" data-testid="ask-ai-reasons-note">{reasonsNote}</p> : null}
             </div>
           ) : null}
-          {!reasons && !reasonsBusy && !reasonsError && !closedWord ? <p className="text-[13px] text-muted-foreground">One line per missed commitment, from what today shows.{estimate ? ` ${estimate}` : ""}</p> : null}
+          {!reasons && !reasonsBusy && !reasonsError && !closedWord ? <p className="text-[13px] text-muted-foreground">One line per missed commitment, from what today shows.</p> : null}
         </section>
       ) : null}
 
@@ -510,11 +513,6 @@ export function AskAiPanel({ context, compose, extras, open, onOpenChange, onUse
               </button>
             ))}
           </div>
-        ) : null}
-        {estimate && ready && !answer && !asking ? (
-          <p className="mt-2.5 text-xs text-muted-foreground" data-testid="ask-ai-estimate">
-            {estimate} The AI reads only what is on this page.
-          </p>
         ) : null}
         {asking ? <Thinking className="mt-3 text-[13px] text-muted-foreground" label="Reading this page and thinking" /> : null}
         {answerError ? <AiFailLine error={answerError.error} reply={answerError.reply} onRetry={() => ask(asked ?? question)} testId="ask-ai-answer-error" className="mt-3" /> : null}

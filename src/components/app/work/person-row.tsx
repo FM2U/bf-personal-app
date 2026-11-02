@@ -26,7 +26,8 @@ export function PurposePills({ purposes, className }: { purposes: readonly strin
 }
 
 /**
- * One person on Outreach: name, the organization and role line, the purpose pills, the one-line note; at the right
+ * One person on Outreach: name with the organization and role line, the one-line note, then the purpose pills on a
+ * third line (Edit batch C, item 4: the text wraps before the reserved 32px gap and never reaches the figures); at the right
  * the figures LAST CONTACT and NEXT FOLLOW-UP (red when overdue) and the buttons Email (the editor, prefilled and
  * logged by the send), Log a call (the drawer), and Done (asks for the next date and what for, then the row moves).
  * The row opens the person page. The editor and the drawer are held by the board, so they survive the row moving.
@@ -62,6 +63,7 @@ export function PersonRow({ person, today, onEmail, onCall, done: doneText }: { 
   return (
     <RowShell
       testId="person-row"
+      textGap
       dataAttrs={{ "data-person": person.id, "data-section-date": person.nextFollowUp ?? "" }}
       right={
         asking ? undefined : (
@@ -90,9 +92,13 @@ export function PersonRow({ person, today, onEmail, onCall, done: doneText }: { 
           <Name>{person.name}</Name>
         </Link>
         {line ? <What>{line}</What> : null}
-        <PurposePills purposes={person.purposes} />
       </Line1>
       {person.note ? <Line3 className="text-[13px] text-slate-600">{person.note}</Line3> : null}
+      {person.purposes.length ? (
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5" data-testid="person-purposes">
+          <PurposePills purposes={person.purposes} />
+        </div>
+      ) : null}
       {doneText ? (
         <Pill tone="green" className="mt-1.5" testId="person-logged">
           {doneText}

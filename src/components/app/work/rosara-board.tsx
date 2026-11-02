@@ -21,7 +21,8 @@ import { cn } from "@/lib/utils";
  * setting, shown on Home) and the Projects card with Add a project, the pills All, Due today, Needs a next action,
  * Closed, Find a project, and the sections Due today, Active (sorted by next due), No next action, Closed
  * (collapsed). Each row: name and milestone, the next action with its due (or "No next action set" in amber), the
- * figures TASKS and NEXT, Done and Later (or Set the next action). The page scrolls as one.
+ * figures TASKS and NEXT, Done and Later (or Set the next action). The page scrolls as one. Collapse all and Expand
+ * all sit at the end of the filter row (Edit batch C, item 3); Due today and Active start open, Closed collapsed.
  */
 const STORAGE_KEY = "work-rosara-sections";
 const INPUT = "h-9 w-full min-w-0 rounded-[7px] border border-input bg-white px-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
@@ -72,7 +73,7 @@ export function RosaraBoard({ data }: { data: RosaraData }) {
           />
         ) : null}
         <div className="px-[22px] pt-3">
-          <FilterRow prefix="rosara" filters={PROJECT_FILTERS} active={filter} counts={counts} onPick={pick} query={query} onQuery={setQuery} placeholder="Find a project" searchClassName="sm:w-[160px]" />
+          <FilterRow prefix="rosara" filters={PROJECT_FILTERS} active={filter} counts={counts} onPick={pick} query={query} onQuery={setQuery} placeholder="Find a project" searchClassName="sm:w-[160px]" collapse={{ allCollapsed: ui.allCollapsed, onClick: ui.toggleAll }} />
         </div>
         {projects.length ? (
           <div className="px-[22px] pt-1 pb-3">
