@@ -11,7 +11,7 @@ import dynamic from "next/dynamic";
 
 export type EmailEditorApi = { focus: () => void };
 
-export type EmailEditorProps = {
+type EmailEditorProps = {
   /** The editor HTML ("" when empty). Text from the AI goes through textToEditorHtml first. */
   value: string;
   onChange: (html: string) => void;

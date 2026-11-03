@@ -15,7 +15,7 @@ const LABEL = "text-[13px] font-medium text-slate-700";
  * The Purpose field (approved 2026-10-31, decisions on v2): a field like the others that opens a short checklist;
  * the chosen values show in the field as text ("Off-market deals, Rosara"). No pill row.
  */
-export function PurposeField({ id, value, onChange, testId = "purpose-field" }: { id: string; value: string[]; onChange: (v: string[]) => void; testId?: string }) {
+function PurposeField({ id, value, onChange, testId = "purpose-field" }: { id: string; value: string[]; onChange: (v: string[]) => void; testId?: string }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -60,7 +60,7 @@ export function PurposeField({ id, value, onChange, testId = "purpose-field" }: 
 const EMPTY: PersonInput = { name: "", organization: "", role: "broker", purposes: [], email: "", phone: "", linkedin: "", nextFollowUp: "", note: "" };
 
 /** The fields shared by Add a person and the Facts card: label on the left, field on the right, two columns on wide screens. */
-export function PersonFields({ f, set, ids, withFollowUp = true, withTitle = false }: { f: PersonInput; set: (k: keyof PersonInput, v: string | string[]) => void; ids: string; withFollowUp?: boolean; withTitle?: boolean }) {
+function PersonFields({ f, set, ids, withFollowUp = true, withTitle = false }: { f: PersonInput; set: (k: keyof PersonInput, v: string | string[]) => void; ids: string; withFollowUp?: boolean; withTitle?: boolean }) {
   const field = (k: keyof PersonInput, label: string, node: React.ReactNode) => (
     <div className="grid grid-cols-1 items-center gap-x-3 gap-y-1 sm:grid-cols-[104px_minmax(0,1fr)]" key={k}>
       <label htmlFor={`${ids}-${k}`} className={LABEL}>

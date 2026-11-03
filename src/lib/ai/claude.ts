@@ -28,7 +28,7 @@ Be specific: name the record and the number.`;
  * Output format used by every AI feature that shows text in the app (chat, morning plan, review drafts,
  * reduction suggestions, partner report summaries, category suggestions).
  */
-export const OUTPUT_FORMAT_RULE = `Output format (required):
+const OUTPUT_FORMAT_RULE = `Output format (required):
 - Answer first. The most important item goes in the first bullet.
 - Write a parent-child bulleted outline using "- " markdown bullets. Nest a child bullet with 2 spaces before the "- ".
 - Start every bullet with a **bold lead-in** of 1 to 4 words, then the point. Example: "- **Runway:** 7.2 months, under the 12-month target."
@@ -38,16 +38,12 @@ export const OUTPUT_FORMAT_RULE = `Output format (required):
 - When the request asks for JSON, return only the JSON. Text values inside the JSON follow the same plain-language rules.`;
 
 /** Format for email and message drafts: conversational, direct, professional, still easy to scan. */
-export const MESSAGE_FORMAT_RULE = `Message format (required):
+const MESSAGE_FORMAT_RULE = `Message format (required):
 - Write in Bram's normal conversational voice: direct, warm, and professional. First person ("I").
 - Short paragraphs. Use "- " bullets and short sections where they make the message easier to read.
 - Follow the writing rules above. No filler openers.
 - Never claim the message was sent. Bram reviews and sends every message himself.`;
-
-/** Short default length for chat replies. */
-export const CHAT_LENGTH_RULE = `Chat replies: short by default. At most about 8 top-level bullets unless Bram asks for more.`;
-
-export const AI_SYSTEM_BASE = `${AI_ROLE}\n\n${OUTPUT_FORMAT_RULE}`;
+const AI_SYSTEM_BASE = `${AI_ROLE}\n\n${OUTPUT_FORMAT_RULE}`;
 export const AI_SYSTEM_MESSAGE = `${AI_ROLE}\n\n${MESSAGE_FORMAT_RULE}`;
 
 /**
@@ -76,7 +72,7 @@ export async function aiBudget(sb: SupabaseClient, ownerId: string) {
   return { spent: Math.round(spent * 10000) / 10000, cap, remaining: Math.max(0, cap - spent), blocked: spent >= cap };
 }
 
-export function costOf(usage: { input_tokens: number; output_tokens: number; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null }) {
+function costOf(usage: { input_tokens: number; output_tokens: number; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null }) {
   const input = usage.input_tokens + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0);
   return (input * env.aiInputPricePerMTok + usage.output_tokens * env.aiOutputPricePerMTok) / 1_000_000;
 }
@@ -136,24 +132,6 @@ export function textOf(msg: Anthropic.Message): string {
 /** Replace em dashes and en dashes used as punctuation with a comma or period, per the writing rules. */
 export function cleanText(s: string): string {
   return fixDashes(s).trim();
-}
-
-/** Ask for a draft; return null (not an error) when the AI is unavailable, so a template can be used instead. */
-export async function tryDraft(params: { sb: SupabaseClient; ownerId: string; purpose: string; prompt: string; maxTokens?: number; system?: string }): Promise<string | null> {
-  try {
-    const msg = await callClaude({
-      sb: params.sb,
-      ownerId: params.ownerId,
-      purpose: params.purpose,
-      system: params.system ?? AI_SYSTEM_BASE,
-      messages: [{ role: "user", content: params.prompt }],
-      maxTokens: params.maxTokens ?? 1200,
-    });
-    const t = cleanText(textOf(msg));
-    return t || null;
-  } catch {
-    return null;
-  }
 }
 
 /**

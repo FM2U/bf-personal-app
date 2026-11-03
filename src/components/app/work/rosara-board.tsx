@@ -114,7 +114,7 @@ export function RosaraBoard({ data }: { data: RosaraData }) {
  * week's focus done, which the Rosara focus done target counts; then "Done Thursday"). One field, so only the star
  * inside the field (Edit batch B, item 3).
  */
-export function WeeklyFocusBar({ focus, doneOn = null }: { focus: string; doneOn?: string | null }) {
+function WeeklyFocusBar({ focus, doneOn = null }: { focus: string; doneOn?: string | null }) {
   const router = useRouter();
   const [done, setDone] = useState(doneOn);
   const [doneError, setDoneError] = useState<string | null>(null);

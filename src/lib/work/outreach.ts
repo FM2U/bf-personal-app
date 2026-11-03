@@ -20,7 +20,7 @@ export const OUTREACH_ROLES = [
   { key: "investor", label: "Investor" },
   { key: "other", label: "Other" },
 ] as const;
-export type OutreachRole = (typeof OUTREACH_ROLES)[number]["key"];
+type OutreachRole = (typeof OUTREACH_ROLES)[number]["key"];
 
 /** The four purposes. Every purpose pill is the one soft blue (the color system of Edit batch B, 2026-11-01). */
 export const PURPOSES = [
@@ -33,12 +33,12 @@ export type PurposeKey = (typeof PURPOSES)[number]["key"];
 
 const PURPOSE_KEYS = PURPOSES.map((p) => p.key) as readonly string[];
 
-export function isRole(v: unknown): v is OutreachRole {
+function isRole(v: unknown): v is OutreachRole {
   return OUTREACH_ROLES.some((r) => r.key === v);
 }
 
 /** Stored role keys from before a rename, and the role they are now (update 0026 moves the rows over by UPDATE). */
-export const RENAMED_ROLES: Record<string, OutreachRole> = { former_colleague: "personal_network" };
+const RENAMED_ROLES: Record<string, OutreachRole> = { former_colleague: "personal_network" };
 
 /** The role a stored key means today: "former_colleague" (before update 0026) reads as personal_network; unknown keys are null. */
 export function normalizeRole(key: string | null | undefined): OutreachRole | null {
@@ -97,7 +97,7 @@ export type OutreachPerson = {
   archived?: boolean;
 };
 
-export type OutreachSectionKey = "overdue" | "today" | "week" | "later" | "nodate";
+type OutreachSectionKey = "overdue" | "today" | "week" | "later" | "nodate";
 
 export const OUTREACH_SECTIONS: readonly { key: OutreachSectionKey; label: string; hint?: string }[] = [
   { key: "overdue", label: "Overdue" },
@@ -118,7 +118,7 @@ export function outreachSectionOf(p: Pick<OutreachPerson, "nextFollowUp">, today
 }
 
 /** Within a section: soonest date first (overdue: the oldest first), then by name; No date: by name. */
-export function compareOutreach(a: OutreachPerson, b: OutreachPerson): number {
+function compareOutreach(a: OutreachPerson, b: OutreachPerson): number {
   const da = a.nextFollowUp ?? "";
   const db = b.nextFollowUp ?? "";
   if (da !== db) return da < db ? -1 : 1;
@@ -171,23 +171,6 @@ export const DEFAULT_OUTREACH_TARGET = 10;
 export function workWeek(today: string): { start: string; end: string } {
   const { start } = weekBounds(today);
   return { start, end: addDaysISO(start, 4) };
-}
-
-/**
- * The weekly counter: emails sent and calls logged (outgoing emails, calls, meetings, video calls) to people on
- * Outreach, Monday to Friday of this week. `occurredOn` is the local date of each communication.
- */
-export function weeklyOutreach(comms: readonly { occurredOn: string; method: string; direction: string; contactId: string | null }[], today: string, target: number): { count: number; target: number; pct: number } {
-  const { start, end } = workWeek(today);
-  const counts = (m: string) => m === "email" || m === "call" || m === "meeting" || m === "video";
-  const count = comms.filter((c) => !!c.contactId && counts(c.method) && c.direction !== "incoming" && c.occurredOn >= start && c.occurredOn <= end).length;
-  const t = Number.isFinite(target) && target > 0 ? Math.round(target) : DEFAULT_OUTREACH_TARGET;
-  return { count, target: t, pct: Math.min(100, Math.round((count / t) * 100)) };
-}
-
-/** "Network outreach: 4 of 10 this week" as two parts (the number is bold on the screen). */
-export function counterLabel(c: { count: number; target: number }): { before: string; count: string; after: string } {
-  return { before: "Network outreach: ", count: String(c.count), after: ` of ${c.target} this week` };
 }
 
 /** "email", "call", "meeting", "video call", "text" for the LAST CONTACT figure. */

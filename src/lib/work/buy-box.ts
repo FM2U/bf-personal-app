@@ -78,10 +78,6 @@ export const BUY_BOX_INPUT_KEYS = {
   regions: "buy_box_regions",
   regionsOther: "buy_box_regions_other",
 } as const;
-
-/** The two settings revision 1 removed (financing and growth paths are per deal now); database update 0029 deletes their rows. */
-export const REMOVED_BUY_BOX_KEYS = ["buy_box_financing", "buy_box_growth_goals"] as const;
-
 export const BUY_BOX_TEXT_MAX = 200;
 
 /** One line of plain text: spaces made single, cut at `max`; null when empty. */
@@ -91,7 +87,7 @@ export function oneLine(v: unknown, max: number): string | null {
 }
 
 /** The terms of a typed list ("restaurants, trucking; car washes"): trimmed, empty ones dropped. */
-export function typedTerms(text: string | null | undefined): string[] {
+function typedTerms(text: string | null | undefined): string[] {
   return String(text ?? "")
     .split(/[,;\n]/)
     .map((t) => t.replace(/\s+/g, " ").trim())
@@ -229,7 +225,6 @@ export function isPassReason(v: unknown): v is PassReason {
 
 /** Where a listing came from (stored as text in pipeline_items.source). */
 export const LISTING_SOURCES = ["Broker newsletter", "Broker outreach", "Network", "Other"] as const;
-export type ListingSource = (typeof LISTING_SOURCES)[number];
 
 /** The deal source type (proprietary or brokered) that a listing source implies. */
 export function dealSourceTypeFor(source: string | null | undefined): "proprietary" | "brokered" {
@@ -299,7 +294,7 @@ export type BuyBoxInput = {
 /** Fits (green), Near fit (amber), or Outside (gray). */
 export type BuyBoxTier = "fits" | "near" | "outside";
 
-export type BuyBoxResult = {
+type BuyBoxResult = {
   tier: BuyBoxTier;
   /** True only for Fits. */
   fits: boolean;
@@ -321,9 +316,9 @@ export function earningsOf(ebitda: number | string | null | undefined, sde: numb
   return { amount: null, label: null };
 }
 
-export const RETAIL_PATTERN = /\b(retail|e-?commerce)\b/i;
-export const DTC_PATTERN = /\b(direct[- ]to[- ]consumer|d2c|dtc)\b/i;
-export const FRANCHISE_PATTERN = /\bfranchis(e|es|ee|or|ed|ing)\b/i;
+const RETAIL_PATTERN = /\b(retail|e-?commerce)\b/i;
+const DTC_PATTERN = /\b(direct[- ]to[- ]consumer|d2c|dtc)\b/i;
+const FRANCHISE_PATTERN = /\bfranchis(e|es|ee|or|ed|ing)\b/i;
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 

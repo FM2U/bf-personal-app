@@ -2,7 +2,7 @@
 
 import { useId, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Mail, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, NativeSelect } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -288,17 +288,4 @@ export function ComposeEmailDialog({
 /** The name of the person the email goes to ("Mark Reed", or the typed address). */
 function chosenName(to: string, setup: ComposeSetup): string {
   return matchRecipient(to, setup.recipients)?.name ?? (to.trim() || "the person");
-}
-
-/** The "Email" button on contact, organization, and pipeline item pages. Opens the compose box. */
-export function EmailButton({ setup, label = "Email", variant = "outline" }: { setup: ComposeSetup; label?: string; variant?: "outline" | "default" }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <Button type="button" size="sm" variant={variant} onClick={() => setOpen(true)} data-testid="email-button">
-        <Mail /> {label}
-      </Button>
-      {open ? <ComposeEmailDialog setup={setup} open={open} onOpenChange={setOpen} /> : null}
-    </>
-  );
 }

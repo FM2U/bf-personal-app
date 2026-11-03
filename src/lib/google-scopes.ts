@@ -15,7 +15,7 @@ export const GOOGLE_SCOPES = [
 ];
 
 /** The saved scopes as a list (Google returns them separated by spaces). */
-export function scopeList(scopes: string | null | undefined): string[] {
+function scopeList(scopes: string | null | undefined): string[] {
   return String(scopes ?? "")
     .split(/[\s,]+/)
     .map((s) => s.trim())

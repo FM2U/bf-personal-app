@@ -13,9 +13,7 @@ import { WorkShell, WorkUpdateNotice } from "@/components/app/work/shell";
 import { Pill, ProgressMark, waitTone, What, WorkHeader } from "@/components/app/work/ui";
 import { DealHeaderActions, DecisionCard, FactsCard, FindingsCard, ListingTextCard, NextActionCard, TimelineCard, TodosCard } from "@/components/app/work/deal/cards";
 import { DB_UPDATE_NOTICE_0027 } from "@/lib/schema-guard";
-import { hasUpdate0028 } from "@/lib/update-0028";
-import { hasUpdate0029 } from "@/lib/update-0029";
-import { DocumentsCard } from "@/components/app/record-side-panels";
+import { DocumentsCard } from "@/components/app/work/documents-card";
 import { EmptyState } from "@/components/app/page-header";
 import { Button } from "@/components/ui/button";
 
@@ -72,7 +70,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
     );
   }
   // AI instructions (2026-11-02): Strengths and Risks need database update 0028 (the probe, and the columns on the row).
-  const [has0028, has0029] = await Promise.all([hasUpdate0028(supabase), hasUpdate0029(supabase)]);
+  const [has0028, has0029] = await Promise.all([true, true]);
   const listsReady = d.findingListsReady && has0028;
   // AI instructions revision 1: Growth paths and Financing need database update 0029.
   const growthReady = d.growthPathsReady && has0029;
@@ -157,13 +155,6 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
           <DecisionCard deal={deal} advanceTo={deal.status === "open" && !isListing ? d.advanceTo : null} listing={isListing} />
         </div>
       </div>
-      <p className="mt-5 text-xs text-muted-foreground">
-        The same deal in the older pipeline screens:{" "}
-        <Link href={`/records/pipeline_items/${deal.id}`} className="text-primary-strong hover:underline" data-testid="deal-old-page">
-          open the record page
-        </Link>
-        .
-      </p>
     </WorkShell>
   );
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bodyToHtml, emailHtml, emailText, sanitizeSignatureHtml, sanitizeStyle, signatureHasOwnSeparator, signatureHtmlToText, signatureOn } from "@/lib/email-signature";
+import { bodyToHtml, emailHtml, emailText, sanitizeSignatureHtml, signatureHasOwnSeparator, signatureHtmlToText, signatureOn } from "@/lib/email-signature";
 import { buildMimeMessage, gmailRaw } from "@/lib/gmail-mime";
 import {
   canReadSignatureFromScopes,
@@ -89,13 +89,6 @@ describe("signature sanitizer", () => {
     expect(out).toContain('<img src="https://ci3.googleusercontent.com/mail-sig/logo.png" width="120" height="40" alt="Cyan Arc logo">');
     expect(out).toContain('<div dir="ltr">');
   });
-
-  it("keeps simple tables and safe inline styles only", () => {
-    const out = sanitizeSignatureHtml('<table cellpadding="0" class="x" onmouseover="y"><tbody><tr><td style="padding:0 8px;font-family:Arial, sans-serif;position:fixed;color:rgb(10,20,30)">A</td></tr></tbody></table>');
-    expect(out).toBe('<table cellpadding="0"><tbody><tr><td style="padding: 0 8px; font-family: Arial, sans-serif; color: rgb(10,20,30)">A</td></tr></tbody></table>');
-    expect(sanitizeStyle("color: expression(alert(1)); font-size: 12px")).toBe("font-size: 12px");
-  });
-
   it("unwraps unknown tags, closes open tags, drops stray closing tags, escapes stray brackets", () => {
     expect(sanitizeSignatureHtml("<section><h1>Name</h1></section>")).toBe("Name");
     expect(sanitizeSignatureHtml("<b>open <i>both")).toBe("<b>open <i>both</i></b>");

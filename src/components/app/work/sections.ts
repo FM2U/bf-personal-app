@@ -10,7 +10,7 @@ import { DISCLOSURE_PREFIX, writeSaved } from "@/lib/disclosure";
  * with a match is open and the rest are collapsed, and a heading toggled then is not remembered; back on All the
  * person's own collapsed set returns. The person's set is remembered in this browser under `storageKey`.
  */
-export type SectionState = { name: string; count: number; hasMatch: boolean; defaultOpen?: boolean };
+type SectionState = { name: string; count: number; hasMatch: boolean; defaultOpen?: boolean };
 
 export function useSections(storageKey: string, sections: readonly SectionState[], filtering: boolean) {
   const saved = useSavedOpen(DISCLOSURE_PREFIX + storageKey);

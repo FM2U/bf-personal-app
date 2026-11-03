@@ -8,7 +8,7 @@ import { judgedMark, MARK_WORD, type Judged } from "@/lib/accountability/targets
 
 export type ReasonDraft = { targetId: string; name: string; reason: string };
 
-export const REASON_MAX = 200;
+const REASON_MAX = 200;
 
 /** The lines the AI reads about a day: the counted facts, the judged targets, the open waits. */
 export function endOfDayLines(p: EndOfDayPage): string[] {

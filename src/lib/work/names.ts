@@ -6,7 +6,7 @@
  * The "00 " start keeps every unnamed listing together when a list is sorted by name.
  */
 
-export const PLACEHOLDER_PREFIX = "00 ";
+const PLACEHOLDER_PREFIX = "00 ";
 
 const TRAILING_COMPANY_WORDS = /[\s,]+(co\.?|company|inc\.?|llc|l\.l\.c\.|corp\.?|corporation|ltd\.?|limited)$/i;
 

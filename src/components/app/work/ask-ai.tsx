@@ -27,7 +27,7 @@ import { cn } from "@/lib/utils";
  * draft and questions about the field. The page-level questions and next steps show only from the page pill.
  * Everything AI-related is purple; every AI button shares the one thinking state (grayed, a spinner, "Thinking").
  */
-export function AiStar({ className }: { className?: string }) {
+function AiStar({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" className={cn("h-[13px] w-[13px] shrink-0 text-violet", className)} aria-hidden>
       <path d="M8 0.5 C8.6 4.4 9.9 6.4 15.5 8 C9.9 9.6 8.6 11.6 8 15.5 C7.4 11.6 6.1 9.6 0.5 8 C6.1 6.4 7.4 4.4 8 0.5 Z" fill="currentColor" />
@@ -54,7 +54,7 @@ export type EodExtras = {
   closed?: "sent" | "skipped" | null;
 };
 
-export type AskAiProps = {
+type AskAiProps = {
   context: AskContext;
   /** The email setup for "Open in email" (record pages with a contact; Home with a typed address). */
   compose?: ComposeSetup | null;
@@ -208,7 +208,7 @@ const VIOLET_BUTTON = "inline-flex h-[30px] items-center justify-center rounded-
 const SOFT_BUTTON = "inline-flex h-[30px] items-center justify-center rounded-[7px] border border-violet-rule bg-violet-soft px-[11px] text-[12.5px] font-medium whitespace-nowrap text-violet hover:bg-[#f3ecff] disabled:pointer-events-none disabled:opacity-50";
 const INPUT = "h-9 w-full min-w-0 rounded-[7px] border border-input bg-white px-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
 
-export function AskAiPanel({ context, compose, extras, open, onOpenChange, onUse, onUseNext, onUseFindings }: { context: AskContext; compose?: ComposeSetup | null; extras?: EodExtras | null; open: boolean; onOpenChange: (open: boolean) => void; /** A field star: "Use this" fills the field. */ onUse?: (text: string) => void; /** The next action star: "Use this" fills the card's fields. */ onUseNext?: ((s: NextActionSuggestion) => void) | null; /** The Key finding star: "Use this" saves to the Findings card at once (with Undo there). */ onUseFindings?: ((d: KeyFindingDraft) => void) | null }) {
+function AskAiPanel({ context, compose, extras, open, onOpenChange, onUse, onUseNext, onUseFindings }: { context: AskContext; compose?: ComposeSetup | null; extras?: EodExtras | null; open: boolean; onOpenChange: (open: boolean) => void; /** A field star: "Use this" fills the field. */ onUse?: (text: string) => void; /** The next action star: "Use this" fills the card's fields. */ onUseNext?: ((s: NextActionSuggestion) => void) | null; /** The Key finding star: "Use this" saves to the Findings card at once (with Undo there). */ onUseFindings?: ((d: KeyFindingDraft) => void) | null }) {
   const router = useRouter();
   const spec = panelSpec(context);
   // The End of day drafts (batch C): which of the three the panel shows, by the card it was opened from (all three from the page pill).

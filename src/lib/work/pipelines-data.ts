@@ -78,7 +78,7 @@ function toTask(t: Row): DealTodo {
   return { id: String(t.id), text: String(t.text ?? ""), position: Number(t.position ?? 0), doneAt: t.done_at ? String(t.done_at) : null, createdAt: String(t.created_at ?? "") };
 }
 
-export function toItemRow(kind: ItemKind, i: Row, pipe: WorkPipeline, ctx: WorkCtx, contact: Row | undefined, details: Row | undefined, todos: readonly DealTodo[] = []): ItemRow {
+function toItemRow(kind: ItemKind, i: Row, pipe: WorkPipeline, ctx: WorkCtx, contact: Row | undefined, details: Row | undefined, todos: readonly DealTodo[] = []): ItemRow {
   const stage = i.stage_id ? pipe.byId[i.stage_id] : undefined;
   const stageName = stage?.name ?? null;
   const days = daysWaiting(i.waiting_since, ctx.today);
@@ -143,7 +143,7 @@ async function loadItems(sb: SupabaseClient, ctx: WorkCtx, kind: ItemKind, pipe:
   return items.map((i) => toItemRow(kind, i, pipe, ctx, contacts[String(i.primary_contact_id)], details[String(i.id)], todos[String(i.id)] ?? []));
 }
 
-export type ItemStageGroup = { stage: Stage; hint: string | null; deals: ItemRow[] };
+type ItemStageGroup = { stage: Stage; hint: string | null; deals: ItemRow[] };
 
 export type PipelineBoardData = {
   available: boolean;
@@ -183,7 +183,7 @@ export async function loadPipelineBoard(sb: SupabaseClient, ownerId: string, kin
   };
 }
 
-export type ItemPageData = {
+type ItemPageData = {
   available: boolean;
   today: string;
   tz: string;
@@ -259,7 +259,7 @@ export async function loadItemPage(sb: SupabaseClient, ownerId: string, kind: It
       date: fmtDate(String(c.occurred_at), "MMM d"),
       title: commTitle(c),
       detail: [c.summary ? String(c.summary).slice(0, 240) : null, c.call_outcome ? `Next: ${String(c.call_outcome).slice(0, 160)}` : null].filter(Boolean).join(" ") || null,
-      href: `/records/communications/${c.id}`,
+      href: null,
     })),
     ...((history ?? []) as Row[]).map((h) => {
       const s = h.stage_id ? pipe.byId[h.stage_id] : null;
@@ -316,9 +316,4 @@ export async function loadPipelinesHome(sb: SupabaseClient, ctx: WorkCtx): Promi
       waiting: openJobs.filter((i) => i.waitLevel !== "none").length,
     },
   };
-}
-
-/** The compose setup for Email on a row of the Job search or Consulting page (the contact's email when the item has a contact record). */
-export function composesForItems(gmail: GmailSetup, items: readonly ItemRow[]): Record<string, ComposeSetup> {
-  return Object.fromEntries(items.map((i) => [i.id, composeForItem(gmail, i)]));
 }

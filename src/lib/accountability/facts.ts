@@ -11,7 +11,7 @@ import { EMPTY_FACTS, type Facts } from "@/lib/accountability/targets";
 
 type Row = Record<string, unknown>;
 
-export type FactsRows = {
+type FactsRows = {
   items: Row[];
   /** stage_history rows (item_id, stage_id, entered_at), oldest first. */
   history: Row[];
@@ -30,7 +30,7 @@ export type FactsRows = {
   local: (ts: string) => string;
 };
 
-export type Pass = { on: string; name: string; reason: string | null };
+type Pass = { on: string; name: string; reason: string | null };
 
 export function buildFacts(r: FactsRows): { facts: Facts; passes: Pass[] } {
   const personById = new Map(r.people.map((p) => [String(p.id), p]));

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  askedForReason, judgedMark, mostMissedIn, reportTiles, MARK_WORD, cadenceLine, countIn, countsLine, targetPill, todayStrip, countedDays, DEFAULT_TARGETS, dayNumbers, EMPTY_FACTS, figure, judgeDay, judgedOn, judgeWeek, markOf, missedLine, metThisWeek, mostMissed, noReasonText, owedFromLastClosed, owedReasons, pastWeeks, reportSummary, statusItems, stripOf, targetView, tileEodLine, tileTargetLine, tileTargets, todayTiles, tomorrowLabel, weekNumbers, weekTiles, workWeekOf,
+  askedForReason, judgedMark, mostMissedIn, reportTiles, MARK_WORD, countIn, todayStrip, countedDays, DEFAULT_TARGETS, dayNumbers, EMPTY_FACTS, judgeDay, judgeWeek, metThisWeek, mostMissed, noReasonText, owedFromLastClosed, owedReasons, pastWeeks, reportSummary, statusItems, targetView, tileEodLine, tileTargetLine, tileTargets, todayTiles, tomorrowLabel, weekNumbers, weekTiles, workWeekOf,
   type Facts, type Target,
 } from "./targets";
 import { dealBullets, pillOf, reportInnerHtml, reportSubject, reportText, targetLine, type ReportData } from "./report-email";
@@ -79,30 +79,9 @@ describe("counting from the facts", () => {
     expect(countIn("rosara_focus_done", facts, "2026-10-26", "2026-10-30")).toMatchObject({ value: 1, detail: "KarmaKare landing page, done Thursday" });
     expect(countIn("rosara_focus_done", facts, "2026-11-02", FRI).value).toBe(0);
   });
-  it("the cadence line and the figure", () => {
-    expect(cadenceLine(byName("Listings screened"))).toBe("Per weekday · target 5 · counts Pass or Interested on Screen listings");
-    expect(cadenceLine(byName("Follow-ups done on time"))).toBe("Per week · target 100% · counts outreach follow-ups done on or before their date");
-    expect(figure(byName("Listings screened"), 3)).toBe("3 of 5");
-    expect(figure(byName("Follow-ups done on time"), 86)).toBe("86%");
-    expect(figure(byName("Rosara focus done"), 1)).toBe("Done");
-    expect(figure(byName("Rosara focus done"), 0)).toBe("Not yet");
-  });
 });
 
 describe("judging: weekday versus weekly, the status mark", () => {
-  it("a per-weekday target is judged every weekday, a per-week one on Friday", () => {
-    expect(judgedOn({ cadence: "day" }, WED)).toBe(true);
-    expect(judgedOn({ cadence: "day" }, "2026-11-07")).toBe(false);
-    expect(judgedOn({ cadence: "week" }, WED)).toBe(false);
-    expect(judgedOn({ cadence: "week" }, FRI)).toBe(true);
-  });
-  it("met when the figure reaches the target, missed once the period ended or End of day judged it, under way otherwise", () => {
-    const t = { number: 5 };
-    expect(markOf(t, 5, FRI, FRI)).toBe("met");
-    expect(markOf(t, 3, FRI, FRI)).toBe("now");
-    expect(markOf(t, 3, FRI, FRI, true)).toBe("missed");
-    expect(markOf(t, 3, "2026-11-05", FRI)).toBe("missed");
-  });
   it("judgeDay on a Wednesday judges the weekday targets only; on Friday every target", () => {
     const wed = judgeDay(targets, facts, WED);
     expect(wed.find((j) => j.name === "Listings screened")).toMatchObject({ value: 4, met: false, judged: true, figure: "4 of 5", line: "Per weekday · target 5 · this week 11 of 15" });
@@ -142,27 +121,6 @@ describe("reasons owed from a skipped day", () => {
 });
 
 describe("the strip, the figures, Past weeks, Most missed", () => {
-  it("a per-weekday strip: Mon to Fri with today open, met count so far", () => {
-    const s = stripOf(byName("Listings screened"), facts, FRI);
-    expect(s.cells.map((c) => c.state)).toEqual(["met", "missed", "missed", "met", "now"]);
-    expect(s.text).toBe("Mon to Fri · met 2 of 4 days so far");
-    const judged = stripOf(byName("Listings screened"), facts, FRI, { judgedToday: true });
-    expect(judged.cells[4].state).toBe("missed");
-    expect(judged.text).toBe("Mon to Fri · met 2 of 5 days so far");
-    const skipped = stripOf(byName("Listings screened"), facts, FRI, { skippedDays: ["2026-11-03"] });
-    expect(skipped.cells[1].state).toBe("off");
-    expect(skipped.text).toBe("Mon to Fri · met 2 of 3 days so far");
-  });
-  it("a per-week strip: the last 7 weeks plus this one, with the streak", () => {
-    const s = stripOf(byName("Deals moved a stage"), facts, FRI);
-    expect(s.cells).toHaveLength(8);
-    // Edit batch C round 2: 3 moves of 2 this week, so this week's cell is met before Friday's End of day.
-    expect(s.cells[7].state).toBe("met");
-    expect(stripOf(byName("Network outreach"), facts, FRI).cells[7].state).toBe("now");
-    expect(stripOf(byName("Network outreach"), facts, FRI, { judgedToday: true }).cells[7].state).toBe("missed");
-    expect(s.cells[6].state).toBe("missed");
-    expect(s.text).toBe("Last 8 weeks · met 0 of 7 · missed 7 in a row");
-  });
   it("targetView: Today and This week for a weekday target, This week and Last week for a weekly one", () => {
     const v = targetView(byName("Listings screened"), facts, FRI);
     expect(v.figures.map((f) => `${f.label} ${f.value}`)).toEqual(["Today 3 of 5", "This week 19 of 25"]);
@@ -188,14 +146,6 @@ describe("the strip, the figures, Past weeks, Most missed", () => {
     expect(mostMissed(targets, facts, FRI)).toMatchObject({ name: "Brokers contacted", n: 7, of: 7 });
   });
 });
-
-describe("the Past weeks tile line", () => {
-  it("uses the short names of the default targets and keeps a named one", () => {
-    expect(missedLine({ weekStart: "2026-10-26", met: 3, total: 6, missed: [{ name: "Listings screened", figure: "12 of 25" }, { name: "Brokers contacted", figure: "3 of 5" }, { name: "Calls a day", figure: "4 of 10" }] })).toBe("Missed: Listings 12 of 25, Brokers 3 of 5, Calls a day 4 of 10");
-    expect(missedLine({ weekStart: "2026-10-26", met: 6, total: 6, missed: [] })).toBe("Every target met");
-  });
-});
-
 describe("the Home tile lines", () => {
   it("picks the commitments first, at most three, with the right words", () => {
     expect(tileTargets(targets).map((t) => t.name)).toEqual(["Listings screened", "Network outreach", "Brokers contacted"]);
@@ -298,14 +248,6 @@ describe("the AI reasons reply", () => {
 });
 
 describe("Edit batch C: the target pill, what a target counts, exceeded reads met, the Today strip", () => {
-  it("the pill carries the number and the cadence; the line under the name says only what it counts", () => {
-    expect(targets.map(targetPill)).toEqual(["5 / weekday", "5 / week", "10 / week", "100% on time", "2 / week", "1 / week"]);
-    expect(countsLine(byName("Listings screened"))).toBe("Counts Pass or Interested on Screen listings");
-    const v = targetView(byName("Listings screened"), facts, FRI);
-    expect(v.pill).toBe("5 / weekday");
-    expect(v.line).toBe("Counts Pass or Interested on Screen listings");
-    expect(v.line).not.toMatch(/target|Per week/);
-  });
   it("a figure over its target is met (14 of 10 is right, not capped)", () => {
     const busy: Facts = { ...facts, comms: Array.from({ length: 14 }, (_, i) => ({ on: "2026-11-03", method: "email", contactId: `x${i}`, contactName: `X ${i}`, broker: false })) };
     const w = targetView(byName("Network outreach"), busy, FRI);

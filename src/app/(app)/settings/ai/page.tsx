@@ -1,23 +1,18 @@
 import { requireOwner } from "@/lib/auth";
 import { aiBudget } from "@/lib/ai/claude";
 import { env } from "@/lib/env";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { PageHeader, Stat, StatGrid } from "@/components/app/page-header";
 import { Progress } from "@/components/app/charts";
-import { StatusBadge } from "@/components/app/field-value";
 import { dateTime, money } from "@/lib/format";
 import type { Row } from "@/lib/types";
 
-export const metadata = { title: "AI usage and proposals" };
+export const metadata = { title: "AI usage" };
 
 export default async function AiUsagePage() {
   const { supabase, ownerId } = await requireOwner();
-  const [budget, { data: usage }, { data: proposals }] = await Promise.all([
-    aiBudget(supabase, ownerId),
-    supabase.from("ai_usage").select("*").order("created_at", { ascending: false }).limit(1000),
-    supabase.from("ai_proposals").select("*").neq("status", "pending").order("decided_at", { ascending: false }).limit(50),
-  ]);
+  const [budget, { data: usage }] = await Promise.all([aiBudget(supabase, ownerId), supabase.from("ai_usage").select("*").order("created_at", { ascending: false }).limit(1000)]);
   const rows = (usage ?? []) as Row[];
   const byMonth: Record<string, { cost: number; calls: number; tokens: number }> = {};
   const byPurpose: Record<string, { cost: number; calls: number }> = {};
@@ -35,7 +30,7 @@ export default async function AiUsagePage() {
   }
   return (
     <div>
-      <PageHeader title="AI usage and proposals" description={`Every AI call is recorded with tokens and cost. Prices used: $${env.aiInputPricePerMTok} per million input tokens and $${env.aiOutputPricePerMTok} per million output tokens (set in the server settings).`} />
+      <PageHeader title="AI usage" description={`Every AI call is recorded with tokens and cost. Prices used: $${env.aiInputPricePerMTok} per million input tokens and $${env.aiOutputPricePerMTok} per million output tokens (set in the server settings).`} />
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card>
           <CardHeader>
@@ -123,41 +118,6 @@ export default async function AiUsagePage() {
                   <TR>
                     <TD colSpan={6} className="text-muted-foreground">
                       No AI calls yet.
-                    </TD>
-                  </TR>
-                ) : null}
-              </TBody>
-            </Table>
-          </CardContent>
-        </Card>
-        <Card className="lg:col-span-3">
-          <CardHeader>
-            <CardTitle>Decided proposals</CardTitle>
-            <CardDescription>Approved changes are saved with the actor &quot;AI (approved)&quot; in the change log.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <THead>
-                <TR className="hover:bg-transparent">
-                  <TH>Decided</TH>
-                  <TH>Proposal</TH>
-                  <TH>Status</TH>
-                </TR>
-              </THead>
-              <TBody>
-                {((proposals ?? []) as Row[]).map((p) => (
-                  <TR key={p.id}>
-                    <TD className="whitespace-nowrap">{dateTime(p.decided_at)}</TD>
-                    <TD>{p.summary}</TD>
-                    <TD>
-                      <StatusBadge status={p.status} />
-                    </TD>
-                  </TR>
-                ))}
-                {!(proposals ?? []).length ? (
-                  <TR>
-                    <TD colSpan={3} className="text-muted-foreground">
-                      No decided proposals yet.
                     </TD>
                   </TR>
                 ) : null}

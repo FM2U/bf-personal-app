@@ -62,8 +62,6 @@ export type WorkSample = {
   noActionItems: string[];
   /** The scope and start date of the consulting items (consulting_details). */
   consultingDetails: R[];
-  /** Batch C: the partner the End of day reports go to (Jake Morgan). */
-  partners: R[];
   /** Batch C: the three sent reports as partner reports (one reviewed with a reply, one not opened, one reviewed). */
   partnerReports: R[];
   /** Batch C: the End of day rows (three sent, one skipped on the last weekday before today). */
@@ -91,35 +89,11 @@ const SCREENED_KINDS: ScreenedKind[] = [
 ];
 
 /** The i-th passed listing of the screening weeks: a place and a kind of business, each pair once. */
-export function screenedListing(i: number): { name: string; row: Record<string, unknown>; money: ScreenedKind["money"] } {
+function screenedListing(i: number): { name: string; row: Record<string, unknown>; money: ScreenedKind["money"] } {
   const t = SCREENED_KINDS[(i + 5 * Math.floor(i / PLACES.length)) % SCREENED_KINDS.length];
   const name = `${PLACES[i % PLACES.length]} ${t.kind}`;
   return { name, row: { name, what_it_does: t.what, industry: t.industry, location: t.locations[i % t.locations.length], source: "Broker newsletter", broker_name: BROKERS[i % BROKERS.length], pass_reason: t.pass }, money: t.money };
 }
-
-/** Every sample name the Work module adds (listings, deals, brokers, firms), so tests can tell them apart. */
-export const WORK_SAMPLE_NAMES = [
-  "Apex Precision Machining", "Sunny Smiles Franchise, 3 units", "Harbor Point Boat Storage", "Northstar Managed IT", "Cascade Outdoor Retail",
-  "00 Medicaid Transport Provider", "00 Fleet Repair Shop, Jacksonville", "Titan Steel Fabrication", "Hilltop Pest Solutions", "BrightPath Home Care", "Oakline Dental Lab",
-  "Summit Logistics Group", "Dalton Services", "Coastal Fleet Maintenance", "Meridian Industrial Coatings", "Ridgeline Commercial Roofing",
-  "Pinecrest Landscaping", "Lakeside Car Wash, 2 sites", "Great Plains Grain Hauling", "QuickFit Gym Franchise", "Valley Print Group",
-  "Transworld Business Advisors", "Sunbelt Business Brokers", "Murphy Business", "Rachel Kim", "Mark Reed", "Dana Whitfield", "Luis Ortega",
-  // Outreach (batch B): the people of the approved mockup and their organizations.
-  "Priya Natarajan", "Carla Jenkins", "Tom Alvarez", "Denise Walker", "Lena Fischer", "Greg Thornton", "Maria Santos", "Jamal Whitaker",
-  "Rita Caldwell", "Kevin O'Brien", "Sam Patel", "Nina Reyes",
-  "Truist", "Southern Staffing Group", "Alvarez Advisory", "Sunrise Home Care", "Sullivan Wickley", "Atlanta Ventures", "Bain, Atlanta",
-  "GA Home Care Association", "Pathway Search Partners", "Peachtree Logistics", "Korn Ferry, Atlanta",
-  // Batch B2: the projects, the opportunities, and the consulting items of the approved mockup.
-  "Rosara platform", "KarmaKare (working name)", "Business model", "Market research", "Competition", "Customer segments", "Dementia caregiving", "Adjacent business ideas", "Resource sourcing", "Website first draft",
-  "Harbor Health Partners", "Lumen Industrial Holdings", "Crestline Services", "Atlas Freight", "Riverbend Health", "Georgia Home Care Association", "Sunrise Home Care", "Bain, Atlanta", "Alvarez Advisory",
-  // Batch C: the accountability partner of the approved mockup.
-  "Jake Morgan",
-  // Edit batch C: the passed listings that make the weeks of screening (generated, never "Sample").
-  ...Array.from({ length: 140 }, (_, i) => screenedListing(i).name),
-];
-
-/** The nine starting projects (approved 2026-10-31, decisions on v4), in the order of the Rosara page. */
-export const SAMPLE_PROJECT_NAMES = ["Rosara platform", "KarmaKare (working name)", "Business model", "Market research", "Competition", "Customer segments", "Dementia caregiving", "Adjacent business ideas", "Resource sourcing"] as const;
 
 export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: string): WorkSample {
   const ago = (n: number) => addDaysISO(today, -n);
@@ -390,7 +364,6 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
   }
 
   // Batch C (database update 0025): the partner, four End of day rows (three sent, one skipped), and the work events.
-  const partners: R[] = [];
   const partnerReports: R[] = [];
   const endOfDay: R[] = [];
   const workEvents: R[] = [];
@@ -402,7 +375,8 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
     addScreenedListings({ k, today, items, stageDates, deals: s.pipelineId, stageNameOf: (id) => Object.entries(s.stages).find(([, v]) => v === id)?.[0] ?? null, addPassed: (row, money, daysAgo) => entered(add({ ...row, stage_id: stage("Passed") }, money), daysAgo) });
     addOutreachTouches({ k, today, contacts, communications, newId });
     const jake = newId();
-    partners.push({ id: jake, name: "Jake Morgan", is_pseudonym: false, email: "jake.morgan@example.com", sections: ["commitments"], schedule: "weekly", delivery_methods: ["email"], report_frequency: "daily", next_report_on: ahead(7), is_active: true, notes: "Gets the End of day report by email, weekdays at 5:30." });
+    // The accountability partner is a person with the role Accountability partner (final app, 2026-11-02).
+    contacts.push({ id: jake, name: "Jake Morgan", email: "jake.morgan@example.com", outreach_role: "accountability_partner", report_days: [1, 2, 3, 4, 5], report_sections: ["today", "targets", "waiting", "tomorrow", "week", "review"], notes: "Gets the End of day report by email, weekdays at 5:30." });
     // The last four weekdays before today (newest first): d1 skipped, d2 to d4 sent.
     const weekdays: string[] = [];
     for (let i = 1; weekdays.length < 4 && i < 14; i++) if (isWeekday(ago(i))) weekdays.push(ago(i));
@@ -415,9 +389,9 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
     const r3 = newId();
     const r4 = newId();
     partnerReports.push(
-      { id: r2, partner_id: jake, period_start: d2, period_end: d2, status: "finalized", snapshot: { end_of_day: true, day: d2, sample: true }, summary: c.summary2, summary_source: "owner", finalized_at: at(d2, 17, 38), delivered_via: ["gmail_sent"], report_kind: "end_of_day", sent_at: at(d2, 17, 38), reviewed_at: at(d2, 19, 5), partner_comment: "Thanks. Is the Pinecrest LOI still at 3.2x? Let me know what Dana says.", comment_at: at(d2, 19, 5) },
-      { id: r3, partner_id: jake, period_start: d3, period_end: d3, status: "finalized", snapshot: { end_of_day: true, day: d3, sample: true }, summary: c.summary3, summary_source: "owner", finalized_at: at(d3, 17, 35), delivered_via: ["gmail_sent"], report_kind: "end_of_day", sent_at: at(d3, 17, 35) },
-      { id: r4, partner_id: jake, period_start: d4, period_end: d4, status: "finalized", snapshot: { end_of_day: true, day: d4, sample: true }, summary: c.summary4, summary_source: "owner", finalized_at: at(d4, 17, 33), delivered_via: ["gmail_sent"], report_kind: "end_of_day", sent_at: at(d4, 17, 33), reviewed_at: at(d4, 20, 12) },
+      { id: r2, contact_id: jake, period_start: d2, period_end: d2, status: "finalized", snapshot: { end_of_day: true, day: d2, sample: true }, summary: c.summary2, summary_source: "owner", finalized_at: at(d2, 17, 38), delivered_via: ["gmail_sent"], report_kind: "end_of_day", sent_at: at(d2, 17, 38), reviewed_at: at(d2, 19, 5), partner_comment: "Thanks. Is the Pinecrest LOI still at 3.2x? Let me know what Dana says.", comment_at: at(d2, 19, 5) },
+      { id: r3, contact_id: jake, period_start: d3, period_end: d3, status: "finalized", snapshot: { end_of_day: true, day: d3, sample: true }, summary: c.summary3, summary_source: "owner", finalized_at: at(d3, 17, 35), delivered_via: ["gmail_sent"], report_kind: "end_of_day", sent_at: at(d3, 17, 35) },
+      { id: r4, contact_id: jake, period_start: d4, period_end: d4, status: "finalized", snapshot: { end_of_day: true, day: d4, sample: true }, summary: c.summary4, summary_source: "owner", finalized_at: at(d4, 17, 33), delivered_via: ["gmail_sent"], report_kind: "end_of_day", sent_at: at(d4, 17, 33), reviewed_at: at(d4, 20, 12) },
     );
     const judgedSkipped = [
       { targetId: "sample-listings", name: "Listings screened", key: "listings_screened", cadence: "day", number: 5, commitment: true, value: 2, met: false, figure: "2 of 5", line: "Per weekday · target 5 · this week 12 of 20", detail: "2 passed", judged: true },
@@ -443,7 +417,7 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
     }
   }
 
-  return { organizations, contacts, items, financials, communications, notes, stageDates, documents, todos, personalTodos, projects, consultingDetails, noteDates, noActionItems, partners, partnerReports, endOfDay, workEvents };
+  return { organizations, contacts, items, financials, communications, notes, stageDates, documents, todos, personalTodos, projects, consultingDetails, noteDates, noActionItems, partnerReports, endOfDay, workEvents };
 }
 
 /** The three sample sent reports (batch C): the email as sent, built the way End of day builds it, from fixed numbers. */
@@ -534,7 +508,7 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
  */
 const STRETCH = 2;
 
-export function spreadStageMoves(stageDates: WorkSample["stageDates"], k: number, mayMoveThisWeek: ReadonlySet<string>) {
+function spreadStageMoves(stageDates: WorkSample["stageDates"], k: number, mayMoveThisWeek: ReadonlySet<string>) {
   let turn = 0;
   for (const d of stageDates) {
     // The earlier stages twice as far apart (the current stage keeps its day count), so no past week piles up moves.

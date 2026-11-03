@@ -11,24 +11,14 @@ export function money(n: number | string | null | undefined, cents = false): str
   return (cents ? usdCents : usd).format(v);
 }
 
-export function num(n: number | string | null | undefined, digits = 1): string {
-  if (n === null || n === undefined || n === "") return "Not set";
-  return Number(n).toLocaleString("en-US", { maximumFractionDigits: digits });
-}
-
-export function pct(n: number | string | null | undefined, digits = 1): string {
-  if (n === null || n === undefined || n === "") return "Not set";
-  return `${Number(n).toLocaleString("en-US", { maximumFractionDigits: digits })}%`;
-}
-
 /** Time zone used to show dates and times. Servers run in UTC, so every timestamp is shown in this zone instead. */
-export const APP_TIME_ZONE = "America/New_York";
+const APP_TIME_ZONE = "America/New_York";
 
 /**
  * The clock reading of an instant in a time zone, as a Date whose local fields match that reading.
  * Only for formatting: the result is not the same instant.
  */
-export function wallClock(instant: Date, tz: string = APP_TIME_ZONE): Date {
+function wallClock(instant: Date, tz: string = APP_TIME_ZONE): Date {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: tz,
     year: "numeric",
@@ -68,15 +58,4 @@ export function dateTime(s: string | null | undefined): string {
   } catch {
     return s;
   }
-}
-
-export function months(n: number | null | undefined): string {
-  if (n === null || n === undefined) return "Not decreasing";
-  return `${num(n)} months`;
-}
-
-export function titleCase(s: string | null | undefined): string {
-  if (!s) return "";
-  const t = s.replace(/_/g, " ");
-  return t.charAt(0).toUpperCase() + t.slice(1);
 }

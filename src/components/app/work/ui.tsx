@@ -410,7 +410,7 @@ export function Confirm({ tone = "blue", children, className, testId }: { tone?:
  * and edge, white fill, soft blue on hover (Done, Advance, Reopen, the choices after Done). soft: soft blue fill
  * (Interested, Follow up). outline: gray edge (Later, Pass, Email, Log a call, Cancel).
  */
-export type RowButtonTone = "primary" | "cobalt" | "soft" | "outline";
+type RowButtonTone = "primary" | "cobalt" | "soft" | "outline";
 export const ROW_BUTTON_BASE = "inline-flex h-[30px] items-center justify-center rounded-[7px] border px-[11px] text-[12.5px] font-medium whitespace-nowrap transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50";
 export const ROW_BUTTON_TONE: Record<RowButtonTone, string> = {
   primary: "border-primary-solid bg-primary-solid text-white hover:border-primary-solid-hover hover:bg-primary-solid-hover",

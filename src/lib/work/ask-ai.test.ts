@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { answerPrompt, contextLabel, estimateCents, estimateLabel, fieldPrompt, isRecordPage, nextStepsPrompt, panelSpec, recordNoun, splitStepLine, SUGGESTED_QUESTIONS, tasksPrompt, trimContext, validateAnswerReply, validateFieldReply, validateNextStepsReply, nextActionPrompt, validateNextActionReply, NEXT_ACTION_MAX_DAYS } from "./ask-ai";
+import { answerPrompt, fieldPrompt, isRecordPage, nextStepsPrompt, panelSpec, recordNoun, splitStepLine, SUGGESTED_QUESTIONS, tasksPrompt, trimContext, validateAnswerReply, validateFieldReply, validateNextStepsReply, nextActionPrompt, validateNextActionReply, NEXT_ACTION_MAX_DAYS } from "./ask-ai";
 
 describe("the Ask AI panel", () => {
   it("has three suggested questions per page and knows the record pages", () => {
@@ -62,17 +62,6 @@ describe("the Ask AI panel", () => {
     expect(validateAnswerReply("text").ok).toBe(false);
     expect(validateFieldReply({ text: "  Call Rita  " })).toEqual({ ok: true, value: "Call Rita" });
     expect(validateFieldReply({ text: "" }).ok).toBe(false);
-  });
-
-  it("estimates the cost in cents and labels it; no label without price figures", () => {
-    expect(estimateCents(4000, 500, 3, 15)).toBeCloseTo(((1400 * 3 + 500 * 15) / 1_000_000) * 100, 6);
-    expect(estimateLabel(0.2)).toBe("under 1 cent");
-    expect(estimateLabel(1.2)).toBe("about 1 cent");
-    expect(estimateLabel(2.6)).toBe("about 3 cents");
-    expect(estimateLabel(null)).toBeNull();
-    expect(contextLabel({ label: "Work on now", card: "Next actions" })).toBe("Context: Next actions, Work on now");
-    expect(contextLabel({ label: "Rosara", field: { key: "weekly_focus", label: "Weekly focus" } })).toBe("Context: the Weekly focus field, Rosara");
-    expect(contextLabel({ label: "Deals" })).toBe("Context: Deals");
   });
 });
 

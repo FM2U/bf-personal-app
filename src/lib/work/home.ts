@@ -4,29 +4,11 @@
  * (over and under the threshold), the filter pills (the same four as Deals, counted over the rows on the page), and
  * the Deals at a glance counts. The filters run in the browser over the deals the page already loaded.
  */
-import { groupByPhase, matchesFilter, matchesSearch, type DealFilter, type FilterableDeal } from "@/lib/work/phases";
+import { groupByPhase, type FilterableDeal } from "@/lib/work/phases";
 
 export type HomeRow = FilterableDeal & { id: string; waitDays: number; stageName: string | null };
 
-export type HomeSectionKey = "overdue" | "today" | "needs";
-
-export const HOME_SECTIONS: readonly { key: HomeSectionKey; label: string }[] = [
-  { key: "overdue", label: "Overdue" },
-  { key: "today", label: "Due today" },
-  { key: "needs", label: "Needs a next action" },
-];
-
-/** Overdue: due before today. Due today: due today. Needs a next action: no action set. Each list keeps the order given. */
-export function nextActionSections<T extends HomeRow>(deals: readonly T[], today: string): Record<HomeSectionKey, T[]> {
-  const open = deals.filter((d) => d.status === "open");
-  return {
-    overdue: open.filter((d) => !!d.nextAction && !!d.nextActionDue && d.nextActionDue.slice(0, 10) < today),
-    today: open.filter((d) => !!d.nextAction && !!d.nextActionDue && d.nextActionDue.slice(0, 10) === today),
-    needs: open.filter((d) => !String(d.nextAction ?? "").trim()),
-  };
-}
-
-export type WaitSectionKey = "over" | "under";
+type WaitSectionKey = "over" | "under";
 
 /** "Over 5 days" (at or past the threshold) and "Under 5 days", for the Waiting on someone card. */
 export function waitSections<T extends HomeRow>(deals: readonly T[], threshold: number): { key: WaitSectionKey; label: string; deals: T[] }[] {
@@ -36,20 +18,6 @@ export function waitSections<T extends HomeRow>(deals: readonly T[], threshold: 
     { key: "over", label: `Over ${t} days`, deals: waiting.filter((d) => d.waitDays >= t) },
     { key: "under", label: `Under ${t} days`, deals: waiting.filter((d) => d.waitDays < t) },
   ];
-}
-
-/** One row on the page (a deal can be in Next actions and in Waiting on someone at the same time). */
-export type HomeRowRef = { card: "actions" | "waiting"; deal: HomeRow };
-
-/** The filter pill counts, over the rows on the page (a deal in both cards counts twice, as the mockup does). */
-export function homeFilterCounts(rows: readonly HomeRowRef[], today: string): Record<DealFilter, number> {
-  const count = (f: DealFilter) => rows.filter((r) => matchesFilter(r.deal, f, today)).length;
-  return { all: rows.length, today: count("today"), wait: count("wait"), needs: count("needs") };
-}
-
-/** Whether a row stays visible under the filter and the Find box. */
-export function homeRowShown(deal: HomeRow, filter: DealFilter, query: string, today: string): boolean {
-  return matchesFilter(deal, filter, today) && matchesSearch(deal, query);
 }
 
 export type GlanceCounts = { active: number; early: number; evaluate: number; decide: number; waitingOver: number; needsAction: number };

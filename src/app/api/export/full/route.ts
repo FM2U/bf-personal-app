@@ -1,10 +1,7 @@
 import JSZip from "jszip";
 import { NextResponse } from "next/server";
 import { getOwner } from "@/lib/auth";
-import { EXPORT_TABLES } from "@/lib/resources";
-import { readTable, toCsv } from "@/lib/export";
-import { EXPORT_COOKIE } from "@/lib/reset";
-import { env } from "@/lib/env";
+import { EXPORT_TABLES, readTable, toCsv } from "@/lib/export";
 
 export const maxDuration = 120;
 
@@ -27,11 +24,8 @@ export async function GET() {
   zip.file("data.json", JSON.stringify({ exported_at: new Date().toISOString(), tables: all }, null, 2));
   zip.file("README.txt", "Full export of BF Personal App. data.json holds every table. The csv folder holds one CSV file per table. Encrypted connection tokens are not included.\n");
   const buf = await zip.generateAsync({ type: "uint8array", compression: "DEFLATE" });
-  await owner.supabase.from("tasks").update({ status: "done" }).eq("status", "todo").ilike("title", "%full data export%");
   const res = new NextResponse(Buffer.from(buf), {
     headers: { "Content-Type": "application/zip", "Content-Disposition": `attachment; filename="bf-personal-app-export-${stamp}.zip"` },
   });
-  // "Reset all data" step 1: the export was downloaded in this browser session (a session cookie, no expiry date).
-  res.cookies.set(EXPORT_COOKIE, new Date().toISOString(), { path: "/", sameSite: "lax", httpOnly: false, secure: env.appUrl.startsWith("https://") });
   return res;
 }

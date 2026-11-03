@@ -3,7 +3,7 @@
  * before it (opened from the Past weeks line on Targets or a Past weeks tile on Reports), and the month. Pure and
  * tested in src/lib/accountability/periods.test.ts; the URL carries the key (/work/reports?period=w2).
  */
-export const PERIOD_KEYS = ["this", "last", "w2", "w3", "w4", "month"] as const;
+const PERIOD_KEYS = ["this", "last", "w2", "w3", "w4", "month"] as const;
 export type PeriodKey = (typeof PERIOD_KEYS)[number];
 
 /** The weeks before this one that Reports can open: Last week is 1, then 2 to 4 weeks back. */
@@ -14,14 +14,6 @@ export function pastWeekPeriodKey(weeksBack: number): PeriodKey {
   if (weeksBack <= 1) return "last";
   const k = `w${Math.min(PAST_WEEKS, Math.round(weeksBack))}`;
   return k as PeriodKey;
-}
-
-/** How many weeks back a key is (0 for this week, null for the month). */
-export function weeksBackOf(key: PeriodKey): number | null {
-  if (key === "this") return 0;
-  if (key === "last") return 1;
-  if (key === "month") return null;
-  return Number(key.slice(1));
 }
 
 /** A key from the URL; anything else is This week. */

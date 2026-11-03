@@ -8,7 +8,7 @@ import { isMissingSchemaError } from "@/lib/schema-guard";
  * date), and the Rosara weekly focus marked done. Before update 0025 the insert fails with "does not exist" and is
  * skipped: the action that called it still succeeds.
  */
-export type WorkEventInput = {
+type WorkEventInput = {
   kind: "next_action_done" | "follow_up_done" | "focus_done";
   recordType: string | null;
   recordId: string | null;

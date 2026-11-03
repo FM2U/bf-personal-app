@@ -27,7 +27,7 @@ export function prepareEmailMessage(subject: string, body: string, bodyHtml?: st
 
 export type OutreachPurpose = "general" | "deal_sourcing" | "consulting";
 
-export const OUTREACH_PURPOSES: OutreachPurpose[] = ["general", "deal_sourcing", "consulting"];
+const OUTREACH_PURPOSES: OutreachPurpose[] = ["general", "deal_sourcing", "consulting"];
 
 /**
  * Purpose of an outreach communication: as chosen when valid; otherwise consulting for a consulting lead,

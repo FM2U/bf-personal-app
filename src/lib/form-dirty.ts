@@ -12,12 +12,12 @@ export type FieldState =
   | { kind: "ignore" };
 
 /** For a single-choice list where no option is marked as the starting choice, the browser starts on the first option. */
-export function initialSelection(defaults: boolean[], multiple: boolean): boolean[] {
+function initialSelection(defaults: boolean[], multiple: boolean): boolean[] {
   if (multiple || defaults.some(Boolean) || !defaults.length) return defaults;
   return defaults.map((_, i) => i === 0);
 }
 
-export function isFieldDirty(f: FieldState): boolean {
+function isFieldDirty(f: FieldState): boolean {
   switch (f.kind) {
     case "value":
       return f.value !== f.initial;

@@ -1,6 +1,6 @@
 import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
-import { accountabilityNotice, loadEodBadge, loadReportsPage } from "@/lib/accountability/data";
+import { loadEodBadge, loadReportsPage } from "@/lib/accountability/data";
 import { parsePeriodKey } from "@/lib/accountability/periods";
 import { AccountabilityTabs } from "@/components/app/nav-links";
 import { AskAiPill } from "@/components/app/work/ask-ai";
@@ -19,7 +19,7 @@ export const metadata = { title: "Reports" };
 export default async function ReportsPage({ searchParams }: { searchParams: Promise<{ view?: string; period?: string }> }) {
   const { supabase, ownerId } = await requireOwner();
   const sp = await searchParams;
-  const notice = await accountabilityNotice(supabase);
+  const notice = null;
   const ctx = await loadCtx(supabase, ownerId);
   const badge = await loadEodBadge(supabase, ownerId, ctx.today);
   const d = notice ? null : await loadReportsPage(supabase, ctx);

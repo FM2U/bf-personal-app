@@ -18,7 +18,7 @@ export type ProjectLike = {
   closedAt?: string | null;
 };
 
-export type ProjectSectionKey = "today" | "active" | "needs" | "closed";
+type ProjectSectionKey = "today" | "active" | "needs" | "closed";
 
 export const PROJECT_SECTIONS: readonly { key: ProjectSectionKey; label: string; hint?: string; collapsed?: boolean }[] = [
   { key: "today", label: "Due today" },
@@ -31,7 +31,7 @@ export const PROJECT_SECTIONS: readonly { key: ProjectSectionKey; label: string;
  * Which section a project sits in: Closed when closed; Due today when its next action is due today or earlier;
  * No next action when it has none; Active otherwise (a next action due later, or one without a date).
  */
-export function projectSectionOf(p: ProjectLike, today: string): ProjectSectionKey {
+function projectSectionOf(p: ProjectLike, today: string): ProjectSectionKey {
   if (p.status === "closed") return "closed";
   if (!String(p.nextAction ?? "").trim()) return "needs";
   if (p.nextActionDue && p.nextActionDue.slice(0, 10) <= today) return "today";
@@ -98,7 +98,7 @@ export function projectTasksLabel(open: number): string {
  * without a due date comes after dated ones), the open project count, and how many are due this week (today to the
  * end of the next 7 days, overdue included).
  */
-export function rosaraTile<T extends ProjectLike>(projects: readonly T[], today: string, weekEnd: string): { next: T | null; open: number; dueThisWeek: number } {
+export function rosaraTile<T extends ProjectLike>(projects: readonly T[], weekEnd: string): { next: T | null; open: number; dueThisWeek: number } {
   const open = projects.filter((p) => p.status !== "closed");
   const withAction = open.filter((p) => String(p.nextAction ?? "").trim()).sort(compareProjects);
   return {
@@ -111,10 +111,4 @@ export function rosaraTile<T extends ProjectLike>(projects: readonly T[], today:
 /** "2 due this week", "1 due this week", "Nothing due this week". */
 export function dueThisWeekLabel(n: number): string {
   return n === 0 ? "Nothing due this week" : `${n} due this week`;
-}
-
-/** The milestone line on a row ("Ten agency owner conversations"), or a quiet fallback. */
-export function milestoneLine(p: Pick<ProjectLike, "milestone">): string | null {
-  const m = String(p.milestone ?? "").trim();
-  return m || null;
 }

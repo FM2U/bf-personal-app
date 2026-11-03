@@ -7,7 +7,6 @@ import { recordWorkEvent } from "@/lib/accountability/events";
 import { addDaysISO } from "@/lib/calc/dates";
 import { loadCtx, type Ctx } from "@/lib/engine/helpers";
 import { DB_UPDATE_NOTICE_0023, isMissingSchemaError } from "@/lib/schema-guard";
-import { workUpdateNotice } from "@/lib/work/data";
 import { TODO_MAX_LENGTH } from "@/lib/work/questions";
 import { nextTodoPosition, type DealTodo } from "@/lib/work/todos";
 import type { Row } from "@/lib/types";
@@ -30,7 +29,7 @@ const isFail = (v: unknown): v is Fail => !!v && typeof v === "object" && (v as 
 
 async function setup(): Promise<{ sb: SupabaseClient; ctx: Ctx } | Fail> {
   const { supabase, ownerId } = await requireOwner();
-  const notice = await workUpdateNotice(supabase);
+  const notice = null;
   if (notice) return fail(notice);
   return { sb: supabase, ctx: await loadCtx(supabase, ownerId) };
 }

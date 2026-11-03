@@ -19,7 +19,7 @@ type PipelineContacts = {
 };
 
 /** Pipeline item fields that name a person, in the order the email recipient is chosen. */
-export const PIPELINE_RECIPIENT_FIELDS: { field: keyof PipelineContacts; role: string }[] = [
+const PIPELINE_RECIPIENT_FIELDS: { field: keyof PipelineContacts; role: string }[] = [
   { field: "primary_contact_id", role: "Main contact" },
   { field: "source_contact_id", role: "Deal came from" },
   { field: "introduced_by_contact_id", role: "Introduced by" },

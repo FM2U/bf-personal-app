@@ -30,7 +30,7 @@ export function DealColumns({ header, groups, today, initialFilter = "all" }: { 
   return <PhaseColumns header={header} groups={groups} today={today} initialFilter={initialFilter} phases={PHASES} storageKey={STORAGE_KEY} prefix="deals" placeholder="Find a deal" card={(deal, hidden) => <DealCard deal={deal} today={today} hidden={hidden} />} />;
 }
 
-export type ColumnItem = FilterableDeal & { id: string; stageName: string | null; searchText?: string | null };
+type ColumnItem = FilterableDeal & { id: string; stageName: string | null; searchText?: string | null };
 
 /** The phase columns for any pipeline: the groups (one per open stage, in order), the phases that hold them, and how to draw a row. */
 export function PhaseColumns<T extends ColumnItem>({ header, before, groups, today, initialFilter = "all", phases, storageKey, prefix, placeholder, card, noun = "deal", gridClassName, testId = "deals-columns" }: {

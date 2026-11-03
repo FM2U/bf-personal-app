@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { getOwner } from "@/lib/auth";
-import { EXPORT_TABLES } from "@/lib/resources";
-import { readTable, toCsv } from "@/lib/export";
+import { EXPORT_TABLES, readTable, toCsv } from "@/lib/export";
 
 /** CSV export of one table. Example: /api/export/transactions */
 export async function GET(_req: Request, { params }: { params: Promise<{ table: string }> }) {

@@ -12,9 +12,9 @@ import { weekdayShort } from "@/lib/work/outreach";
 
 // ---------- What a target counts ----------
 
-export type CountKey = "listings_screened" | "passes" | "brokers_contacted" | "emails_sent" | "calls_logged" | "outreach_contacts" | "follow_ups_on_time" | "deals_moved" | "next_actions_done" | "rosara_focus_done";
+type CountKey = "listings_screened" | "passes" | "brokers_contacted" | "emails_sent" | "calls_logged" | "outreach_contacts" | "follow_ups_on_time" | "deals_moved" | "next_actions_done" | "rosara_focus_done";
 
-export type Countable = { key: CountKey; label: string; /** "counts ..." on the target row. */ counts: string; unit: "count" | "percent" | "yesno" };
+type Countable = { key: CountKey; label: string; /** "counts ..." on the target row. */ counts: string; unit: "count" | "percent" | "yesno" };
 
 /** The countable things, in the order of the "Counts" choice on Add a target. */
 export const COUNTABLES: readonly Countable[] = [
@@ -30,7 +30,7 @@ export const COUNTABLES: readonly Countable[] = [
   { key: "rosara_focus_done", label: "Rosara focus done", counts: "the weekly focus marked done on Rosara", unit: "yesno" },
 ];
 
-export const COUNT_KEYS = COUNTABLES.map((c) => c.key) as readonly CountKey[];
+const COUNT_KEYS = COUNTABLES.map((c) => c.key) as readonly CountKey[];
 export const isCountKey = (v: unknown): v is CountKey => (COUNT_KEYS as readonly string[]).includes(String(v));
 export const countable = (key: CountKey): Countable => COUNTABLES.find((c) => c.key === key) ?? COUNTABLES[0];
 
@@ -49,24 +49,17 @@ export const DEFAULT_TARGETS: readonly Omit<Target, "id">[] = [
   { name: "Rosara focus done", key: "rosara_focus_done", cadence: "week", number: 1, commitment: false, sortOrder: 6 },
 ];
 
-/** "Per weekday · target 5 · counts Pass or Interested on Screen listings" (the line under a target's name). */
-export function cadenceLine(t: Pick<Target, "key" | "cadence" | "number">): string {
-  const c = countable(t.key);
-  const n = c.unit === "percent" ? `${t.number}%` : String(t.number);
-  return `${t.cadence === "day" ? "Per weekday" : "Per week"} · target ${n} · counts ${c.counts}`;
-}
-
 /**
  * The target pill after a target's name (Edit batch C, item 5): "5 / weekday", "10 / week", "100% on time", "1 / week".
  * A percent target is on time by what it counts; every other target is a number per weekday or per week.
  */
-export function targetPill(t: Pick<Target, "key" | "cadence" | "number">): string {
+function targetPill(t: Pick<Target, "key" | "cadence" | "number">): string {
   if (countable(t.key).unit === "percent") return `${t.number}% on time`;
   return `${t.number} / ${t.cadence === "day" ? "weekday" : "week"}`;
 }
 
 /** The line under a target's name once the pill carries the number: only what it counts ("Counts Pass or Interested on Screen listings"). */
-export function countsLine(t: Pick<Target, "key">): string {
+function countsLine(t: Pick<Target, "key">): string {
   return `Counts ${countable(t.key).counts}`;
 }
 
@@ -94,7 +87,7 @@ const isCall = (m: string) => m === "call" || m === "meeting" || m === "video";
 const isContact = (m: string) => m === "email" || isCall(m);
 
 /** A count for one key over a period: the value the target is judged on, plus what makes it up. */
-export type Count = { value: number; /** "2 passed, 1 Interested", "12 of 14", "Dalton, Meridian". */ detail: string; names: string[]; /** For percent keys: how many were done and how many on time. */ parts?: { done: number; onTime: number } };
+type Count = { value: number; /** "2 passed, 1 Interested", "12 of 14", "Dalton, Meridian". */ detail: string; names: string[]; /** For percent keys: how many were done and how many on time. */ parts?: { done: number; onTime: number } };
 
 /** Counts one key between two dates (inclusive, YYYY-MM-DD). */
 export function countIn(key: CountKey, f: Facts, start: string, end: string): Count {
@@ -170,13 +163,13 @@ export function shortName(name: string): string {
 }
 
 const DAY_NAMES: Record<string, string> = { Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday", Fri: "Friday", Sat: "Saturday", Sun: "Sunday" };
-export function dayName(date: string): string {
+function dayName(date: string): string {
   return DAY_NAMES[weekdayShort(date)] ?? date;
 }
 
 // ---------- Periods, judging, the status mark ----------
 
-export type Period = { start: string; end: string };
+type Period = { start: string; end: string };
 
 /** Monday to Friday of the week that holds the date. */
 export function workWeekOf(date: string): Period {
@@ -185,16 +178,11 @@ export function workWeekOf(date: string): Period {
 }
 
 /** The period a target is judged on for a date: that day, or Monday to Friday of its week. */
-export function periodOf(t: Pick<Target, "cadence">, date: string): Period {
+function periodOf(t: Pick<Target, "cadence">, date: string): Period {
   return t.cadence === "day" ? { start: date, end: date } : workWeekOf(date);
 }
 
-/** The value of a target over a period. A per-weekday target over a week: the sum (judged against number times the counted days). */
-export function valueOf(t: Pick<Target, "key">, f: Facts, p: Period): Count {
-  return countIn(t.key, f, p.start, p.end);
-}
-
-export function isMet(t: Pick<Target, "number">, value: number): boolean {
+function isMet(t: Pick<Target, "number">, value: number): boolean {
   return value >= t.number;
 }
 
@@ -207,7 +195,7 @@ export function figure(t: Pick<Target, "key" | "number">, value: number, require
 }
 
 /** Does End of day judge this target on this date? Per weekday: every weekday. Per week: Friday. */
-export function judgedOn(t: Pick<Target, "cadence">, date: string): boolean {
+function judgedOn(t: Pick<Target, "cadence">, date: string): boolean {
   return t.cadence === "day" ? isWeekday(date) : weekdayShort(date) === "Fri";
 }
 
@@ -217,7 +205,7 @@ export type Mark = "met" | "missed" | "now";
  * The status mark: met when the figure reaches the target; missed when the period ended (or End of day judged it)
  * unmet; under way (now) while the day or week is not finished.
  */
-export function markOf(t: Pick<Target, "number">, value: number, periodEnd: string, today: string, judged = false): Mark {
+function markOf(t: Pick<Target, "number">, value: number, periodEnd: string, today: string, judged = false): Mark {
   if (isMet(t, value)) return "met";
   return periodEnd < today || judged ? "missed" : "now";
 }
@@ -244,7 +232,7 @@ export type Strip = { cells: Cell[]; /** "Mon to Fri · met 2 of 4 days so far",
  * of day judged it, a skipped day is "off", a day to come is empty), or the last 7 weeks plus this one for a per-week
  * target. `judgedToday` is true once today's End of day was sent or skipped.
  */
-export function stripOf(t: Target, f: Facts, today: string, opts: { skippedDays?: readonly string[]; judgedToday?: boolean } = {}): Strip {
+function stripOf(t: Target, f: Facts, today: string, opts: { skippedDays?: readonly string[]; judgedToday?: boolean } = {}): Strip {
   const skipped = new Set(opts.skippedDays ?? []);
   const cells: Cell[] = [];
   let met = 0;
@@ -294,7 +282,7 @@ export function stripOf(t: Target, f: Facts, today: string, opts: { skippedDays?
 
 // ---------- The target rows (Targets page) ----------
 
-export type Fig = { value: string; label: string; tone: "plain" | "met" | "missed" | "none" };
+type Fig = { value: string; label: string; tone: "plain" | "met" | "missed" | "none" };
 
 export type TargetView = Target & {
   /** What the target counts (the pill carries the number and the cadence). */
@@ -397,11 +385,6 @@ const SHORT_NAMES: Record<string, string> = { "Listings screened": "Listings", "
 /** The short name of a default target for the Past weeks tiles ("Listings 12 of 25"); a target Bram named keeps its name. */
 export function shortTargetName(name: string): string {
   return SHORT_NAMES[name] ?? name;
-}
-
-/** "Missed: Listings 12 of 25, Brokers 3 of 5" or "Every target met" (a Past weeks tile). */
-export function missedLine(w: WeekTile): string {
-  return w.missed.length ? `Missed: ${w.missed.map((m) => `${shortTargetName(m.name)} ${m.figure}`).join(", ")}` : "Every target met";
 }
 
 /** The last four full weeks before this one, newest first. */
@@ -521,7 +504,7 @@ export function tileTargets(targets: readonly Target[], max = 3): Target[] {
 
 // ---------- The report's numbers (End of day email, Reports) ----------
 
-export type TileStatus = "met" | "soon" | "missed" | "neutral";
+type TileStatus = "met" | "soon" | "missed" | "neutral";
 export type ReportTile = { label: string; value: string; small?: string; note: string; status: TileStatus; pct: number | null };
 
 export type DayNumbers = {
@@ -631,7 +614,7 @@ export function weekNumbers(targets: readonly Target[], f: Facts, p: Period, wai
 }
 
 /** The weekdays (Mon to Fri) in a period. */
-export function weekdaysIn(p: Period): number {
+function weekdaysIn(p: Period): number {
   let n = 0;
   for (let d = p.start; d <= p.end; d = addDaysISO(d, 1)) if (isWeekday(d)) n++;
   return n;
@@ -656,7 +639,7 @@ export function weekTiles(w: WeekNumbers, last: WeekNumbers | null): ReportTile[
 // ---------- Reports, regrouped (Edit batch C round 2, item 6) ----------
 
 /** The target furthest behind in a period: its name, figure, and how far along (0 to 1); null when every target is met. */
-export type MostMissedIn = { name: string; figure: string; share: number; weeks?: { missed: number; of: number } } | null;
+type MostMissedIn = { name: string; figure: string; share: number; weeks?: { missed: number; of: number } } | null;
 
 /**
  * "Most missed this week" (or last week, a past week): the target furthest below its target, by share of the target
@@ -716,11 +699,6 @@ export function reportTiles(w: WeekNumbers, last: WeekNumbers | null, most: Most
       : { label: opts.label, value: "None", note: opts.open ? "Every target met so far" : "Every target met", status: opts.open ? "neutral" : "met", pct: null },
   ];
   return tiles;
-}
-
-/** "Fri Oct 31" style pieces are formatted by the caller; here only the plain words. */
-export function reportTitle(day: string): string {
-  return weekdayShort(day) === "Fri" ? "Daily with the week" : "Daily";
 }
 
 /** The one-line summary saved with a sent report (the row on Sent reports). */

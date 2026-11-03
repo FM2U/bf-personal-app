@@ -3,10 +3,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDaysISO, monthStart, todayInTz } from "@/lib/calc/dates";
 import type { Ctx } from "@/lib/engine/helpers";
 import { date as fmtDate, formatInZone } from "@/lib/format";
-import { DB_UPDATE_NOTICE_0025 } from "@/lib/schema-guard";
-import { hasUpdate0025 } from "@/lib/update-0025";
 import { displayName } from "@/lib/work/names";
-import { loadPipelineOfKind, loadWorkCtx, workUpdateNotice, type WorkCtx, type WorkPipeline } from "@/lib/work/data";
+import { loadPipelineOfKind, loadWorkCtx, type WorkCtx, type WorkPipeline } from "@/lib/work/data";
 import { weekdayShort } from "@/lib/work/outreach";
 import { daysWaiting } from "@/lib/work/stages";
 import { buildFacts } from "@/lib/accountability/facts";
@@ -26,14 +24,6 @@ import type { Row } from "@/lib/types";
  * deals); src/lib/accountability/targets.ts counts them. Nothing here writes; the actions are in
  * src/app/actions/accountability.ts.
  */
-
-/** The "Database update needed" line for the first update that is missing (0020 to 0025), or null. */
-export async function accountabilityNotice(sb: SupabaseClient): Promise<string | null> {
-  const w = await workUpdateNotice(sb);
-  if (w) return w;
-  if (!(await hasUpdate0025(sb))) return DB_UPDATE_NOTICE_0025;
-  return null;
-}
 
 // ---------- Targets ----------
 
@@ -78,9 +68,9 @@ async function seedDefaultTargets(sb: SupabaseClient, ownerId: string, existing:
 
 // ---------- The facts ----------
 
-export type Wait = { name: string; days: number; who: string | null; what: string | null; since: string | null; dealId: string };
+type Wait = { name: string; days: number; who: string | null; what: string | null; since: string | null; dealId: string };
 
-export type FactsBundle = { facts: Facts; waits: Wait[]; /** Days skipped on End of day (not counted). */ skippedDays: string[]; /** Passed listings by reason in the window (for Reports). */ passes: { on: string; name: string; reason: string | null }[] };
+type FactsBundle = { facts: Facts; waits: Wait[]; /** Days skipped on End of day (not counted). */ skippedDays: string[]; /** Passed listings by reason in the window (for Reports). */ passes: { on: string; name: string; reason: string | null }[] };
 
 /** The facts from `since` (YYYY-MM-DD) to today: enough for the 8-week strips, the Past weeks, and This month. */
 export async function loadFacts(sb: SupabaseClient, ctx: WorkCtx, since: string): Promise<FactsBundle> {
@@ -135,20 +125,22 @@ export function factsSince(today: string): string {
 
 // ---------- The partner and the End of day row ----------
 
-export type Partner = { id: string; name: string; first: string; email: string | null };
+type Partner = { id: string; name: string; first: string; email: string | null };
 
-/** The partner End of day reports to: the active partner set to Daily first, then Both, then any active partner with an email. */
+/**
+ * The partner End of day reports to: a person with the role Accountability partner (not archived), the one with an
+ * email first. Push B sends to every partner due that day; until then the first partner gets the report.
+ */
 export async function loadPartner(sb: SupabaseClient, ownerId: string): Promise<Partner | null> {
-  const { data } = await sb.from("partners").select("id,name,email,report_frequency,is_active,created_at").eq("owner_id", ownerId).eq("is_active", true).order("created_at").limit(50);
+  const { data } = await sb.from("contacts").select("id,name,email,created_at").eq("owner_id", ownerId).eq("outreach_role", "accountability_partner").is("archived_at", null).order("created_at").limit(50);
   const rows = (data ?? []) as Row[];
-  const rank = (p: Row) => (p.report_frequency === "daily" ? 0 : p.report_frequency === "both" ? 1 : 2) + (p.email ? 0 : 10);
-  const p = [...rows].sort((a, b) => rank(a) - rank(b))[0];
+  const p = [...rows].sort((a, b) => (a.email ? 0 : 1) - (b.email ? 0 : 1))[0];
   if (!p) return null;
   const name = String(p.name);
   return { id: String(p.id), name, first: name.split(/[\s,(]+/)[0] || name, email: p.email ? String(p.email) : null };
 }
 
-export type EodRow = { id: string | null; day: string; status: EodState; reasons: Record<string, string>; tomorrow: string; skipReason: string | null; sentAt: string | null; reportId: string | null; reportSubject: string | null; reportHtml: string | null; reportEdited: boolean; judged: Judged[] };
+type EodRow = { id: string | null; day: string; status: EodState; reasons: Record<string, string>; tomorrow: string; skipReason: string | null; sentAt: string | null; reportId: string | null; reportSubject: string | null; reportHtml: string | null; reportEdited: boolean; judged: Judged[] };
 
 export async function loadEodRow(sb: SupabaseClient, ownerId: string, day: string): Promise<EodRow> {
   const { data } = await sb.from("end_of_day").select("*").eq("owner_id", ownerId).eq("day", day).maybeSingle();
@@ -316,7 +308,7 @@ export type PeriodView = {
 
 export type SentRow = { id: string; day: string; title: string; summary: string; state: "sent" | "skipped"; sentAt: string | null; sentTime: string | null; reviewedAt: string | null; reviewedTime: string | null; comment: string | null; commentAt: string | null; commentTime: string | null; subject: string | null; html: string | null; skipReason: string | null; withWeek: boolean; /** What Find matches: the title, the summary, the reply, and the words of the report as sent (lower case). */ searchText: string };
 
-export type SentSection = { key: string; label: string; hint: string; rows: SentRow[]; collapsed: boolean };
+type SentSection = { key: string; label: string; hint: string; rows: SentRow[]; collapsed: boolean };
 
 export type ReportsPage = { today: string; partner: Partner | null; periods: PeriodView[]; sent: SentSection[]; /** The four full weeks before this one, newest first (the Past weeks tiles, Edit batch C item 7). */ past: WeekTile[]; mostMissed: { name: string; n: number; of: number } | null };
 
@@ -411,7 +403,7 @@ function passedByReason(rows: FactsBundle["passes"]): PeriodView["passed"] {
 }
 
 /** Every End of day report sent or skipped, newest first (the sent ones joined to their partner report for the reviewed state and the reply). */
-export async function loadSentReports(sb: SupabaseClient, ctx: Ctx): Promise<SentRow[]> {
+async function loadSentReports(sb: SupabaseClient, ctx: Ctx): Promise<SentRow[]> {
   const { data } = await sb.from("end_of_day").select("id,day,status,sent_at,skip_reason,report_id,report_subject,report_html,judged").eq("owner_id", ctx.ownerId).neq("status", "open").order("day", { ascending: false }).limit(400);
   const rows = (data ?? []) as Row[];
   const ids = rows.map((r) => r.report_id).filter(Boolean) as string[];
@@ -456,7 +448,7 @@ function htmlWords(html: string): string {
 }
 
 /** The sent rows by week: This week, Last week, Earlier in <month>, Earlier (collapsed). */
-export function groupSent(rows: SentRow[], today: string): SentSection[] {
+function groupSent(rows: SentRow[], today: string): SentSection[] {
   const week = workWeekOf(today);
   const last = { start: addDaysISO(week.start, -7), end: addDaysISO(week.start, -3) };
   const month = monthStart(today);
@@ -482,7 +474,7 @@ export type TargetsTile = { available: boolean; notice: string | null; today: st
 
 export async function loadTargetsTile(sb: SupabaseClient, ctx: Ctx): Promise<TargetsTile> {
   const empty: TargetsTile = { available: false, notice: null, today: ctx.today, lines: [], met: { met: 0, total: 0, names: "" }, eod: { state: "open", badge: "5:30", line: "" } };
-  const notice = await accountabilityNotice(sb);
+  const notice = null;
   if (notice) return { ...empty, notice };
   const wctx = await loadWorkCtx(sb, ctx.ownerId);
   const [targets, bundle, row, owedPrev] = await Promise.all([loadTargets(sb, ctx.ownerId), loadFacts(sb, wctx, addDaysISO(workWeekOf(ctx.today).start, -7)), loadEodRow(sb, ctx.ownerId, ctx.today), loadOwedFromSkipped(sb, ctx.ownerId, ctx.today)]);

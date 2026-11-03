@@ -10,7 +10,7 @@ import { lastContactLabel } from "@/lib/work/outreach";
 
 export type HeaderFigure = { key: "next" | "tasks" | "last" | "waiting"; value: string; label: string; tone: "today" | "over" | "later" | "none" | "amber" | "red" };
 
-export type RecordHeaderInput = {
+type RecordHeaderInput = {
   /** The next action's or next follow-up's date (YYYY-MM-DD), or null. */
   nextDue: string | null;
   /** True when there is a next action or follow-up at all (a date without text still counts for a person). */
@@ -45,7 +45,7 @@ export function headerFigures(i: RecordHeaderInput, today: string, fmt: (d: stri
  * and the buy box pill instead of the stage mark and the stage pill, the Next action optional, no Documents card, and
  * the Decision card with Pass and Interested. Pure and tested in record-page.test.ts.
  */
-export type DealPageState = {
+type DealPageState = {
   kind: "listing" | "deal";
   crumb: { label: "Screen listings" | "Deals"; href: "/work/listings" | "/work/deals"; tail: string };
   /** "Listing" on a listing (the type pill); null on a deal, which shows the stage mark and the stage pill. */

@@ -6,8 +6,7 @@ import { Mail, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Notice } from "@/components/app/page-header";
-import { useRouter } from "next/navigation";
-import { saveReportToGmailDrafts, sendPartnerReportEmail, type SendResult } from "@/app/actions/email";
+import { type SendResult } from "@/app/actions/email";
 import type { SendPermission } from "@/lib/google-scopes";
 import { STATUS_BOX, STATUS_TEXT } from "@/lib/status";
 import { cn } from "@/lib/utils";
@@ -19,15 +18,15 @@ import { EmailHtmlPreview } from "@/components/app/email-preview";
  * body: the plain text; bodyHtml: the formatted editor's HTML when the message was written there; html: the app's own
  * visual HTML (partner reports), shown as is; attachment: the name of a file sent with the email.
  */
-export type EmailPreview = { to: string; subject: string; body: string; bodyHtml?: string | null; html?: string | null; attachment?: string | null };
+type EmailPreview = { to: string; subject: string; body: string; bodyHtml?: string | null; html?: string | null; attachment?: string | null };
 
 /** The HTML part exactly as it will be sent (message, then the signature when included). */
-export function previewHtml(shown: EmailPreview, signatureHtml: string | null): string {
+function previewHtml(shown: EmailPreview, signatureHtml: string | null): string {
   return shown.html ? emailHtml(shown.body, signatureHtml, shown.html) : emailHtmlFor(shown, signatureHtml);
 }
 
 /** "Include signature": shown only when a signature is saved. Checked by default when the setting is on. */
-export function IncludeSignature({ checked, onChange, disabled, testId = "include-signature" }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; testId?: string }) {
+function IncludeSignature({ checked, onChange, disabled, testId = "include-signature" }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; testId?: string }) {
   return (
     <label className="inline-flex min-h-8 cursor-pointer items-center gap-2 text-sm text-slate-800">
       <input type="checkbox" className="h-4 w-4 shrink-0 accent-primary" checked={checked} onChange={(e) => onChange(e.target.checked)} disabled={disabled} data-testid={testId} />
@@ -61,7 +60,7 @@ export function ReconnectGoogle({ message, stacked = false }: { message?: string
     >
       <span>{message ?? "Reconnect Google to allow sending from the app (1 minute)."}</span>
       <Button asChild size="sm" className={cn("shrink-0 self-start", !stacked && "sm:self-auto")}>
-        {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- the Google sign-in must be a full page load, not an app link */}
+        { }
         <a href="/api/google/connect">Reconnect Google</a>
       </Button>
     </div>
@@ -281,53 +280,5 @@ export function SendOrSaveButtons({
         </DialogContent>
       </Dialog>
     </div>
-  );
-}
-
-/**
- * Partner report page (finalized report): Send now and Save to Gmail drafts. The text cannot be edited here.
- * `options` are the chosen templates and the PDF choice (Delivery card); the preview shows the same email.
- */
-export function ReportSendButtons({
-  reportId,
-  permission,
-  fromEmail,
-  preview,
-  alreadySent,
-  hasDraft,
-  signature = null,
-  options,
-}: {
-  reportId: string;
-  permission: SendPermission;
-  fromEmail: string | null;
-  preview: EmailPreview | (() => EmailPreview);
-  alreadySent: boolean;
-  hasDraft: boolean;
-  signature?: SignatureSetup | null;
-  options?: { templateIds: string[]; attachPdf: boolean };
-}) {
-  const router = useRouter();
-  return (
-    <SendOrSaveButtons
-      permission={permission}
-      fromEmail={fromEmail}
-      preview={typeof preview === "function" ? preview : () => preview}
-      editable={false}
-      readOnlyNote="A finalized report does not change. To change the wording, press Save to Gmail drafts and edit it in Gmail."
-      sendLabel={alreadySent ? "Send again" : "Send now"}
-      signature={signature}
-      send={async (requestId, includeSignature) => {
-        const r = await sendPartnerReportEmail({ reportId, requestId, includeSignature, templateIds: options?.templateIds ?? null, attachPdf: !!options?.attachPdf });
-        if (r.ok) router.refresh();
-        return r;
-      }}
-      saveDraft={async (includeSignature) => {
-        const r = await saveReportToGmailDrafts(reportId, includeSignature, { templateIds: options?.templateIds ?? null, attachPdf: !!options?.attachPdf });
-        if (r.ok) router.refresh();
-        return r;
-      }}
-      afterSendNote={hasDraft ? "A Gmail draft of this report was created earlier. Delete it in Gmail, Drafts so it is not sent twice." : null}
-    />
   );
 }

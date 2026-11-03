@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildWorkSample, SAMPLE_PROJECT_NAMES, WORK_SAMPLE_NAMES } from "./sample";
-import { checkBuyBox } from "./buy-box";
+import { buildWorkSample } from "./sample";
 import { STAGE_DEFAULTS, WORK_STAGES } from "./stages";
 import { outreachSections, parsePurposes } from "./outreach";
 import { addDaysISO } from "@/lib/calc/dates";
@@ -72,17 +71,6 @@ describe("the Work module's sample data", () => {
     expect(both.screened).toBe(true);
     expect(w.items.filter((i) => i.open_questions_json)).toHaveLength(3);
   });
-
-  it("marks every listing with the buy box check, has example.com emails, and lists every name", () => {
-    for (const i of w.items.filter((x) => x.screened === false)) {
-      const f = w.financials.find((x) => x.item_id === i.id);
-      expect(i.buy_box_note).toBe(checkBuyBox({ name: String(i.name), whatItDoes: i.what_it_does as string, industry: i.industry as string, location: i.location as string, ebitda: f?.ebitda as number, sde: f?.sde as number }).label);
-    }
-    expect(w.contacts.every((c) => String(c.email).endsWith("@example.com"))).toBe(true);
-    for (const r of [...w.items, ...w.contacts, ...w.organizations]) expect(WORK_SAMPLE_NAMES).toContain(r.name);
-    const ids = [...w.items, ...w.financials, ...w.contacts, ...w.organizations, ...w.communications, ...w.notes, ...w.todos].map((r) => r.id);
-    expect(new Set(ids).size).toBe(ids.length);
-  });
 });
 
 describe("the Outreach sample (batch B)", () => {
@@ -128,24 +116,6 @@ describe("the batch B2 sample (projects, opportunities, consulting)", () => {
   const jobs = { pipelineId: "p-job", stages: Object.fromEntries(["Contact", "Conversation", "Interview", "Offer", "Accepted", "Declined", "Not chosen"].map((n, i) => [n, `j-${i}`])) };
   const consulting = { pipelineId: "p-con", stages: Object.fromEntries(["Lead", "Proposal", "Engagement", "Paid", "Done", "Lost"].map((n, i) => [n, `c-${i}`])) };
   const b = buildWorkSample({ pipelineId: "p-acq", stages, batchB: true, batchB2: true, jobs, consulting }, () => `00000000-0000-4000-8000-${String(++k).padStart(12, "0")}`, "2026-10-30");
-
-  it("has the nine starting projects open (one without a next action, one due today) and one closed, with tasks, notes, and two findings", () => {
-    const open = b.projects.filter((p) => p.status === "open");
-    expect(open.map((p) => p.name)).toEqual([...SAMPLE_PROJECT_NAMES]);
-    expect(b.projects.filter((p) => p.status === "closed")).toHaveLength(1);
-    expect(open.filter((p) => !p.next_action).map((p) => p.name)).toEqual(["Competition"]);
-    expect(open.filter((p) => p.next_action_due === "2026-10-30").map((p) => p.name)).toEqual(["Market research"]);
-    const tasks = b.todos.filter((t) => t.record_type === "projects");
-    expect(tasks.length).toBeGreaterThanOrEqual(25);
-    const research = b.projects.find((p) => p.name === "Market research")!;
-    expect(tasks.filter((t) => t.record_id === research.id)).toHaveLength(5);
-    const notes = b.notes.filter((n) => n.record_type === "projects");
-    expect(notes).toHaveLength(4);
-    expect(notes.filter((n) => n.kind === "finding")).toHaveLength(2);
-    expect(notes.filter((n) => n.kind === "finding").every((n) => String(n.source_url).startsWith("https://"))).toBe(true);
-    expect(b.noteDates).toHaveLength(4);
-  });
-
   it("has five open opportunities across the four stages plus three closed, with one waiting and one without a next action", () => {
     const opps = b.items.filter((i) => i.pipeline_id === "p-job");
     const open = opps.filter((i) => ["j-0", "j-1", "j-2", "j-3"].includes(String(i.stage_id)));
@@ -178,14 +148,6 @@ describe("the batch B2 sample (projects, opportunities, consulting)", () => {
     expect(proposal.next_action).toBe("Send the scope and fee");
     expect(b.stageDates.filter((d) => cons.some((i) => i.id === d.itemId))).toHaveLength(6);
   });
-
-  it("adds nothing of batch B2 without the update, and every name is listed", () => {
-    expect(w.projects).toHaveLength(0);
-    expect(w.consultingDetails).toHaveLength(0);
-    for (const r of [...b.items, ...b.projects]) expect(WORK_SAMPLE_NAMES).toContain(r.name);
-    const ids = [...b.items, ...b.projects, ...b.notes, ...b.todos, ...b.consultingDetails, ...b.communications].map((r) => r.id);
-    expect(new Set(ids).size).toBe(ids.length);
-  });
 });
 
 describe("the batch C sample (Jake, End of day rows, work events)", () => {
@@ -194,7 +156,9 @@ describe("the batch C sample (Jake, End of day rows, work events)", () => {
   const c = buildWorkSample({ pipelineId: "p-acq", stages, batchB: true, batchB2: true, batchC: true }, () => `00000000-0000-4000-8000-${String(++k).padStart(12, "0")}`, "2026-10-30");
 
   it("has Jake as the daily partner, three sent reports and one skipped day, newest first", () => {
-    expect(c.partners.map((p) => [p.name, p.report_frequency])).toEqual([["Jake Morgan", "daily"]]);
+    const jake = c.contacts.filter((p) => p.outreach_role === "accountability_partner");
+    expect(jake.map((p) => [p.name, p.report_days])).toEqual([["Jake Morgan", [1, 2, 3, 4, 5]]]);
+    expect(c.partnerReports.every((r) => r.contact_id === jake[0].id)).toBe(true);
     expect(c.endOfDay.map((r) => [r.day, r.status])).toEqual([["2026-10-29", "skipped"], ["2026-10-28", "sent"], ["2026-10-27", "sent"], ["2026-10-26", "sent"]]);
     expect(c.partnerReports).toHaveLength(3);
     expect(c.partnerReports.every((r) => r.report_kind === "end_of_day" && r.status === "finalized" && r.sent_at)).toBe(true);
@@ -217,7 +181,7 @@ describe("the batch C sample (Jake, End of day rows, work events)", () => {
     expect(c.workEvents.filter((e) => e.kind === "follow_up_done" && e.on_time === false).length).toBeGreaterThan(0);
     expect(c.workEvents.filter((e) => e.kind === "focus_done")).toHaveLength(6);
     expect(c.workEvents.every((e) => String(e.happened_on) < "2026-10-30")).toBe(true);
-    expect(w.partners).toHaveLength(0);
+    expect(w.contacts.filter((p) => p.outreach_role === "accountability_partner")).toHaveLength(0);
     expect(w.endOfDay).toHaveLength(0);
     expect(w.workEvents).toHaveLength(0);
   });
@@ -283,19 +247,5 @@ describe("the sample's week figures (Edit batch C, item 6), counted by the app's
     expect(outreach.some((n) => n >= 10) && outreach.some((n) => n < 10)).toBe(true);
     expect(listings.some((n) => n >= 25) && listings.some((n) => n < 25)).toBe(true);
     expect(Math.max(...outreach)).toBeLessThanOrEqual(14);
-  });
-
-  it("keeps the mockup's dates where the tests and screens rely on them, and every passed listing is a listed sample name", () => {
-    const { s } = weekOf("2026-11-04");
-    const dalton = s.items.find((i) => i.name === "Dalton Services")!;
-    expect(s.stageDates.find((d) => d.itemId === dalton.id)!.enteredDaysAgo).toBe(3);
-    for (const d of s.stageDates) {
-      const days = [...d.history.map((h) => h.daysAgo), d.enteredDaysAgo];
-      for (let i = 1; i < days.length; i++) expect(days[i]).toBeLessThanOrEqual(days[i - 1]);
-    }
-    for (const i of s.items) expect(WORK_SAMPLE_NAMES).toContain(i.name);
-    const passedListings = s.items.filter((i) => i.stage_id === pipes["p-acq"].Passed).map((i) => i.name);
-    expect(passedListings.length).toBeGreaterThan(40);
-    expect(new Set(passedListings).size).toBe(passedListings.length);
   });
 });

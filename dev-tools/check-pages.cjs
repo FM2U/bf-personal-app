@@ -28,13 +28,8 @@ const session = {
 const cookieValue = `base64-${Buffer.from(JSON.stringify(session)).toString("base64url")}`;
 
 const PAGES = (process.env.PAGES || [
-  "/", "/work", "/work/listings", "/work/listings?add=1", "/work/deals", "/work/outreach", "/work/outreach?add=1", "/work/todos", "/work/rosara", "/work/jobs", "/work/jobs?add=1", "/work/consulting", "/work/consulting?add=1", "/work/targets", "/work/targets?add=1", "/work/end-of-day", "/work/reports", "/work/reports?view=sent", "/today", "/today/close", "/today/close?step=2", "/today/close?step=3", "/more", "/more/old-home", "/plan", "/plan/goals", "/plan/milestones", "/plan/conditions", "/plan/inputs", "/plan/scenarios", "/plan/decisions",
-  "/finance", "/finance/balance-sheet", "/finance/expenses", "/finance/import", "/finance/budget", "/finance/debt", "/finance/funding", "/finance/income", "/finance/savings",
-  "/opportunities", "/people", "/people/organizations", "/people/communications", "/people/outreach",
-  "/productivity", "/productivity/tasks", "/productivity/recurring", "/productivity/calendar", "/productivity/pipeline-actions",
-  "/accountability", "/accountability/targets", "/accountability/reviews", "/accountability/scores", "/accountability/partners", "/accountability/reports", "/accountability/report-templates",
-  "/settings", "/settings/email", "/settings/ai", "/settings/buy-box", "/settings/imports", "/settings/partner-access", "/settings/initiatives", "/settings/categories", "/settings/export", "/settings/profile", "/settings/change-log",
-  "/proposals", "/plan/start", "/settings/data", "/records/tasks/new", "/records/decision_conditions/new", "/records/pipeline_items/new", "/records/contacts/new", "/records/organizations/new",
+  "/", "/work", "/work/listings", "/work/listings?add=1", "/work/deals", "/work/outreach", "/work/outreach?add=1", "/work/todos", "/work/rosara", "/work/jobs", "/work/jobs?add=1", "/work/consulting", "/work/consulting?add=1", "/work/targets", "/work/targets?add=1", "/work/end-of-day", "/work/reports", "/work/reports?view=sent",
+  "/settings", "/settings/email", "/settings/ai", "/settings/buy-box", "/settings/export", "/settings/profile", "/settings/data",
 ].join(",")).split(",");
 
 // Record pages found in the local demo database (consulting list and item, acquisition item form, contact with deal credit).
@@ -51,25 +46,6 @@ async function keyPages() {
     await client.connect();
     const one = async (sql) => (await client.query(sql)).rows[0]?.id;
     const out = [];
-    const con = await one("select id from pipelines where kind = 'consulting' limit 1").catch(() => null);
-    if (con) out.push(`/opportunities/${con}?view=list`);
-    const item = await one("select id from pipeline_items where name = 'Demo Retail Group: operations retainer' limit 1").catch(() => null);
-    if (item) out.push(`/records/pipeline_items/${item}`);
-    const acq = await one("select id from pipeline_items where name = 'Demo HVAC Services Co' limit 1").catch(() => null);
-    if (acq) out.push(`/records/pipeline_items/${acq}?edit=1`);
-    const contact = await one("select id from contacts where name = 'Jamie Fictional' limit 1").catch(() => null);
-    if (contact) out.push(`/records/contacts/${contact}`);
-    // Next required action states: one item overdue (seed) and one due today (set here, local demo data only).
-    const late = await one("select id from pipeline_items where name = 'Demo Landscaping LLC' limit 1").catch(() => null);
-    if (late) out.push(`/records/pipeline_items/${late}#overdue`);
-    const dueToday = await one(
-      "update pipeline_items set next_action_due = (now() at time zone 'America/New_York')::date where name = 'Demo Bookkeeping Firm' returning id",
-    ).catch(() => null);
-    if (dueToday) out.push(`/records/pipeline_items/${dueToday}#due-today`);
-    const org = await one("select id from organizations where name = 'Demo Retail Group' limit 1").catch(() => null);
-    if (org) out.push(`/records/organizations/${org}`);
-    const acqPipe = await one("select id from pipelines where kind = 'acquisition' limit 1").catch(() => null);
-    if (acqPipe) out.push(`/opportunities/${acqPipe}?view=board&closed=1`, `/opportunities/${acqPipe}#funnel`);
     // The deal page of the Work module (Dalton Services from the sample data, otherwise any open deal).
     const deal = (await one("select id from pipeline_items where name = 'Dalton Services' limit 1").catch(() => null)) ?? (await one("select i.id from pipeline_items i join pipelines p on p.id = i.pipeline_id where p.kind = 'acquisition' and i.screened and i.stage_id is not null order by i.created_at limit 1").catch(() => null));
     if (deal) out.push(`/work/deals/${deal}`);
@@ -86,7 +62,7 @@ async function keyPages() {
     if (opp) out.push(`/work/jobs/${opp}`);
     const conItem = (await one("select i.id from pipeline_items i join pipelines p on p.id = i.pipeline_id where p.kind = 'consulting' and i.name = 'Sullivan Wickley' order by i.created_at limit 1").catch(() => null)) ?? (await one("select i.id from pipeline_items i join pipelines p on p.id = i.pipeline_id where p.kind = 'consulting' order by i.created_at limit 1").catch(() => null));
     if (conItem) out.push(`/work/consulting/${conItem}`);
-    return [...out, "/accountability/targets", "/people/outreach", "/finance/income", "/records/contacts/new", "/records/organizations/new", "/finance/import"];
+    return out;
   } catch {
     return [];
   } finally {
@@ -146,7 +122,7 @@ async function keyPages() {
     page.on("console", (m) => {
       if (m.type() === "error") errors.push(m.text());
     });
-    const base = vpName === "desktop" ? PAGES : vpName === "phone" ? (process.env.PHONE_PAGES || "/work,/work/listings,/work/deals,/work/outreach,/work/todos,/work/rosara,/work/jobs,/work/consulting,/work/targets,/work/end-of-day,/work/reports,/today,/today/close,/more,/finance/expenses,/finance/balance-sheet,/accountability/report-templates,/opportunities,/plan/inputs,/accountability/targets,/people/outreach,/productivity").split(",") : [];
+    const base = vpName === "desktop" ? PAGES : vpName === "phone" ? (process.env.PHONE_PAGES || "/work,/work/listings,/work/deals,/work/outreach,/work/todos,/work/rosara,/work/jobs,/work/consulting,/work/targets,/work/end-of-day,/work/reports,/settings").split(",") : [];
     const list = [...new Set([...base, ...KEY])];
     for (const p of list) {
       errors.length = 0;

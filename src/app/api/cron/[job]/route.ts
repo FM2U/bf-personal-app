@@ -1,36 +1,16 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { env } from "@/lib/env";
-import { loadCtx } from "@/lib/engine/helpers";
-import { buildMorningPlan, connectionChecks, ownerIds, plaidSyncAll, runEvening, runMorning } from "@/lib/engine/run";
-import { checkMilestones, evaluateConditions } from "@/lib/engine/rules";
-import { checkCommitments, generateFollowUps, generatePipelineTasks, generateRecurringTasks, rolloverRegularTasks } from "@/lib/engine/tasks";
-import { ensureReview } from "@/lib/engine/reviews";
-import { schedulePartnerReports } from "@/lib/engine/partners";
-import { checkPipelineAccountability } from "@/lib/engine/pipeline-jobs";
-import { proposeSavingsIdeas } from "@/lib/engine/savings-ideas";
+import { connectionChecks, ownerIds } from "@/lib/jobs";
 
 export const maxDuration = 300;
 
-type Ctx = Awaited<ReturnType<typeof loadCtx>>;
-const JOBS: Record<string, (sb: ReturnType<typeof createServiceClient>, ownerId: string, ctx: Ctx) => Promise<unknown>> = {
-  morning: (sb, id) => runMorning(sb, id),
-  evening: (sb, id) => runEvening(sb, id),
-  "plaid-sync": (_sb, _id, ctx) => plaidSyncAll(ctx),
-  "decision-conditions": (_sb, _id, ctx) => evaluateConditions(ctx),
-  "connection-checks": (_sb, _id, ctx) => connectionChecks(ctx),
-  "recurring-tasks": async (_sb, _id, ctx) => ({ templates: await generateRecurringTasks(ctx), pipeline: await generatePipelineTasks(ctx), followUps: await generateFollowUps(ctx) }),
-  "morning-plan": (_sb, _id, ctx) => buildMorningPlan(ctx, true),
-  "daily-close": (_sb, _id, ctx) => ensureReview(ctx, "daily"),
-  "weekly-review": (_sb, _id, ctx) => ensureReview(ctx, "weekly"),
-  "monthly-review": (_sb, _id, ctx) => ensureReview(ctx, "monthly"),
-  "quarterly-review": (_sb, _id, ctx) => ensureReview(ctx, "quarterly"),
-  "partner-reports": (_sb, _id, ctx) => schedulePartnerReports(ctx),
-  commitments: (_sb, _id, ctx) => checkCommitments(ctx, false),
-  "task-rollover": (_sb, _id, ctx) => rolloverRegularTasks(ctx),
-  milestones: (_sb, _id, ctx) => checkMilestones(ctx),
-  "pipeline-checks": (_sb, _id, ctx) => checkPipelineAccountability(ctx),
-  "savings-ideas": (_sb, _id, ctx) => proposeSavingsIdeas(ctx, "weekly"),
+type Sb = ReturnType<typeof createServiceClient>;
+/** Scheduled jobs (see vercel.json): morning runs the daily checks; evening is kept for reply reading (push B). */
+const JOBS: Record<string, (sb: Sb, ownerId: string) => Promise<unknown>> = {
+  morning: (sb, id) => connectionChecks(sb, id),
+  evening: async () => ({ skipped: "nothing scheduled in the evening yet" }),
+  "connection-checks": (sb, id) => connectionChecks(sb, id),
 };
 
 function authorized(req: Request): boolean {
@@ -39,10 +19,6 @@ function authorized(req: Request): boolean {
   return auth === `Bearer ${env.cronSecret}` || req.headers.get("x-cron-secret") === env.cronSecret;
 }
 
-/**
- * Scheduled jobs. Vercel Cron calls /api/cron/morning and /api/cron/evening once a day each (see vercel.json);
- * those two run every other job in order. Each job can also be called on its own with the CRON_SECRET header.
- */
 export async function GET(req: Request, { params }: { params: Promise<{ job: string }> }) {
   if (!authorized(req)) return NextResponse.json({ error: "Not authorized" }, { status: 401 });
   const { job } = await params;
@@ -52,7 +28,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ job: str
   const results: Record<string, unknown> = {};
   for (const id of await ownerIds(sb)) {
     try {
-      results[id] = await fn(sb, id, await loadCtx(sb, id));
+      results[id] = await fn(sb, id);
     } catch (e) {
       results[id] = { error: e instanceof Error ? e.message : String(e) };
     }

@@ -6,9 +6,9 @@
  */
 import type { WorkStageName } from "@/lib/work/stages";
 
-export type PhaseKey = "early" | "evaluate" | "decide";
+type PhaseKey = "early" | "evaluate" | "decide";
 
-export type Phase = { key: PhaseKey; name: string; tagline: string; stages: readonly WorkStageName[] };
+type Phase = { key: PhaseKey; name: string; tagline: string; stages: readonly WorkStageName[] };
 
 /** A phase of any pipeline (the Job search page reuses the columns with its own two phases; batch B2). */
 export type PhaseDef = { key: string; name: string; tagline: string; stages: readonly string[] };
@@ -47,17 +47,17 @@ export const DEAL_FILTERS: readonly { key: DealFilter; label: string }[] = [
 export type FilterableDeal = { name: string; status: string; nextAction: string | null; nextActionDue: string | null; waitLevel: string };
 
 /** Due today: an open deal whose next action is due today or earlier. */
-export function isDueToday(d: FilterableDeal, today: string): boolean {
+function isDueToday(d: FilterableDeal, today: string): boolean {
   return d.status === "open" && !!d.nextAction && !!d.nextActionDue && d.nextActionDue.slice(0, 10) <= today;
 }
 
 /** Waiting on someone: an open deal with a wait (any color). */
-export function isWaiting(d: FilterableDeal): boolean {
+function isWaiting(d: FilterableDeal): boolean {
   return d.status === "open" && d.waitLevel !== "none";
 }
 
 /** Needs a next action: an open deal with no next action. */
-export function needsNextAction(d: FilterableDeal): boolean {
+function needsNextAction(d: FilterableDeal): boolean {
   return d.status === "open" && !String(d.nextAction ?? "").trim();
 }
 

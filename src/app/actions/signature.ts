@@ -9,7 +9,7 @@ import { isGoogleConfigured } from "@/lib/env";
 import { isMissingSchemaError, DB_UPDATE_NOTICE_0015 } from "@/lib/schema-guard";
 import { sanitizeSignatureHtml, signatureHtmlToText, SIGNATURE_MAX_LENGTH } from "@/lib/email-signature";
 
-export type CopyResult = { ok: true; html: string; text: string; message: string } | { ok: false; reason: "reconnect" | "not_connected" | "google"; message: string; googleText?: string | null };
+type CopyResult = { ok: true; html: string; text: string; message: string } | { ok: false; reason: "reconnect" | "not_connected" | "google"; message: string; googleText?: string | null };
 
 /** Copy from Gmail / Refresh from Gmail: reads the signature into the editor. Nothing is saved until Save signature. */
 export async function copySignatureFromGmail(): Promise<CopyResult> {
@@ -29,7 +29,7 @@ export async function copySignatureFromGmail(): Promise<CopyResult> {
   }
 }
 
-export type SaveSignatureResult = { ok: boolean; message: string; html?: string; text?: string };
+type SaveSignatureResult = { ok: boolean; message: string; html?: string; text?: string };
 
 /** Save signature: stores the sanitized HTML, its plain text, and the setting. An empty box removes the signature. */
 export async function saveEmailSignature(input: { html: string; enabled: boolean }): Promise<SaveSignatureResult> {

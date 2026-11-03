@@ -1,6 +1,6 @@
 import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
-import { accountabilityNotice, loadEndOfDay } from "@/lib/accountability/data";
+import { loadEndOfDay } from "@/lib/accountability/data";
 import { END_OF_DAY_TIME } from "@/lib/accountability/targets";
 import { AccountabilityTabs } from "@/components/app/nav-links";
 import { EndOfDayBoard } from "@/components/app/work/end-of-day-board";
@@ -18,7 +18,7 @@ export const metadata = { title: "End of day" };
  */
 export default async function EndOfDayPage() {
   const { supabase, ownerId } = await requireOwner();
-  const notice = await accountabilityNotice(supabase);
+  const notice = null;
   const ctx = await loadCtx(supabase, ownerId);
   if (notice) {
     return (

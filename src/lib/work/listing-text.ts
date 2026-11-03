@@ -83,7 +83,7 @@ export function yearOf(v: unknown): string {
  * The AI reply as listing fields; null when it is not an object with at least a name or a figure. A "listing_name" in
  * the reply becomes "00 <description>"; an older reply with only "name" is kept as the listing name as it is.
  */
-export function readListingFields(value: unknown): ListingFields | null {
+function readListingFields(value: unknown): ListingFields | null {
   if (!value || typeof value !== "object") return null;
   const v = value as Record<string, unknown>;
   const source = str(v.source, 40);

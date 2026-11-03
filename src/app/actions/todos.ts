@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireOwner } from "@/lib/auth";
 import { DB_UPDATE_NOTICE_0022, isMissingSchemaError } from "@/lib/schema-guard";
-import { hasUpdate0022 } from "@/lib/update-0022";
 import { nextPersonalTodoPosition } from "@/lib/work/personal-todos";
 import { addDaysISO } from "@/lib/calc/dates";
 import { loadCtx } from "@/lib/engine/helpers";
@@ -25,7 +24,6 @@ const isFail = (v: unknown): v is Fail => !!v && typeof v === "object" && (v as 
 
 async function setup(): Promise<{ sb: SupabaseClient; ownerId: string } | Fail> {
   const { supabase, ownerId } = await requireOwner();
-  if (!(await hasUpdate0022(supabase))) return fail(DB_UPDATE_NOTICE_0022);
   return { sb: supabase, ownerId };
 }
 

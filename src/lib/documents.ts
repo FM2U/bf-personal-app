@@ -7,7 +7,7 @@
  */
 
 /** The largest file the Documents card accepts. */
-export const MAX_DOCUMENT_BYTES = 25 * 1024 * 1024;
+const MAX_DOCUMENT_BYTES = 25 * 1024 * 1024;
 export const MAX_DOCUMENT_LABEL = "25 MB";
 
 export const DOCUMENT_KINDS = ["signed_agreement", "statement", "proof", "cim", "nda", "loi", "report", "other"] as const;

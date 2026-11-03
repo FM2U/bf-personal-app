@@ -95,20 +95,12 @@ function hasChanges(): boolean {
  * The guard's extra history entry (added at the first change so Back can be answered by the dialog). Shared with the
  * window (src/components/app/window-host.tsx), which counts it when it closes and replaces it when it moves on.
  */
-export const guardHistory = { sentinel: false };
-
-/** True when a form inside `root` holds a change that is not saved, or work outside a form is in progress. */
-export function hasUnsavedIn(root: Element | null): boolean {
-  if (unsavedWork.size > 0) return true;
-  if (!root) return false;
-  return [...root.querySelectorAll("form")].some((f) => isChecked(f) && formHasChanges(f));
-}
-
+const guardHistory = { sentinel: false };
 /** An add step that was started but not finished (a file chosen, Upload not pressed). */
-export type UnfinishedStep = { message: string; finish: string; form: HTMLFormElement };
+type UnfinishedStep = { message: string; finish: string; form: HTMLFormElement };
 
 /** The changed forms in `root` (the whole page when null), split into add steps and other forms. */
-export function unsavedParts(root: ParentNode | null = null): { steps: UnfinishedStep[]; others: HTMLFormElement[] } {
+function unsavedParts(root: ParentNode | null = null): { steps: UnfinishedStep[]; others: HTMLFormElement[] } {
   const forms = root ? [...root.querySelectorAll("form")].filter((f) => isChecked(f) && formHasChanges(f)) : changedForms();
   const steps: UnfinishedStep[] = [];
   const others: HTMLFormElement[] = [];
@@ -120,14 +112,14 @@ export function unsavedParts(root: ParentNode | null = null): { steps: Unfinishe
 }
 
 /** The first button of the leave question: "Upload and leave", "Finish all 3 and leave", "Save and leave". */
-export function finishLabel(steps: { finish: string }[], others: number, verb: "leave" | "close"): string {
+function finishLabel(steps: { finish: string }[], others: number, verb: "leave" | "close"): string {
   if (steps.length === 1 && !others) return `${steps[0].finish} and ${verb}`;
   if (steps.length > 1 && !others) return `Finish all ${steps.length} and ${verb}`;
   return `Save and ${verb}`;
 }
 
 /** The unfinished steps as a short list in the leave question. */
-export function StepList({ steps }: { steps: { message: string }[] }) {
+function StepList({ steps }: { steps: { message: string }[] }) {
   if (!steps.length) return null;
   return (
     <ul className="flex flex-col gap-1.5 text-sm text-slate-800" data-testid="unsaved-steps">
@@ -151,7 +143,7 @@ const honorsLeaveTo = new WeakSet<HTMLFormElement>();
 const leaveIntents = new WeakMap<HTMLFormElement, LeaveIntent>();
 
 /** True while a GuardedForm is saving (read by SubmitButton). */
-export const FormPendingContext = createContext(false);
+const FormPendingContext = createContext(false);
 export function useGuardedPending() {
   return useContext(FormPendingContext);
 }
@@ -179,7 +171,7 @@ type GuardedFormProps = Omit<React.FormHTMLAttributes<HTMLFormElement>, "action"
 };
 
 /** A save error as a sentence. Production hides server error text ("Minified React error #441"): say what happened instead. */
-export function friendlySaveError(err: unknown): string {
+function friendlySaveError(err: unknown): string {
   const msg = err instanceof Error ? err.message : "";
   if (!msg || /Minified React error|Server Components render|unexpected response|Failed to fetch|NetworkError|Body exceeded/i.test(msg)) {
     return "The server did not save this. Check the connection and try again; if it keeps happening, reload the page.";
@@ -268,7 +260,7 @@ function saveSubmitter(form: HTMLFormElement): HTMLElement | null {
 }
 
 /** Saves one form for "Save and leave". Resolves when the save is done or has failed. */
-export function saveForLeave(form: HTMLFormElement, dest: string | null): Promise<SaveResult> {
+function saveForLeave(form: HTMLFormElement, dest: string | null): Promise<SaveResult> {
   if (!form.checkValidity()) {
     form.reportValidity();
     return Promise.resolve({ ok: false, error: "Some fields need a value or a valid entry. They are marked on the form.", field: true });

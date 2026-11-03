@@ -5,11 +5,11 @@
  * Also: the dash fixer used on all AI text, and a plain-text version for emails and letters.
  */
 
-export type InlinePart = { text: string; bold: boolean };
-export type Inline = InlinePart[];
-export type MdItem = { inline: Inline; children: MdList[] };
-export type MdList = { kind: "list"; ordered: boolean; items: MdItem[] };
-export type MdBlock = { kind: "label"; inline: Inline } | { kind: "paragraph"; lines: Inline[] } | MdList;
+type InlinePart = { text: string; bold: boolean };
+type Inline = InlinePart[];
+type MdItem = { inline: Inline; children: MdList[] };
+type MdList = { kind: "list"; ordered: boolean; items: MdItem[] };
+type MdBlock = { kind: "label"; inline: Inline } | { kind: "paragraph"; lines: Inline[] } | MdList;
 
 const DASHES = "‒–—―";
 const DASH = `[${DASHES}]`;
@@ -47,7 +47,7 @@ function cleanInlineMarkup(s: string): string {
 }
 
 /** Splits a line into plain and **bold** parts. Unmatched ** marks are dropped. */
-export function parseInline(s: string): Inline {
+function parseInline(s: string): Inline {
   const text = cleanInlineMarkup(s);
   const pieces = text.split("**");
   const parts: Inline = [];
@@ -68,7 +68,7 @@ const RULE_RE = /^\s*([-*_])(\s*\1){2,}\s*$/;
 const BOLD_LINE_RE = /^\s*\*\*([^*]+)\*\*\s*:?\s*$/;
 
 /** Reads AI text into blocks: labels, paragraphs, and (nested) lists. */
-export function parseMarkdown(src: string): MdBlock[] {
+function parseMarkdown(src: string): MdBlock[] {
   const lines = (src ?? "").replace(/\r\n?/g, "\n").replace(/\t/g, "  ").split("\n");
   const blocks: MdBlock[] = [];
   let para: Inline[] | null = null;

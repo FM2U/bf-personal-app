@@ -2,7 +2,6 @@ import Link from "next/link";
 import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
 import { date as fmtDate } from "@/lib/format";
-import { workUpdateNotice } from "@/lib/work/data";
 import { orgRoleLine, OUTREACH_SECTIONS, outreachSectionOf } from "@/lib/work/outreach";
 import { loadPersonPage } from "@/lib/work/outreach-data";
 import { headerFigures } from "@/lib/work/record-page";
@@ -33,7 +32,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
       Outreach
     </Link>
   );
-  const notice = await workUpdateNotice(supabase);
+  const notice = null;
   if (notice) {
     return (
       <WorkShell testId="work-person">
@@ -104,13 +103,6 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
           <PersonDecisionCard person={person} />
         </div>
       </div>
-      <p className="mt-5 text-xs text-muted-foreground">
-        The same person in the older People screens:{" "}
-        <Link href={`/records/contacts/${person.id}`} className="text-primary-strong hover:underline" data-testid="person-old-page">
-          open the contact record
-        </Link>
-        .
-      </p>
     </WorkShell>
   );
 }

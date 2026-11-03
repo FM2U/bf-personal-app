@@ -4,7 +4,7 @@ import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { env } from "@/lib/env";
 
-export type OwnerContext = { supabase: SupabaseClient; user: User; ownerId: string };
+type OwnerContext = { supabase: SupabaseClient; user: User; ownerId: string };
 
 /**
  * Every app page and action calls this. It requires a signed-in owner who has passed the

@@ -8,7 +8,7 @@ import type { Row } from "@/lib/types";
 /** The To-dos page (batch B, table todos): the open items and the ones done today, in their sections. */
 export type TodosData = { today: string; sections: Record<TodoSectionKey, PersonalTodo[]>; total: number };
 
-export function toPersonalTodo(t: Row): PersonalTodo {
+function toPersonalTodo(t: Row): PersonalTodo {
   return { id: String(t.id), text: String(t.text ?? ""), dueOn: t.due_on ? String(t.due_on).slice(0, 10) : null, doneAt: t.done_at ? String(t.done_at) : null, position: Number(t.position ?? 0), createdAt: String(t.created_at ?? "") };
 }
 

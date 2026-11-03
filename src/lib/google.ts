@@ -5,7 +5,6 @@ import { decrypt } from "@/lib/crypto";
 import { env, isGoogleConfigured } from "@/lib/env";
 import type { Row } from "@/lib/types";
 import { gmailRaw, type MimeAttachment } from "@/lib/gmail-mime";
-import { sendPermission, type SendPermission } from "@/lib/google-scopes";
 import { loadSignature } from "@/lib/signature-store";
 import { sanitizeSignatureHtml, signatureHtmlToText } from "@/lib/email-signature";
 
@@ -14,7 +13,7 @@ export { GOOGLE_SCOPES, GMAIL_SEND_SCOPE, GMAIL_SETTINGS_SCOPE } from "@/lib/goo
 /** An email the app sends or drafts. includeSignature: true or false from the checkbox; omitted uses the setting. */
 /** body: the plain text; bodyHtml: the formatted editor's HTML when the message was written there (see gmail-mime). */
 /** html: the app's own visual HTML (partner reports); attachments: files such as the report PDF (see gmail-mime). */
-export type AppEmail = { to: string; subject: string; body: string; bodyHtml?: string | null; html?: string | null; attachments?: MimeAttachment[] | null; includeSignature?: boolean };
+type AppEmail = { to: string; subject: string; body: string; bodyHtml?: string | null; html?: string | null; attachments?: MimeAttachment[] | null; includeSignature?: boolean };
 
 /** The signature to add to this email, or null (none saved, the setting is off, or unchecked for this email). */
 async function signatureFor(sb: SupabaseClient, ownerId: string, include: boolean | undefined): Promise<{ html: string; text: string } | null> {
@@ -64,19 +63,7 @@ async function authed(sb: SupabaseClient, ownerId: string) {
   return client;
 }
 
-/** Offset such as "-04:00" for a time zone on a date. */
-export function tzOffset(tz: string, dateIso: string): string {
-  const d = new Date(`${dateIso}T12:00:00Z`);
-  const name = new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "longOffset" }).formatToParts(d).find((p) => p.type === "timeZoneName")?.value ?? "GMT";
-  const m = name.match(/GMT([+-]\d{2}):?(\d{2})?/);
-  return m ? `${m[1]}:${m[2] ?? "00"}` : "+00:00";
-}
 
-export function localDateTime(dateIso: string, hour: number, minute: number, tz: string): string {
-  const hh = String(hour).padStart(2, "0");
-  const mm = String(minute).padStart(2, "0");
-  return `${dateIso}T${hh}:${mm}:00${tzOffset(tz, dateIso)}`;
-}
 
 /** Creates a draft in Gmail. Bram reviews and presses send. Returns the draft id, or null when Google is not connected. */
 export async function createGmailDraft(sb: SupabaseClient, ownerId: string, msg: AppEmail): Promise<string | null> {
@@ -89,12 +76,6 @@ export async function createGmailDraft(sb: SupabaseClient, ownerId: string, msg:
     requestBody: { message: { raw: gmailRaw({ to: msg.to, subject: msg.subject, body: msg.body, bodyHtml: msg.bodyHtml ?? null, html: msg.html ?? null, attachments: msg.attachments ?? null, signature }, { requireValidTo: false }) } },
   });
   return res.data.id ?? null;
-}
-
-/** "Sending from the app" for the saved connection: allowed, reconnect needed (no gmail.send yet), or not connected. */
-export async function getSendPermission(sb: SupabaseClient, ownerId: string): Promise<SendPermission> {
-  if (!isGoogleConfigured()) return "not_connected";
-  return sendPermission(await getGoogleConnection(sb, ownerId));
 }
 
 /**
@@ -141,44 +122,6 @@ export async function fetchGmailSignature(sb: SupabaseClient, ownerId: string): 
   return { html, text: signatureHtmlToText(html), address: pick?.sendAsEmail ?? null };
 }
 
-export async function createCalendarEvent(
-  sb: SupabaseClient,
-  ownerId: string,
-  ev: { summary: string; description?: string; start: string; end: string },
-): Promise<string | null> {
-  const auth = await authed(sb, ownerId);
-  if (!auth) return null;
-  const calendar = google.calendar({ version: "v3", auth, ...apiOptions() });
-  const res = await calendar.events.insert({
-    calendarId: "primary",
-    requestBody: { summary: ev.summary, description: ev.description, start: { dateTime: ev.start }, end: { dateTime: ev.end } },
-  });
-  return res.data.id ?? null;
-}
-
-export type MeetingItem = { id: string; title: string; start: string | null; end: string | null; allDay: boolean; link: string | null };
-
-export async function listEventsForDay(sb: SupabaseClient, ownerId: string, dateIso: string, tz: string): Promise<MeetingItem[] | null> {
-  const auth = await authed(sb, ownerId);
-  if (!auth) return null;
-  const calendar = google.calendar({ version: "v3", auth, ...apiOptions() });
-  const res = await calendar.events.list({
-    calendarId: "primary",
-    timeMin: localDateTime(dateIso, 0, 0, tz),
-    timeMax: localDateTime(dateIso, 23, 59, tz),
-    singleEvents: true,
-    orderBy: "startTime",
-    maxResults: 50,
-  });
-  return (res.data.items ?? []).map((e) => ({
-    id: e.id ?? "",
-    title: e.summary ?? "(No title)",
-    start: e.start?.dateTime ?? e.start?.date ?? null,
-    end: e.end?.dateTime ?? e.end?.date ?? null,
-    allDay: !e.start?.dateTime,
-    link: e.htmlLink ?? null,
-  }));
-}
 
 /** Confirms the saved Google access still works. */
 export async function checkGoogle(sb: SupabaseClient, ownerId: string): Promise<{ ok: boolean; error?: string; skipped?: boolean }> {

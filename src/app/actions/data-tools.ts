@@ -1,31 +1,16 @@
 "use server";
-
 import { randomUUID } from "node:crypto";
-import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireOwner } from "@/lib/auth";
-import { hasUpdate0018 } from "@/lib/update-0018";
-import { hasUpdate0019 } from "@/lib/update-0019";
-import { hasUpdate0020 } from "@/lib/update-0020";
-import { hasUpdate0021 } from "@/lib/update-0021";
-import { hasUpdate0022 } from "@/lib/update-0022";
-import { hasUpdate0023 } from "@/lib/update-0023";
-import { hasUpdate0025 } from "@/lib/update-0025";
-import { hasUpdate0026 } from "@/lib/update-0026";
 import { addDaysISO } from "@/lib/calc/dates";
 import { documentPath } from "@/lib/documents";
-import { loadWorkPipeline } from "@/lib/work/data";
+import { loadPipelineOfKind, loadWorkPipeline } from "@/lib/work/data";
 import type { WorkSample } from "@/lib/work/sample";
 import { loadCtx } from "@/lib/engine/helpers";
-import { applyCategoryRules, detectAndSaveRecurring } from "@/lib/engine/finance-jobs";
-import { evaluateConditions } from "@/lib/engine/rules";
-import { hasUpdate0014 } from "@/lib/update-0014";
-import { DB_UPDATE_NOTICE_0014 } from "@/lib/schema-guard";
-import { buildSampleData, SAMPLE_SOFTWARE } from "@/lib/sample-data";
+import { buildSampleData } from "@/lib/sample-data";
 import { countRealRecords } from "@/lib/sample-server";
-import { EXPORT_COOKIE, exportIsRecent } from "@/lib/reset";
 import type { Row } from "@/lib/types";
 
 const PAGE = "/settings/data";
@@ -45,92 +30,40 @@ async function removeFiles(sb: SupabaseClient, paths: unknown): Promise<number> 
   return failed;
 }
 
-/** Loads the sample data (one transaction), then finds its recurring charges as the morning job would. */
+/** Loads the Work module's sample data (one transaction), then dates the stages and adds the sample documents. */
 export async function loadSampleData(fd: FormData) {
   const { supabase, ownerId } = await requireOwner();
-  if (!(await hasUpdate0014(supabase))) back(DB_UPDATE_NOTICE_0014);
   const { count: already } = await supabase.from("sample_records").select("id", { count: "exact", head: true });
   if (already) back("Sample data is already loaded. Remove it first to load it again.");
   const real = await countRealRecords(supabase);
   if (real.total > 0 && fd.get("confirm_real") !== "on") back(`You have ${real.total} real records. Check "Load sample data next to my real records" to continue.`);
 
   const ctx = await loadCtx(supabase, ownerId);
-  const [{ data: entities }, { data: cats }, { data: budgets }, { data: lines }, { data: pipes }, { data: stages }, { data: inits }, has0019, has0020, has0022, has0023] = await Promise.all([
-    supabase.from("entities").select("id,kind,is_default"),
-    supabase.from("categories").select("id,name"),
-    supabase.from("budgets").select("id").eq("is_active", true).order("created_at").limit(1),
-    supabase.from("budget_lines").select("budget_id,category_id"),
-    supabase.from("pipelines").select("id,kind"),
-    supabase.from("pipeline_stages").select("id,pipeline_id,name"),
-    supabase.from("initiatives").select("id,name"),
-    hasUpdate0019(supabase),
-    hasUpdate0020(supabase),
-    hasUpdate0022(supabase),
-    hasUpdate0023(supabase),
-  ]);
-  const has0025 = await hasUpdate0025(supabase);
-  const has0026 = await hasUpdate0026(supabase);
-  const ent = (entities ?? []) as Row[];
-  const workPipe = has0020 ? await loadWorkPipeline(supabase, ownerId) : null;
-  // The starter Detailed report template (database update 0017; empty before it).
-  const { data: detailedTemplate } = await supabase.from("partner_report_templates").select("id").eq("starter_key", "detailed").maybeSingle();
-  const budgetId = ((budgets ?? []) as Row[])[0]?.id ?? null;
-  const pipeOf = (kind: string) => {
-    const p = ((pipes ?? []) as Row[]).find((x) => x.kind === kind);
-    if (!p) return null;
-    return { pipelineId: p.id as string, stages: Object.fromEntries(((stages ?? []) as Row[]).filter((s) => s.pipeline_id === p.id).map((s) => [s.name, s.id])) };
-  };
+  const [deals, jobs, consulting] = await Promise.all([loadWorkPipeline(supabase, ownerId), loadPipelineOfKind(supabase, ownerId, "job"), loadPipelineOfKind(supabase, ownerId, "consulting")]);
+  if (!deals) back("The acquisition pipeline is missing, so sample data was not loaded.");
+  const stagesOf = (p: NonNullable<typeof deals>) => Object.fromEntries(p.stages.map((st) => [st.name, st.id]));
   const { batches, counts, work } = buildSampleData(
     {
-      today: ctx.today,
-      personalEntityId: (ent.find((e) => e.kind === "personal" && e.is_default) ?? ent.find((e) => e.kind === "personal"))?.id ?? null,
-      llcEntityId: ent.find((e) => e.kind === "business")?.id ?? null,
-      categories: Object.fromEntries(((cats ?? []) as Row[]).map((c) => [c.name, c.id])),
-      budgetId,
-      budgetedCategoryIds: ((lines ?? []) as Row[]).filter((l) => l.budget_id === budgetId).map((l) => l.category_id),
-      acquisitions: pipeOf("acquisition"),
-      consulting: pipeOf("consulting"),
-      reportTemplateId: ((detailedTemplate as Row | null)?.id as string | undefined) ?? null,
-      dailyReports: await hasUpdate0018(supabase),
-      initiatives: has0019 ? Object.fromEntries(((inits ?? []) as Row[]).map((i) => [String(i.name), String(i.id)])) : null,
-      work: workPipe ? { pipelineId: workPipe.id, stages: Object.fromEntries(workPipe.stages.map((st) => [st.name, st.id])), batchB: has0022, batchB2: has0022 && has0023, batchC: has0022 && has0023 && has0025, personalNetwork: has0026, jobs: pipeOf("job"), consulting: pipeOf("consulting") } : null,
+      pipelineId: deals!.id,
+      stages: stagesOf(deals!),
+      batchB: true,
+      batchB2: true,
+      batchC: true,
+      personalNetwork: true,
+      jobs: jobs ? { pipelineId: jobs.id, stages: stagesOf(jobs) } : null,
+      consulting: consulting ? { pipelineId: consulting.id, stages: stagesOf(consulting) } : null,
     },
     () => randomUUID(),
+    ctx.today,
   );
-  // Today's outcomes the owner already has keep their positions: the sample fills only the empty ones.
-  const { data: taken } = await supabase.from("daily_outcomes").select("position").eq("owner_id", ownerId).eq("plan_date", ctx.today);
-  const takenPositions = new Set(((taken ?? []) as Row[]).map((o) => Number(o.position)));
-  const outcomesBatch = batches.find((b) => b.table === "daily_outcomes");
-  if (outcomesBatch && takenPositions.size) {
-    outcomesBatch.rows = outcomesBatch.rows.filter((o) => !takenPositions.has(Number(o.position)));
-    counts.daily_outcomes = outcomesBatch.rows.length;
-    if (!outcomesBatch.rows.length) batches.splice(batches.indexOf(outcomesBatch), 1);
-  }
   const batchId = randomUUID();
-  const started = new Date(Date.now() - 1000).toISOString();
   const { error } = await supabase.rpc("insert_record_batch", { p_batches: batches, p_actor: "owner", p_sample_batch: batchId });
   if (error) back(`Sample data was not loaded (nothing was saved): ${error.message}`);
-
-  // Recurring charges found in the sample transactions are sample rows too; all but 2 software subscriptions are
-  // marked as still used, so those 2 stay flagged as unused.
-  await applyCategoryRules(supabase, ownerId).catch(() => 0);
-  await detectAndSaveRecurring(supabase, ownerId, ctx.today).catch(() => null);
-  const { data: newSeries } = await supabase.from("recurring_series").select("id,merchant_name").gte("created_at", started);
-  const seriesRows = (newSeries ?? []) as Row[];
-  if (seriesRows.length) {
-    await supabase.from("sample_records").insert(seriesRows.map((s) => ({ owner_id: ownerId, table_name: "recurring_series", record_id: s.id, batch_id: batchId })));
-    // Every sample software charge except the two "unused" ones is confirmed as used.
-    const unused = SAMPLE_SOFTWARE.filter((s) => !s.used).map((s) => s.name);
-    const usedIds = seriesRows.filter((s) => !unused.includes(s.merchant_name)).map((s) => s.id);
-    if (usedIds.length) await supabase.from("recurring_series").update({ review_status: "in_use" }).in("id", usedIds);
-  }
-  // The stage ids by name of every Work pipeline (the acquisition stages, then the Job search and Consulting ones).
-  const allStages = Object.fromEntries(((stages ?? []) as Row[]).map((s) => [String(s.name), String(s.id)]));
-  if (work && workPipe) await finishWorkSample(supabase, ownerId, ctx.today, work, { ...allStages, ...Object.fromEntries(workPipe.stages.map((st) => [st.name, st.id])) }, await hasUpdate0021(supabase));
-  await evaluateConditions(ctx).catch(() => null);
+  const stageIds = Object.fromEntries([deals!, jobs, consulting].filter(Boolean).flatMap((p) => p!.stages.map((st) => [st.name, st.id])));
+  await finishWorkSample(supabase, ownerId, ctx.today, work, stageIds);
   revalidatePath("/", "layout");
-  const total = Object.values(counts).reduce((s, n) => s + n, 0);
-  back(`Sample data loaded: ${total} records (${counts.transactions ?? 0} transactions over 12 months, ${counts.accounts ?? 0} accounts, ${counts.contacts ?? 0} contacts, ${counts.pipeline_items ?? 0} pipeline items${counts.todos ? `, ${counts.todos} to-dos` : ""}) and ${seriesRows.length} recurring charges. Every name starts with "Sample" except the Work module's listings, deals, and people, which carry the mockup's names.`);
+  const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
+  back(`Sample data loaded: ${total} records (${counts.pipeline_items ?? 0} listings, deals, opportunities and clients, ${counts.contacts ?? 0} people, ${counts.todos ?? 0} to-dos).`);
 }
 
 /**
@@ -139,9 +72,9 @@ export async function loadSampleData(fd: FormData) {
  * the Tasks items (deals; batch B adds tasks on people, which carry record_type contacts). Sample removal deletes
  * stage history, documents, and tasks with the sample deals and people, so nothing here needs its own marker.
  */
-async function finishWorkSample(sb: SupabaseClient, ownerId: string, today: string, work: Pick<WorkSample, "stageDates" | "documents" | "todos" | "noteDates" | "noActionItems">, stageIds: Record<string, string>, has0021: boolean) {
+async function finishWorkSample(sb: SupabaseClient, ownerId: string, today: string, work: Pick<WorkSample, "stageDates" | "documents" | "todos" | "noteDates" | "noActionItems">, stageIds: Record<string, string>) {
   const at = (daysAgo: number, hour: number) => `${addDaysISO(today, -daysAgo)}T${String(hour).padStart(2, "0")}:00:00.000Z`;
-  if (has0021 && work.todos.length) await sb.from("deal_todos").insert(work.todos.map((t) => ({ ...t, owner_id: ownerId })));
+  if (work.todos.length) await sb.from("deal_todos").insert(work.todos.map((t) => ({ ...t, owner_id: ownerId })));
   // The notes and findings on the sample projects carry their dates (batch B2).
   for (const n of work.noteDates) await sb.from("notes").update({ created_at: at(n.daysAgo, 15) }).eq("id", n.noteId);
   // An item meant to start without a next action (the stage trigger filled the default on insert).
@@ -202,29 +135,10 @@ async function samplePdf(text: string): Promise<Buffer> {
 /** Deletes only the sample rows and the rows the app made from them (one transaction). */
 export async function removeSampleData() {
   const { supabase } = await requireOwner();
-  if (!(await hasUpdate0014(supabase))) back(DB_UPDATE_NOTICE_0014);
   const { data, error } = await supabase.rpc("remove_sample_data");
   if (error) back(`Sample data was not removed (nothing was deleted): ${error.message}`);
   const failed = await removeFiles(supabase, (data as Row | null)?.storage_paths);
   revalidatePath("/", "layout");
   const total = Number((data as Row | null)?.total ?? 0);
   back(total ? `Sample data removed: ${total} records. Your other records were not changed.${failed ? ` ${failed} document files could not be removed from storage.` : ""}` : "There was no sample data to remove.");
-}
-
-/**
- * "Reset all data": needs the full export downloaded in this browser session (within 2 hours) and RESET typed.
- * One database function deletes every record you created or imported and keeps the setup, all or nothing.
- */
-export async function resetAllData(fd: FormData) {
-  const { supabase } = await requireOwner();
-  if (!(await hasUpdate0014(supabase))) back(DB_UPDATE_NOTICE_0014);
-  const jar = await cookies();
-  if (!exportIsRecent(jar.get(EXPORT_COOKIE)?.value)) back("Step 1 first: download the full export in this session. Nothing was deleted.");
-  if (String(fd.get("confirm") ?? "").trim() !== "RESET") back("Type RESET in capital letters to confirm. Nothing was deleted.");
-  const { data, error } = await supabase.rpc("reset_all_data", { p_confirm: "RESET" });
-  if (error) back(`Nothing was deleted: ${error.message}`);
-  const failed = await removeFiles(supabase, (data as Row | null)?.storage_paths);
-  jar.delete(EXPORT_COOKIE);
-  revalidatePath("/", "layout");
-  redirect(`${PAGE}?reset=done${failed ? `&files_failed=${failed}` : ""}#reset`);
 }

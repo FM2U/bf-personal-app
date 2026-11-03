@@ -5,12 +5,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireOwner } from "@/lib/auth";
 import { recordWorkEvent } from "@/lib/accountability/events";
 import { addDaysISO } from "@/lib/calc/dates";
-import { loadCtx, refreshNextActionAlert, type Ctx } from "@/lib/engine/helpers";
-import { checkCommitments, releaseSupersededNextActions } from "@/lib/engine/tasks";
-import { evaluateConditions } from "@/lib/engine/rules";
+import { loadCtx, type Ctx } from "@/lib/engine/helpers";
 import { DB_UPDATE_NOTICE_0023, isMissingSchemaError } from "@/lib/schema-guard";
 import { parseMoneyText } from "@/lib/work/buy-box";
-import { loadPipelineOfKind, workUpdateNotice, type WorkPipeline } from "@/lib/work/data";
+import { loadPipelineOfKind, type WorkPipeline } from "@/lib/work/data";
 import { CONSULTING_CLOSED, JOB_CLOSED } from "@/lib/work/pipelines";
 import { cleanQuestions, QUESTION_MAX_PER_GROUP, TODO_MAX_LENGTH } from "@/lib/work/questions";
 import { nextTodoPosition, type DealTodo } from "@/lib/work/todos";
@@ -23,7 +21,7 @@ import type { Row } from "@/lib/types";
  * { ok: false, error } instead of throwing, so what the owner typed stays on the screen with the message.
  */
 
-export type ItemKind = "job" | "consulting";
+type ItemKind = "job" | "consulting";
 
 type Fail = { ok: false; error: string };
 const fail = (error: string): Fail => ({ ok: false, error });
@@ -39,7 +37,7 @@ const noun = (kind: ItemKind) => (kind === "job" ? "opportunity" : "consulting i
 async function setup(kind: ItemKind): Promise<{ sb: SupabaseClient; ctx: Ctx; pipe: WorkPipeline } | Fail> {
   if (!isKind(kind)) return fail("Unknown pipeline.");
   const { supabase, ownerId } = await requireOwner();
-  const notice = await workUpdateNotice(supabase);
+  const notice = null;
   if (notice) return fail(notice);
   const pipe = await loadPipelineOfKind(supabase, ownerId, kind);
   if (!pipe) return fail(kind === "job" ? "There is no Job search pipeline. Run the database update again." : "There is no Consulting pipeline. Run the database update again.");
@@ -147,7 +145,7 @@ export async function createLead(input: LeadInput): Promise<{ ok: true; id: stri
 
 // ---------- The next action ----------
 
-export type ItemNextActionInput = { action: string; due: string; minutes: string | number | null; waitingOn: string; waitingSince: string };
+type ItemNextActionInput = { action: string; due: string; minutes: string | number | null; waitingOn: string; waitingSince: string };
 
 export async function saveItemNextAction(kind: ItemKind, id: string, input: ItemNextActionInput): Promise<{ ok: true } | Fail> {
   const s = await setup(kind);
@@ -162,8 +160,6 @@ export async function saveItemNextAction(kind: ItemKind, id: string, input: Item
   if (action && !due) return fail("Give the next action a due date.");
   const { error } = await sb.from("pipeline_items").update({ next_action: action, next_action_due: action ? due : null, next_action_minutes: action ? minutesOf(input.minutes) : null, waiting_on: waitingOn, waiting_since: waitingOn ? since : null }).eq("id", item.id);
   if (error) return notSaved(error);
-  await releaseSupersededNextActions(ctx, String(item.id)).catch(() => null);
-  await refreshNextActionAlert(ctx).catch(() => null);
   done();
   return { ok: true };
 }
@@ -182,8 +178,6 @@ async function itemTaskOf(sb: SupabaseClient, ctx: Ctx, taskId: string): Promise
 /** Marks the task that mirrors the next action done (so its commitment counts as kept). */
 async function completeActionTask(sb: SupabaseClient, ctx: Ctx, item: Row) {
   if (!item.next_action) return;
-  await sb.from("tasks").update({ status: "done" }).eq("owner_id", ctx.ownerId).eq("pipeline_item_id", item.id).eq("status", "todo").eq("title", `${item.name}: ${item.next_action}`);
-  await checkCommitments(ctx, false).catch(() => null);
 }
 
 async function nextActionFromTask(sb: SupabaseClient, ctx: Ctx, item: Row, task: Row, oldActionDone: boolean): Promise<{ nextAction: string; due: string; kept: string | null } | Fail> {
@@ -196,8 +190,6 @@ async function nextActionFromTask(sb: SupabaseClient, ctx: Ctx, item: Row, task:
   if (error) return notSaved(error);
   await sb.from("deal_todos").delete().eq("id", task.id);
   if (keep) await sb.from("deal_todos").insert({ owner_id: ctx.ownerId, record_type: "pipeline_items", record_id: item.id, deal_id: item.id, text: keep, position: 0 });
-  await releaseSupersededNextActions(ctx, String(item.id)).catch(() => null);
-  await refreshNextActionAlert(ctx).catch(() => null);
   return { nextAction: text, due, kept: keep };
 }
 
@@ -228,9 +220,6 @@ export async function completeItemAction(kind: ItemKind, id: string, move: boole
   const update: Row = move && next ? { stage_id: next.id, next_action: next.defaultTitle, next_action_due: next.defaultTitle ? addDaysISO(ctx.today, next.defaultDueInDays ?? 0) : null, next_action_minutes: null, waiting_on: null, waiting_since: null } : { next_action: null, next_action_due: null, next_action_minutes: null };
   const { error } = await sb.from("pipeline_items").update(update).eq("id", item.id);
   if (error) return notSaved(error);
-  await releaseSupersededNextActions(ctx, String(item.id)).catch(() => null);
-  await refreshNextActionAlert(ctx).catch(() => null);
-  await evaluateConditions(ctx).catch(() => null);
   doneQuietly();
   return { ok: true, movedTo: move && next ? next.name : null, nextAction: move && next ? next.defaultTitle : null };
 }
@@ -264,9 +253,6 @@ export async function advanceItem(kind: ItemKind, id: string): Promise<{ ok: tru
   if (!next) return fail(`This ${noun(kind)} is at the last stage.`);
   const { error } = await sb.from("pipeline_items").update({ stage_id: next.id, waiting_on: null, waiting_since: null, next_action_minutes: null }).eq("id", item.id);
   if (error) return notSaved(error);
-  await releaseSupersededNextActions(ctx, String(item.id)).catch(() => null);
-  await refreshNextActionAlert(ctx).catch(() => null);
-  await evaluateConditions(ctx).catch(() => null);
   done();
   return { ok: true, stage: next.name };
 }
@@ -284,8 +270,6 @@ export async function closeItem(kind: ItemKind, id: string, outcome: string): Pr
   if (!stage) return fail(`The pipeline has no "${outcome}" stage. Run the database update again.`);
   const { error } = await sb.from("pipeline_items").update({ stage_id: stage.id, waiting_on: null, waiting_since: null }).eq("id", item.id);
   if (error) return notSaved(error);
-  await releaseSupersededNextActions(ctx, String(item.id)).catch(() => null);
-  await refreshNextActionAlert(ctx).catch(() => null);
   done();
   return { ok: true, stage: stage.name };
 }
@@ -322,7 +306,6 @@ export async function saveOpportunityFacts(id: string, input: OpportunityFactsIn
     .update({ name, role_title: clean(input.role, 160), contact_name: clean(input.contact, 160), source: clean(input.source, 80), pay_range: clean(input.payRange, 80), location: clean(input.location, 120), what_it_does: clean(input.whatItDoes, 300), listing_url: clean(input.link, 500) })
     .eq("id", item.id);
   if (error) return notSaved(error);
-  if (name !== item.name && item.next_action) await sb.from("tasks").update({ title: `${name}: ${item.next_action}` }).eq("owner_id", ctx.ownerId).eq("pipeline_item_id", item.id).eq("status", "todo").eq("title", `${item.name}: ${item.next_action}`);
   done();
   return { ok: true };
 }
@@ -345,7 +328,6 @@ export async function saveConsultingFacts(id: string, input: ConsultingFactsInpu
   const { data: det } = await sb.from("consulting_details").select("id").eq("item_id", item.id).maybeSingle();
   const { error: e2 } = det ? await sb.from("consulting_details").update({ scope_notes: scope, start_date: start, rate: fee }).eq("id", (det as Row).id) : await sb.from("consulting_details").insert({ owner_id: ctx.ownerId, item_id: item.id, scope_notes: scope, start_date: start, rate_type: "project", rate: fee });
   if (e2) return fail(`The facts were saved, but the scope was not: ${e2.message}`);
-  if (name !== item.name && item.next_action) await sb.from("tasks").update({ title: `${name}: ${item.next_action}` }).eq("owner_id", ctx.ownerId).eq("pipeline_item_id", item.id).eq("status", "todo").eq("title", `${item.name}: ${item.next_action}`);
   done();
   return { ok: true };
 }

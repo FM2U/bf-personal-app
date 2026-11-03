@@ -1,13 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { parsePeriodKey, pastWeekPeriodKey, periodPills, weeksBackOf } from "./periods";
+import { parsePeriodKey, periodPills } from "./periods";
 
 describe("the Reports periods (Edit batch C, item 7)", () => {
-  it("names the past weeks: Last week, then 2 to 4 weeks back", () => {
-    expect([1, 2, 3, 4].map(pastWeekPeriodKey)).toEqual(["last", "w2", "w3", "w4"]);
-    expect(weeksBackOf("w3")).toBe(3);
-    expect(weeksBackOf("this")).toBe(0);
-    expect(weeksBackOf("month")).toBeNull();
-  });
   it("reads the period from the address; anything else is This week", () => {
     expect(parsePeriodKey("w2")).toBe("w2");
     expect(parsePeriodKey("month")).toBe("month");

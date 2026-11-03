@@ -6,7 +6,7 @@
  */
 
 /** Within this share of the cap, the panel warns. */
-export const CAP_WARNING_SHARE = 0.1;
+const CAP_WARNING_SHARE = 0.1;
 
 const dollars = (n: number) => `$${(Math.round(Math.max(0, n) * 100) / 100).toFixed(2)}`;
 

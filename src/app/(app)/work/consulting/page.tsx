@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireOwner } from "@/lib/auth";
-import { loadTabCounts, workUpdateNotice } from "@/lib/work/data";
+import { loadTabCounts } from "@/lib/work/data";
 import { loadPipelineBoard } from "@/lib/work/pipelines-data";
 import { WorkTabs } from "@/components/app/nav-links";
 import { AskAiPill } from "@/components/app/work/ask-ai";
@@ -19,7 +19,7 @@ export const metadata = { title: "Consulting" };
 export default async function ConsultingPage({ searchParams }: { searchParams: Promise<{ add?: string }> }) {
   const { supabase, ownerId } = await requireOwner();
   const sp = await searchParams;
-  const notice = await workUpdateNotice(supabase);
+  const notice = null;
   const d = notice ? null : await loadPipelineBoard(supabase, ownerId, "consulting");
   const tabs = await loadTabCounts(supabase, ownerId, d?.today ?? "");
   const adding = sp.add === "1";

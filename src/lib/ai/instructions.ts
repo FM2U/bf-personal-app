@@ -15,11 +15,11 @@
 import { amountWords, excludedWords, orList, regionWords, type BuyBoxSettings } from "@/lib/work/buy-box";
 
 /** The first paragraph of the shared base (verbatim from the approved spec). */
-export const BASE_BUYER =
+const BASE_BUYER =
   "The buyer is an independent searcher sourcing, screening and evaluating small business acquisitions. The goal is to buy one good business, own and run it, and grow it. Judge both whether this is a good business and whether it fits the buyer.";
 
 /** How to judge a business, in order of weight (verbatim). */
-export const BASE_JUDGE =
+const BASE_JUDGE =
   "Judge the business on, in this order of weight: how revenue repeats; customer concentration; owner dependence and whether the team runs it; margins and their trend; where growth comes from and whether it lasts; how customers are won and what that costs; competition and switching costs; market tailwinds and headwinds (demand trends, regulation, reimbursement, technology); capital needs; price versus earnings; fit with the buy box and its paths to growth.";
 
 /**
@@ -30,7 +30,7 @@ export const WRITING_RULES =
   "Writing rules: No metaphors, no jargon, no colloquialisms. Use literal words that say exactly what is meant. Standard business terms are allowed (moat, runway, tailwind, headwind, churn, recurring revenue, add-backs, working capital, SDE, EBITDA, multiple, customer concentration, owner dependence) only when the specific fact is named next to the term. When judging something, say for whom it is good or bad (buyer or seller) and compared with what. Never call a price strong, cheap, fair or high unless the facts give a basis. No em-dashes.";
 
 /** The general rules of the shared base (verbatim). Revision 2: the writing rules replace "Plain words, no hype." */
-export const BASE_RULES =
+const BASE_RULES =
   "Use only the facts and listing text below. Do not count marketing claims as strengths without a figure behind them. Only say information is missing when it is absent from the facts and the listing text; name the field and who to ask.";
 
 /** The rules records which are not deals take (facts only, no false gaps), then the writing rules (revision 2). */
@@ -40,7 +40,7 @@ export const GENERAL_RULES_LINE = `Use only the facts on the page below. Only sa
 export const BASE_BUY_BOX_PREFERENCE = "The buy box is a preference, not a hard rule; say plainly when a business outside it is still worth pursuing.";
 
 /** Revision 1 (verbatim): a path to growth is required. Follows how to judge a business. */
-export const BASE_GROWTH = "A clear path to growth is required for a good fit; a deal with no credible path counts as a risk.";
+const BASE_GROWTH = "A clear path to growth is required for a good fit; a deal with no credible path counts as a risk.";
 
 /**
  * "Buy box: $1M to $2.5M EBITDA (or SDE when there is no EBITDA), stretch range $0.75M to $3.5M, B2B services (no
@@ -62,7 +62,7 @@ export function buyBoxLine(b: BuyBoxSettings): string {
 }
 
 /** The shared base: who the buyer is; the buy box and that it is a preference; how to judge and that growth is required; the rules; the writing rules. */
-export function baseInstructions(b: BuyBoxSettings): string {
+function baseInstructions(b: BuyBoxSettings): string {
   return [BASE_BUYER, `${buyBoxLine(b)} ${BASE_BUY_BOX_PREFERENCE}`, `${BASE_JUDGE} ${BASE_GROWTH}`, BASE_RULES, WRITING_RULES].join("\n\n");
 }
 
@@ -70,7 +70,7 @@ export function baseInstructions(b: BuyBoxSettings): string {
 
 export type StageLine = "screening" | "after_cim" | "diligence";
 
-export const STAGE_LINES: Record<StageLine, string> = {
+const STAGE_LINES: Record<StageLine, string> = {
   screening: "Stage: screening. Give a quick view of business quality and any deal-breakers.",
   after_cim: "Stage: after the CIM. Test the main claims and the growth story.",
   diligence: "Stage: diligence. Focus on what still needs verifying.",
@@ -110,7 +110,7 @@ export function financingLabel(v: DealFinancing): string {
   return FINANCING_OPTIONS.find((o) => o.value === v)?.label ?? "All equity";
 }
 
-export const FINANCING_LINES: Record<DealFinancing, string> = {
+const FINANCING_LINES: Record<DealFinancing, string> = {
   equity: "Financing: all equity.",
   equity_plus_debt: "Financing: equity plus debt; check whether earnings can comfortably carry a loan.",
 };
@@ -119,7 +119,7 @@ export const FINANCING_LINES: Record<DealFinancing, string> = {
  * The stages where the AI is told how the deal is financed (revision 2: from Model onward, so Partner presentation and
  * Closed too). Earlier stages get nothing about financing.
  */
-export const FINANCING_STAGES: readonly string[] = ["Model", "Partner presentation", "IOI or LOI", "Diligence", "Closed"];
+const FINANCING_STAGES: readonly string[] = ["Model", "Partner presentation", "IOI or LOI", "Diligence", "Closed"];
 
 /** The financing line of a deal from Model onward (FINANCING_STAGES); null at every other stage and on a listing. */
 export function financingLineFor(stage: string | null | undefined, screened: boolean, financing: DealFinancing | null | undefined): string | null {
@@ -133,7 +133,7 @@ export function financingLineFor(stage: string | null | undefined, screened: boo
 export type AiSpot = "key_finding" | "questions" | "tasks" | "next_action" | "next_steps" | "ask" | "field";
 
 /** The Key finding spot (verbatim). */
-export const KEY_FINDING_SPOT = [
+const KEY_FINDING_SPOT = [
   "Write:",
   "Strengths: up to 3, each naming the fact behind it and why it matters to the buyer.",
   "Risks: up to 3, each naming the fact behind it.",

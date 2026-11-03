@@ -115,7 +115,7 @@ export function PersonRow({ person, today, onEmail, onCall, done: doneText }: { 
  * The line after Done on a person: "Done. Next follow-up with X:" with three date choices, a date box with Save,
  * No date, and the "What for" text. Shared by the Outreach row and the outreach row on Home.
  */
-export function FollowUpDoneAsk({ person, today, pending, what, setWhat, onPick, onCancel }: { person: Pick<PersonRowData, "id" | "name">; today: string; pending: boolean; what: string; setWhat: (v: string) => void; onPick: (date: string | null) => void; onCancel: () => void }) {
+function FollowUpDoneAsk({ person, today, pending, what, setWhat, onPick, onCancel }: { person: Pick<PersonRowData, "id" | "name">; today: string; pending: boolean; what: string; setWhat: (v: string) => void; onPick: (date: string | null) => void; onCancel: () => void }) {
   const [typed, setTyped] = useState("");
   const choices = nextDateChoices(today);
   return (

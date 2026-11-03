@@ -14,7 +14,7 @@ import { sendPermission } from "@/lib/google-scopes";
 import { sentEmailCommunication } from "@/lib/calc/sent-email";
 import { DB_UPDATE_NOTICE_0025, isMissingSchemaError } from "@/lib/schema-guard";
 import { recordWorkEvent } from "@/lib/accountability/events";
-import { accountabilityNotice, buildEndOfDay, factsSince, loadEodRow, loadFacts, loadOwedFromSkipped, loadPartner, loadTargets, type EndOfDayPage } from "@/lib/accountability/data";
+import { buildEndOfDay, factsSince, loadEodRow, loadFacts, loadOwedFromSkipped, loadPartner, loadTargets, type EndOfDayPage } from "@/lib/accountability/data";
 import { reasonsPrompt, validateReasonsReply, type ReasonDraft } from "@/lib/accountability/ask-ai";
 import { reportInnerHtml, reportSubject, reportText } from "@/lib/accountability/report-email";
 import { countable, isCountKey, noReasonText, owedReasons, reportSummary, type Cadence } from "@/lib/accountability/targets";
@@ -41,7 +41,7 @@ const clean = (v: unknown, max: number) => String(v ?? "").replace(/\s+/g, " ").
 
 async function setup(): Promise<{ sb: SupabaseClient; ctx: Ctx } | Fail> {
   const { supabase, ownerId } = await requireOwner();
-  const notice = await accountabilityNotice(supabase);
+  const notice = null;
   if (notice) return fail(notice);
   return { sb: supabase, ctx: await loadCtx(supabase, ownerId) };
 }
@@ -52,7 +52,7 @@ function done() {
 
 // ---------- Targets ----------
 
-export type TargetInput = { name: string; key: string; cadence: string; number: number | string; commitment: boolean };
+type TargetInput = { name: string; key: string; cadence: string; number: number | string; commitment: boolean };
 
 export async function addTarget(input: TargetInput): Promise<{ ok: true; id: string } | Fail> {
   const s = await setup();
@@ -239,7 +239,7 @@ function owedCount(page: EndOfDayPage): number {
   return todays + prev;
 }
 
-export type SendResult = { ok: true; sentAt: string; sentTime: string; alreadySent?: boolean } | { ok: false; error: string; reason?: "reasons" | "partner" | "google" | "invalid"; owed?: number };
+type SendResult = { ok: true; sentAt: string; sentTime: string; alreadySent?: boolean } | { ok: false; error: string; reason?: "reasons" | "partner" | "google" | "invalid"; owed?: number };
 
 /**
  * Approve and send: the email goes to the partner through the existing Gmail sending (never by a job, never twice
@@ -290,23 +290,20 @@ export async function approveAndSend(day: string, requestId: string, force = fal
   // The sent report as a partner report (finalized: it never changes; Reviewed and the reply are recorded on it).
   const { data: report } = await sb
     .from("partner_reports")
-    .insert({ owner_id: ctx.ownerId, partner_id: partner.id, period_start: day, period_end: day, status: "finalized", snapshot: { end_of_day: true, day, judged: page.judged, reasons: page.reasons, tomorrow: page.tomorrow, report: page.report, edited: !!edited }, summary, summary_source: "owner", finalized_at: sentAt, delivered_via: ["gmail_sent"], report_kind: "end_of_day", sent_at: sentAt, gmail_message_id: sent.id })
+    .insert({ owner_id: ctx.ownerId, contact_id: partner.id, period_start: day, period_end: day, status: "finalized", snapshot: { end_of_day: true, day, judged: page.judged, reasons: page.reasons, tomorrow: page.tomorrow, report: page.report, edited: !!edited }, summary, summary_source: "owner", finalized_at: sentAt, delivered_via: ["gmail_sent"], report_kind: "end_of_day", sent_at: sentAt, gmail_message_id: sent.id })
     .select("id")
     .single();
   const reportId = report ? String((report as Row).id) : null;
-  let contact: Row | null = null;
-  const { data: p } = await sb.from("partners").select("contact_id").eq("id", partner.id).maybeSingle();
-  if ((p as Row | null)?.contact_id) contact = ((await sb.from("contacts").select("*").eq("id", (p as Row).contact_id).maybeSingle()).data as Row | null) ?? null;
+  const contact = ((await sb.from("contacts").select("*").eq("id", partner.id).maybeSingle()).data as Row | null) ?? null;
   const comm = { ...sentEmailCommunication({ kind: "partner_report", ownerId: ctx.ownerId, to: partner.email, subject, body, sentAt, contact }), gmail_message_id: sent.id, gmail_thread_id: sent.threadId };
-  let { data: c, error: ce } = await sb.from("communications").insert(comm).select("id").single();
-  if (ce && isMissingSchemaError(ce)) ({ data: c, error: ce } = await sb.from("communications").insert(sentEmailCommunication({ kind: "partner_report", ownerId: ctx.ownerId, to: partner.email, subject, body, sentAt, contact })).select("id").single());
+  const { data: c } = await sb.from("communications").insert(comm).select("id").single();
   const commId = c ? String((c as Row).id) : null;
   if (commId) {
-    const links: Row[] = [{ owner_id: ctx.ownerId, from_type: "communications", from_id: commId, to_type: "partners", to_id: partner.id, relation: "partner report" }];
+    const links: Row[] = [];
     if (reportId) links.push({ owner_id: ctx.ownerId, from_type: "communications", from_id: commId, to_type: "partner_reports", to_id: reportId, relation: "report sent" });
-    await sb.from("record_links").insert(links);
+    if (links.length) await sb.from("record_links").insert(links);
   }
-  await sb.from("change_log").insert({ owner_id: ctx.ownerId, table_name: "partner_reports", record_id: reportId, action: "insert", field: "email_sent", new_value: { request_id: requestId, kind: "end_of_day", to: partner.email, subject, partner_id: partner.id, day, communication_id: commId, gmail_message_id: sent.id, gmail_thread_id: sent.threadId, sent_at: sentAt, edited: !!edited }, actor: "owner" });
+  await sb.from("change_log").insert({ owner_id: ctx.ownerId, table_name: "partner_reports", record_id: reportId, action: "insert", field: "email_sent", new_value: { request_id: requestId, kind: "end_of_day", to: partner.email, subject, contact_id: partner.id, day, communication_id: commId, gmail_message_id: sent.id, gmail_thread_id: sent.threadId, sent_at: sentAt, edited: !!edited }, actor: "owner" });
   const { error } = await sb.from("end_of_day").update({ status: "sent", sent_at: sentAt, report_id: reportId, report_subject: subject, report_html: inner, report_edited: !!edited, judged: page.judged }).eq("id", row.id);
   if (error) return { ok: false, error: `The email was sent, but the day could not be marked sent: ${error.message}`, reason: "invalid" };
   done();

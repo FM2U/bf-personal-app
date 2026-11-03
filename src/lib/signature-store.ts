@@ -4,7 +4,7 @@ import { isMissingSchemaError } from "@/lib/schema-guard";
 import { signatureHtmlToText, signatureOn, type SignatureSetup } from "@/lib/email-signature";
 
 /** The saved signature columns on owner_profile (database update 0015). */
-export type SignatureRow = {
+type SignatureRow = {
   /** False before update 0015: the columns do not exist yet (sending works, without a signature). */
   available: boolean;
   html: string;

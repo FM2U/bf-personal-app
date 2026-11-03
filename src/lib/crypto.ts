@@ -25,9 +25,6 @@ export function decrypt(payload: string): string {
   return Buffer.concat([decipher.update(Buffer.from(data, "base64")), decipher.final()]).toString("utf8");
 }
 
-export function sha256(s: string): string {
-  return createHash("sha256").update(s).digest("hex");
-}
 
 export function randomToken(bytes = 32): string {
   return randomBytes(bytes).toString("base64url");

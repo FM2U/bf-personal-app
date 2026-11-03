@@ -110,7 +110,7 @@ export function ItemHeaderActions({ item, compose, advanceTo, closeTo, today, tz
 }
 
 /** "Close" with the outcomes: Declined, Not chosen, Accepted (Job search); Lost, Done (Consulting). */
-export function CloseMenu({ closeTo, pending, onPick, testId, align = "right", className }: { closeTo: { name: string; label: string }[]; pending: boolean; onPick: (name: string) => void; testId: string; align?: "left" | "right"; className?: string }) {
+function CloseMenu({ closeTo, pending, onPick, testId, align = "right", className }: { closeTo: { name: string; label: string }[]; pending: boolean; onPick: (name: string) => void; testId: string; align?: "left" | "right"; className?: string }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {

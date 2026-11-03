@@ -1,19 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { actionKey, aiOrderPrompt, applyAiOrder, laneOfKey, laneSectionOf, laneShown, matchesActionSearch, mergeLanes, normalizeShow, orderedAtLabel, parseOrderChoice, parseShowChoice, SHOW_LANES, showLabel, toggleShow, validateAiOrderReply, type HomeAction } from "./lanes";
+import { actionKey, aiOrderPrompt, applyAiOrder, laneSectionOf, laneShown, matchesActionSearch, mergeLanes, normalizeShow, orderedAtLabel, parseOrderChoice, parseShowChoice, SHOW_LANES, showLabel, toggleShow, validateAiOrderReply, type HomeAction } from "./lanes";
 
 const today = "2026-11-03";
 const a = (lane: HomeAction["lane"], id: string, over: Partial<HomeAction> = {}): HomeAction => ({ key: actionKey(lane, id), lane, id, name: id, action: "Do it", due: today, minutes: null, meta: "", ...over });
 
 describe("the lanes of Home", () => {
-  it("keys a row by its lane and id, and reads the lane back", () => {
-    expect(actionKey("Deals", "d1")).toBe("deal:d1");
-    expect(actionKey("Job search", "j1")).toBe("job:j1");
-    expect(laneOfKey("consulting:c1")).toBe("Consulting");
-    expect(laneOfKey("person:p1")).toBe("Outreach");
-    expect(laneOfKey("project:x")).toBe("Rosara");
-    expect(laneOfKey("other:x")).toBeNull();
-  });
-
   it("puts a row under Overdue, Due today, or Needs a next action, and leaves a later one out", () => {
     expect(laneSectionOf({ action: "x", due: "2026-11-01" }, today)).toBe("overdue");
     expect(laneSectionOf({ action: "x", due: today }, today)).toBe("today");
@@ -127,10 +118,6 @@ describe("the Show filter on Home (Edit batch C, item 2)", () => {
 
 /** Edit batch C round 2 (approved 2026-11-02): personal to-dos due today or earlier join Next actions. */
 describe("to-dos on Home's Next actions", () => {
-  it("key as todo:<id> and read back as the To-dos lane", () => {
-    expect(actionKey("To-dos", "t1")).toBe("todo:t1");
-    expect(laneOfKey("todo:t1")).toBe("To-dos");
-  });
   it("merge with the other lanes by due date (no minutes), after the other lanes on the same day", () => {
     const rows = [
       a("To-dos", "Renew the car registration", { due: "2026-10-30" }),

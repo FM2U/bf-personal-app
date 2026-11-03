@@ -42,7 +42,7 @@ function toTask(t: Row): DealTodo {
   return { id: String(t.id), text: String(t.text ?? ""), position: Number(t.position ?? 0), doneAt: t.done_at ? String(t.done_at) : null, createdAt: String(t.created_at ?? "") };
 }
 
-export function toProjectRow(p: Row, tasks: readonly DealTodo[] = []): ProjectRow {
+function toProjectRow(p: Row, tasks: readonly DealTodo[] = []): ProjectRow {
   const top = topTodo(tasks);
   return {
     id: String(p.id),
@@ -67,7 +67,7 @@ export async function loadWeeklyFocus(sb: SupabaseClient, ownerId: string): Prom
 }
 
 /** Every project of the owner with its tasks counted (open and closed). */
-export async function loadProjects(sb: SupabaseClient, ownerId: string): Promise<ProjectRow[]> {
+async function loadProjects(sb: SupabaseClient, ownerId: string): Promise<ProjectRow[]> {
   const { data, error } = await sb.from("projects").select(PROJECT_COLUMNS).eq("owner_id", ownerId).order("position").order("created_at").limit(500);
   if (error) throw new Error(error.message);
   const rows = (data ?? []) as Row[];
@@ -81,7 +81,7 @@ export async function loadProjects(sb: SupabaseClient, ownerId: string): Promise
 export type RosaraData = { today: string; focus: string; projects: ProjectRow[]; /** The weekly focus was marked done this week (batch C: a work event; null before database update 0025). */ focusDoneOn: string | null };
 
 /** The day this week's focus was marked done (a focus_done work event, Monday to Sunday of this week), or null. */
-export async function loadFocusDoneOn(sb: SupabaseClient, ctx: Ctx): Promise<string | null> {
+async function loadFocusDoneOn(sb: SupabaseClient, ctx: Ctx): Promise<string | null> {
   const { start, end } = weekBounds(ctx.today);
   const { data, error } = await sb.from("work_events").select("happened_on").eq("owner_id", ctx.ownerId).eq("kind", "focus_done").gte("happened_on", start).lte("happened_on", end).order("happened_on", { ascending: false }).limit(1);
   if (error) return null;
@@ -108,7 +108,7 @@ export type RosaraHome = {
 
 export async function loadRosaraHome(sb: SupabaseClient, ctx: Ctx): Promise<RosaraHome> {
   const [focus, projects] = await Promise.all([loadWeeklyFocus(sb, ctx.ownerId), loadProjects(sb, ctx.ownerId)]);
-  const tile = rosaraTile(projects, ctx.today, addDaysISO(ctx.today, 7));
+  const tile = rosaraTile(projects, addDaysISO(ctx.today, 7));
   const open = projects.filter((p) => p.status === "open");
   return {
     focus,
@@ -119,7 +119,7 @@ export async function loadRosaraHome(sb: SupabaseClient, ctx: Ctx): Promise<Rosa
   };
 }
 
-export type ProjectPageData = {
+type ProjectPageData = {
   today: string;
   tz: string;
   project: ProjectRow | null;

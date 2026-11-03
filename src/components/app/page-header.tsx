@@ -1,24 +1,17 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import { STATUS_BOX, STATUS_TEXT, toneStatus } from "@/lib/status";
-import { AskAiButton } from "@/components/app/ask-ai-button";
-import type { ChatContext } from "@/lib/ai/context";
 
-/**
- * Page title, one-line description, and the page's buttons. Every page header has "Ask AI about this" (the AI chat
- * about this page, or about the record when `ask` names one); `ask={false}` leaves it out.
- */
-export function PageHeader({ title, description, actions, className, ask }: { title: string; description?: React.ReactNode; actions?: React.ReactNode; className?: string; ask?: ChatContext | false }) {
-  const context = ask === false ? null : ask ?? { label: title };
+/** Page title, one-line description, and the page's buttons (the Settings pages). */
+export function PageHeader({ title, description, actions, className }: { title: string; description?: React.ReactNode; actions?: React.ReactNode; className?: string; ask?: false }) {
   return (
     <div className={cn("mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between", className)}>
       <div className="min-w-0 sm:flex-1">
         <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">{title}</h1>
         {description ? <p className="mt-1 max-w-[75ch] text-sm text-muted-foreground">{description}</p> : null}
       </div>
-      {actions || context ? (
+      {actions ? (
         <div className="no-print flex flex-wrap items-start gap-2 sm:max-w-[60%] sm:shrink-0 sm:justify-end">
-          {context ? <AskAiButton context={context} /> : null}
           {actions}
         </div>
       ) : null}
@@ -27,7 +20,7 @@ export function PageHeader({ title, description, actions, className, ask }: { ti
 }
 
 /** Label style for every metric (Stat, Home tiles): dark gray, medium weight, held to 2 lines. */
-export const METRIC_LABEL = "clamp-2 min-h-8 text-xs font-medium leading-4 text-slate-700";
+const METRIC_LABEL = "clamp-2 min-h-8 text-xs font-medium leading-4 text-slate-700";
 
 /** A small labeled number. Labels are held to 2 lines so values line up across a row. */
 export function Stat({ label, value, hint, tone }: { label: string; value: React.ReactNode; hint?: React.ReactNode; tone?: "good" | "bad" | "warn" }) {
@@ -94,23 +87,6 @@ export function Notice({ tone = "info", children }: { tone?: "info" | "warn" | "
       )}
     >
       <div className="max-w-[75ch]">{children}</div>
-    </div>
-  );
-}
-
-/** Responsive card grid. Single cards never stretch the full desktop width. */
-export function Bento({ children, cols = 3, className }: { children: React.ReactNode; cols?: 2 | 3 | 4; className?: string }) {
-  return (
-    <div
-      className={cn(
-        "grid grid-cols-1 gap-4",
-        cols === 2 && "md:grid-cols-2",
-        cols === 3 && "md:grid-cols-2 xl:grid-cols-3",
-        cols === 4 && "sm:grid-cols-2 xl:grid-cols-4",
-        className,
-      )}
-    >
-      {children}
     </div>
   );
 }

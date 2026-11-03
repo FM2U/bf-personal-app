@@ -20,5 +20,4 @@ export const env = {
 };
 
 export const isGoogleConfigured = () => !!(env.googleClientId && env.googleClientSecret && env.tokenEncryptionKey);
-export const isPlaidConfigured = () => !!(env.plaidClientId && env.plaidSecret && env.tokenEncryptionKey);
 export const isAIConfigured = () => !!env.anthropicKey;

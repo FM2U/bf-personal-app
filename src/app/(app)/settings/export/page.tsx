@@ -2,7 +2,7 @@ import { requireOwner } from "@/lib/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/app/page-header";
-import { EXPORT_TABLES } from "@/lib/resources";
+import { EXPORT_TABLES } from "@/lib/export";
 
 export const metadata = { title: "Export" };
 

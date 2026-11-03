@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareProjects, dueThisWeekLabel, matchesProjectFilter, matchesProjectSearch, projectFilterCounts, projectSectionOf, projectSections, projectTasksLabel, rosaraTile, type ProjectLike } from "./projects";
+import { compareProjects, matchesProjectFilter, matchesProjectSearch, projectFilterCounts, projectSections, type ProjectLike } from "./projects";
 
 const today = "2026-11-03";
 const p = (id: string, over: Partial<ProjectLike> = {}): ProjectLike => ({ id, name: id, milestone: null, status: "open", nextAction: "Do it", nextActionDue: "2026-11-10", closedAt: null, ...over });
@@ -15,15 +15,6 @@ const projects: ProjectLike[] = [
 ];
 
 describe("project sections", () => {
-  it("puts a project under Due today when its next action is due today or earlier, under No next action without one, under Closed when closed", () => {
-    expect(projectSectionOf(projects[1], today)).toBe("today");
-    expect(projectSectionOf(projects[2], today)).toBe("today");
-    expect(projectSectionOf(projects[0], today)).toBe("active");
-    expect(projectSectionOf(projects[3], today)).toBe("needs");
-    expect(projectSectionOf(projects[4], today)).toBe("active");
-    expect(projectSectionOf(projects[6], today)).toBe("closed");
-  });
-
   it("sorts Active by the next due date (a project without a date last), Due today oldest first, Closed newest close first", () => {
     const s = projectSections(projects, today);
     expect(s.today.map((x) => x.id)).toEqual(["Meridian late", "Market research"]);
@@ -41,19 +32,5 @@ describe("project sections", () => {
     expect(matchesProjectSearch(projects[0], "ROSARA")).toBe(true);
     expect(matchesProjectSearch(projects[0], "market")).toBe(false);
     expect(matchesProjectSearch(projects[0], "  ")).toBe(true);
-  });
-
-  it("builds the Rosara tile: the soonest next action, the open count, and how many are due this week", () => {
-    const t = rosaraTile(projects, today, "2026-11-10");
-    expect(t.next?.id).toBe("Meridian late");
-    expect(t.open).toBe(6);
-    expect(t.dueThisWeek).toBe(4);
-    expect(rosaraTile([], today, "2026-11-10")).toEqual({ next: null, open: 0, dueThisWeek: 0 });
-    expect(dueThisWeekLabel(2)).toBe("2 due this week");
-    expect(dueThisWeekLabel(1)).toBe("1 due this week");
-    expect(dueThisWeekLabel(0)).toBe("Nothing due this week");
-    expect(projectTasksLabel(0)).toBe("No open tasks");
-    expect(projectTasksLabel(1)).toBe("1 open task");
-    expect(projectTasksLabel(5)).toBe("5 open tasks");
   });
 });

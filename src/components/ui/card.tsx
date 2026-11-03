@@ -16,9 +16,7 @@ export function CardDescription({ className, ...props }: React.HTMLAttributes<HT
 export function CardContent({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return <div className={cn("flex-1 p-5 pt-0", className)} {...props} />;
 }
-export function CardFooter({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("flex items-center gap-2 border-t border-border px-5 py-3", className)} {...props} />;
-}
+
 /**
  * The card's one-line description, shown at the bottom of the card under a thin light line.
  * Card style rule: descriptions of what a card shows go here, not under the title.

@@ -14,7 +14,7 @@ import { isValidEmail } from "@/lib/email-address";
 import { emailHtml, emailText } from "@/lib/email-signature";
 import { emailBodyParts } from "@/lib/email-body";
 
-export type MimeInput = {
+type MimeInput = {
   to: string;
   subject: string;
   body: string;
@@ -41,7 +41,7 @@ export type MimeInput = {
 export type MimeAttachment = { filename: string; contentType: string; data: Uint8Array };
 
 /** A file name safe for the Content-Disposition header: ASCII letters, digits, spaces, dots, dashes, underscores. */
-export function safeFileName(name: string): string {
+function safeFileName(name: string): string {
   const clean = String(name ?? "")
     .normalize("NFKD")
     .replace(/[^A-Za-z0-9 ._-]+/g, "")
@@ -60,7 +60,7 @@ function base64Bytes(data: Uint8Array): string {
 export { isValidEmail };
 
 /** Removes line breaks and control characters from a header value. */
-export function cleanHeaderValue(s: string): string {
+function cleanHeaderValue(s: string): string {
   return String(s ?? "")
     .replace(/[\r\n]+/g, " ")
     .replace(/[\u0000-\u001f\u007f]/g, "")
@@ -97,7 +97,7 @@ function base64Lines(s: string): string {
 }
 
 /** A boundary that cannot appear in base64 text ("=_" never occurs inside base64). */
-export function newBoundary(): string {
+function newBoundary(): string {
   return `=_bf_alt_${randomBytes(12).toString("hex")}`;
 }
 

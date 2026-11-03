@@ -75,7 +75,7 @@ export function safeHref(raw: string): string | null {
   return null;
 }
 
-export function safeImageSrc(raw: string): string | null {
+function safeImageSrc(raw: string): string | null {
   const v = decodeEntities(raw).trim();
   return /^https:\/\//.test(compactUrl(v).toLowerCase()) && !/[\s"'<>]/.test(v) ? v : null;
 }
@@ -83,7 +83,7 @@ export function safeImageSrc(raw: string): string | null {
 const SAFE_COLOR = /^(#[0-9a-f]{3,8}|[a-z]{3,20}|rgba?\(\s*[\d.%\s,]+\)|hsla?\(\s*[\d.%\s,deg]+\))$/i;
 
 /** Keeps only allowed inline style properties with plain values (no url(), expression(), or escapes). */
-export function sanitizeStyle(style: string, extraProps: ReadonlySet<string> = EMPTY_SET): string {
+function sanitizeStyle(style: string, extraProps: ReadonlySet<string> = EMPTY_SET): string {
   const out: string[] = [];
   for (const decl of decodeEntities(style).split(";")) {
     const i = decl.indexOf(":");
@@ -169,7 +169,7 @@ export function sanitizeSignatureHtml(input: string): string {
 }
 
 /** Extra tags and attributes for a sanitizer built on the signature rules (the email message adds lists). */
-export type SanitizeOptions = { extraTags?: string[]; extraAttrs?: Record<string, string[]>; /** Style properties kept besides the signature set (the report email's display and overflow). */ extraStyleProps?: string[]; maxLength?: number };
+type SanitizeOptions = { extraTags?: string[]; extraAttrs?: Record<string, string[]>; /** Style properties kept besides the signature set (the report email's display and overflow). */ extraStyleProps?: string[]; maxLength?: number };
 
 /** The signature sanitizer with optional extra tags (used by the email message editor: ul, ol, li). */
 export function sanitizeHtml(input: string, opts: SanitizeOptions = {}): string {
@@ -303,7 +303,7 @@ const BULLET = /^\s*(?:[-*\u2022])\s+(.*)$/;
 const NUMBERED = /^\s*(\d{1,3})[.)]\s+(.*)$/;
 
 /** One block of a plain text message: lines of text, a bulleted list, or a numbered list (with its first number). */
-export type BodyBlock = { kind: "text"; lines: string[] } | { kind: "ul"; items: string[] } | { kind: "ol"; items: string[]; start: number };
+type BodyBlock = { kind: "text"; lines: string[] } | { kind: "ul"; items: string[] } | { kind: "ol"; items: string[]; start: number };
 
 /**
  * Reads a plain text message into blocks: runs of "- " (or "* ", "\u2022 ") lines become a bulleted list, runs of
@@ -352,12 +352,12 @@ export function bodyToHtml(body: string): string {
 }
 
 /** What Gmail puts between the message and the signature (a blank line, then "-- " on its own line). */
-export const GMAIL_SIGNATURE_PREFIX_HTML = '<br clear="all"><div><br></div><span class="gmail_signature_prefix">-- </span><br>';
-export const SIGNATURE_PREFIX_TEXT = "\n\n-- \n";
+const GMAIL_SIGNATURE_PREFIX_HTML = '<br clear="all"><div><br></div><span class="gmail_signature_prefix">-- </span><br>';
+const SIGNATURE_PREFIX_TEXT = "\n\n-- \n";
 
 /** Blank line only, used when the signature already starts with its own "--" line. */
-export const SIGNATURE_GAP_HTML = '<br clear="all"><div><br></div>';
-export const SIGNATURE_GAP_TEXT = "\n\n";
+const SIGNATURE_GAP_HTML = '<br clear="all"><div><br></div>';
+const SIGNATURE_GAP_TEXT = "\n\n";
 
 /**
  * Whether a signature already begins with a "--" separator line (many Gmail signatures do).

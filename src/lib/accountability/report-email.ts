@@ -7,7 +7,7 @@
  * list with the reasons, the week tiles, and the tomorrow line. The same data makes the plain-text part.
  */
 import { barHtml, EMAIL_COLORS, escapeHtml, FONT, pillHtml, type TileStatus } from "@/lib/calc/partner-report";
-import { judgedMark, listNames, MARK_WORD, shortName, type Judged, type ReportTile } from "@/lib/accountability/targets";
+import { judgedMark, MARK_WORD, type Judged, type ReportTile } from "@/lib/accountability/targets";
 
 export type ReportData = {
   partnerName: string;
@@ -102,11 +102,6 @@ export function reportInnerHtml(d: ReportData, short = false): string {
   return `<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;border-collapse:separate;background-color:#ffffff;border:1px solid ${EMAIL_COLORS.border};border-radius:10px">${parts.join("")}</table>`;
 }
 
-/** The whole email body: the inner card on the light page background (at most 600px wide; tables and inline styles only). */
-export function wrapEmail(inner: string): string {
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;background-color:#f8fafc"><tr><td align="center" style="padding:12px 6px">${inner}</td></tr></table>`;
-}
-
 export function reportSubject(d: ReportData): string {
   return `${d.withWeek ? "Daily report with the week" : "Daily report"}: ${d.dateLong}`;
 }
@@ -153,9 +148,4 @@ export function pillOf(judged: readonly Judged[], withWeek: boolean): { text: st
   const met = today.filter((j) => j.met).length;
   if (withWeek || today.length > 1) return { text: `${met} of ${today.length} targets met`, status: met === today.length ? "met" : "missed" };
   return { text: `${today[0].name} ${today[0].met ? "met" : "missed"}`, status: today[0].met ? "met" : "missed" };
-}
-
-/** What the sent row's second line says when the summary is empty: the moves. */
-export function fallbackSummary(moves: { name: string; to: string }[]): string {
-  return listNames(moves.map((m) => `${shortName(m.name)} to ${m.to}`), 3);
 }

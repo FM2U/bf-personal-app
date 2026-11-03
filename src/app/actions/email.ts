@@ -3,16 +3,11 @@
 import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireOwner } from "@/lib/auth";
-import { loadCtx } from "@/lib/engine/helpers";
-import { evaluateConditions } from "@/lib/engine/rules";
-import { activeLinkFor, reportForEmail, templateReportEmail } from "@/lib/engine/partners";
-import { chooseTemplates, loadReportTemplates } from "@/lib/report-templates";
-import { reportPdf, reportPdfName } from "@/lib/report-pdf";
 import type { MimeAttachment } from "@/lib/gmail-mime";
 import { createGmailDraft, getGoogleConnection, sendGmailMessage } from "@/lib/google";
 import { sendPermission } from "@/lib/google-scopes";
 import { explainGoogleError } from "@/lib/google-errors";
-import { emailAddressProblem, isValidEmail } from "@/lib/email-address";
+import { emailAddressProblem } from "@/lib/email-address";
 import { composePurpose } from "@/lib/calc/compose-email";
 import { AI_SYSTEM_MESSAGE, AIUnavailable, callClaude, cleanText, parseJsonFromText, textOf } from "@/lib/ai/claude";
 import { prepareEmailMessage, sentEmailCommunication, type SentEmailInput } from "@/lib/calc/sent-email";
@@ -145,8 +140,6 @@ async function deliverOutreach(sb: SupabaseClient, ownerId: string, d: OutreachD
       sent_at: sentAt,
     },
   });
-  const ctx = await loadCtx(sb, ownerId);
-  await evaluateConditions(ctx);
   revalidatePath("/", "layout");
   const who = d.contact ? String(d.contact.name) : d.to;
   return {
@@ -157,32 +150,8 @@ async function deliverOutreach(sb: SupabaseClient, ownerId: string, d: OutreachD
   };
 }
 
-/** Outreach Queue, Draft message: sends the approved text to the contact and logs it as outreach. */
-export async function sendOutreachEmail(input: { contactId: string; subject: string; body: string; bodyHtml?: string | null; requestId: string; pipelineItemId?: string | null; purpose?: string | null; threadId?: string | null; includeSignature?: boolean }): Promise<SendResult> {
-  const { supabase, ownerId } = await requireOwner();
-  if (!REQUEST_ID.test(String(input.requestId ?? ""))) return { ok: false, reason: "invalid", message: "The send request was not valid. Reload the page and try again." };
-  const done = await previousSend(supabase, input.requestId);
-  if (done) return { ok: true, ...done, alreadySent: true };
-  const { data: c } = await supabase.from("contacts").select("*").eq("id", input.contactId).maybeSingle();
-  const contact = c as Row | null;
-  if (!contact) return { ok: false, reason: "invalid", message: "Contact not found." };
-  if (!contact.email || !isValidEmail(String(contact.email))) return { ok: false, reason: "invalid", message: "This contact has no valid email address. Add one on the contact page, or copy the message instead." };
-  return deliverOutreach(supabase, ownerId, {
-    requestId: input.requestId,
-    to: String(contact.email).trim(),
-    subject: input.subject,
-    body: input.body,
-    bodyHtml: input.bodyHtml ?? null,
-    contact,
-    pipelineItemId: input.pipelineItemId ?? null,
-    purpose: input.purpose ?? null,
-    threadId: input.threadId ?? null,
-    includeSignature: typeof input.includeSignature === "boolean" ? input.includeSignature : undefined,
-  });
-}
-
 /** What the Email button sends with: the typed To address and the record the email belongs to. */
-export type ComposeInput = {
+type ComposeInput = {
   to: string;
   subject: string;
   body: string;
@@ -257,7 +226,7 @@ export async function saveComposedGmailDraft(input: { to: string; subject: strin
   }
 }
 
-export type WriteResult = { ok: true; subject: string; body: string } | { ok: false; error: string };
+type WriteResult = { ok: true; subject: string; body: string } | { ok: false; error: string };
 
 /**
  * "Write with AI": the owner types one line ("ask about off-market deals"); the AI drafts the subject and message
@@ -306,105 +275,4 @@ export async function writeEmailWithAI(input: ComposeInput & { instruction: stri
   }
 }
 
-/** What the partner report Delivery card sends with: one or two templates and the optional PDF. */
-export type ReportSendOptions = { templateIds?: string[] | null; attachPdf?: boolean };
 
-/**
- * The report email for the chosen templates (or the partner's default template): the visual HTML, the plain text part,
- * and, when asked, the PDF of the same report.
- */
-async function buildReportEmail(sb: SupabaseClient, ownerId: string, report: Row, partner: Row, opts: ReportSendOptions) {
-  const link = await activeLinkFor({ sb }, String(partner.id));
-  const { templates: all } = await loadReportTemplates(sb, ownerId);
-  // A daily report uses the template saved with its draft unless another one is chosen.
-  const templates = chooseTemplates(all, opts.templateIds?.length ? opts.templateIds : report.template_id ? [String(report.template_id)] : null, partner);
-  const email = templateReportEmail(partner, report, link, templates);
-  let attachments: MimeAttachment[] | null = null;
-  if (opts.attachPdf) {
-    const bytes = await reportPdf({ partnerName: String(partner.name), report: reportForEmail(report), templates, link });
-    attachments = [{ filename: reportPdfName(String(report.period_start), String(report.period_end)), contentType: "application/pdf", data: bytes }];
-  }
-  return { ...email, templates, attachments };
-}
-
-/** Partner report page: sends the finalized report email to the accountability partner and marks the report sent. */
-export async function sendPartnerReportEmail(input: { reportId: string; requestId: string; includeSignature?: boolean } & ReportSendOptions): Promise<SendResult> {
-  const { supabase, ownerId } = await requireOwner();
-  if (!REQUEST_ID.test(String(input.requestId ?? ""))) return { ok: false, reason: "invalid", message: "The send request was not valid. Reload the page and try again." };
-  const done = await previousSend(supabase, input.requestId);
-  if (done) return { ok: true, ...done, alreadySent: true };
-  const { data: report } = await supabase.from("partner_reports").select("*").eq("id", input.reportId).maybeSingle();
-  if (!report) return { ok: false, reason: "invalid", message: "Report not found." };
-  if (report.status !== "finalized") return { ok: false, reason: "invalid", message: "Finalize the report first. Only a finalized report can be sent." };
-  const { data: partner } = await supabase.from("partners").select("*").eq("id", report.partner_id).maybeSingle();
-  if (!partner?.email || !isValidEmail(String(partner.email))) return { ok: false, reason: "invalid", message: "Add a valid email address to the accountability partner first." };
-  const problem = await permissionProblem(supabase, ownerId);
-  if (problem) return problem;
-
-  let email: Awaited<ReturnType<typeof buildReportEmail>>;
-  try {
-    email = await buildReportEmail(supabase, ownerId, report as Row, partner as Row, input);
-  } catch {
-    return { ok: false, reason: "google", message: "The report email or its PDF could not be made. Try again without the PDF." };
-  }
-  const sent = await sendOne(supabase, ownerId, { to: String(partner.email), subject: email.subject, body: email.body, html: email.html, attachments: email.attachments, includeSignature: typeof input.includeSignature === "boolean" ? input.includeSignature : undefined });
-  if ("ok" in sent) return sent;
-
-  const sentAt = new Date().toISOString();
-  let contact: Row | null = null;
-  if (partner.contact_id) contact = ((await supabase.from("contacts").select("*").eq("id", partner.contact_id).maybeSingle()).data as Row | null) ?? null;
-  const commId = await saveCommunication(supabase, { kind: "partner_report", ownerId, to: String(partner.email), subject: email.subject, body: email.body, sentAt, contact }, sent);
-  if (commId) {
-    await supabase.from("record_links").insert([
-      { owner_id: ownerId, from_type: "communications", from_id: commId, to_type: "partners", to_id: partner.id, relation: "partner report" },
-      // The report itself: Communication history opens the report as sent (src/lib/sent-report.ts).
-      { owner_id: ownerId, from_type: "communications", from_id: commId, to_type: "partner_reports", to_id: report.id, relation: "report sent" },
-    ]);
-  }
-
-  const delivered = [...new Set([...((report.delivered_via as string[] | null) ?? []), "gmail_sent"])];
-  let { error } = await supabase.from("partner_reports").update({ delivered_via: delivered, sent_at: sentAt, gmail_message_id: sent.id }).eq("id", report.id);
-  // Before update 0013: no sent_at column. The date stays in the change log and the page reads it from there.
-  if (error && isMissingSchemaError(error)) ({ error } = await supabase.from("partner_reports").update({ delivered_via: delivered }).eq("id", report.id));
-  await writeChangeLog(supabase, ownerId, {
-    table: "partner_reports",
-    recordId: String(report.id),
-    value: {
-      request_id: input.requestId,
-      kind: "partner_report",
-      to: partner.email,
-      subject: email.subject,
-      partner_id: partner.id,
-      templates: email.templates.map((t) => t.name),
-      // The templates exactly as sent (measures and period), so the report can be shown again as sent.
-      template_defs: email.templates,
-      pdf_attached: !!email.attachments,
-      communication_id: commId,
-      gmail_message_id: sent.id,
-      gmail_thread_id: sent.threadId,
-      sent_at: sentAt,
-    },
-  });
-  await supabase.from("tasks").update({ status: "done" }).eq("source_key", `partner-report:${report.id}`).eq("status", "todo");
-  revalidatePath("/", "layout");
-  return { ok: true, sentAt, messageId: sent.id, note: error ? "The email was sent, but the report could not be marked sent." : undefined };
-}
-
-/** Partner report page: Save to Gmail drafts (the existing behavior), returning a message instead of an error page. */
-export async function saveReportToGmailDrafts(reportId: string, includeSignature?: boolean, opts: ReportSendOptions = {}): Promise<{ ok: boolean; message: string }> {
-  const { supabase, ownerId } = await requireOwner();
-  const { data: report } = await supabase.from("partner_reports").select("*").eq("id", reportId).maybeSingle();
-  if (!report) return { ok: false, message: "Report not found." };
-  const { data: partner } = await supabase.from("partners").select("*").eq("id", report.partner_id).maybeSingle();
-  if (!partner?.email) return { ok: false, message: "Add an email address to the accountability partner first." };
-  try {
-    const email = await buildReportEmail(supabase, ownerId, report as Row, partner as Row, opts);
-    const gmailId = await createGmailDraft(supabase, ownerId, { to: partner.email, subject: email.subject, body: email.body, html: email.html, attachments: email.attachments, includeSignature: typeof includeSignature === "boolean" ? includeSignature : undefined });
-    if (!gmailId) return { ok: false, message: "Google is not connected. Connect Google in Settings, Connections." };
-    await supabase.from("partner_reports").update({ gmail_draft_id: gmailId, delivered_via: [...new Set([...((report.delivered_via as string[] | null) ?? []), "gmail_draft"])] }).eq("id", report.id);
-    revalidatePath("/", "layout");
-    return { ok: true, message: `Gmail draft created for ${partner.name}. Open Gmail, Drafts to review and send it.` };
-  } catch (e) {
-    return { ok: false, message: `The Gmail draft could not be created. ${explainGoogleError(e).message}` };
-  }
-}

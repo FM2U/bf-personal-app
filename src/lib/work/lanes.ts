@@ -8,10 +8,6 @@
 import { daysBetween } from "@/lib/calc/dates";
 
 export type Lane = "Deals" | "Outreach" | "Rosara" | "Job search" | "Consulting" | "To-dos";
-
-/** The lanes with a pill (deals have none). */
-export type LanePillName = Exclude<Lane, "Deals">;
-
 /** One row of Next actions, whichever lane it comes from (a subset of what the row component shows). */
 export type HomeAction = {
   /** "deal:<id>", "person:<id>", "project:<id>", "job:<id>", "consulting:<id>" (the AI order and the cache use it). */
@@ -37,11 +33,6 @@ const PREFIX: Record<Lane, string> = { Deals: "deal", Outreach: "person", Rosara
 
 export function actionKey(lane: Lane, id: string): string {
   return `${PREFIX[lane]}:${id}`;
-}
-
-export function laneOfKey(key: string): Lane | null {
-  const p = key.split(":")[0];
-  return (Object.keys(PREFIX) as Lane[]).find((l) => PREFIX[l] === p) ?? null;
 }
 
 export type LaneSectionKey = "overdue" | "today" | "needs";
@@ -151,7 +142,7 @@ export function parseOrderChoice(v: unknown): OrderChoice {
 /** The AI's order of the day: the row keys in the order to do them, and one reason per key. */
 export type AiOrder = { order: string[]; reasons: Record<string, string>; forDate: string; createdAt: string };
 
-export const AI_REASON_MAX_LENGTH = 160;
+const AI_REASON_MAX_LENGTH = 160;
 
 /**
  * Checks the AI's reply: {"order": [{"key": "deal:...", "reason": "..."}, ...]}. Keys that are not on the page are

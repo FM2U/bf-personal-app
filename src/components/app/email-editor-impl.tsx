@@ -39,7 +39,7 @@ function valueOf(editor: Editor): string {
 }
 
 /** A typed address as a link address: an email address gets mailto:, anything without a scheme gets https://. */
-export function linkAddress(raw: string): string | null {
+function linkAddress(raw: string): string | null {
   const v = raw.trim();
   if (!v) return null;
   if (/^[^\s@/:]+@[^\s@/]+\.[^\s@/]+$/.test(v)) return `mailto:${v}`;

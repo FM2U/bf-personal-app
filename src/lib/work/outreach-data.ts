@@ -50,7 +50,7 @@ export type PersonRow = {
 
 const CONTACT_COLUMNS = "id,name,organization_id,outreach_role,title,purposes,notes,email,phone,linkedin_url,follow_up_date,follow_up_note,last_contact_at,last_contact_kind,archived_at,created_at";
 
-export function toPersonRow(c: Row, orgName: string | null, tz: string): PersonRow {
+function toPersonRow(c: Row, orgName: string | null, tz: string): PersonRow {
   const note = String(c.notes ?? "").split("\n").map((l) => l.trim()).find(Boolean) ?? null;
   return {
     id: String(c.id),
@@ -77,16 +77,16 @@ export function toPersonRow(c: Row, orgName: string | null, tz: string): PersonR
 }
 
 /** The weekly outreach target (the setting outreach_weekly_target, default 10). */
-export async function loadOutreachTarget(sb: SupabaseClient, ownerId: string): Promise<number> {
+async function loadOutreachTarget(sb: SupabaseClient, ownerId: string): Promise<number> {
   const { data } = await sb.from("inputs").select("value_number").eq("owner_id", ownerId).eq("key", "outreach_weekly_target").maybeSingle();
   const n = Number((data as Row | null)?.value_number);
   return Number.isFinite(n) && n > 0 ? Math.round(n) : DEFAULT_OUTREACH_TARGET;
 }
 
-export type OutreachCounter = { count: number; target: number; pct: number };
+type OutreachCounter = { count: number; target: number; pct: number };
 
 /** The weekly counter: emails sent and calls logged to people, Monday to Friday of this week (the owner's dates). */
-export async function loadOutreachCounter(sb: SupabaseClient, ctx: Ctx): Promise<OutreachCounter> {
+async function loadOutreachCounter(sb: SupabaseClient, ctx: Ctx): Promise<OutreachCounter> {
   const { start } = workWeek(ctx.today);
   const [{ data }, target] = await Promise.all([
     sb.from("communications").select("occurred_at,method,direction,contact_id,awaiting_log").eq("owner_id", ctx.ownerId).gte("occurred_at", `${start}T00:00:00Z`).limit(2000),
@@ -178,7 +178,7 @@ export type IncomingReply = { id: string; date: string; subject: string; excerpt
 /** A deal, opportunity, or consulting item this person is the main contact of (a line in Facts). */
 export type PersonRecordLink = { id: string; name: string; href: string; kind: string };
 
-export type PersonPageData = {
+type PersonPageData = {
   available: boolean;
   notice: string | null;
   today: string;
@@ -193,7 +193,7 @@ export type PersonPageData = {
 
 const TASK_COLUMNS = "id,deal_id,record_type,record_id,text,position,done_at,created_at";
 
-export function toTask(t: Row): DealTodo {
+function toTask(t: Row): DealTodo {
   return { id: String(t.id), text: String(t.text ?? ""), position: Number(t.position ?? 0), doneAt: t.done_at ? String(t.done_at) : null, createdAt: String(t.created_at ?? "") };
 }
 
@@ -225,7 +225,7 @@ export async function loadPersonPage(sb: SupabaseClient, ctx: Ctx, id: string): 
         date: fmtDate(String(m.occurred_at), "MMM d"),
         title: commTitle(m),
         detail: [m.summary ? String(m.summary).slice(0, 240) : null, m.call_outcome ? `Next: ${String(m.call_outcome).slice(0, 160)}` : null].filter(Boolean).join(" ") || null,
-        href: `/records/communications/${m.id}`,
+        href: null,
       })),
   ].sort((a, b) => (a.when < b.when ? 1 : a.when > b.when ? -1 : 0));
   const incoming: IncomingReply[] = commRows
@@ -236,7 +236,7 @@ export async function loadPersonPage(sb: SupabaseClient, ctx: Ctx, id: string): 
     .filter((i) => i.status === "open")
     .map((i) => {
       const kind = kindOf[String(i.pipeline_id)] ?? "other";
-      return { id: String(i.id), name: String(i.company_name || i.name), kind, href: kind === "acquisition" ? `/work/deals/${i.id}` : `/records/pipeline_items/${i.id}` };
+      return { id: String(i.id), name: String(i.company_name || i.name), kind, href: kind === "acquisition" ? `/work/deals/${i.id}` : kind === "job" ? `/work/jobs/${i.id}` : kind === "consulting" ? `/work/consulting/${i.id}` : `/work/deals/${i.id}` };
     });
   return { ...base, person, timeline, incoming, tasks: sortTodos(((taskRows ?? []) as Row[]).map(toTask)), records, compose: compose ? { ...compose, title: `Email ${person.name}` } : null };
 }

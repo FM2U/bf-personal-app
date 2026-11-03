@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
-import { accountabilityNotice, loadEodBadge, loadTargetsPage } from "@/lib/accountability/data";
+import { loadEodBadge, loadTargetsPage } from "@/lib/accountability/data";
 import { AccountabilityTabs } from "@/components/app/nav-links";
 import { AskAiPill } from "@/components/app/work/ask-ai";
 import { WorkShell, WorkUpdateNotice } from "@/components/app/work/shell";
@@ -19,7 +19,7 @@ export const metadata = { title: "Targets" };
 export default async function TargetsPage({ searchParams }: { searchParams: Promise<{ add?: string }> }) {
   const { supabase, ownerId } = await requireOwner();
   const sp = await searchParams;
-  const notice = await accountabilityNotice(supabase);
+  const notice = null;
   const ctx = await loadCtx(supabase, ownerId);
   const badge = await loadEodBadge(supabase, ownerId, ctx.today);
   const d = notice ? null : await loadTargetsPage(supabase, ctx);

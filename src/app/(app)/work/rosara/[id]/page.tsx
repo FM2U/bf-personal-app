@@ -2,7 +2,6 @@ import Link from "next/link";
 import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
 import { date as fmtDate } from "@/lib/format";
-import { workUpdateNotice } from "@/lib/work/data";
 import { loadProjectPage } from "@/lib/work/projects-data";
 import { headerFigures } from "@/lib/work/record-page";
 import { openTodos } from "@/lib/work/todos";
@@ -30,7 +29,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
       Rosara
     </Link>
   );
-  const notice = await workUpdateNotice(supabase);
+  const notice = null;
   if (notice) {
     return (
       <WorkShell testId="work-project">

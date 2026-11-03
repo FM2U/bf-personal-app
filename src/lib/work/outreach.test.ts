@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  contactKindLabel, normalizeRole, OUTREACH_ROLES, roleForDatabase, counterLabel, followUpHint, lastContactLabel, matchesOutreachFilter, matchesPersonSearch, nextDateChoices, nextFollowUpLabel,
-  orgRoleLine, outreachFilterCounts, outreachSectionOf, outreachSections, parsePurposes, purposesText, roleLabel, weeklyOutreach, weekdayShort, workWeek, type OutreachPerson,
+  contactKindLabel, normalizeRole, OUTREACH_ROLES, roleForDatabase, followUpHint, lastContactLabel, matchesOutreachFilter, matchesPersonSearch, nextDateChoices, nextFollowUpLabel,
+  orgRoleLine, outreachFilterCounts, outreachSectionOf, outreachSections, parsePurposes, purposesText, roleLabel, weekdayShort, type OutreachPerson,
 } from "./outreach";
 
 // 2026-11-03 is a Tuesday.
@@ -65,27 +65,6 @@ describe("the sections by next follow-up", () => {
     expect(matchesPersonSearch({ name: "Mark Reed" }, "dana")).toBe(false);
   });
 });
-
-describe("the weekly counter", () => {
-  it("counts emails sent and calls logged to people, Monday to Friday of this week", () => {
-    expect(workWeek(today)).toEqual({ start: "2026-11-02", end: "2026-11-06" });
-    const comms = [
-      { occurredOn: "2026-11-02", method: "email", direction: "outgoing", contactId: "a" },
-      { occurredOn: "2026-11-03", method: "call", direction: "outgoing", contactId: "b" },
-      { occurredOn: "2026-11-03", method: "email", direction: "incoming", contactId: "a" },
-      { occurredOn: "2026-11-01", method: "email", direction: "outgoing", contactId: "a" },
-      { occurredOn: "2026-11-07", method: "call", direction: "outgoing", contactId: "a" },
-      { occurredOn: "2026-11-04", method: "letter", direction: "outgoing", contactId: "a" },
-      { occurredOn: "2026-11-04", method: "email", direction: "outgoing", contactId: null },
-      { occurredOn: "2026-11-05", method: "meeting", direction: "both", contactId: "c" },
-    ];
-    expect(weeklyOutreach(comms, today, 10)).toEqual({ count: 3, target: 10, pct: 30 });
-    expect(weeklyOutreach(comms, today, 0).target).toBe(10);
-    expect(weeklyOutreach(Array(12).fill(comms[0]), today, 10).pct).toBe(100);
-    expect(counterLabel({ count: 4, target: 10 })).toEqual({ before: "Network outreach: ", count: "4", after: " of 10 this week" });
-  });
-});
-
 describe("the figures and the date choices", () => {
   it("labels the last contact and the next follow-up", () => {
     expect(lastContactLabel("2026-10-20T15:00:00Z", "email", today, fmt)).toBe("Oct 20 · email");

@@ -5,9 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireOwner } from "@/lib/auth";
 import { recordWorkEvent } from "@/lib/accountability/events";
 import { addDaysISO } from "@/lib/calc/dates";
-import { loadCtx, refreshNextActionAlert, type Ctx } from "@/lib/engine/helpers";
-import { checkCommitments, releaseSupersededNextActions } from "@/lib/engine/tasks";
-import { evaluateConditions } from "@/lib/engine/rules";
+import { loadCtx, type Ctx } from "@/lib/engine/helpers";
 import { AI_REPLY_CUT_OFF, AI_REPLY_UNUSABLE, AIInvalidReply, AIUnavailable, callForJson, cleanDeep, replySnippet } from "@/lib/ai/claude";
 import { date as fmtDate } from "@/lib/format";
 import { missingForStage } from "@/lib/pipeline";
@@ -15,7 +13,7 @@ import { DB_UPDATE_NOTICE_0021, DB_UPDATE_NOTICE_0027, DB_UPDATE_NOTICE_0028, DB
 import { isDealFinancing, type DealFinancing } from "@/lib/ai/instructions";
 import { checkBuyBox, dealSourceTypeFor, isPassReason, LISTING_SOURCES, parseMoneyText } from "@/lib/work/buy-box";
 import { firstUrl, listingNumbers, listingTextToSave, listingPrompt, validateListingReply, withListingUrl, yearOf, type ListingFields } from "@/lib/work/listing-text";
-import { loadWorkPipeline, workUpdateNotice, type WorkPipeline } from "@/lib/work/data";
+import { loadWorkPipeline, type WorkPipeline } from "@/lib/work/data";
 import { dealFactsFromRow, parseFindingList } from "@/lib/work/deal-facts";
 import { loadBuyBoxSettings } from "@/lib/work/buy-box-data";
 import { cleanQuestions, countQuestions, mergeQuestions, parseOpenQuestions, questionsPrompt, TODO_MAX_LENGTH, todosPrompt, validateQuestionsReply, validateTodosReply, type DealContext, type QuestionGroups } from "@/lib/work/questions";
@@ -46,7 +44,7 @@ const cleanText = (v: unknown, max: number) => String(v ?? "").replace(/\r\n/g, 
 
 async function setup(): Promise<{ sb: SupabaseClient; ctx: Ctx; pipe: WorkPipeline } | Fail> {
   const { supabase, ownerId } = await requireOwner();
-  const notice = await workUpdateNotice(supabase);
+  const notice = null;
   if (notice) return fail(notice);
   const pipe = await loadWorkPipeline(supabase, ownerId);
   if (!pipe) return fail("There is no acquisition pipeline. Add one under More, Pipelines.");
@@ -168,8 +166,6 @@ export async function passDeal(id: string, reason: string): Promise<{ ok: true }
   if (!passed) return fail('The acquisition pipeline has no "Passed" stage. Run the database update again.');
   const { error } = await sb.from("pipeline_items").update({ stage_id: passed.id, pass_reason: reason, screened: true, waiting_on: null, waiting_since: null }).eq("id", item.id);
   if (error) return notSaved(error);
-  await releaseSupersededNextActions(ctx, item.id);
-  await refreshNextActionAlert(ctx);
   doneQuietly();
   return { ok: true };
 }
@@ -191,7 +187,6 @@ export async function markInterested(id: string): Promise<{ ok: true; nextAction
   // The next action is written here too (the stage trigger sets the same values when it is empty).
   const { error } = await sb.from("pipeline_items").update({ stage_id: stage.id, screened: true, pass_reason: null, next_action: title, next_action_due: due, next_action_minutes: null }).eq("id", item.id);
   if (error) return notSaved(error);
-  await evaluateConditions(ctx).catch(() => null);
   const questions = await suggestQuestionsFor(sb, ctx, pipe, item.id).catch(() => 0);
   doneQuietly();
   return { ok: true, nextAction: title, due, questions };
@@ -366,8 +361,6 @@ async function setNextActionFromTodo(sb: SupabaseClient, ctx: Ctx, item: Row, to
   if (error) return notSaved(error);
   await sb.from("deal_todos").delete().eq("id", todo.id);
   if (keep) await sb.from("deal_todos").insert({ owner_id: ctx.ownerId, deal_id: item.id, text: keep, position: 0 });
-  await releaseSupersededNextActions(ctx, item.id);
-  await refreshNextActionAlert(ctx);
   return { nextAction: text, due, kept: keep };
 }
 
@@ -376,8 +369,6 @@ async function setNextActionFromTodo(sb: SupabaseClient, ctx: Ctx, item: Row, to
 /** Marks the task that mirrors the deal's next action done (so its commitment counts as kept). */
 async function completeActionTask(sb: SupabaseClient, ctx: Ctx, item: Row) {
   if (!item.next_action) return;
-  await sb.from("tasks").update({ status: "done" }).eq("owner_id", ctx.ownerId).eq("pipeline_item_id", item.id).eq("status", "todo").eq("title", `${item.name}: ${item.next_action}`);
-  await checkCommitments(ctx, false);
 }
 
 /**
@@ -400,7 +391,6 @@ export async function completeNextAction(id: string, move: boolean, todoId: stri
     if (String(todo.deal_id) !== String(item.id)) return fail("This item belongs to another deal.");
     const r = await setNextActionFromTodo(sb, ctx, item, todo, true);
     if (isFail(r)) return r;
-    await evaluateConditions(ctx).catch(() => null);
     doneQuietly();
     return { ok: true, movedTo: null, nextAction: r.nextAction };
   }
@@ -414,9 +404,6 @@ export async function completeNextAction(id: string, move: boolean, todoId: stri
   }
   const { error } = await sb.from("pipeline_items").update(update).eq("id", item.id);
   if (error) return notSaved(error);
-  await releaseSupersededNextActions(ctx, item.id);
-  await refreshNextActionAlert(ctx);
-  await evaluateConditions(ctx).catch(() => null);
   doneQuietly();
   return { ok: true, movedTo: move && next ? next.name : null, nextAction: move && next ? next.defaultTitle : null };
 }
@@ -432,22 +419,12 @@ export async function deferNextAction(id: string, date: string): Promise<{ ok: t
   if (due <= ctx.today) return fail("Choose a date after today.");
   const { error } = await sb.from("pipeline_items").update({ next_action_due: due }).eq("id", item.id);
   if (error) return notSaved(error);
-  await moveActionTask(sb, ctx, item, due);
   doneQuietly();
   return { ok: true, due };
 }
 
-/** The task that mirrors the next action (and its commitment) takes the new date too. */
-async function moveActionTask(sb: SupabaseClient, ctx: Ctx, item: Row, due: string) {
-  if (!item.next_action) return;
-  const { data: tasks } = await sb.from("tasks").select("id,times_moved").eq("owner_id", ctx.ownerId).eq("pipeline_item_id", item.id).eq("status", "todo").eq("title", `${item.name}: ${item.next_action}`);
-  for (const t of (tasks ?? []) as Row[]) {
-    await sb.from("tasks").update({ due_date: due, times_moved: Number(t.times_moved ?? 0) + 1 }).eq("id", t.id);
-    await sb.from("commitments").update({ due_date: due }).eq("record_type", "tasks").eq("record_id", t.id).eq("status", "open");
-  }
-}
 
-export type NextActionInput = { action: string; due: string; minutes: string | number | null; waitingOn: string; waitingSince: string };
+type NextActionInput = { action: string; due: string; minutes: string | number | null; waitingOn: string; waitingSince: string };
 
 /** The Next action card on the deal page: action, due date, block minutes, waiting on, waiting since. */
 export async function saveNextAction(id: string, input: NextActionInput): Promise<{ ok: true } | Fail> {
@@ -465,9 +442,6 @@ export async function saveNextAction(id: string, input: NextActionInput): Promis
   if (action && !due) return fail("Give the next action a due date.");
   const { error } = await sb.from("pipeline_items").update({ next_action: action, next_action_due: action ? due : null, next_action_minutes: minutes, waiting_on: waitingOn, waiting_since: waitingOn ? since : null }).eq("id", item.id);
   if (error) return notSaved(error);
-  if (action && due && action === item.next_action && due !== item.next_action_due) await moveActionTask(sb, ctx, item, due);
-  await releaseSupersededNextActions(ctx, item.id);
-  await refreshNextActionAlert(ctx);
   done();
   return { ok: true };
 }
@@ -492,7 +466,7 @@ export async function resetWaiting(id: string): Promise<{ ok: true } | Fail> {
 export type FindingsInput = { keyFinding?: string; questions?: QuestionGroups; strengths?: string[]; risks?: string[]; growthPaths?: string[] };
 
 /** The saved values the Findings card compares with (cleaned as the database keeps them). */
-export type SavedFindings = { keyFinding: string; questions: QuestionGroups; strengths: string[]; risks: string[]; growthPaths: string[] };
+type SavedFindings = { keyFinding: string; questions: QuestionGroups; strengths: string[]; risks: string[]; growthPaths: string[] };
 
 /**
  * The Findings card (AI instructions revision 1, approved 2026-11-02): saves only the fields given, so a field saved
@@ -579,7 +553,6 @@ export async function saveFacts(id: string, input: FactsInput): Promise<{ ok: tr
   const { error: e2 } = fin ? await sb.from("deal_financials").update(numbers).eq("id", fin.id) : await sb.from("deal_financials").insert({ owner_id: ctx.ownerId, item_id: item.id, ...numbers });
   if (e2) return fail(`The facts were saved, but the numbers were not: ${e2.message}`);
   // The old task titles follow the name.
-  if (name !== item.name && item.next_action) await sb.from("tasks").update({ title: `${name}: ${item.next_action}` }).eq("owner_id", ctx.ownerId).eq("pipeline_item_id", item.id).eq("status", "todo").eq("title", `${item.name}: ${item.next_action}`);
   done();
   return { ok: true };
 }
@@ -599,9 +572,6 @@ export async function advanceDeal(id: string): Promise<{ ok: true; stage: string
   // The stage trigger sets the default next action when the current one was the old stage's default or empty.
   const { error } = await sb.from("pipeline_items").update({ stage_id: next.id, waiting_on: null, waiting_since: null, next_action_minutes: null }).eq("id", item.id);
   if (error) return notSaved(error);
-  await releaseSupersededNextActions(ctx, item.id);
-  await refreshNextActionAlert(ctx);
-  await evaluateConditions(ctx).catch(() => null);
   done();
   return { ok: true, stage: next.name };
 }
@@ -617,8 +587,6 @@ export async function markLost(id: string): Promise<{ ok: true } | Fail> {
   if (!lost) return fail('The acquisition pipeline has no "Lost" stage. Run the database update again.');
   const { error } = await sb.from("pipeline_items").update({ stage_id: lost.id, waiting_on: null, waiting_since: null }).eq("id", item.id);
   if (error) return notSaved(error);
-  await releaseSupersededNextActions(ctx, item.id);
-  await refreshNextActionAlert(ctx);
   done();
   return { ok: true };
 }

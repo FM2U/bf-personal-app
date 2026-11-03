@@ -1,6 +1,6 @@
 import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
-import { loadTabCounts, workUpdateNotice } from "@/lib/work/data";
+import { loadTabCounts } from "@/lib/work/data";
 import { loadTodos } from "@/lib/work/personal-todos-data";
 import { WorkTabs } from "@/components/app/nav-links";
 import { AskAiPill } from "@/components/app/work/ask-ai";
@@ -13,7 +13,7 @@ export const metadata = { title: "To-dos" };
 /** To-dos (batch B): the personal list, last in the Work group. The list is in src/components/app/work/todos-board.tsx. */
 export default async function TodosPage() {
   const { supabase, ownerId } = await requireOwner();
-  const notice = await workUpdateNotice(supabase);
+  const notice = null;
   const ctx = await loadCtx(supabase, ownerId);
   const tabs = await loadTabCounts(supabase, ownerId, ctx.today);
   const header = (

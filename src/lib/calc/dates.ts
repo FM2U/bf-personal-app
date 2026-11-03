@@ -12,7 +12,7 @@ export function todayInTz(tz: string, now: Date = new Date()): string {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
-export function toISODate(d: Date): string {
+function toISODate(d: Date): string {
   return format(d, "yyyy-MM-dd");
 }
 
@@ -57,13 +57,6 @@ export function weekBounds(s: string): { start: string; end: string } {
 export function monthBounds(s: string): { start: string; end: string } {
   const start = parseDate(monthStart(s));
   return { start: toISODate(start), end: toISODate(addDays(addMonths(start, 1), -1)) };
-}
-
-export function quarterBounds(s: string): { start: string; end: string } {
-  const d = parseDate(s);
-  const qMonth = Math.floor(d.getMonth() / 3) * 3;
-  const start = new Date(d.getFullYear(), qMonth, 1);
-  return { start: toISODate(start), end: toISODate(addDays(addMonths(start, 3), -1)) };
 }
 
 /** True for Monday to Friday (the date is read as a calendar date, no time zone). */

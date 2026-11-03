@@ -7,8 +7,7 @@ import { addDaysISO } from "@/lib/calc/dates";
 import { AI_REPLY_CUT_OFF, AI_REPLY_UNUSABLE, AIInvalidReply, AIUnavailable, aiBudget, callForJson, cleanDeep, replySnippet } from "@/lib/ai/claude";
 import { capWarning } from "@/lib/ai/spend";
 import { isAIConfigured } from "@/lib/env";
-import { loadCtx, refreshNextActionAlert, type Ctx } from "@/lib/engine/helpers";
-import { releaseSupersededNextActions } from "@/lib/engine/tasks";
+import { loadCtx, type Ctx } from "@/lib/engine/helpers";
 import { isMissingSchemaError } from "@/lib/schema-guard";
 import { addPersonTask } from "@/app/actions/outreach";
 import { addItemTask } from "@/app/actions/pipelines";
@@ -16,7 +15,7 @@ import { addProjectTask } from "@/app/actions/projects";
 import { addTodo, suggestQuestions } from "@/app/actions/work";
 import { answerDueDate, answerPrompt, fieldPrompt, isRecordPage, keyFindingPrompt, nextActionPrompt, nextStepsPrompt, panelSpec, recordNoun, setNextActionNote, tasksPrompt, validateAnswerReply, validateFieldReply, validateKeyFindingReply, validateNextActionReply, validateNextStepsReply, type Answer, type AskContext, type KeyFindingDraft, type NextActionSuggestion, type NextStep } from "@/lib/work/ask-ai";
 import { buildPageContext } from "@/lib/work/ask-ai-context";
-import { loadWorkCtx, loadWorkNow, workUpdateNotice } from "@/lib/work/data";
+import { loadWorkCtx, loadWorkNow } from "@/lib/work/data";
 import { loadAiOrder } from "@/lib/work/home-data";
 import { actionKey, aiOrderPrompt, mergeLanes, validateAiOrderReply, type AiOrder, type HomeAction } from "@/lib/work/lanes";
 import { orgRoleLine } from "@/lib/work/outreach";
@@ -39,7 +38,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function setup(): Promise<{ sb: SupabaseClient; ctx: Ctx } | Fail> {
   const { supabase, ownerId } = await requireOwner();
-  const notice = await workUpdateNotice(supabase);
+  const notice = null;
   if (notice) return fail(notice);
   return { sb: supabase, ctx: await loadCtx(supabase, ownerId) };
 }
@@ -265,8 +264,6 @@ export async function setNextActionFromAi(c: AskContext, text: string, opts?: { 
     const current = (data as Row).next_action_due ? String((data as Row).next_action_due).slice(0, 10) : null;
     const { error } = await sb.from("pipeline_items").update({ next_action: line, next_action_due: dueFor(current), next_action_minutes: null }).eq("id", id);
     if (error) return notSaved(error);
-    await releaseSupersededNextActions(ctx, id).catch(() => null);
-    await refreshNextActionAlert(ctx).catch(() => null);
     revalidatePath("/", "layout");
     return { ok: true, where: "the next action" };
   }

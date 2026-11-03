@@ -25,7 +25,7 @@ export function itemHref(i: Pick<ItemRow, "kind" | "id">): string {
   return i.kind === "job" ? `/work/jobs/${i.id}` : `/work/consulting/${i.id}`;
 }
 
-export function laneOf(kind: ItemRow["kind"]): "Job search" | "Consulting" {
+function laneOf(kind: ItemRow["kind"]): "Job search" | "Consulting" {
   return kind === "job" ? "Job search" : "Consulting";
 }
 

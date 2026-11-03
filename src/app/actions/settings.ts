@@ -2,8 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireOwner } from "@/lib/auth";
-import { runEvening, runMorning, plaidSyncAll } from "@/lib/engine/run";
-import { loadCtx } from "@/lib/engine/helpers";
+import { connectionChecks } from "@/lib/jobs";
 import { oauthClient } from "@/lib/google";
 import { decrypt } from "@/lib/crypto";
 
@@ -43,26 +42,9 @@ export async function saveProfile(fd: FormData) {
 }
 
 /** Runs the scheduled morning job now (same steps as the daily cron). */
-export async function runMorningNow() {
+/** Runs the daily checks (Google connection, Anthropic key) now instead of waiting for the morning job. */
+export async function runChecksNow() {
   const { supabase, ownerId } = await requireOwner();
-  await runMorning(supabase, ownerId);
-  revalidatePath("/", "layout");
-}
-
-export async function runEveningNow() {
-  const { supabase, ownerId } = await requireOwner();
-  await runEvening(supabase, ownerId);
-  revalidatePath("/", "layout");
-}
-
-export async function plaidSyncNow() {
-  const { supabase, ownerId } = await requireOwner();
-  await plaidSyncAll(await loadCtx(supabase, ownerId));
-  revalidatePath("/", "layout");
-}
-
-export async function disconnectPlaidItem(fd: FormData) {
-  const { supabase } = await requireOwner();
-  await supabase.from("plaid_items").update({ status: "disconnected" }).eq("id", String(fd.get("id")));
+  await connectionChecks(supabase, ownerId);
   revalidatePath("/", "layout");
 }

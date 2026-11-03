@@ -1,6 +1,6 @@
 import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
-import { loadTabCounts, workUpdateNotice } from "@/lib/work/data";
+import { loadTabCounts } from "@/lib/work/data";
 import { loadRosara } from "@/lib/work/projects-data";
 import { WorkTabs } from "@/components/app/nav-links";
 import { AskAiPill } from "@/components/app/work/ask-ai";
@@ -16,7 +16,7 @@ export const metadata = { title: "Rosara" };
  */
 export default async function RosaraPage() {
   const { supabase, ownerId } = await requireOwner();
-  const notice = await workUpdateNotice(supabase);
+  const notice = null;
   const ctx = await loadCtx(supabase, ownerId);
   const tabs = await loadTabCounts(supabase, ownerId, ctx.today);
   const header = (

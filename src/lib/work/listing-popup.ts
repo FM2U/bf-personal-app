@@ -25,9 +25,9 @@ export type PopupListing = {
   askingMultiple: string | null;
 };
 
-export type PopupFact = { key: string; label: string; value: string; /** A quiet note after the value ("3.5x"). */ note: string | null };
+type PopupFact = { key: string; label: string; value: string; /** A quiet note after the value ("3.5x"). */ note: string | null };
 
-export type ListingPopupData = {
+type ListingPopupData = {
   title: string;
   /** "Listed as 00 Industrial Filtration Distributor" when the company is named; otherwise "Company not named yet". */
   under: string;

@@ -1,70 +1,3 @@
-/**
- * Database updates 0008 (Daily Targets and Outreach Queue), 0009 (pipeline accountability and deal source),
- * 0010 (commitment rule: tasks.times_moved, released commitments), 0011 (deal source chain and Consulting), and
- * 0012 (contact options: relationship groups Friend and Other) may not be applied yet on the live database.
- * Every query that reads or writes the new tables or columns checks for "does not exist" errors with
- * isMissingSchemaError and shows DB_UPDATE_NOTICE (or skips the step) instead of failing.
- * All updates are in one file: supabase/UPDATE_RUN_ONCE.sql (0008 to 0012).
- * The live database has 0001 to 0010 (or 0001 to 0011): it uses supabase/UPDATE_0011_0012_RUN_ONCE.sql (0011, then 0012).
- * Features from 0011 and 0012 name that file in their notice.
- */
-
-export const DB_UPDATE_FILE = "supabase/UPDATE_RUN_ONCE.sql";
-export const DB_UPDATE_NOTICE = `Database update needed: paste ${DB_UPDATE_FILE} into the Supabase SQL Editor and run it.`;
-
-/** The file for the live database (0001 to 0010, or 0001 to 0011): updates 0011 and 0012 in one paste. */
-export const DB_UPDATE_FILE_0011 = "supabase/UPDATE_0011_0012_RUN_ONCE.sql";
-export const DB_UPDATE_FILE_0012 = DB_UPDATE_FILE_0011;
-export const DB_UPDATE_NOTICE_0011 = `Database update needed: paste ${DB_UPDATE_FILE_0011} into the Supabase SQL Editor and run it.`;
-
-/** Columns added by 0008, 0009, and 0011 to tables that already existed. Saving drops them when the update is not applied yet. */
-export const NEW_COLUMNS: Record<string, string[]> = {
-  contacts: ["relationship_group", "outreach_every_days", "is_deal_source", "is_consulting_lead"],
-  communications: ["is_outreach", "outcome", "purpose", "pipeline_item_id"],
-  pipeline_items: ["deal_source_type", "source_contact_id", "source_notes", "introduced_by_contact_id"],
-  pipeline_stages: ["max_days_in_stage", "required_fields", "default_probability_pct", "counts_as_signed"],
-  targets: ["stage_id"],
-  transactions: ["pipeline_item_id"],
-  initiatives: ["parent_initiative_id"],
-  goals: ["metric_params"],
-};
-
-/** Kept for existing imports. */
-export const COLUMNS_0008 = NEW_COLUMNS;
-
-/** Columns added by 0009. Forms leave them out until the update is applied. */
-export const COLUMNS_0009: Record<string, string[]> = {
-  contacts: ["is_deal_source"],
-  communications: ["purpose", "pipeline_item_id"],
-  pipeline_items: ["deal_source_type", "source_contact_id", "source_notes"],
-  pipeline_stages: ["max_days_in_stage", "required_fields"],
-  targets: ["stage_id"],
-};
-
-/** Columns added by 0011. Forms leave them out until the update is applied. */
-export const COLUMNS_0011: Record<string, string[]> = {
-  contacts: ["is_consulting_lead"],
-  pipeline_items: ["introduced_by_contact_id"],
-  pipeline_stages: ["default_probability_pct", "counts_as_signed"],
-  transactions: ["pipeline_item_id"],
-};
-
-export const NEW_TABLES = ["targets", "target_entries", "target_misses", "stage_tasks", "pipeline_item_stage_extensions", "consulting_details", "plan_documents", "checklists", "checklist_items", "savings_ideas", "initiative_drafts"];
-
-/** Option values that need database update 0012 (a check constraint allows them only after it). */
-export const OPTIONS_0012: Record<string, Record<string, string[]>> = {
-  contacts: { relationship_group: ["friend", "other"] },
-};
-
-/** Function added by 0012, called to check whether the update is applied. */
-export const PROBE_0012 = "schema_has_0012";
-
-/** Tables added by 0011. */
-export const TABLES_0011 = ["consulting_details"];
-
-/** Kept for existing imports. */
-export const TABLES_0008 = NEW_TABLES;
-
 type PgError = { code?: string | null; message?: string | null } | null | undefined;
 
 /**
@@ -84,96 +17,12 @@ export function isCheckViolation(e: PgError): boolean {
   return String(e?.code ?? "") === "23514";
 }
 
-/** Database update 0013 (send email from the app): Gmail ids on communications, partner reports marked sent. */
-export const DB_UPDATE_FILE_0013 = "supabase/UPDATE_0013_RUN_ONCE.sql";
-export const DB_UPDATE_NOTICE_0013 = `Database update needed: paste ${DB_UPDATE_FILE_0013} into the Supabase SQL Editor and run it.`;
-export const COLUMNS_0013: Record<string, string[]> = {
-  communications: ["gmail_message_id", "gmail_thread_id"],
-  partner_reports: ["sent_at", "gmail_message_id"],
-};
-
-/**
- * Database update 0014 (Start an initiative, savings ideas, checklists, sample data, Reset data).
- * The live database has 0001 to 0012 (or 0013): it runs supabase/UPDATE_0013_0014_RUN_ONCE.sql (0013, then 0014).
- * Before it, these features show DB_UPDATE_NOTICE_0014 and every other screen and both scheduled jobs keep working.
- */
-export const DB_UPDATE_FILE_0014 = "supabase/UPDATE_0013_0014_RUN_ONCE.sql";
-export const DB_UPDATE_NOTICE_0014 = `Database update needed: paste ${DB_UPDATE_FILE_0014} into the Supabase SQL Editor and run it.`;
-export const PROBE_0014 = "schema_has_0014";
-export const TABLES_0014 = ["plan_documents", "checklists", "checklist_items", "savings_ideas", "initiative_drafts", "sample_records"];
-/** Columns added by 0014 to tables that already existed. Forms leave them out until the update is applied. */
-export const COLUMNS_0014: Record<string, string[]> = {
-  initiatives: ["parent_initiative_id"],
-  goals: ["metric_params"],
-};
-
 /**
  * Database update 0015 (Gmail signature on app emails): four columns on owner_profile.
  * Before it, Settings, Email signature shows DB_UPDATE_NOTICE_0015 and every email is sent without a signature.
  */
-export const DB_UPDATE_FILE_0015 = "supabase/UPDATE_0015_RUN_ONCE.sql";
+const DB_UPDATE_FILE_0015 = "supabase/UPDATE_0015_RUN_ONCE.sql";
 export const DB_UPDATE_NOTICE_0015 = `Database update needed: paste ${DB_UPDATE_FILE_0015} into the Supabase SQL Editor and run it.`;
-export const COLUMNS_0015: Record<string, string[]> = {
-  owner_profile: ["email_signature_html", "email_signature_text", "email_signature_enabled", "email_signature_updated_at"],
-};
-
-/**
- * Database update 0016 (deal funnel): count sources cims_reviewed and deal_calls, the targets "Listings screened",
- * "CIMs reviewed", and "Broker or owner calls", the search hours and minutes-per-step inputs, and schema_has_0016().
- * Before it, the funnel card shows its other steps with "Database update needed" naming this file for Listings
- * screened, the suggested targets use the default numbers, and every other screen and both scheduled jobs keep working.
- */
-export const DB_UPDATE_FILE_0016 = "supabase/UPDATE_0016_RUN_ONCE.sql";
-export const DB_UPDATE_NOTICE_0016 = `Database update needed: paste ${DB_UPDATE_FILE_0016} into the Supabase SQL Editor and run it.`;
-export const PROBE_0016 = "schema_has_0016";
-/** Count sources that need update 0016 (the check constraint allows them only after it). */
-export const COUNT_SOURCES_0016 = ["cims_reviewed", "deal_calls"];
-
-/**
- * Database update 0017 (partner report templates): the partner_report_templates table with the starter templates
- * Summary, Standard, and Detailed, partners.report_template_id, and schema_has_0017(). Before it, the report email
- * and the public page use the three starter templates from the code (STARTER_TEMPLATES in
- * src/lib/calc/partner-report.ts), Accountability, Report templates shows DB_UPDATE_NOTICE_0017 instead of the
- * editor, and every other screen and both scheduled jobs keep working. The balance sheet and the deal scorecard need
- * no database change.
- */
-export const DB_UPDATE_FILE_0017 = "supabase/UPDATE_0017_RUN_ONCE.sql";
-export const DB_UPDATE_NOTICE_0017 = `Database update needed: paste ${DB_UPDATE_FILE_0017} into the Supabase SQL Editor and run it.`;
-export const PROBE_0017 = "schema_has_0017";
-export const TABLES_0017 = ["partner_report_templates"];
-export const COLUMNS_0017: Record<string, string[]> = { partners: ["report_template_id"] };
-
-/**
- * Database update 0018 (Done late and daily partner reports): missed_commitments.done_on and the resolution and
- * commitment status "done_late", the template period "day", partners.report_frequency, partner_reports.report_kind,
- * template_id, and skipped_at, and schema_has_0018(). Before it, Resolve offers Done late with DB_UPDATE_NOTICE_0018
- * (the other choices work), the partner form leaves out Report frequency, no daily report is drafted after the daily
- * close, and every other screen and both scheduled jobs keep working.
- */
-export const DB_UPDATE_FILE_0018 = "supabase/UPDATE_0018_RUN_ONCE.sql";
-export const DB_UPDATE_NOTICE_0018 = `Database update needed: paste ${DB_UPDATE_FILE_0018} into the Supabase SQL Editor and run it.`;
-export const PROBE_0018 = "schema_has_0018";
-export const COLUMNS_0018: Record<string, string[]> = {
-  partners: ["report_frequency"],
-  missed_commitments: ["done_on"],
-  partner_reports: ["report_kind", "template_id", "skipped_at"],
-};
-
-/**
- * Database update 0019 (the focused version, batch 1): the daily_outcomes table, daily_plans.focused_hours,
- * changes_note, and tomorrow_priority, tasks.waiting_on and waiting_since, and schema_has_0019(). Before it, Today
- * and Close the day show DB_UPDATE_NOTICE_0019 instead of their content, the task window leaves out Waiting on, and
- * every other screen and both scheduled jobs keep working.
- */
-export const DB_UPDATE_FILE_0019 = "supabase/UPDATE_0019_RUN_ONCE.sql";
-export const DB_UPDATE_NOTICE_0019 = `Database update needed: paste ${DB_UPDATE_FILE_0019} into the Supabase SQL Editor and run it.`;
-export const PROBE_0019 = "schema_has_0019";
-export const TABLES_0019 = ["daily_outcomes"];
-export const COLUMNS_0019: Record<string, string[]> = {
-  daily_plans: ["focused_hours", "changes_note", "tomorrow_priority"],
-  tasks: ["waiting_on", "waiting_since"],
-};
-
 /**
  * Database update 0020 (the Work module, batch A): the listing and deal columns on pipeline_items (what it does,
  * location, industry, link, broker, why selling, key finding, open questions, waiting on and since, pass reason,
@@ -182,27 +31,18 @@ export const COLUMNS_0019: Record<string, string[]> = {
  * deal page show DB_UPDATE_NOTICE_0020 instead of their content, and every other screen and both scheduled jobs keep
  * working.
  */
-export const DB_UPDATE_FILE_0020 = "supabase/UPDATE_0020_RUN_ONCE.sql";
+const DB_UPDATE_FILE_0020 = "supabase/UPDATE_0020_RUN_ONCE.sql";
 export const DB_UPDATE_NOTICE_0020 = `Database update needed: paste ${DB_UPDATE_FILE_0020} into the Supabase SQL Editor and run it.`;
 export const PROBE_0020 = "schema_has_0020";
-export const COLUMNS_0020: Record<string, string[]> = {
-  pipeline_items: ["what_it_does", "location", "industry", "listing_url", "broker_name", "why_selling", "key_finding", "open_questions", "waiting_on", "waiting_since", "pass_reason", "screened", "buy_box_note", "next_action_minutes"],
-};
-
 /**
  * Database update 0021 (Edit batch A): pipeline_items.company_name and open_questions_json (three groups of lines),
  * the deal_todos table ("Also to do" per deal), "Chase" renamed "Follow up" in the stage defaults, and
  * schema_has_0021(). Before it, Work on now, Screen listings, Deals, and the deal page show DB_UPDATE_NOTICE_0021
  * instead of their content, and every other screen and both scheduled jobs keep working.
  */
-export const DB_UPDATE_FILE_0021 = "supabase/UPDATE_0021_RUN_ONCE.sql";
+const DB_UPDATE_FILE_0021 = "supabase/UPDATE_0021_RUN_ONCE.sql";
 export const DB_UPDATE_NOTICE_0021 = `Database update needed: paste ${DB_UPDATE_FILE_0021} into the Supabase SQL Editor and run it.`;
 export const PROBE_0021 = "schema_has_0021";
-export const TABLES_0021 = ["deal_todos"];
-export const COLUMNS_0021: Record<string, string[]> = {
-  pipeline_items: ["company_name", "open_questions_json"],
-};
-
 /**
  * Database update 0022 (batch B): contacts.outreach_role, purposes, linkedin_url, last_contact_at, last_contact_kind,
  * archived_at; communications.call_minutes, call_outcome, awaiting_log; the todos, projects, and ai_order_cache tables;
@@ -210,31 +50,18 @@ export const COLUMNS_0021: Record<string, string[]> = {
  * stages; the outreach target and Rosara weekly focus settings; and schema_has_0022(). Before it, every Work screen
  * shows DB_UPDATE_NOTICE_0022 instead of its content, and every other screen and both scheduled jobs keep working.
  */
-export const DB_UPDATE_FILE_0022 = "supabase/UPDATE_0022_RUN_ONCE.sql";
+const DB_UPDATE_FILE_0022 = "supabase/UPDATE_0022_RUN_ONCE.sql";
 export const DB_UPDATE_NOTICE_0022 = `Database update needed: paste ${DB_UPDATE_FILE_0022} into the Supabase SQL Editor and run it.`;
 export const PROBE_0022 = "schema_has_0022";
-export const TABLES_0022 = ["todos", "projects", "ai_order_cache"];
-export const COLUMNS_0022: Record<string, string[]> = {
-  contacts: ["outreach_role", "purposes", "linkedin_url", "last_contact_at", "last_contact_kind", "archived_at"],
-  communications: ["call_minutes", "call_outcome", "awaiting_log"],
-  deal_todos: ["record_type", "record_id"],
-  pipeline_items: ["role_title", "contact_name", "fee"],
-};
-
 /**
  * Database update 0023 (batch B2): notes.kind ('note' or 'finding') and notes.source_url (a finding with its source
  * on a project's timeline), pipeline_items.pay_range (a job opportunity), and schema_has_0023(). Before it, every
  * Work screen shows DB_UPDATE_NOTICE_0023 instead of its content, and every other screen and both scheduled jobs
  * keep working.
  */
-export const DB_UPDATE_FILE_0023 = "supabase/UPDATE_0023_RUN_ONCE.sql";
+const DB_UPDATE_FILE_0023 = "supabase/UPDATE_0023_RUN_ONCE.sql";
 export const DB_UPDATE_NOTICE_0023 = `Database update needed: paste ${DB_UPDATE_FILE_0023} into the Supabase SQL Editor and run it.`;
 export const PROBE_0023 = "schema_has_0023";
-export const COLUMNS_0023: Record<string, string[]> = {
-  notes: ["kind", "source_url"],
-  pipeline_items: ["pay_range"],
-};
-
 /**
  * Database update 0024 (Edit batch B): in the acquisition pipeline Broker call moves after CIM review (positions
  * 3 and 4 swapped by UPDATE, stage ids and every deal's stage kept), the NDA signed default becomes "Ask the broker
@@ -242,7 +69,7 @@ export const COLUMNS_0023: Record<string, string[]> = {
  * and schema_has_0024(). Before it, every Work screen shows DB_UPDATE_NOTICE_0024 instead of its content, and every
  * other screen and both scheduled jobs keep working.
  */
-export const DB_UPDATE_FILE_0024 = "supabase/UPDATE_0024_RUN_ONCE.sql";
+const DB_UPDATE_FILE_0024 = "supabase/UPDATE_0024_RUN_ONCE.sql";
 export const DB_UPDATE_NOTICE_0024 = `Database update needed: paste ${DB_UPDATE_FILE_0024} into the Supabase SQL Editor and run it.`;
 export const PROBE_0024 = "schema_has_0024";
 
@@ -253,14 +80,8 @@ export const PROBE_0024 = "schema_has_0024";
  * next action or a follow-up records no work event (nothing else changes), and every other screen and both scheduled
  * jobs keep working.
  */
-export const DB_UPDATE_FILE_0025 = "supabase/UPDATE_0025_RUN_ONCE.sql";
+const DB_UPDATE_FILE_0025 = "supabase/UPDATE_0025_RUN_ONCE.sql";
 export const DB_UPDATE_NOTICE_0025 = `Database update needed: paste ${DB_UPDATE_FILE_0025} into the Supabase SQL Editor and run it.`;
-export const PROBE_0025 = "schema_has_0025";
-export const TABLES_0025 = ["work_events", "end_of_day"];
-export const COLUMNS_0025: Record<string, string[]> = {
-  targets: ["counts_key", "archived_at"],
-};
-
 /**
  * Database update 0026 (Edit batch C round 2): the outreach role "Former colleague" becomes "Personal network". The
  * contacts that carry former_colleague move to personal_network by UPDATE (nothing is deleted), the role check allows
@@ -268,7 +89,7 @@ export const COLUMNS_0025: Record<string, string[]> = {
  * under the tabs, Personal network is saved under the old key (it reads back as Personal network), and every screen
  * and both scheduled jobs keep working.
  */
-export const DB_UPDATE_FILE_0026 = "supabase/UPDATE_0026_RUN_ONCE.sql";
+const DB_UPDATE_FILE_0026 = "supabase/UPDATE_0026_RUN_ONCE.sql";
 export const DB_UPDATE_NOTICE_0026 = `Database update needed: paste ${DB_UPDATE_FILE_0026} into the Supabase SQL Editor and run it. Until then, Personal network is saved under its old name.`;
 export const PROBE_0026 = "schema_has_0026";
 
@@ -280,13 +101,8 @@ export const PROBE_0026 = "schema_has_0026";
  * and saving listing text on a record shows DB_UPDATE_NOTICE_0027; every other screen and both scheduled jobs keep
  * working.
  */
-export const DB_UPDATE_FILE_0027 = "supabase/UPDATE_0027_RUN_ONCE.sql";
+const DB_UPDATE_FILE_0027 = "supabase/UPDATE_0027_RUN_ONCE.sql";
 export const DB_UPDATE_NOTICE_0027 = `Database update needed: paste ${DB_UPDATE_FILE_0027} into the Supabase SQL Editor and run it. Until then, the original listing text is not kept.`;
-export const PROBE_0027 = "schema_has_0027";
-export const COLUMNS_0027: Record<string, string[]> = {
-  pipeline_items: ["listing_text", "year_established", "employees"],
-};
-
 /**
  * Database update 0028 (AI instructions and Findings, approved 2026-11-02): pipeline_items.strengths and
  * pipeline_items.risks (the Findings card's two lists, jsonb arrays of up to 3 lines, read by every later AI action as
@@ -295,13 +111,9 @@ export const COLUMNS_0027: Record<string, string[]> = {
  * key finding and the questions without them; the Buy box settings save anyway (the rows are added on Save); every
  * other screen and both scheduled jobs keep working.
  */
-export const DB_UPDATE_FILE_0028 = "supabase/UPDATE_0028_RUN_ONCE.sql";
+const DB_UPDATE_FILE_0028 = "supabase/UPDATE_0028_RUN_ONCE.sql";
 export const DB_UPDATE_NOTICE_0028 = `Database update needed: paste ${DB_UPDATE_FILE_0028} into the Supabase SQL Editor and run it. Until then, strengths and risks are not kept.`;
 export const PROBE_0028 = "schema_has_0028";
-export const COLUMNS_0028: Record<string, string[]> = {
-  pipeline_items: ["strengths", "risks"],
-};
-
 /**
  * Database update 0029 (AI instructions revision 1, approved 2026-11-02): pipeline_items.growth_paths (the Findings
  * card's Growth paths, a jsonb array of up to 3 lines, the first is the main one) and pipeline_items.financing (Facts,
@@ -311,9 +123,6 @@ export const COLUMNS_0028: Record<string, string[]> = {
  * DB_UPDATE_NOTICE_0029 under Growth paths and saves everything else; Facts has no Financing field; the Buy box page
  * saves anyway (it adds the rows); every other screen and both scheduled jobs keep working.
  */
-export const DB_UPDATE_FILE_0029 = "supabase/UPDATE_0029_RUN_ONCE.sql";
+const DB_UPDATE_FILE_0029 = "supabase/UPDATE_0029_RUN_ONCE.sql";
 export const DB_UPDATE_NOTICE_0029 = `Database update needed: paste ${DB_UPDATE_FILE_0029} into the Supabase SQL Editor and run it. Until then, growth paths and financing are not kept.`;
 export const PROBE_0029 = "schema_has_0029";
-export const COLUMNS_0029: Record<string, string[]> = {
-  pipeline_items: ["growth_paths", "financing"],
-};

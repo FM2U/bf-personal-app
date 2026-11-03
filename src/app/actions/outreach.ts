@@ -5,13 +5,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireOwner } from "@/lib/auth";
 import { recordWorkEvent } from "@/lib/accountability/events";
 import { addDaysISO } from "@/lib/calc/dates";
-import { loadCtx, refreshNextActionAlert, type Ctx } from "@/lib/engine/helpers";
-import { checkCommitments, releaseSupersededNextActions } from "@/lib/engine/tasks";
+import { loadCtx, type Ctx } from "@/lib/engine/helpers";
 import { emailAddressProblem } from "@/lib/email-address";
 import { DB_UPDATE_NOTICE_0022, isMissingSchemaError } from "@/lib/schema-guard";
-import { hasUpdate0022 } from "@/lib/update-0022";
 import { parsePurposes, roleForDatabase } from "@/lib/work/outreach";
-import { hasUpdate0026 } from "@/lib/update-0026";
 import { TODO_MAX_LENGTH } from "@/lib/work/questions";
 import { nextTodoPosition, type DealTodo } from "@/lib/work/todos";
 import type { Row } from "@/lib/types";
@@ -35,7 +32,6 @@ const isFail = (v: unknown): v is Fail => !!v && typeof v === "object" && (v as 
 
 async function setup(): Promise<{ sb: SupabaseClient; ctx: Ctx } | Fail> {
   const { supabase, ownerId } = await requireOwner();
-  if (!(await hasUpdate0022(supabase))) return fail(DB_UPDATE_NOTICE_0022);
   return { sb: supabase, ctx: await loadCtx(supabase, ownerId) };
 }
 
@@ -99,7 +95,7 @@ export async function createPerson(input: PersonInput): Promise<{ ok: true; id: 
   }
   const orgId = await organizationByName(sb, ctx, clean(input.organization, 200));
   if (isFail(orgId)) return orgId;
-  const row = { owner_id: ctx.ownerId, name, organization_id: orgId, ...personRow(input, null, await hasUpdate0026(sb)) };
+  const row = { owner_id: ctx.ownerId, name, organization_id: orgId, ...personRow(input, null, true) };
   const { data, error } = await sb.from("contacts").insert(row).select("id").single();
   if (error) return notSaved(error);
   done();
@@ -121,7 +117,7 @@ export async function savePersonFacts(id: string, input: PersonInput): Promise<{
   }
   const orgId = await organizationByName(sb, ctx, clean(input.organization, 200));
   if (isFail(orgId)) return orgId;
-  const row = personRow({ ...input, nextFollowUp: person.follow_up_date ? String(person.follow_up_date) : "" }, person.notes as string | null, await hasUpdate0026(sb));
+  const row = personRow({ ...input, nextFollowUp: person.follow_up_date ? String(person.follow_up_date) : "" }, person.notes as string | null, true);
   delete row.follow_up_date;
   const { error } = await sb.from("contacts").update({ name, organization_id: orgId, ...row }).eq("id", person.id);
   if (error) return notSaved(error);
@@ -131,18 +127,6 @@ export async function savePersonFacts(id: string, input: PersonInput): Promise<{
 
 // ---------- The next follow-up (the person page card, Done, Later) ----------
 
-/** The task the morning job made for the follow-up date (source_key followup:<id>:<date>) follows the follow-up. */
-async function settleFollowUpTask(sb: SupabaseClient, ctx: Ctx, person: Row, how: "done" | "moved", newDate: string | null) {
-  if (!person.follow_up_date) return;
-  const key = `followup:${person.id}:${String(person.follow_up_date).slice(0, 10)}`;
-  const { data: tasks } = await sb.from("tasks").select("id").eq("owner_id", ctx.ownerId).eq("source_key", key).eq("status", "todo");
-  for (const t of (tasks ?? []) as Row[]) {
-    if (how === "done") await sb.from("tasks").update({ status: "done" }).eq("id", t.id);
-    else if (newDate) await sb.from("tasks").update({ due_date: newDate, source_key: `followup:${person.id}:${newDate}` }).eq("id", t.id);
-    else await sb.from("tasks").delete().eq("id", t.id);
-  }
-  if (how === "done") await checkCommitments(ctx, false).catch(() => null);
-}
 
 /** The Next follow-up card: the date and what the follow-up is for (Save). */
 export async function saveFollowUp(id: string, input: { date: string; what: string }): Promise<{ ok: true } | Fail> {
@@ -154,7 +138,6 @@ export async function saveFollowUp(id: string, input: { date: string; what: stri
   const date = DATE.test(String(input.date ?? "")) ? String(input.date) : null;
   const { error } = await sb.from("contacts").update({ follow_up_date: date, follow_up_note: clean(input.what, 300) }).eq("id", person.id);
   if (error) return notSaved(error);
-  if (date !== (person.follow_up_date ? String(person.follow_up_date).slice(0, 10) : null)) await settleFollowUpTask(sb, ctx, person, "moved", date);
   done();
   return { ok: true };
 }
@@ -174,7 +157,6 @@ export async function completeFollowUp(id: string, input: { date: string | null;
   const what = clean(input.what, 300);
   const { error } = await sb.from("contacts").update({ follow_up_date: date, follow_up_note: what ?? (date ? (person.follow_up_note as string | null) : null) }).eq("id", person.id);
   if (error) return notSaved(error);
-  await settleFollowUpTask(sb, ctx, person, "done", null);
   // Counted on Targets (batch C): a follow-up done, on time when done on or before its date (no date: on time).
   const due = person.follow_up_date ? String(person.follow_up_date).slice(0, 10) : null;
   await recordWorkEvent(sb, ctx.ownerId, { kind: "follow_up_done", recordType: "contacts", recordId: String(person.id), label: String(person.name), on: ctx.today, onTime: !due || ctx.today <= due, meta: { due, what: person.follow_up_note ?? null } });
@@ -193,14 +175,13 @@ export async function deferFollowUp(id: string, date: string): Promise<{ ok: tru
   if (due <= ctx.today) return fail("Choose a date after today.");
   const { error } = await sb.from("contacts").update({ follow_up_date: due }).eq("id", person.id);
   if (error) return notSaved(error);
-  await settleFollowUpTask(sb, ctx, person, "moved", due);
   doneQuietly();
   return { ok: true, date: due };
 }
 
 // ---------- Log a call ----------
 
-export type LogCallInput = {
+type LogCallInput = {
   /** The person called (prefilled on a person; chosen or typed on a deal). */
   contactId: string | null;
   /** The deal the call was about (prefilled on a deal page). */
@@ -273,7 +254,6 @@ export async function logCall(input: LogCallInput): Promise<{ ok: true; commId: 
     if (Object.keys(update).length) {
       const { error: e2 } = await sb.from("contacts").update(update).eq("id", person.id);
       if (e2) return fail(`The call was logged, but the follow-up was not saved: ${e2.message}`);
-      if (date !== "keep" && date !== (person.follow_up_date ? String(person.follow_up_date).slice(0, 10) : null)) await settleFollowUpTask(sb, ctx, person, "moved", date);
     }
   } else if (deal) {
     const update: Row = {};
@@ -285,8 +265,6 @@ export async function logCall(input: LogCallInput): Promise<{ ok: true; commId: 
     if (Object.keys(update).length) {
       const { error: e2 } = await sb.from("pipeline_items").update(update).eq("id", deal.id);
       if (e2) return fail(`The call was logged, but the next action was not saved: ${e2.message}`);
-      await releaseSupersededNextActions(ctx, String(deal.id)).catch(() => null);
-      await refreshNextActionAlert(ctx).catch(() => null);
     }
   }
   doneQuietly();
@@ -433,7 +411,6 @@ export async function makePersonTaskNext(taskId: string): Promise<{ ok: true; ne
   if (error) return notSaved(error);
   await sb.from("deal_todos").delete().eq("id", task.id);
   if (keep) await sb.from("deal_todos").insert({ owner_id: ctx.ownerId, record_type: "contacts", record_id: person.id, text: keep, position: 0 });
-  if (due !== current) await settleFollowUpTask(sb, ctx, person, "moved", due);
   done();
   return { ok: true, nextAction: text, due, kept: keep };
 }

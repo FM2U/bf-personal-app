@@ -8,8 +8,6 @@
 import type { PhaseDef } from "@/lib/work/phases";
 
 export const JOB_STAGES = ["Contact", "Conversation", "Interview", "Offer"] as const;
-export type JobStageName = (typeof JOB_STAGES)[number];
-
 /** Early: get a conversation. Decide: interview and decide. */
 export const JOB_PHASES: readonly PhaseDef[] = [
   { key: "early", name: "Early", tagline: "Get a conversation", stages: ["Contact", "Conversation"] },
@@ -24,7 +22,7 @@ export const JOB_CLOSED = [
 ] as const;
 
 export const CONSULTING_STAGES = ["Lead", "Proposal", "Engagement", "Paid"] as const;
-export type ConsultingStageName = (typeof CONSULTING_STAGES)[number];
+type ConsultingStageName = (typeof CONSULTING_STAGES)[number];
 
 /** One column per open stage, with the line under its name. */
 export const CONSULTING_COLUMNS: readonly { name: ConsultingStageName; tagline: string }[] = [

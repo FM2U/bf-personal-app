@@ -21,7 +21,7 @@ export const QUESTION_GROUPS: readonly { key: QuestionGroupKey; label: string }[
 ];
 
 export const QUESTION_MAX_PER_GROUP = 12;
-export const QUESTION_MAX_LENGTH = 240;
+const QUESTION_MAX_LENGTH = 240;
 
 export function emptyQuestions(): QuestionGroups {
   return { seller: [], broker: [], self: [] };
@@ -106,11 +106,11 @@ export type DealContext = {
 };
 
 /** The AI instructions of a click on this deal (src/lib/ai/instructions.ts): the buyer base, the deal's stage line, the spot part. */
-export function dealInstructions(c: DealContext, spot: AiSpot): string {
+function dealInstructions(c: DealContext, spot: AiSpot): string {
   return buyerInstructions({ buyBox: c.buyBox ?? defaultBuyBoxSettings(), stage: stageLineFor(c.facts.stage, c.facts.screened), financing: financingLineFor(c.facts.stage, c.facts.screened, c.facts.financing) }, spot);
 }
 
-export const CONTEXT_MAX_LINES = 30;
+const CONTEXT_MAX_LINES = 30;
 
 function contextBlock(c: DealContext): string {
   // The questions are listed apart in each prompt ("Questions already on the deal"), so the facts leave them out.

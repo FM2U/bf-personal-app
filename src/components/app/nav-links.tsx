@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { ModuleIcon } from "@/components/app/module-icon";
 
 /** A small count next to a menu or tab label (listings to screen; amber for people due on Outreach). */
-export function CountBadge({ n, className, testId, tone = "gray" }: { n: number | null | undefined; className?: string; testId?: string; tone?: "gray" | "amber" }) {
+function CountBadge({ n, className, testId, tone = "gray" }: { n: number | null | undefined; className?: string; testId?: string; tone?: "gray" | "amber" }) {
   if (!n) return null;
   return (
     <span className={cn("tabular rounded-full px-2 py-px text-[11px] font-semibold leading-4", tone === "amber" ? "bg-status-soon-bg text-status-soon" : "bg-status-neutral-bg text-status-neutral", className)} data-testid={testId}>
@@ -17,7 +17,7 @@ export function CountBadge({ n, className, testId, tone = "gray" }: { n: number 
 
 /** The End of day badge (batch C): "5:30" (amber) until the day is closed, then "Sent" (green) or "Skipped" (gray). */
 export type EodBadge = "5:30" | "Sent" | "Skipped" | null;
-export function EodBadgeChip({ badge, testId }: { badge: EodBadge | undefined; testId?: string }) {
+function EodBadgeChip({ badge, testId }: { badge: EodBadge | undefined; testId?: string }) {
   if (!badge) return null;
   return (
     <span className={cn("tabular rounded-full px-2 py-px text-[11px] font-semibold leading-4", badge === "5:30" ? "bg-status-soon-bg text-status-soon" : badge === "Sent" ? "bg-status-met-bg text-status-met" : "bg-status-neutral-bg text-status-neutral")} data-testid={testId} data-badge={badge}>

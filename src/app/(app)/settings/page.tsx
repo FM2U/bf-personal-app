@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireOwner } from "@/lib/auth";
-import { env, isAIConfigured, isGoogleConfigured, isPlaidConfigured } from "@/lib/env";
+import { env, isAIConfigured, isGoogleConfigured } from "@/lib/env";
 import { aiBudget } from "@/lib/ai/claude";
 import { aiSpendLine, nearCap } from "@/lib/ai/spend";
 import { getGoogleConnection } from "@/lib/google";
@@ -9,10 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { DetailGrid, Notice, PageHeader } from "@/components/app/page-header";
 import { SubmitButton } from "@/components/app/submit-button";
-import { PlaidLinkButton } from "@/components/app/plaid-link-button";
-import { disconnectGoogle, disconnectPlaidItem, plaidSyncNow, runEveningNow, runMorningNow } from "@/app/actions/settings";
+import { disconnectGoogle, runChecksNow } from "@/app/actions/settings";
 import { dateTime, money } from "@/lib/format";
-import type { Row } from "@/lib/types";
 import { GuardedForm } from "@/components/app/unsaved-changes";
 import { ReconnectGoogle } from "@/components/app/send-email";
 import { reconnectMessage, sendPermission, signaturePermission } from "@/lib/google-scopes";
@@ -34,15 +32,14 @@ const GOOGLE_MESSAGES: Record<string, string> = {
 export default async function ConnectionsPage({ searchParams }: { searchParams: Promise<{ google?: string }> }) {
   const sp = await searchParams;
   const { supabase, ownerId } = await requireOwner();
-  const [google, budget, { data: items }] = await Promise.all([getGoogleConnection(supabase, ownerId), aiBudget(supabase, ownerId), supabase.from("plaid_items").select("*").order("created_at")]);
-  const plaidItems = (items ?? []) as Row[];
+  const [google, budget] = await Promise.all([getGoogleConnection(supabase, ownerId), aiBudget(supabase, ownerId)]);
   const gStatus = google?.status ?? "disconnected";
   const sendPerm = isGoogleConfigured() ? sendPermission(google) : "not_connected";
   const sigPerm = isGoogleConfigured() ? signaturePermission(google) : "not_connected";
   const reconnect = reconnectMessage(sendPerm, sigPerm);
   return (
     <div>
-      <PageHeader title="Connections" description="Google (Gmail and Calendar), Plaid, and the Anthropic API. Connections are checked every day; a failure creates an alert and a reconnect task." />
+      <PageHeader title="Connections" description="Google (Gmail and Calendar) and the Anthropic API. Both are checked every morning; a problem shows as a to-do on Home." />
       {sp.google ? (
         <div className="mb-4">
           <Notice tone={sp.google === "connected" ? "success" : "warn"}>{GOOGLE_MESSAGES[sp.google] ?? sp.google}</Notice>
@@ -71,7 +68,7 @@ export default async function ConnectionsPage({ searchParams }: { searchParams: 
             <div className="flex flex-wrap gap-2">
               {reconnect ? null : (
                 <Button asChild size="sm" disabled={!isGoogleConfigured()}>
-                  {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- the Google sign-in must be a full page load, not an app link */}
+                  { }
                   <a href="/api/google/connect">{gStatus === "disconnected" ? "Connect Google" : "Reconnect Google"}</a>
                 </Button>
               )}
@@ -88,55 +85,6 @@ export default async function ConnectionsPage({ searchParams }: { searchParams: 
                 </GuardedForm>
               ) : null}
             </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center justify-between">
-              Plaid (bank feed){" "}
-              <Badge variant={!isPlaidConfigured() ? "neutral" : plaidItems.some((i) => i.status === "error") ? "danger" : plaidItems.length ? "success" : "neutral"}>
-                {!isPlaidConfigured() ? "Not connected yet" : plaidItems.length ? `${plaidItems.filter((i) => i.status !== "disconnected").length} connected` : "No institutions"}
-              </Badge>
-            </CardTitle>
-            <CardDescription>Imports transactions automatically each morning, before the morning plan. Rows matching CSV imports are merged, not added twice.</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            {!isPlaidConfigured() ? (
-              <Notice>Not connected yet. Plaid is planned after the first week of use. Add PLAID_CLIENT_ID, PLAID_SECRET, and PLAID_ENV in Vercel to turn it on.</Notice>
-            ) : (
-              <>
-                {plaidItems.length ? (
-                  <ul className="flex flex-col gap-2">
-                    {plaidItems.map((i) => (
-                      <li key={i.id} className="flex items-start justify-between gap-2 rounded-md border border-border p-2 text-sm">
-                        <div className="min-w-0">
-                          <p className="font-medium">{i.institution_name ?? "Institution"}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {i.status}. Last sync {i.last_synced_at ? dateTime(i.last_synced_at) : "never"}.{i.last_error ? ` Error: ${i.last_error}` : ""}
-                          </p>
-                        </div>
-                        {i.status !== "disconnected" ? (
-                          <GuardedForm action={disconnectPlaidItem}>
-                            <input type="hidden" name="id" value={i.id} />
-                            <SubmitButton size="sm" variant="ghost">
-                              Stop syncing
-                            </SubmitButton>
-                          </GuardedForm>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-                <PlaidLinkButton />
-                {plaidItems.length ? (
-                  <GuardedForm action={plaidSyncNow}>
-                    <SubmitButton size="sm" variant="outline" pendingText="Syncing...">
-                      Sync now
-                    </SubmitButton>
-                  </GuardedForm>
-                ) : null}
-              </>
-            )}
           </CardContent>
         </Card>
         <Card>
@@ -160,30 +108,20 @@ export default async function ConnectionsPage({ searchParams }: { searchParams: 
             />
             <div className="flex flex-wrap gap-2">
               <Button asChild size="sm" variant="outline">
-                <Link href="/settings/ai">Usage and proposals</Link>
-              </Button>
-              <Button asChild size="sm" variant="outline">
-                <Link href="/plan/inputs">Change the cap</Link>
+                <Link href="/settings/ai">Usage and cap</Link>
               </Button>
             </div>
           </CardContent>
         </Card>
-        <Card className="md:col-span-2 xl:col-span-3">
+        <Card>
           <CardHeader>
-            <CardTitle>Scheduled jobs</CardTitle>
-            <CardDescription>
-              Vercel runs the morning job and the evening job once a day (see README, Cron). The morning job syncs Plaid, applies category rules, finds recurring charges, checks connections, creates recurring and pipeline tasks and follow-ups, checks commitments, milestones, and decision conditions, drafts due reviews and partner reports, suggests calendar time blocks (they go to Google Calendar only after you approve them), and writes the morning plan. The evening job drafts the daily close, checks the day&apos;s commitments, and checks decision conditions.
-            </CardDescription>
+            <CardTitle>Daily checks</CardTitle>
+            <CardDescription>Each morning the app checks the Google connection and the Anthropic key. A problem shows as a to-do on Home.</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2">
-            <GuardedForm action={runMorningNow}>
-              <SubmitButton size="sm" variant="outline" pendingText="Running morning job...">
-                Run the morning job now
-              </SubmitButton>
-            </GuardedForm>
-            <GuardedForm action={runEveningNow}>
-              <SubmitButton size="sm" variant="outline" pendingText="Running evening job...">
-                Run the evening job now
+            <GuardedForm action={runChecksNow}>
+              <SubmitButton size="sm" variant="outline" pendingText="Checking...">
+                Run the checks now
               </SubmitButton>
             </GuardedForm>
           </CardContent>

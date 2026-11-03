@@ -46,7 +46,7 @@ const CELL: Record<Cell["state"], string> = {
 };
 
 /** One strip cell (16px), also used by the legend at 12px. */
-export function StripCell({ state, title, small, className }: { state: Cell["state"]; title?: string; small?: boolean; className?: string }) {
+function StripCell({ state, title, small, className }: { state: Cell["state"]; title?: string; small?: boolean; className?: string }) {
   return <i className={cn("inline-block shrink-0 rounded border", small ? "h-3 w-3 rounded-[3px]" : "h-4 w-4", CELL[state], className)} title={title} data-cell={state} aria-hidden />;
 }
 

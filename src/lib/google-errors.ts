@@ -1,8 +1,8 @@
 /** Turns an error from Google (Gmail or the sign-in service) into one plain English sentence plus Google's own words. */
 
-export type GoogleErrorKind = "reconnect" | "no_permission" | "bad_address" | "limit" | "network" | "google_down" | "other";
+type GoogleErrorKind = "reconnect" | "no_permission" | "bad_address" | "limit" | "network" | "google_down" | "other";
 
-export type ExplainedGoogleError = { kind: GoogleErrorKind; message: string; googleText: string | null };
+type ExplainedGoogleError = { kind: GoogleErrorKind; message: string; googleText: string | null };
 
 type AnyErr = {
   message?: unknown;

@@ -12,10 +12,10 @@ import { buyerInstructions, GENERAL_RULES_LINE, type AiSpot, type BuyerScope } f
 import { FINDING_LINE_MAX, FINDING_LIST_MAX, listingTextBlock, NO_FALSE_GAPS_RULE } from "@/lib/work/deal-facts";
 
 /** The pages the panel knows. A record page carries the record's id. */
-export type AskPage = "home" | "listings" | "deals" | "deal" | "outreach" | "person" | "rosara" | "project" | "jobs" | "opportunity" | "consulting" | "consulting_item" | "todos" | "targets" | "end_of_day" | "reports";
+type AskPage = "home" | "listings" | "deals" | "deal" | "outreach" | "person" | "rosara" | "project" | "jobs" | "opportunity" | "consulting" | "consulting_item" | "todos" | "targets" | "end_of_day" | "reports";
 
 /** The fields a star can fill. */
-export type AskFieldKey = "key_finding" | "next_action" | "email_subject" | "email_body" | "project_note" | "task_text" | "weekly_focus" | "find_out" | "tomorrow_line" | "eod_reason";
+type AskFieldKey = "key_finding" | "next_action" | "email_subject" | "email_body" | "project_note" | "task_text" | "weekly_focus" | "find_out" | "tomorrow_line" | "eod_reason";
 
 export type AskField = { key: AskFieldKey; label: string; /** What is in the field now (the AI improves it when set). */ current?: string | null; /** Extra lines the field's owner adds (the email's recipient, the record's name). */ extra?: string | null };
 
@@ -30,7 +30,7 @@ export type AskContext = {
   label: string;
 };
 
-export const RECORD_PAGES: readonly AskPage[] = ["deal", "person", "project", "opportunity", "consulting_item"];
+const RECORD_PAGES: readonly AskPage[] = ["deal", "person", "project", "opportunity", "consulting_item"];
 
 /** The context of a deal page (the page pill, the card stars, the field stars). */
 export function dealAsk(deal: { id: string; name: string }): AskContext {
@@ -99,12 +99,12 @@ export type PageContext = {
  * The instructions of one click (AI instructions, 2026-11-02): on a deal or a listing the shared buyer base, the stage
  * line, and the spot part; on every other page the general rules line.
  */
-export function instructionsFor(c: PageContext, spot: AiSpot, fieldLabel?: string | null): string {
+function instructionsFor(c: PageContext, spot: AiSpot, fieldLabel?: string | null): string {
   return c.buyer ? buyerInstructions(c.buyer, spot, fieldLabel) : GENERAL_RULES_LINE;
 }
 
-export const CONTEXT_MAX_LINES = 80;
-export const CONTEXT_MAX_LINE_LENGTH = 240;
+const CONTEXT_MAX_LINES = 80;
+const CONTEXT_MAX_LINE_LENGTH = 240;
 
 /** Keeps the context small: at most CONTEXT_MAX_LINES lines, each cut at CONTEXT_MAX_LINE_LENGTH characters. */
 export function trimContext(c: PageContext): PageContext {
@@ -120,16 +120,16 @@ export function trimContext(c: PageContext): PageContext {
  * The page block of every Ask AI prompt. On a deal or a listing the original listing text follows the lines (or a line
  * saying none is saved), then NO_FALSE_GAPS_RULE, so the AI never calls a fact missing that the page or the text holds.
  */
-export function contextBlock(c: PageContext): string {
+function contextBlock(c: PageContext): string {
   const t = trimContext(c);
   const base = [`Page: ${t.title}`, "What is on the page (one record or line each):", ...t.lines.map((l) => `- ${l}`)];
   if (!t.deal && !t.listingText) return base.join("\n");
   return [...base, listingTextBlock(t.listingText), NO_FALSE_GAPS_RULE].join("\n");
 }
 
-export const NEXT_STEPS_MAX = 3;
-export const STEP_MAX_LENGTH = 160;
-export const REASON_MAX_LENGTH = 160;
+const NEXT_STEPS_MAX = 3;
+const STEP_MAX_LENGTH = 160;
+const REASON_MAX_LENGTH = 160;
 
 /** Suggested next steps on a record page: up to three, each with a one-line reason. */
 export function nextStepsPrompt(c: PageContext): string {
@@ -178,8 +178,8 @@ export function validateNextStepsReply(value: unknown): { ok: true; value: NextS
   return { ok: true, value: steps };
 }
 
-export const ANSWER_MAX_BULLETS = 6;
-export const BULLET_MAX_LENGTH = 240;
+const ANSWER_MAX_BULLETS = 6;
+const BULLET_MAX_LENGTH = 240;
 
 /** Ask about this page: the question, the page's records, and the strict JSON (bullets, an optional next action, an optional email). */
 export function answerPrompt(c: PageContext, question: string, canEmail: boolean): string {
@@ -295,20 +295,6 @@ export function validateFieldReply(value: unknown): { ok: true; value: string } 
   return { ok: true, value: clean };
 }
 
-/** About how much a call costs, in cents, from the prompt length and the expected reply length (4 characters per token). */
-export function estimateCents(promptChars: number, outputTokens: number, inputPricePerMTok: number, outputPricePerMTok: number): number {
-  const inputTokens = Math.ceil(promptChars / 4) + 400;
-  return ((inputTokens * inputPricePerMTok + outputTokens * outputPricePerMTok) / 1_000_000) * 100;
-}
-
-/** "about 1 cent", "about 3 cents", "under 1 cent"; null when the app has no price figures. */
-export function estimateLabel(cents: number | null): string | null {
-  if (cents === null || !Number.isFinite(cents) || cents < 0) return null;
-  if (cents < 0.5) return "under 1 cent";
-  const n = Math.round(cents);
-  return `about ${n} ${n === 1 ? "cent" : "cents"}`;
-}
-
 /** The panel's one-line context label: "Context: Next actions on Home", "Context: the Weekly focus field". */
 export function contextLabel(c: Pick<AskContext, "label" | "card" | "field">): string {
   if (c.field) return `Context: the ${c.field.label} field, ${c.label}`;
@@ -325,14 +311,14 @@ export function recordNoun(page: AskPage): string {
  * What the panel offers besides the question box: Suggested next steps (Set as next action), Suggested tasks (Add as
  * a task), or Suggested questions (added to the deal's open questions).
  */
-export type PanelSuggest = { kind: "next_steps" | "tasks" | "questions" | "next_action"; heading: string; button: string; use: string };
+type PanelSuggest = { kind: "next_steps" | "tasks" | "questions" | "next_action"; heading: string; button: string; use: string };
 
 /**
  * What the Ask AI panel shows for a context (Edit batch B, item 3; pure, tested): opened from a card-header star or a
  * field star the whole panel is about that card or field (its title, three questions about it, its own suggestions,
  * the draft for a field); the page-level set shows only from the page pill.
  */
-export type PanelSpec = { title: string; sub: string; questions: string[]; suggest: PanelSuggest | null; askHeading: string };
+type PanelSpec = { title: string; sub: string; questions: string[]; suggest: PanelSuggest | null; askHeading: string };
 
 export function panelSpec(c: AskContext): PanelSpec {
   const noun = recordNoun(c.page);
@@ -399,7 +385,7 @@ export function tasksPrompt(c: PageContext, noun: string): string {
 /** One suggested next action: the action (or, for a person, what the follow-up is for), its due date, minutes, and why. */
 export type NextActionSuggestion = { action: string; due: string; minutes: number | null; reason: string };
 
-export const NEXT_ACTION_MAX_LENGTH = 160;
+const NEXT_ACTION_MAX_LENGTH = 160;
 /** A due date further out than this is pulled back to it (the suggestion is about the next step, not next quarter). */
 export const NEXT_ACTION_MAX_DAYS = 60;
 
@@ -478,7 +464,7 @@ export function validateNextActionReply(value: unknown, today: string, kind: "ac
 export type KeyFindingDraft = { strengths: string[]; risks: string[]; growthPaths: string[]; keyFinding: string; brokerQuestions: string[] };
 
 /** The Key finding is one sentence under this many words. */
-export const KEY_FINDING_MAX_WORDS = 30;
+const KEY_FINDING_MAX_WORDS = 30;
 
 /** The Key finding star: the buyer instructions with the Key finding spot, the facts, and the strict JSON. */
 export function keyFindingPrompt(c: PageContext): string {

@@ -14,7 +14,7 @@
 import { decodeEntities, EMAIL_LIST_STYLE, emailHtml, escapeHtml, parseBodyLines, sanitizeHtml } from "./email-signature";
 
 /** Longest message HTML accepted (characters, before cleaning). */
-export const BODY_HTML_MAX_LENGTH = 100000;
+const BODY_HTML_MAX_LENGTH = 100000;
 
 /** The signature rules plus lists. Pasted content and everything sent by the browser goes through this. */
 export function sanitizeEmailBodyHtml(html: string): string {

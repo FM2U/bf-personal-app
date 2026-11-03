@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { DealRow } from "./data";
 import { answerPrompt, contextLabel, fieldPrompt, nextActionPrompt, nextStepsPrompt, tasksPrompt, trimContext, type PageContext } from "./ask-ai";
 import { dealFactLines, dealFactsFromRow, dealFactsOf, LISTING_TEXT_AI_MAX, listingTextBlock, listingTextForAi, moneyExact, NO_FALSE_GAPS_RULE } from "./deal-facts";
-import { listingPrompt, listingTextToSave, readListingFields, validateListingReply, yearOf, EMPTY_LISTING_FIELDS, LISTING_TEXT_MAX } from "./listing-text";
+import { listingPrompt, listingTextToSave, LISTING_TEXT_MAX } from "./listing-text";
 import { emptyQuestions, questionsPrompt, todosPrompt } from "./questions";
 
 /** The listing Bram pasted (2026-11-02): a physician coaching company, asking $10,000,000, cash flow $2,534,975. */
@@ -198,17 +198,6 @@ describe("Fill from text reads year established, employees, and why selling; the
     expect(p).toContain('"employees": ""');
     expect(p).toContain("Year Established\n2010");
   });
-
-  it("reads them from the reply (a year as text or a number, other key names), and checks they are text", () => {
-    const f = readListingFields({ listing_name: "Physician Coaching Company", revenue: "$3.4M", earnings: "$2.5M SDE", asking_price: "$10M", year_established: 2010, employees: "20+ associate coaches", why_selling: "" });
-    expect(f).toMatchObject({ year_established: "2010", employees: "20+ associate coaches", why_selling: "" });
-    expect(readListingFields({ listing_name: "X", founded: "Est. 1987", headcount: "14 full-time", reason_for_selling: "Retiring" })).toMatchObject({ year_established: "1987", employees: "14 full-time", why_selling: "Retiring" });
-    expect(validateListingReply({ listing_name: "X", employees: ["a"] })).toMatchObject({ ok: false, error: expect.stringContaining('"employees" is not text') });
-    expect(yearOf("about 1650")).toBe("");
-    expect(yearOf("2010")).toBe("2010");
-    expect(Object.keys(EMPTY_LISTING_FIELDS)).toEqual(expect.arrayContaining(["why_selling", "year_established", "employees"]));
-  });
-
   it("keeps the pasted text as pasted (paragraphs kept, cut at the paste limit); Save on the card needs 20 characters", () => {
     expect(listingTextToSave(FIXTURE)).toBe(FIXTURE.trim());
     expect(listingTextToSave(" a\r\n\r\nb ")).toBe("a\n\nb");

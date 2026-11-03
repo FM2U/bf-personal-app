@@ -3,14 +3,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { todayInTz } from "@/lib/calc/dates";
 import { loadCtx, type Ctx } from "@/lib/engine/helpers";
 import { date as fmtDate } from "@/lib/format";
-import { loadDocuments, type DocumentItem } from "@/lib/record-panels-data";
+import { loadDocuments, type DocumentItem } from "@/lib/work/documents-data";
 import { loadComposeSetup, type ComposeSetup } from "@/lib/compose-email";
-import { DB_UPDATE_NOTICE_0020, DB_UPDATE_NOTICE_0021, DB_UPDATE_NOTICE_0022, DB_UPDATE_NOTICE_0023, DB_UPDATE_NOTICE_0024, isMissingSchemaError } from "@/lib/schema-guard";
-import { hasUpdate0020 } from "@/lib/update-0020";
-import { hasUpdate0021 } from "@/lib/update-0021";
-import { hasUpdate0022 } from "@/lib/update-0022";
-import { hasUpdate0023 } from "@/lib/update-0023";
-import { hasUpdate0024 } from "@/lib/update-0024";
+import { isMissingSchemaError } from "@/lib/schema-guard";
 import { countOutreachDue, loadOutreachHome, type OutreachHome } from "@/lib/work/outreach-data";
 import { askingMultiple, checkBuyBox, defaultBuyBoxSettings, earningsOf, passReasonLabel, type BuyBoxSettings, type BuyBoxTier } from "@/lib/work/buy-box";
 import { loadBuyBoxSettings } from "@/lib/work/buy-box-data";
@@ -34,15 +29,6 @@ import type { Row } from "@/lib/types";
 
 export type WorkCtx = Ctx & { threshold: number };
 
-/** The "Database update needed" line for the first update that is missing, or null when all five are applied. */
-export async function workUpdateNotice(sb: SupabaseClient): Promise<string | null> {
-  if (!(await hasUpdate0020(sb))) return DB_UPDATE_NOTICE_0020;
-  if (!(await hasUpdate0021(sb))) return DB_UPDATE_NOTICE_0021;
-  if (!(await hasUpdate0022(sb))) return DB_UPDATE_NOTICE_0022;
-  if (!(await hasUpdate0023(sb))) return DB_UPDATE_NOTICE_0023;
-  if (!(await hasUpdate0024(sb))) return DB_UPDATE_NOTICE_0024;
-  return null;
-}
 
 export type Stage = { id: string; name: string; position: number; outcome: string; defaultTitle: string | null; defaultDueInDays: number | null };
 
@@ -158,7 +144,7 @@ export async function countToScreen(sb: SupabaseClient, ownerId: string): Promis
 }
 
 /** The two badges on the Work tabs: listings to screen and people due on Outreach (null before their updates). */
-export type TabCounts = { toScreen: number | null; outreachDue: number | null };
+type TabCounts = { toScreen: number | null; outreachDue: number | null };
 
 export async function loadTabCounts(sb: SupabaseClient, ownerId: string, today: string): Promise<TabCounts> {
   const [toScreen, outreachDue] = await Promise.all([countToScreen(sb, ownerId), countOutreachDue(sb, ownerId, today)]);
@@ -179,7 +165,7 @@ async function readItems<T>(run: (columns: string) => PromiseLike<{ data: T; err
 
 const TODO_COLUMNS = "id,deal_id,text,position,done_at,created_at";
 
-export function toTodo(t: Row): DealTodo {
+function toTodo(t: Row): DealTodo {
   return { id: String(t.id), text: String(t.text ?? ""), position: Number(t.position ?? 0), doneAt: t.done_at ? String(t.done_at) : null, createdAt: String(t.created_at ?? "") };
 }
 
@@ -212,7 +198,7 @@ async function loadItems(sb: SupabaseClient, ownerId: string, pipelineId: string
 
 const num = (v: unknown) => (v === null || v === undefined || v === "" ? null : Number.isFinite(Number(v)) ? Number(v) : null);
 
-export function toDealRow(i: Row, f: Row | undefined, contact: Row | undefined, pipe: WorkPipeline, ctx: WorkCtx, todos: readonly DealTodo[] = []): DealRow {
+function toDealRow(i: Row, f: Row | undefined, contact: Row | undefined, pipe: WorkPipeline, ctx: WorkCtx, todos: readonly DealTodo[] = []): DealRow {
   const stage = i.stage_id ? pipe.byId[i.stage_id] : undefined;
   const stageName = stage?.name ?? null;
   const days = daysWaiting(i.waiting_since, ctx.today);
@@ -298,7 +284,7 @@ export type WorkNowData = {
 export async function loadWorkNow(sb: SupabaseClient, ownerId: string): Promise<WorkNowData> {
   const ctx = await loadWorkCtx(sb, ownerId);
   const base: WorkNowData = { available: false, notice: null, today: ctx.today, tz: ctx.tz, threshold: ctx.threshold, toScreen: 0, deals: [], listingActions: [], listings: [], glance: { active: 0, early: 0, evaluate: 0, decide: 0, waitingOver: 0, needsAction: 0 }, outreach: { counter: { count: 0, target: 10, pct: 0 }, dueToday: [], due: [], overdue: 0 } };
-  const notice = await workUpdateNotice(sb);
+  const notice = null;
   if (notice) return { ...base, notice };
   const [pipe, outreach] = await Promise.all([loadWorkPipeline(sb, ownerId), loadOutreachHome(sb, ctx)]);
   if (!pipe) return { ...base, available: true, outreach };
@@ -323,13 +309,13 @@ export async function loadWorkNow(sb: SupabaseClient, ownerId: string): Promise<
 
 export type PassedRow = { id: string; name: string; reasonLabel: string; date: string; earnings: number | null; earningsLabel: "EBITDA" | "SDE" | null; location: string | null };
 
-export type ListingsData = { available: boolean; notice: string | null; today: string; listings: ListingRow[]; passed: PassedRow[]; /** The Buy box settings the checks used (the popup reads them too). */ buyBox: BuyBoxSettings };
+type ListingsData = { available: boolean; notice: string | null; today: string; listings: ListingRow[]; passed: PassedRow[]; /** The Buy box settings the checks used (the popup reads them too). */ buyBox: BuyBoxSettings };
 
 /** Screen listings: the unscreened listings (newest first) and the passed list (newest first). */
 export async function loadListings(sb: SupabaseClient, ownerId: string): Promise<ListingsData> {
   const ctx = await loadWorkCtx(sb, ownerId);
   const base: ListingsData = { available: false, notice: null, today: ctx.today, listings: [], passed: [], buyBox: defaultBuyBoxSettings() };
-  const notice = await workUpdateNotice(sb);
+  const notice = null;
   if (notice) return { ...base, notice };
   const [pipe, buyBox] = await Promise.all([loadWorkPipeline(sb, ownerId), loadBuyBoxSettings(sb, ownerId)]);
   if (!pipe) return { ...base, available: true, buyBox };
@@ -352,7 +338,7 @@ export async function loadListings(sb: SupabaseClient, ownerId: string): Promise
 
 export type StageGroup = { stage: Stage; hint: string | null; deals: DealRow[] };
 
-export type DealsData = {
+type DealsData = {
   available: boolean;
   notice: string | null;
   today: string;
@@ -371,7 +357,7 @@ export type DealsData = {
 export async function loadDeals(sb: SupabaseClient, ownerId: string): Promise<DealsData> {
   const ctx = await loadWorkCtx(sb, ownerId);
   const base: DealsData = { available: false, notice: null, today: ctx.today, threshold: ctx.threshold, groups: [], counts: {}, active: 0, waitingOver: 0, needsAction: 0, passed: [], lost: [], closed: [] };
-  const notice = await workUpdateNotice(sb);
+  const notice = null;
   if (notice) return { ...base, notice };
   const pipe = await loadWorkPipeline(sb, ownerId);
   if (!pipe) return { ...base, available: true };
@@ -399,10 +385,7 @@ export async function loadDeals(sb: SupabaseClient, ownerId: string): Promise<De
   };
 }
 
-/** A person the "Email these questions" message can go to: the broker (the deal's main contact) and, when known, the seller. */
-export type QuestionsRecipient = { contactId: string; name: string; email: string; role: "Broker" | "Seller" | "Deal came from" | "Introduced by" | "At the organization" };
-
-export type DealPageData = {
+type DealPageData = {
   available: boolean;
   notice: string | null;
   today: string;
@@ -438,7 +421,7 @@ export type DealPageData = {
 export async function loadDealPage(sb: SupabaseClient, ownerId: string, id: string): Promise<DealPageData> {
   const ctx = await loadWorkCtx(sb, ownerId);
   const base: DealPageData = { available: false, notice: null, today: ctx.today, tz: ctx.tz, threshold: ctx.threshold, deal: null, timeline: [], documents: [], todos: [], listingText: null, listingTextReady: false, findingListsReady: false, growthPathsReady: false, buyBox: defaultBuyBoxSettings(), lastContact: null, compose: null, questionsCompose: null, advanceTo: null, passedStageId: null, lostStageId: null };
-  const notice = await workUpdateNotice(sb);
+  const notice = null;
   if (notice) return { ...base, notice };
   const pipe = await loadWorkPipeline(sb, ownerId);
   if (!pipe) return { ...base, available: true };
@@ -478,7 +461,7 @@ export async function loadDealPage(sb: SupabaseClient, ownerId: string, id: stri
       date: fmtDate(String(c.occurred_at), "MMM d"),
       title: commTitle(c),
       detail: c.summary ? String(c.summary).slice(0, 240) : null,
-      href: `/records/communications/${c.id}`,
+      href: null,
     })),
     ...((history ?? []) as Row[]).map((h) => {
       const s = h.stage_id ? pipe.byId[h.stage_id] : null;
@@ -511,7 +494,7 @@ export async function loadDealPage(sb: SupabaseClient, ownerId: string, id: stri
 }
 
 /** True for a contact that reads as the seller: a role of seller or owner, or a title such as Owner, Founder, President, CEO. */
-export function isSellerContact(c: { roles?: unknown; title?: unknown }): boolean {
+function isSellerContact(c: { roles?: unknown; title?: unknown }): boolean {
   const roles = Array.isArray(c.roles) ? c.roles.map((r) => String(r).toLowerCase()) : [];
   if (roles.includes("seller") || roles.includes("owner")) return true;
   return /\b(owner|founder|president|ceo|seller)\b/i.test(String(c.title ?? ""));

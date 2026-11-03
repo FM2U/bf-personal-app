@@ -10,7 +10,7 @@ import { loadSignature } from "@/lib/signature-store";
 import type { SignatureSetup } from "@/lib/email-signature";
 
 /** Tables whose record page shows the "Email" button. */
-export const EMAIL_BUTTON_TABLES = new Set(["contacts", "organizations", "pipeline_items"]);
+const EMAIL_BUTTON_TABLES = new Set(["contacts", "organizations", "pipeline_items"]);
 
 /** Google side of the compose box: Send now permission, the From address, and whether Gmail drafts can be saved. */
 export type GmailSetup = { permission: SendPermission; fromEmail: string | null; canGmail: boolean; signature: SignatureSetup | null };

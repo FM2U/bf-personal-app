@@ -17,7 +17,7 @@ export const TODO_SECTIONS: readonly { key: TodoSectionKey; label: string }[] = 
 ];
 
 /** Today: due today, earlier, or no date. Next 7 days: due tomorrow to seven days on. Later: after that. */
-export function todoSectionOf(t: Pick<PersonalTodo, "dueOn">, today: string): Exclude<TodoSectionKey, "done"> {
+function todoSectionOf(t: Pick<PersonalTodo, "dueOn">, today: string): Exclude<TodoSectionKey, "done"> {
   if (!t.dueOn) return "today";
   const d = t.dueOn.slice(0, 10);
   if (d <= today) return "today";
@@ -25,7 +25,7 @@ export function todoSectionOf(t: Pick<PersonalTodo, "dueOn">, today: string): Ex
 }
 
 /** Open items by due date (no date last), then position, then age; done items most recently done first. */
-export function compareTodos(a: PersonalTodo, b: PersonalTodo): number {
+function compareTodos(a: PersonalTodo, b: PersonalTodo): number {
   if (a.doneAt && b.doneAt) return a.doneAt < b.doneAt ? 1 : a.doneAt > b.doneAt ? -1 : 0;
   const da = a.dueOn ?? "9999-12-31";
   const db = b.dueOn ?? "9999-12-31";

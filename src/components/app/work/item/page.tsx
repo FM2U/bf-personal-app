@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { requireOwner } from "@/lib/auth";
 import { date as fmtDate } from "@/lib/format";
-import { workUpdateNotice } from "@/lib/work/data";
 import { feeLabel } from "@/lib/work/pipelines";
 import { loadItemPage, type ItemKind } from "@/lib/work/pipelines-data";
 import { headerFigures } from "@/lib/work/record-page";
@@ -33,7 +32,7 @@ export async function ItemPage({ kind, id }: { kind: ItemKind; id: string }) {
       {listName}
     </Link>
   );
-  const notice = await workUpdateNotice(supabase);
+  const notice = null;
   if (notice) {
     return (
       <WorkShell testId={testId}>
@@ -117,13 +116,6 @@ export async function ItemPage({ kind, id }: { kind: ItemKind; id: string }) {
           <ItemDecisionCard item={item} advanceTo={item.status === "open" ? d.advanceTo : null} closeTo={d.closeTo} />
         </div>
       </div>
-      <p className="mt-5 text-xs text-muted-foreground">
-        The same record in the older pipeline screens:{" "}
-        <Link href={`/records/pipeline_items/${item.id}`} className="text-primary-strong hover:underline" data-testid="item-old-page">
-          open the record page
-        </Link>
-        .
-      </p>
     </WorkShell>
   );
 }

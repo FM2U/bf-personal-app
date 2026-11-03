@@ -43,8 +43,7 @@ export async function GET(req: Request) {
     };
     const { error } = await owner.supabase.from("google_connections").upsert(row, { onConflict: "owner_id" });
     if (error) throw new Error(error.message);
-    await owner.supabase.from("alerts").update({ status: "dismissed", dismissed_at: new Date().toISOString() }).eq("dedupe_key", "connection:google").eq("status", "open");
-    await owner.supabase.from("tasks").update({ status: "done" }).eq("source", "connection").eq("status", "todo").ilike("title", "Reconnect Google%");
+    await owner.supabase.from("todos").update({ done_at: new Date().toISOString() }).is("done_at", null).ilike("text", "Reconnect Google%");
     return NextResponse.redirect(new URL(`/settings?google=${connectResult(scopes)}`, env.appUrl));
   } catch {
     return NextResponse.redirect(new URL("/settings?google=failed", env.appUrl));
