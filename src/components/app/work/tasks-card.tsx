@@ -7,6 +7,7 @@ import type { AskContext } from "@/lib/work/ask-ai";
 import { sortTodos, todosLabel, type DealTodo } from "@/lib/work/todos";
 import { AiCardStar, AiFieldStar } from "@/components/app/work/ask-ai";
 import { AiButton, RowButton, WorkCard } from "@/components/app/work/ui";
+import { ShowAll } from "@/components/app/work/show-all";
 import { cn } from "@/lib/utils";
 
 const INPUT = "h-9 w-full min-w-0 rounded-[7px] border border-input bg-white px-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
@@ -23,7 +24,9 @@ type Result = { ok: true } | { ok: false; error: string; /** The AI's reply (fir
  * Batch B2: the purple star in the header opens the Ask AI panel about this card; the star inside the add box writes
  * one task.
  */
-export function TasksCard({ tasks, open, actions, placeholder, emptyText, testId = "deal-todos", ai }: {
+export function TasksCard({ tasks, open, actions, placeholder, emptyText, testId = "deal-todos", ai, windowTitle = "Tasks" }: {
+  /** The title of the Show all window ("Tasks · Transworld Business Advisors"). */
+  windowTitle?: string;
   tasks: DealTodo[];
   /** The Ask AI context of the page (the card star and the field star), when the page has one. */
   ai?: AskContext | null;
@@ -108,7 +111,15 @@ export function TasksCard({ tasks, open, actions, placeholder, emptyText, testId
       testId={testId}
     >
       <div className="flex flex-col px-[22px] pt-2 pb-4" data-testid="todo-list">
-        {list.map((t) => (
+        <ShowAll
+          items={list}
+          title={windowTitle}
+          sub={`All ${list.length} tasks, open first`}
+          text={(t) => t.text}
+          testId="tasks-all"
+          className="flex justify-center pt-2 pb-1 text-[13px]"
+          wrap={(rows, inWindow) => (inWindow ? <div className="flex flex-col px-[22px]">{rows}</div> : <>{rows}</>)}
+          render={(t) => (
           <div key={t.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-slate-100 py-[7px] last:border-b-0" data-testid="todo-item" data-done={t.doneAt ? "1" : "0"}>
             <input
               type="checkbox"
@@ -135,7 +146,8 @@ export function TasksCard({ tasks, open, actions, placeholder, emptyText, testId
               ×
             </button>
           </div>
-        ))}
+          )}
+        />
         {!list.length && !adding ? <p className="py-2 text-[13px] text-muted-foreground">{emptyText}</p> : null}
         {adding ? (
           <div className="flex items-center gap-2 pt-2">

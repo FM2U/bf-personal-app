@@ -158,8 +158,8 @@ describe("the batch C sample (Jake, End of day rows, work events)", () => {
   it("has Jake (weekdays) and Sarah (Fridays) as partners, the sent reports with their threads, one skipped day, and replies", () => {
     const partners = c.contacts.filter((p) => p.outreach_role === "accountability_partner");
     expect(partners.map((p) => [p.name, p.report_days, p.report_sections])).toEqual([
-      ["Jake Morgan", [1, 2, 3, 4, 5], ["today", "targets", "waiting", "tomorrow", "week"]],
-      ["Sarah Klein", [5], ["targets", "tomorrow", "week"]],
+      ["Jake Morgan", [1, 2, 3, 4, 5], ["today", "targets", "top", "active", "waiting", "jobs", "week", "tomorrow"]],
+      ["Sarah Klein", [5], ["targets", "week", "tomorrow"]],
     ]);
     const [jake, sarah] = partners;
     // Four weekdays before Fri Oct 30 (none a Friday), plus the Friday before them (Oct 23), sent to both partners.

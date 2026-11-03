@@ -22,6 +22,7 @@ import { Fact, GrowingTextarea, SaveLine, useSave, useSynced } from "@/component
 import { LogCallDrawer } from "@/components/app/work/log-call-drawer";
 import { TasksCard } from "@/components/app/work/tasks-card";
 import { TimelineEvents } from "@/components/app/work/timeline-list";
+import { cappedNote, ShowAll } from "@/components/app/work/show-all";
 import { Confirm, Figure, Line1, Line2, Name, Pill, ProgressMark, ROW_COLS, RowButton, RowShell, What, WorkCard } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
 
@@ -147,14 +148,20 @@ export function OrgPeopleCard({ org, people, others, today }: { org: OrgRow; peo
               </span>
             ) : null}
             <RowButton tone="primary" disabled={pending || (!pick && !name.trim())} onClick={add} data-testid="org-add-person-save">
-              {pending ? "Adding..." : "Add to this firm"}
+              {pending ? "Adding..." : "Add to this organization"}
             </RowButton>
           </div>
         </div>
       ) : null}
-      <div className="flex flex-col pb-1" data-testid="org-people-rows">
-        {live.length ? (
-          live.map((p) => {
+      {live.length ? (
+        <ShowAll
+          items={live}
+          title={`People · ${org.name}`}
+          sub={`All ${live.length} people at this organization, A to Z`}
+          text={(p) => `${p.name} ${p.title ?? ""} ${p.note ?? ""}`}
+          testId="org-people-all"
+          wrap={(rows) => <div className="flex flex-col pb-1" data-testid="org-people-rows">{rows}</div>}
+          render={(p) => {
             const line = orgRoleLine({ ...p, organization: null });
             return (
               <RowShell
@@ -170,11 +177,13 @@ export function OrgPeopleCard({ org, people, others, today }: { org: OrgRow; peo
                 {p.note ? <Line2 className="text-slate-600">{p.note}</Line2> : null}
               </RowShell>
             );
-          })
-        ) : (
-          <p className="px-[22px] py-3 text-[13px] text-muted-foreground">No one at this firm yet. Add a person, or set the organization on a person&apos;s Facts.</p>
-        )}
-      </div>
+          }}
+        />
+      ) : (
+        <div className="flex flex-col pb-1" data-testid="org-people-rows">
+          <p className="px-[22px] py-3 text-[13px] text-muted-foreground">No one at this organization yet. Add a person, or set the organization on a person&apos;s Facts.</p>
+        </div>
+      )}
     </WorkCard>
   );
 }
@@ -208,7 +217,7 @@ export function OrgNextActionCard({ org, today }: { org: OrgRow; today: string }
         <label htmlFor={`${ids}-a`} className={LABEL}>
           Action
         </label>
-        <input id={`${ids}-a`} value={action} onChange={(e) => setAction(e.target.value)} placeholder="The next thing to do with this firm" className={INPUT} data-testid="org-next-action-input" />
+        <input id={`${ids}-a`} value={action} onChange={(e) => setAction(e.target.value)} placeholder="The next thing to do with this organization" className={INPUT} data-testid="org-next-action-input" />
         <label htmlFor={`${ids}-d`} className={LABEL}>
           Due
         </label>
@@ -261,11 +270,12 @@ export function OrgNextActionCard({ org, today }: { org: OrgRow; today: string }
 export function OrgTasksCard({ org, tasks }: { org: OrgRow; tasks: DealTodo[] }) {
   return (
     <TasksCard
+      windowTitle={`Tasks · ${org.name}`}
       tasks={tasks}
       open={!org.archived}
       actions={{ add: (text) => addOrgTask(org.id, text), setDone: (id, done) => setOrgTaskDone(id, done), remove: (id) => deleteOrgTask(id), makeNext: (id) => makeOrgTaskNext(id) }}
       placeholder={`Something to do with ${org.name}`}
-      emptyText="Nothing yet. Add what else needs doing with this firm; Make this the next action moves one into Next action."
+      emptyText="Nothing yet. Add what else needs doing with this organization; Make this the next action moves one into Next action."
       testId="org-tasks"
     />
   );
@@ -345,13 +355,19 @@ export function OrgFactsCard({ org }: { org: OrgRow }) {
 
 // ---------- Deals ----------
 
-export function OrgDealsCard({ deals, passed }: { deals: OrgDeal[]; passed: OrgDeal[] }) {
+export function OrgDealsCard({ deals, passed, orgName }: { deals: OrgDeal[]; passed: OrgDeal[]; orgName: string }) {
   const passedLine = passed.length ? `${passed.length} closed: ${passed.slice(0, 3).map((p) => `${p.name}${p.passReason ? ` (${p.passReason})` : ""}`).join(", ")}${passed.length > 3 ? ` and ${passed.length - 3} more` : ""}` : null;
   return (
-    <WorkCard title="Deals" count={deals.length || null} hint="From this firm" testId="org-deals">
-      <div className="flex flex-col pb-1" data-testid="org-deal-rows">
-        {deals.length ? (
-          deals.map((d) => (
+    <WorkCard title="Deals" count={deals.length || null} hint="From this organization" testId="org-deals">
+      {deals.length ? (
+        <ShowAll
+          items={deals}
+          title={`Deals · ${orgName}`}
+          sub={`All ${deals.length} open deals from this organization`}
+          text={(d) => `${d.name} ${d.stageName ?? ""} ${d.contactName ?? ""}`}
+          testId="org-deals-all"
+          wrap={(rows) => <div className="flex flex-col pb-1" data-testid="org-deal-rows">{rows}</div>}
+          render={(d) => (
             <RowShell key={d.id} testId="org-deal-row" href={d.href}>
               <Line1>
                 {d.lane === "Deals" ? <ProgressMark stage={d.stageName} /> : <Pill tone="blue">{d.lane}</Pill>}
@@ -362,13 +378,15 @@ export function OrgDealsCard({ deals, passed }: { deals: OrgDeal[]; passed: OrgD
                   </Pill>
                 ) : null}
               </Line1>
-              <Line2 className="text-slate-600">{[d.stageName, d.waitingOn ? `waiting on ${/^[A-Z][a-z]/.test(d.waitingOn) ? d.waitingOn[0].toLowerCase() + d.waitingOn.slice(1) : d.waitingOn}` : d.nextAction, d.contactName].filter(Boolean).join(" · ")}</Line2>
+              <Line2 className="text-slate-600">{[d.stageName, d.waitingOn ? `waiting on ${/^[A-Z](?![A-Z])/.test(d.waitingOn) && !/^[A-Z][a-z]+ [A-Z][a-z]/.test(d.waitingOn) ? d.waitingOn[0].toLowerCase() + d.waitingOn.slice(1) : d.waitingOn}` : d.nextAction, d.contactName].filter(Boolean).join(" · ")}</Line2>
             </RowShell>
-          ))
-        ) : (
-          <p className="px-[22px] py-3 text-[13px] text-muted-foreground">No open deal from this firm.</p>
-        )}
-      </div>
+          )}
+        />
+      ) : (
+        <div className="flex flex-col pb-1" data-testid="org-deal-rows">
+          <p className="px-[22px] py-3 text-[13px] text-muted-foreground">No open deal from this organization.</p>
+        </div>
+      )}
       {passedLine ? (
         <p className="border-t border-slate-100 px-[22px] py-2.5 text-[12.5px] text-muted-foreground" data-testid="org-passed">
           {passedLine}
@@ -385,8 +403,8 @@ export function OrgTimelineCard({ org, events }: { org: OrgRow; events: Timeline
   const [note, setNote] = useState("");
   useUnsavedWork(note.trim() !== "", "The note is not saved yet.");
   return (
-    <WorkCard title="Timeline" hint="Everyone at this firm, newest first" testId="org-timeline">
-      <TimelineEvents events={events} empty="Nothing yet. Notes, emails, and calls with anyone at this firm show here." />
+    <WorkCard title="Timeline" hint={["Everyone at this organization, newest first", cappedNote(events.length)].filter(Boolean).join(" · ")} testId="org-timeline">
+      <TimelineEvents events={events} empty="Nothing yet. Notes, emails, and calls with anyone at this organization show here." windowTitle={`Timeline · ${org.name}`} windowSub={`All ${events.length} entries, everyone at this organization, newest first`} />
       <div className="flex flex-col gap-2 px-[22px] pt-2 pb-4" data-testid="org-note-form">
         <div className="flex items-start gap-2">
           <GrowingTextarea id="org-note" value={note} onChange={setNote} minRows={1} placeholder="Add a note" className="flex-1" data-testid="org-note" />
@@ -418,7 +436,7 @@ export function OrgDecisionCard({ org }: { org: OrgRow }) {
       router.refresh();
     });
   return (
-    <WorkCard title="Decision" hint={org.archived ? "Archived; not on Organizations" : "Archive takes the firm off People"} testId="org-decision">
+    <WorkCard title="Decision" hint={org.archived ? "Archived; not on Organizations" : "Archive takes the organization off Contacts"} testId="org-decision">
       <div className="flex flex-wrap items-center gap-2 px-[22px] pt-3 pb-5">
         {org.archived ? (
           <>

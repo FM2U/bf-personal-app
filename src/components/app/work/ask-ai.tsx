@@ -46,7 +46,7 @@ export type EodExtras = {
   onUseReasons?: (drafts: ReasonDraft[]) => void;
   /** "Use this line": fills the tomorrow box. */
   onUseTomorrow?: (text: string) => void;
-  /** "Use the short version": the short report goes into the preview. */
+  /** "Use the short version": today's copy keeps Targets, the week, and the tomorrow line (the other sections are unticked for today). */
   onUseShort?: () => Promise<string | null> | void;
   /** The tomorrow field's current text (for the draft). */
   tomorrow?: string;
@@ -254,7 +254,7 @@ function AskAiPanel({ context, compose, extras, open, onOpenChange, onUse, onUse
     setShortBusy(true);
     const r = await eod.onUseShort();
     setShortBusy(false);
-    setShortNote(r === null ? "The short version could not be made." : "In the preview. Edit still works on it.");
+    setShortNote(r === null ? "The short version could not be made." : "Done for today: only Targets, the week, and the tomorrow line are ticked. View report to tick a section back.");
   };
   const [setup, setSetup] = useState<AskSetup | null>(null);
   const [setupError, setSetupError] = useState<string | null>(null);
@@ -578,7 +578,7 @@ function AskAiPanel({ context, compose, extras, open, onOpenChange, onUse, onUse
       {showShort ? (
         <section className="mb-6" data-testid="ask-ai-short">
           <PanelHeading>A shorter report</PanelHeading>
-          <p className="text-[13px] text-slate-700">The short version keeps the header, the Targets list with the reasons, the week tiles on a Friday, and the tomorrow line. It drops the Today tiles and the Deals bullets, which the daily reports already carry.</p>
+          <p className="text-[13px] text-slate-700">The short version keeps the header, the Targets list with the reasons, the week tiles on a Friday, and the tomorrow line. For today it leaves out Today, Top 3 deals, Active, Waiting on brokers, and Job search; each can be ticked back in the report window.</p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <button type="button" onClick={applyShort} disabled={shortBusy || !!closedWord} className={VIOLET_BUTTON} data-testid="ask-ai-use-short">
               {shortBusy ? <Thinking /> : "Use the short version"}

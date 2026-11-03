@@ -54,7 +54,7 @@ export function ShowFilter({ choice, counts, onChange, prefix = "home" }: { choi
             return (
               <label key={lane} className="flex cursor-pointer items-center gap-2.5 px-3.5 py-[7px] text-[13px] text-slate-800 hover:bg-slate-50" data-testid={`${prefix}-show-option`} data-lane={lane}>
                 <input type="checkbox" checked={ticked} onChange={() => onChange(toggleShow(choice, lane))} className="h-3.5 w-3.5 shrink-0 accent-[var(--primary)]" />
-                <span className="min-w-0 flex-1">{lane}</span>
+                <span className="min-w-0 flex-1">{lane === "People" ? "Contacts" : lane}</span>
                 <span className="tabular text-xs text-slate-400">{counts[lane]}</span>
               </label>
             );

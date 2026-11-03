@@ -4,17 +4,27 @@
  * the same day; each gets their own copy. Pure and tested in src/lib/accountability/partners.test.ts.
  */
 
-/** The report's sections, as the End of day report has them (src/lib/accountability/report-email.ts). */
+/**
+ * The report's sections, as the End of day report has them (src/lib/accountability/report-sections.ts), in the
+ * email's order. Push B edits: Top 3 deals, Active today, and Job search added (on for a new partner); "Deals moved"
+ * became part of Active today (a saved "moved" reads as Active today).
+ */
 export const REPORT_SECTIONS = [
   { key: "today", label: "Today's counts", hint: "Listings screened, deals moved, calls, emails" },
   { key: "targets", label: "Targets", hint: "Met, under way, missed, with reasons" },
+  { key: "top", label: "Top 3 deals", hint: "The 3 deals furthest along: stage, status, next step" },
+  { key: "active", label: "Active today", hint: "Other deals worked on that day (Fridays: that week)" },
   { key: "waiting", label: "Deals waiting on brokers", hint: "Waiting longer than the amber mark" },
-  { key: "moved", label: "Deals moved", hint: "Stage changes that day, with the key finding" },
-  { key: "tomorrow", label: "Tomorrow's line", hint: null },
+  { key: "jobs", label: "Job search", hint: "The top 3 opportunities and the ones worked on" },
   { key: "week", label: "The week", hint: "Fridays: the week's figures" },
+  { key: "tomorrow", label: "Tomorrow's line", hint: null },
 ] as const;
 export type ReportSectionKey = (typeof REPORT_SECTIONS)[number]["key"];
 export const ALL_SECTIONS: ReportSectionKey[] = REPORT_SECTIONS.map((s) => s.key);
+
+/** Section keys saved before a rename, and the key they are now. */
+const RENAMED_SECTIONS: Record<string, ReportSectionKey> = { moved: "active" };
+const readSections = (v: unknown[]): unknown[] => v.map((k) => RENAMED_SECTIONS[String(k)] ?? k);
 
 /** Monday to Friday as stored (ISO weekday numbers). */
 export const REPORT_WEEKDAYS = [
@@ -37,7 +47,7 @@ const isSection = (v: unknown): v is ReportSectionKey => ALL_SECTIONS.includes(v
  */
 export function partnerSettings(row: { report_days?: unknown; report_sections?: unknown }): PartnerReportSettings {
   const days = Array.isArray(row.report_days) ? [...new Set(row.report_days.map(Number).filter((n) => WEEKDAY_NUMBERS.includes(n)))].sort() : [];
-  const sections = Array.isArray(row.report_sections) ? ALL_SECTIONS.filter((k) => (row.report_sections as unknown[]).includes(k)) : [];
+  const sections = Array.isArray(row.report_sections) ? ALL_SECTIONS.filter((k) => readSections(row.report_sections as unknown[]).includes(k)) : [];
   const rawEmpty = (!Array.isArray(row.report_days) || !row.report_days.length) && (!Array.isArray(row.report_sections) || !row.report_sections.length);
   if (rawEmpty) return { days: [...WEEKDAY_NUMBERS], sections: [...ALL_SECTIONS] };
   return { days, sections };
@@ -48,7 +58,7 @@ export function cleanPartnerSettings(input: { days: unknown; sections: unknown }
   const days = Array.isArray(input.days) ? [...new Set(input.days.map(Number).filter((n) => WEEKDAY_NUMBERS.includes(n)))].sort() : [];
   const sections = Array.isArray(input.sections) ? ALL_SECTIONS.filter((k) => (input.sections as unknown[]).includes(k)) : [];
   if (!sections.length) return { ok: false, error: "Tick at least one section." };
-  const kept = Array.isArray(savedSections) ? savedSections.map(String).filter((k) => !isSection(k)) : [];
+  const kept = Array.isArray(savedSections) ? savedSections.map(String).filter((k) => !isSection(k) && !RENAMED_SECTIONS[k]) : [];
   return { ok: true, days, sections: [...sections, ...kept] };
 }
 

@@ -3,11 +3,13 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { approveAndSend, saveReasons, saveReportEdit, saveTomorrow, skipToday, putShortReport } from "@/app/actions/accountability";
+import { Eye } from "lucide-react";
+import { approveAndSend, saveReasons, saveTomorrow, skipToday, putShortReport } from "@/app/actions/accountability";
 import type { ReasonDraft } from "@/lib/accountability/ask-ai";
 import type { EndOfDayPage } from "@/lib/accountability/data";
-import { daysLabel, dueLine, sendLabel } from "@/lib/accountability/partners";
-import { personHref } from "@/lib/work/people";
+import { dueLine, sendLabel } from "@/lib/accountability/partners";
+import { includesLine } from "@/lib/accountability/report-sections";
+import { ReportWindow } from "@/components/app/work/report-window";
 import { END_OF_DAY_TIME, judgedMark, MARK_WORD, owedReasons, statusItems, todayStrip, type DayNumbers, type Judged, type TodayPart } from "@/lib/accountability/targets";
 import type { AskContext } from "@/lib/work/ask-ai";
 import { AccountabilityTabs, type EodBadge } from "@/components/app/nav-links";
@@ -18,51 +20,43 @@ import { Confirm, Figure, Line1, Line2, Name, Pill, PinnedBlock, ROW_GRIDS, RowB
 import { cn } from "@/lib/utils";
 
 /**
- * End of day (batch C, approved 2026-10-31; decisions on v3 and v4; Edit batch C items 9 to 12): the status line
- * with the three things to do before sending (each a link to its card, the state live). Two equal columns at desktop
- * width (stacked on the phone). Left, what Bram does: the one-line Today strip ("Today: 4 screened · 0 moved · ..."),
- * each figure opening a small drawer with the items behind it; the Targets card with the status mark left of the
- * figure after a reserved 32px gap, the Commitment pill, and a one-line reason box on each missed Commitment (the
- * field star drafts it; "Same reason for all" fills every box), with reasons owed from a skipped day under their own
- * small heading "Owed from Fri Oct 30"; "What matters tomorrow" as a three-line box that grows. Right: the "Report to
- * <partner>" card with the email exactly as it will be sent, Edit in place, Approve and send (with "N commitments
- * have no reason yet", Give them or Send anyway), then "Sent 5:41 pm", and Skip today with a reason. Weekday targets
- * are judged daily; weekly ones on Friday.
+ * End of day (batch C, approved 2026-10-31; Edit batch C items 9 to 12; push B edits 2026-11-03): the status line
+ * with the three things to do before sending (each a link to its card, the state live). Two columns at desktop width
+ * (the right one about 40% of the width; stacked on the phone). Left, what Bram does: the one-line Today strip, each
+ * figure opening a small drawer with the items behind it; the Targets card with the status mark, the Commitment
+ * pill, and a one-line reason box on each missed Commitment (the field star drafts it; "Same reason for all" fills
+ * every box), with reasons owed from a skipped day under their own heading. Right: the compact "Report to Jake" card
+ * (what the report is, its status, what it includes, View report, Approve and send, Edit, Skip today, the due line),
+ * then "What matters tomorrow". View report opens the report window (src/components/app/work/report-window.tsx) with
+ * the email exactly as it will be sent and the include box, Change, and Edit on each section. Approve and send works
+ * from the card or the window, with the same check for missing reasons.
  */
 const INPUT = "h-9 w-full min-w-0 rounded-[7px] border border-input bg-white px-2.5 text-[13px] text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:bg-slate-50 disabled:text-slate-500";
 const FIG = "w-[82px]";
 const GRID = ROW_GRIDS.eodTarget;
+const BTN_LG = "inline-flex h-[38px] w-full min-w-0 shrink-0 min-[421px]:w-auto min-[421px]:flex-1 min-[421px]:basis-0 items-center justify-center gap-2 rounded-[7px] border px-4 text-sm font-medium whitespace-nowrap disabled:pointer-events-none disabled:opacity-50";
 
 const newRequestId = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID().replace(/-/g, "") : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`);
+
+/** "Jake", "Jake and Sarah", "Jake, Sarah and Ann". */
+const andNames = (names: string[]) => (names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`);
 
 export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
   const router = useRouter();
   const { day } = data;
-  // Push B: one copy per partner due today (their own sections); the To choice picks the copy shown.
+  // Push B: one copy per partner due today (their own sections); the window has a tab per copy.
   const copies = data.copies;
   const [sel, setSel] = useState<string | null>(copies[0]?.partner.id ?? null);
   const copy = copies.find((c) => c.partner.id === sel) ?? copies[0] ?? null;
   const partner = copy?.partner ?? null;
   const first = partner?.first ?? "your partner";
   const unsent = copies.filter((c) => !c.sentAt);
-  const toNames = (list: typeof copies) => list.map((c) => c.partner.first).join(" and ");
+  const toNames = (list: typeof copies) => andNames(list.map((c) => c.partner.first));
   const [reasons, setReasons] = useState<Record<string, string>>(data.reasons);
   const [tomorrow, setTomorrow] = useState(data.tomorrow);
   const [state, setState] = useState<{ status: EndOfDayPage["state"]; sentTime: string | null; skipReason: string | null }>({ status: data.state, sentTime: data.sentTime, skipReason: data.skipReason });
-  const shownHtml = copy?.html ?? data.reportHtml;
-  const shownEdited = copy?.edited ?? data.reportEdited;
-  const [html, setHtml] = useState(shownHtml);
-  const [edited, setEdited] = useState(shownEdited);
-  const [editing, setEditing] = useState(false);
-  // The preview follows the data after every save (reasons, the tomorrow line) and the To choice, unless Bram is editing it by hand.
-  const [prevHtml, setPrevHtml] = useState(`${sel}|${shownHtml}`);
-  if (prevHtml !== `${sel}|${shownHtml}`) {
-    setPrevHtml(`${sel}|${shownHtml}`);
-    if (!editing) {
-      setHtml(shownHtml);
-      setEdited(shownEdited);
-    }
-  }
+  const [windowOpen, setWindowOpen] = useState<false | "view" | "edit">(false);
+  const [resetKey, setResetKey] = useState(0);
   const [shared, setShared] = useState(false);
   const [sharedText, setSharedText] = useState("");
   const [skipOpen, setSkipOpen] = useState(false);
@@ -76,7 +70,6 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
   /** The Today strip part whose drawer is open. */
   const [drawer, setDrawer] = useState<TodayPart | null>(null);
   const requestId = useRef(newRequestId());
-  const previewRef = useRef<HTMLDivElement>(null);
   const tomorrowRef = useRef<HTMLTextAreaElement>(null);
   const closed = state.status !== "open";
   const judged = data.judged;
@@ -89,8 +82,13 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
   const badge: EodBadge = state.status === "sent" ? "Sent" : state.status === "skipped" ? "Skipped" : "5:30";
   const items = statusItems(owedLeft, tomorrow, state.status, state.sentTime);
   const page: AskContext = { page: "end_of_day", label: `End of day, ${data.dateLabel}` };
+  // What is still missing before sending: the reasons and the tomorrow line.
+  const needs = [owedLeft ? `${owedLeft} ${owedLeft === 1 ? "reason" : "reasons"} still needed` : null, !tomorrow.trim() ? `${data.tomorrowLabel === "Monday" ? "Monday's" : "Tomorrow's"} line still empty` : null].filter((x): x is string => !!x);
+  const reportTitle = copies.length > 1 ? `Reports to ${toNames(copies)}` : partner ? `Report to ${first}` : "Report";
+  const kind = data.friday ? "Daily and week report" : "Daily report";
+  const due = copies.some((c) => c.sentAt) && unsent.length ? `Sent to ${toNames(copies.filter((c) => c.sentAt))}; ${toNames(unsent)} still to send` : dueLine(data.partners, day);
 
-  // The tomorrow box starts at three lines and grows with wrapped text.
+  // The tomorrow box starts at two lines and grows with wrapped text.
   useEffect(() => {
     const ta = tomorrowRef.current;
     if (!ta) return;
@@ -130,55 +128,20 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
     setTomorrow(text);
     saveLine(text);
   };
-  const toggleEdit = () => {
-    if (!editing) {
-      setEditing(true);
-      setTimeout(() => previewRef.current?.focus(), 0);
-      return;
-    }
-    const current = previewRef.current?.innerHTML ?? html;
-    setEditing(false);
-    start(async () => {
-      setError(null);
-      const r = await saveReportEdit(day, current, sel);
-      if (!r.ok) return setError(r.error);
-      setHtml(r.html);
-      setEdited(true);
-      router.refresh();
-    });
-  };
-  const resetEdit = () =>
-    start(async () => {
-      const r = await saveReportEdit(day, null, sel);
-      if (!r.ok) return setError(r.error);
-      setHtml(r.html);
-      setEdited(false);
-      setEditing(false);
-      router.refresh();
-    });
   const applyShort = async () => {
     const r = await putShortReport(day, sel);
     if (!r.ok) {
       setError(r.error);
       return null;
     }
-    setHtml(r.html);
-    setEdited(true);
-    setEditing(false);
+    setResetKey((k) => k + 1);
+    router.refresh();
     return r.html;
   };
   const send = (force = false) =>
     startSend(async () => {
       setError(null);
       setCheck(null);
-      if (editing) {
-        const current = previewRef.current?.innerHTML ?? html;
-        setEditing(false);
-        const e = await saveReportEdit(day, current, sel);
-        if (!e.ok) return setError(e.error);
-        setHtml(e.html);
-        setEdited(true);
-      }
       const r = await approveAndSend(day, requestId.current, force);
       if (!r.ok) {
         if (r.reason === "reasons") return setCheck(r.error);
@@ -201,20 +164,46 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
     });
   const focusFirstReason = () => {
     setCheck(null);
-    const el = document.querySelector<HTMLInputElement>("[data-testid=reason-input]");
-    el?.focus();
-    el?.scrollIntoView({ block: "center", behavior: "smooth" });
+    setWindowOpen(false);
+    setTimeout(() => {
+      const el = document.querySelector<HTMLInputElement>("[data-testid=reason-input]");
+      el?.focus();
+      el?.scrollIntoView({ block: "center", behavior: "smooth" });
+    }, 0);
   };
   const goCard = (id: string) => {
     const el = document.getElementById(id);
     if (!el) return;
     const pad = (document.querySelector<HTMLElement>("[data-testid=eod-sticky]")?.offsetHeight ?? 0) + 16;
-    const top = id === "report-acts" ? el.getBoundingClientRect().top + window.scrollY - (window.innerHeight - el.offsetHeight) / 2 : el.getBoundingClientRect().top + window.scrollY - pad;
-    window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    window.scrollTo({ top: Math.max(0, el.getBoundingClientRect().top + window.scrollY - pad), behavior: "smooth" });
   };
   const extras: EodExtras = { day, tomorrow, closed: closed ? (state.status as "sent" | "skipped") : null, onUseReasons: useDrafts, onUseTomorrow: useLine, onUseShort: applyShort };
   const n = data.numbers;
-  const cardIds = { reasons: "eod-targets", tomorrow: "eod-tomorrow", send: "report-acts" };
+  const cardIds = { reasons: "eod-targets", tomorrow: "eod-tomorrow", send: "report-card" };
+  const checkBox = check ? (
+    <Confirm tone="warn" testId="send-check">
+      <span>{check}</span>
+      <RowButton onClick={focusFirstReason} data-testid="send-check-give">
+        Give them
+      </RowButton>
+      <RowButton tone="primary" onClick={() => send(true)} disabled={sending} data-testid="send-check-anyway">
+        Send anyway
+      </RowButton>
+    </Confirm>
+  ) : null;
+  const sendLabelNow = sending ? "Sending..." : sendLabel(unsent.length);
+  const statusLine =
+    state.status === "sent" ? (
+      <RStat tone="green">
+        Sent to {copies.length ? toNames(copies) : first} at {state.sentTime}
+      </RStat>
+    ) : state.status === "skipped" ? (
+      <RStat tone="amber">Skipped today</RStat>
+    ) : needs.length ? (
+      <RStat tone="amber">{needs.join(" · ")}</RStat>
+    ) : (
+      <RStat tone="green">Ready to send</RStat>
+    );
 
   return (
     <>
@@ -253,7 +242,7 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
         </p>
       ) : null}
 
-      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2" data-testid="eod-columns">
+      <div className="grid grid-cols-1 items-start gap-4 min-[1000px]:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]" data-testid="eod-columns">
         <div className="flex min-w-0 flex-col gap-4" data-testid="eod-left">
           <TodayStrip parts={todayStrip(n, data.threshold)} onOpen={setDrawer} />
 
@@ -299,10 +288,10 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
                     </div>
                     <StatusMark mark={judgedMark(j)} />
                     <Figure value={j.figure} label={MARK_WORD[judgedMark(j)]} tone={judgedMark(j) === "missed" ? "red" : "plain"} className={cn(FIG, j.met && "[&>b]:text-status-met")} testId="eod-figure" />
-                    {(ask || (closed && j.judged && !j.met && j.commitment)) ? (
-                      <div className="col-span-3 mt-0.5 flex flex-wrap items-center gap-2.5">
+                    {ask || (closed && j.judged && !j.met && j.commitment) ? (
+                      <div className="col-span-3 mt-0.5 grid grid-cols-1 items-center gap-x-3 gap-y-1.5 sm:grid-cols-[150px_minmax(0,1fr)]">
                         <span className="text-[12.5px] font-medium whitespace-nowrap text-status-missed">Why missed, one line</span>
-                        <div className="relative min-w-0 flex-1 basis-[240px]">
+                        <div className="relative min-w-0">
                           <input
                             value={reasons[j.targetId] ?? ""}
                             onChange={(e) => setReasons((r) => ({ ...r, [j.targetId]: e.target.value }))}
@@ -342,9 +331,9 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
                       </div>
                       <StatusMark mark="missed" />
                       <Figure value={j.figure} label="Missed" tone="red" className={FIG} />
-                      <div className="col-span-3 mt-0.5 flex flex-wrap items-center gap-2.5">
+                      <div className="col-span-3 mt-0.5 grid grid-cols-1 items-center gap-x-3 gap-y-1.5 sm:grid-cols-[150px_minmax(0,1fr)]">
                         <span className="text-[12.5px] font-medium whitespace-nowrap text-status-missed">Why missed, one line</span>
-                        <input value={reasons[owedKey(j)] ?? ""} onChange={(e) => setReasons((r) => ({ ...r, [owedKey(j)]: e.target.value }))} onBlur={(e) => saveReason({ [owedKey(j)]: e.target.value })} placeholder="The reason still owed from the skipped day" disabled={closed} className={cn(INPUT, "flex-1 basis-[240px]")} data-testid="reason-input" data-target={j.name} />
+                        <input value={reasons[owedKey(j)] ?? ""} onChange={(e) => setReasons((r) => ({ ...r, [owedKey(j)]: e.target.value }))} onBlur={(e) => saveReason({ [owedKey(j)]: e.target.value })} placeholder="The reason still owed from the skipped day" disabled={closed} className={INPUT} data-testid="reason-input" data-target={j.name} />
                       </div>
                     </div>
                   ))}
@@ -356,13 +345,87 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
               Only commitments ask for a reason; the reason goes into the report as written.
             </p>
           </WorkCard>
+        </div>
 
-          <WorkCard id="eod-tomorrow" title="What matters tomorrow" actions={<AiCardStar context={{ ...page, card: "What matters tomorrow" }} extras={extras} />} testId="eod-tomorrow">
-            <div className="px-[22px] pt-3 pb-5">
+        <div className="flex min-w-0 flex-col gap-4" data-testid="eod-right">
+          <WorkCard id="report-card" title={reportTitle} sub={`${kind} · ${data.dateLabel}`} actions={<AiCardStar context={{ ...page, card: "Report" }} extras={extras} />} testId="report-card">
+            <div className="px-[22px] pt-3 pb-4">
+              <div data-testid="report-status" data-state={state.status} data-needs={needs.length}>
+                {statusLine}
+              </div>
+              <p className="mt-2 text-[12.5px] leading-[1.5] text-muted-foreground" data-testid="report-includes">
+                {copies.length > 1 ? (
+                  copies.map((c) => (
+                    <span key={c.partner.id} className="block">
+                      {c.partner.first}: {includesLine(c.report)}
+                    </span>
+                  ))
+                ) : copy ? (
+                  <>Includes: {includesLine(copy.report)}</>
+                ) : data.partners.length ? (
+                  <>No partner gets the report today. Each partner&apos;s days are on their page under Contacts.</>
+                ) : (
+                  <>
+                    No accountability partner yet. Add a person under{" "}
+                    <Link href="/work/people?view=people" className="font-medium text-primary-strong hover:underline">
+                      Contacts
+                    </Link>{" "}
+                    with the role Accountability partner.
+                  </>
+                )}
+              </p>
+              <div id="report-acts" className="mt-3.5 flex flex-col gap-2 min-[421px]:flex-row" data-testid="report-acts">
+                <button type="button" onClick={() => setWindowOpen("view")} disabled={!copies.length} aria-haspopup="dialog" className={cn(BTN_LG, "border-primary-strong bg-white text-primary-strong hover:bg-primary-soft")} data-testid="report-view">
+                  <Eye className="h-[15px] w-[15px]" aria-hidden />
+                  View report
+                </button>
+                <button type="button" onClick={() => send(false)} disabled={state.status !== "open" || sending || !unsent.length} className={cn(BTN_LG, "border-primary-solid bg-primary-solid text-white hover:border-primary-solid-hover hover:bg-primary-solid-hover")} data-testid="report-send" data-count={unsent.length}>
+                  {sendLabelNow}
+                </button>
+              </div>
+              {checkBox && !windowOpen ? <div className="mt-3">{checkBox}</div> : null}
+              {state.status === "sent" ? (
+                <Confirm tone="ok" className="mt-3" testId="sent-line">
+                  Sent through Gmail{note ? `. ${note}` : ""}. Replies will show on Reports and on {copies.length > 1 ? "each partner's" : `${first}'s`} timeline.
+                </Confirm>
+              ) : state.status === "skipped" ? (
+                <Confirm tone="warn" className="mt-3" testId="skipped-line">
+                  Skipped: {state.skipReason}. It shows on Reports as &ldquo;Not sent&rdquo;, and any reason still owed is asked on the next End of day.
+                </Confirm>
+              ) : null}
+              {state.status === "open" && skipOpen ? (
+                <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-status-soon-border bg-status-soon-bg px-3 py-2" data-testid="skip-box">
+                  <input value={skipWhy} onChange={(e) => setSkipWhy(e.target.value)} placeholder="Reason, one line (goes on Reports)" className={cn(INPUT, "h-[30px] flex-1 basis-[180px]")} data-testid="skip-reason" />
+                  <RowButton onClick={skip} disabled={pending} data-testid="skip-confirm">
+                    Skip
+                  </RowButton>
+                  <RowButton onClick={() => setSkipOpen(false)}>Cancel</RowButton>
+                </div>
+              ) : null}
+              <div className="mt-2.5 flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[13px]">
+                {state.status === "open" ? (
+                  <>
+                    <button type="button" onClick={() => setWindowOpen("edit")} disabled={!copies.length} className="font-medium text-muted-foreground hover:text-primary-strong" data-testid="report-edit">
+                      Edit
+                    </button>
+                    <button type="button" onClick={() => setSkipOpen(true)} className="font-medium text-muted-foreground hover:text-primary-strong" data-testid="skip-today">
+                      Skip today
+                    </button>
+                  </>
+                ) : null}
+                <span className="min-w-0 text-[12.5px] text-muted-foreground sm:ml-auto sm:text-right" data-testid="report-due-line">
+                  {state.status === "open" ? due : state.status === "sent" ? "Kept under Reports, Sent reports" : `${copies.length > 1 ? "Nobody gets" : `${first} gets`} nothing today`}
+                </span>
+              </div>
+            </div>
+          </WorkCard>
+
+          <WorkCard id="eod-tomorrow" title={data.tomorrowLabel === "Monday" ? "What matters Monday" : "What matters tomorrow"} actions={<AiCardStar context={{ ...page, card: "What matters tomorrow" }} extras={extras} />} testId="eod-tomorrow">
+            <div className="px-[22px] pt-3 pb-4">
               <div className="relative">
                 <textarea
                   ref={tomorrowRef}
-                  rows={3}
+                  rows={2}
                   value={tomorrow}
                   onChange={(e) => setTomorrow(e.target.value)}
                   onFocus={() => setFocused("tomorrow")}
@@ -372,152 +435,49 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
                   }}
                   placeholder="One line about the next working day"
                   disabled={closed}
-                  className="block w-full resize-none overflow-hidden rounded-[7px] border border-input bg-white px-4 py-3.5 pr-10 text-sm leading-[1.5] font-medium text-slate-900 placeholder:font-normal placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:bg-slate-50 disabled:text-slate-600"
+                  className="block w-full resize-none overflow-hidden rounded-[7px] border border-input bg-white px-3 py-2.5 pr-10 text-sm leading-[1.5] text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:bg-slate-50 disabled:text-slate-600"
                   aria-label="What matters tomorrow"
                   data-testid="tomorrow-input"
                 />
                 {!closed ? <AiFieldStar context={{ ...page, card: "What matters tomorrow" }} field={{ key: "tomorrow_line", label: "What matters tomorrow", current: tomorrow }} visible={!tomorrow.trim() || focused === "tomorrow"} onUse={useLine} className="top-5 translate-y-0" /> : null}
               </div>
-              <p className="mt-2.5 text-[12.5px] text-muted-foreground">{data.tomorrowLabel === "Monday" ? "Monday's line. Ends the report and opens Home on Monday." : "Tomorrow's line. Ends the report and opens Home tomorrow."}</p>
+              <p className="mt-2 text-[12.5px] text-muted-foreground">{data.tomorrowLabel === "Monday" ? "Monday's line. Ends the report and opens Home on Monday." : "Tomorrow's line. Ends the report and opens Home tomorrow."}</p>
             </div>
-          </WorkCard>
-        </div>
-
-        <div className="flex min-w-0 flex-col gap-4" data-testid="eod-right">
-          <WorkCard
-            id="report-card"
-            title={copies.length > 1 ? "Report" : partner ? `Report to ${first}` : "Report"}
-            actions={
-              <>
-                <span className="text-[13px] text-muted-foreground" data-testid="report-hint">
-                  {state.status === "sent" ? "As sent" : state.status === "skipped" ? "Not sent" : edited ? "As it will be sent, edited" : "As it will be sent"}
-                </span>
-                <AiCardStar context={{ ...page, card: "Report" }} extras={extras} />
-              </>
-            }
-            testId="report-card"
-          >
-            {copies.length > 1 ? (
-              <div className="flex flex-wrap items-center gap-2 px-[22px] pt-3" data-testid="report-to">
-                <span className="text-[12.5px] font-medium text-slate-600">To</span>
-                <span className="inline-flex overflow-hidden rounded-full border border-border bg-white" role="group" aria-label="To">
-                  {copies.map((c, i) => (
-                    <button
-                      key={c.partner.id}
-                      type="button"
-                      onClick={() => {
-                        if (editing) toggleEdit();
-                        setSel(c.partner.id);
-                      }}
-                      aria-pressed={c.partner.id === copy?.partner.id}
-                      className={cn("px-3 py-1 text-[12.5px] font-medium whitespace-nowrap", i ? "border-l border-border" : "", c.partner.id === copy?.partner.id ? "bg-primary-soft text-primary-strong" : "text-slate-600 hover:bg-slate-50")}
-                      data-testid="report-to-choice"
-                      data-partner={c.partner.first}
-                    >
-                      {c.partner.name}
-                      {c.sentAt ? <span className="ml-1.5 text-status-met">sent</span> : null}
-                    </button>
-                  ))}
-                </span>
-              </div>
-            ) : null}
-            <p className="px-[22px] pt-2.5 pb-1 text-[12.5px] text-muted-foreground" data-testid="report-meta">
-              {partner ? (
-                <>
-                  To {partner.name}
-                  {partner.email ? ` (${partner.email})` : ", no email address yet"} · {daysLabel(partner.days) === "every weekday" ? "weekdays" : daysLabel(partner.days)} · sections set on{" "}
-                  <Link href={personHref(partner.id)} className="font-medium text-primary-strong hover:underline" data-testid="report-partner-link">
-                    {partner.first}&apos;s page
-                  </Link>
-                  {copy?.sentAt ? ` · sent ${copy.sentTime}` : ""}
-                </>
-              ) : data.partners.length ? (
-                <>No partner gets the report today. Each partner&apos;s days are on their page under People.</>
-              ) : (
-                <>
-                  No accountability partner yet. Add a person under{" "}
-                  <Link href="/work/people?view=everyone" className="font-medium text-primary-strong hover:underline">
-                    People
-                  </Link>{" "}
-                  with the role Accountability partner.
-                </>
-              )}
-            </p>
-            <div className="px-[22px] pt-1 pb-3">
-              <div
-                ref={previewRef}
-                contentEditable={editing}
-                suppressContentEditableWarning
-                className={cn("report-preview min-w-0 overflow-x-auto rounded-[10px] text-[13.5px] leading-normal text-slate-900 focus:outline-none", editing && "bg-[#fbfcff] shadow-[0_0_0_2px_var(--primary-border)]")}
-                dangerouslySetInnerHTML={{ __html: html }}
-                data-testid="report-preview"
-                data-editing={editing ? "1" : "0"}
-                data-edited={edited ? "1" : "0"}
-              />
-            </div>
-            {check ? (
-              <div className="mx-[22px] mb-3">
-                <Confirm tone="warn" testId="send-check">
-                  <span>{check}</span>
-                  <RowButton onClick={focusFirstReason} data-testid="send-check-give">
-                    Give them
-                  </RowButton>
-                  <RowButton tone="primary" onClick={() => send(true)} disabled={sending} data-testid="send-check-anyway">
-                    Send anyway
-                  </RowButton>
-                </Confirm>
-              </div>
-            ) : null}
-            {state.status === "open" ? (
-              <div id="report-acts" className="flex flex-wrap items-center gap-2 border-t border-slate-100 px-[22px] py-3" data-testid="report-acts">
-                <RowButton onClick={toggleEdit} disabled={pending || sending} data-testid="report-edit">
-                  {editing ? "Done editing" : "Edit"}
-                </RowButton>
-                {edited && !editing ? (
-                  <button type="button" onClick={resetEdit} className="text-[12.5px] font-medium text-primary-strong hover:underline" data-testid="report-reset">
-                    Back to the built report
-                  </button>
-                ) : null}
-                <RowButton tone="primary" onClick={() => send(false)} disabled={sending || !unsent.length} data-testid="report-send" data-count={unsent.length}>
-                  {sending ? "Sending..." : sendLabel(unsent.length)}
-                </RowButton>
-                <span className="text-[12.5px] text-muted-foreground sm:ml-auto" data-testid="report-due-line">
-                  {copies.some((c) => c.sentAt) && unsent.length ? `Sent to ${toNames(copies.filter((c) => c.sentAt))}; ${toNames(unsent)} still to send` : dueLine(data.partners, day)}
-                </span>
-              </div>
-            ) : state.status === "sent" ? (
-              <div id="report-acts" className="border-t border-slate-100 px-[22px] py-3 text-[12.5px] text-muted-foreground" data-testid="sent-line">
-                <b className="font-semibold text-status-met">Sent {state.sentTime}</b> · approved by you · to {copies.length ? toNames(copies) : first} by email · kept under Reports, Sent reports
-                {note ? ` · ${note}` : ""}
-              </div>
-            ) : (
-              <div id="report-acts" className="border-t border-slate-100 px-[22px] py-3 text-[12.5px] text-muted-foreground" data-testid="skipped-line">
-                <b className="font-semibold text-status-neutral">Skipped</b> · reason: {state.skipReason} · {copies.length > 1 ? "nobody gets" : `${first} gets`} nothing today; any reason still owed is asked on the next End of day
-              </div>
-            )}
-            {state.status === "open" ? (
-              skipOpen ? (
-                <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 px-[22px] py-3" data-testid="skip-box">
-                  <span className="text-[12.5px] whitespace-nowrap text-muted-foreground">Why skip, one line</span>
-                  <input value={skipWhy} onChange={(e) => setSkipWhy(e.target.value)} placeholder="For example: travel day" className={cn(INPUT, "h-[30px] flex-1 basis-[200px]")} data-testid="skip-reason" />
-                  <RowButton onClick={skip} disabled={pending} data-testid="skip-confirm">
-                    Skip
-                  </RowButton>
-                  <RowButton onClick={() => setSkipOpen(false)}>Cancel</RowButton>
-                </div>
-              ) : (
-                <div className="px-[22px] pb-3.5">
-                  <button type="button" onClick={() => setSkipOpen(true)} className="text-[12.5px] text-muted-foreground underline decoration-border hover:text-slate-900" data-testid="skip-today">
-                    Skip today
-                  </button>
-                </div>
-              )
-            ) : null}
           </WorkCard>
         </div>
       </div>
+      <ReportWindow
+        open={!!windowOpen}
+        onOpenChange={(o) => setWindowOpen(o ? "view" : false)}
+        day={day}
+        copies={copies}
+        sel={copy?.partner.id ?? null}
+        onSel={setSel}
+        title={reportTitle}
+        sub={`${kind} · ${data.dateLabel} · ${state.status === "sent" ? `sent at ${state.sentTime}` : state.status === "skipped" ? "not sent today" : `as it will be sent at ${END_OF_DAY_TIME} pm`}`}
+        startEditing={windowOpen === "edit"}
+        resetKey={resetKey}
+        footerNote={checkBox ?? (state.status === "open" && needs.length ? `${needs.join(" · ")}. Gaps go out as "(still to give)".` : state.status === "open" ? due : state.status === "sent" ? `Sent to ${toNames(copies)} at ${state.sentTime}.` : "Skipped today. Nothing is sent.")}
+        sendButton={
+          state.status === "open" ? (
+            <button type="button" onClick={() => send(false)} disabled={sending || !unsent.length} className="inline-flex h-8 items-center rounded-[7px] border border-primary-solid bg-primary-solid px-3 text-[13px] font-medium text-white hover:bg-primary-solid-hover disabled:opacity-50" data-testid="report-window-send">
+              {sendLabelNow}
+            </button>
+          ) : null
+        }
+      />
       {drawer ? <TodayDrawer part={drawer} n={n} threshold={data.threshold} dateLabel={data.dateLabel} onClose={() => setDrawer(null)} /> : null}
     </>
+  );
+}
+
+/** The status line on the report card: a dot and the words, green or amber. */
+function RStat({ tone, children }: { tone: "green" | "amber"; children: React.ReactNode }) {
+  return (
+    <span className={cn("inline-flex items-center gap-[7px] text-[13.5px] font-semibold", tone === "green" ? "text-status-met" : "text-status-soon")} data-testid="report-status-line" data-tone={tone}>
+      <i className="block h-2 w-2 shrink-0 rounded-full bg-current" aria-hidden />
+      <span>{children}</span>
+    </span>
   );
 }
 

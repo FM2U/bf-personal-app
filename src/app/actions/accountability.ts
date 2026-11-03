@@ -5,7 +5,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireOwner } from "@/lib/auth";
 import { AI_REPLY_CUT_OFF, AI_REPLY_UNUSABLE, AIInvalidReply, AIUnavailable, callForJson, cleanDeep, replySnippet } from "@/lib/ai/claude";
 import { loadCtx, type Ctx } from "@/lib/engine/helpers";
-import { signatureHtmlToText, sanitizeHtml } from "@/lib/email-signature";
 import { isValidEmail } from "@/lib/email-address";
 import { isGoogleConfigured } from "@/lib/env";
 import { explainGoogleError } from "@/lib/google-errors";
@@ -21,6 +20,7 @@ import { TODO_MAX_LENGTH } from "@/lib/work/questions";
 import { nextTodoPosition } from "@/lib/work/todos";
 import { reasonsPrompt, validateReasonsReply, type ReasonDraft } from "@/lib/accountability/ask-ai";
 import { reportInnerHtml, reportSubject, reportText } from "@/lib/accountability/report-email";
+import { cleanChoices, hasChoices, type ReportChoices } from "@/lib/accountability/report-sections";
 import { personHref } from "@/lib/work/people";
 import { countable, isCountKey, noReasonText, owedReasons, reportSummary, type Cadence } from "@/lib/accountability/targets";
 import { loadWorkCtx } from "@/lib/work/data";
@@ -189,36 +189,17 @@ export async function saveTomorrow(day: string, text: string): Promise<{ ok: tru
   return { ok: true };
 }
 
-/** The style properties the report email uses beyond the signature sanitizer's set. */
-const REPORT_STYLE_PROPS = ["display", "box-sizing", "overflow", "text-align", "white-space"];
-
-/** The edited report HTML, cleaned (tables, lists, inline styles; nothing that runs). Null or empty clears the edit. */
-function cleanReportHtml(html: string | null): string | null {
-  const raw = String(html ?? "").trim();
-  if (!raw) return null;
-  const out = sanitizeHtml(raw, { extraTags: ["ul", "ol", "li"], extraStyleProps: REPORT_STYLE_PROPS, maxLength: 120000 });
-  return out.replace(/<[^>]+>/g, "").trim() ? out : null;
-}
-
 /** The copy a per-partner action is about: that partner's, or the first one when none is named. */
 function copyOf(page: EndOfDayPage, contactId: string | null | undefined): PartnerCopy | null {
   return page.copies.find((c) => c.partner.id === contactId) ?? (contactId ? null : page.copies[0] ?? null);
 }
 
-/** Stores one partner's edit of the day's report (null clears it); the copies of other partners are kept. */
-async function storeEdit(sb: SupabaseClient, row: Row, contactId: string, html: string | null) {
-  const edits = { ...((row.report_edits && typeof row.report_edits === "object" && !Array.isArray(row.report_edits) ? row.report_edits : {}) as Record<string, string>) };
-  if (html) edits[contactId] = html;
-  else delete edits[contactId];
-  // The edit saved before push B (one for the day) gives way to the per-partner edits.
-  return sb.from("end_of_day").update({ report_edits: edits, report_html: null, report_edited: false }).eq("id", row.id);
-}
-
 /**
- * Edit in place: one partner's copy as edited (Done editing), or null to go back to the built one. Push B: each partner
- * due today has their own copy (their sections), so an edit belongs to the partner shown under To.
+ * The review window (push B edits): one partner's choices for today's copy, saved with the day's End of day row by
+ * contact id (the include boxes, what Change shows, the 3 deals of Top 3, each section's text from Edit). An empty
+ * choice set goes back to the built report. The other partners' choices are kept. Applies to today only.
  */
-export async function saveReportEdit(day: string, html: string | null, contactId?: string | null): Promise<{ ok: true; html: string } | Fail> {
+export async function saveReportChoices(day: string, contactId: string | null, choices: ReportChoices): Promise<{ ok: true; html: string; choices: ReportChoices } | Fail> {
   const s = await setup();
   if (isFail(s)) return s;
   const { sb, ctx } = s;
@@ -227,31 +208,35 @@ export async function saveReportEdit(day: string, html: string | null, contactId
   if (row.status !== "open") return fail(`Today is already ${row.status}.`);
   const before = await loadPage(sb, ctx, day);
   const copy = copyOf(before, contactId);
-  if (!copy) return fail("No partner gets the report today, so there is nothing to edit.");
-  const cleaned = cleanReportHtml(html);
-  const { error } = await storeEdit(sb, row, copy.partner.id, cleaned);
+  if (!copy) return fail("No partner gets the report today, so there is nothing to change.");
+  if (copy.sentAt) return fail(`The report to ${copy.partner.first} was already sent. A sent report never changes.`);
+  const cleaned = cleanChoices(choices);
+  const all = { ...((row.report_edits && typeof row.report_edits === "object" && !Array.isArray(row.report_edits) ? row.report_edits : {}) as Record<string, unknown>) };
+  if (hasChoices(cleaned)) all[copy.partner.id] = cleaned;
+  else delete all[copy.partner.id];
+  const { error } = await sb.from("end_of_day").update({ report_edits: all, report_html: null, report_edited: false }).eq("id", row.id);
   if (error) return notSaved(error);
   const page = await loadPage(sb, ctx, day);
   done();
-  return { ok: true, html: copyOf(page, copy.partner.id)?.html ?? page.reportHtml };
+  const after = copyOf(page, copy.partner.id);
+  return { ok: true, html: after?.html ?? page.reportHtml, choices: cleaned };
 }
 
-/** "Use the short version" (the Ask AI panel on the report card): the short report goes into that partner's preview as an edit. */
-export async function putShortReport(day: string, contactId?: string | null): Promise<{ ok: true; html: string } | Fail> {
-  const s = await setup();
-  if (isFail(s)) return s;
-  const { sb, ctx } = s;
-  const row = await ensureEod(sb, ctx, day);
-  if (isFail(row)) return row;
-  if (row.status !== "open") return fail(`Today is already ${row.status}.`);
-  const page = await loadPage(sb, ctx, day);
+/**
+ * "Use the short version" (the Ask AI panel on the report): that partner's copy keeps Targets with the reasons, the
+ * week, and the tomorrow line for today; the other sections are left out today (each can be ticked back).
+ */
+export async function putShortReport(day: string, contactId?: string | null): Promise<{ ok: true; html: string; choices: ReportChoices } | Fail> {
+  const page = await (async () => {
+    const s = await setup();
+    if (isFail(s)) return s;
+    return loadPage(s.sb, s.ctx, day);
+  })();
+  if (isFail(page)) return page;
   const copy = copyOf(page, contactId);
   if (!copy) return fail("No partner gets the report today.");
-  const html = reportInnerHtml(copy.report, true);
-  const { error } = await storeEdit(sb, row, copy.partner.id, html);
-  if (error) return notSaved(error);
-  done();
-  return { ok: true, html };
+  const prev = copy.report.choices ?? {};
+  return saveReportChoices(day, copy.partner.id, { ...prev, include: { ...(prev.include ?? {}), today: false, top: false, active: false, waiting: false, jobs: false, targets: true, week: true, tomorrow: true } });
 }
 
 async function loadPage(sb: SupabaseClient, ctx: Ctx, day: string): Promise<EndOfDayPage> {
@@ -291,12 +276,12 @@ export async function approveAndSend(day: string, requestId: string, force = fal
   const { data: prior } = await sb.from("change_log").select("new_value").eq("field", "email_sent").eq("new_value->>request_id", requestId).limit(50);
   const sentThisClick = new Set(((prior ?? []) as Row[]).map((p) => String(((p.new_value as Row) ?? {}).contact_id ?? "")));
   const todo = waiting.filter((c) => !sentThisClick.has(c.partner.id));
-  if (!page.copies.length) return { ok: false, error: page.partners.length ? "No partner gets the report today. Change a partner's days on their page under People to send one." : "No accountability partner yet. Add a person under People with the role Accountability partner and an email address.", reason: "partner" };
+  if (!page.copies.length) return { ok: false, error: page.partners.length ? "No partner gets the report today. Change a partner's days on their page under Contacts to send one." : "No accountability partner yet. Add a person under Contacts with the role Accountability partner and an email address.", reason: "partner" };
   if (!todo.length) return finishDay(sb, ctx, row, page, requestId);
   const owed = owedCount(page);
   if (owed && !force) return { ok: false, error: noReasonText(owed, todo.length > 1 ? "Your partners" : todo[0].partner.first), reason: "reasons", owed };
   const noEmail = todo.filter((c) => !c.partner.email || !isValidEmail(c.partner.email));
-  if (noEmail.length) return { ok: false, error: `${noEmail.map((c) => c.partner.name).join(" and ")} ${noEmail.length > 1 ? "have" : "has"} no valid email address. Add it on ${noEmail.length > 1 ? "their pages" : `${noEmail[0].partner.first}'s page`} under People, then press Approve and send again. Nothing was sent.`, reason: "partner" };
+  if (noEmail.length) return { ok: false, error: `${noEmail.map((c) => c.partner.name).join(" and ")} ${noEmail.length > 1 ? "have" : "has"} no valid email address. Add it on ${noEmail.length > 1 ? "their pages" : `${noEmail[0].partner.first}'s page`} under Contacts, then press Approve and send again. Nothing was sent.`, reason: "partner" };
   const perm = isGoogleConfigured() ? sendPermission(await getGoogleConnection(sb, ctx.ownerId)) : "not_connected";
   if (perm === "reconnect") return { ok: false, error: "Sending from the app is not allowed yet. Reconnect Google once (1 minute) under Settings, Connections, then press Approve and send again.", reason: "google" };
   if (perm !== "allowed") return { ok: false, error: "Google is not connected. Connect Google in Settings, Connections, then press Approve and send again.", reason: "google" };
@@ -305,10 +290,11 @@ export async function approveAndSend(day: string, requestId: string, force = fal
   const sentTo: string[] = [];
   for (const copy of todo) {
     const p = copy.partner;
-    const edited = copy.edited ? cleanReportHtml(copy.html) : null;
-    const inner = edited ?? reportInnerHtml(copy.report);
+    // The copy as the review window shows it: this partner's sections with today's include, Change, and Edit.
+    const edited = copy.edited;
+    const inner = reportInnerHtml(copy.report);
     const html = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;background-color:#f8fafc"><tr><td align="center" style="padding:12px 6px">${inner}</td></tr></table>`;
-    const body = edited ? signatureHtmlToText(edited) : reportText(copy.report);
+    const body = reportText(copy.report);
     const subject = reportSubject(copy.report);
     let sent: { id: string; threadId: string | null };
     try {
@@ -325,7 +311,7 @@ export async function approveAndSend(day: string, requestId: string, force = fal
     // The sent copy as a partner report (finalized: it never changes), with the thread its replies come in.
     const { data: report } = await sb
       .from("partner_reports")
-      .insert({ owner_id: ctx.ownerId, contact_id: p.id, period_start: day, period_end: day, status: "finalized", snapshot: { end_of_day: true, day, judged: page.judged, reasons: page.reasons, tomorrow: page.tomorrow, report: copy.report, sections: p.sections, edited: !!edited, html: inner, subject }, summary, summary_source: "owner", finalized_at: sentAt, delivered_via: ["gmail_sent"], report_kind: "end_of_day", sent_at: sentAt, gmail_message_id: sent.id, gmail_thread_id: sent.threadId })
+      .insert({ owner_id: ctx.ownerId, contact_id: p.id, period_start: day, period_end: day, status: "finalized", snapshot: { end_of_day: true, day, judged: page.judged, reasons: page.reasons, tomorrow: page.tomorrow, report: copy.report, sections: p.sections, choices: copy.report.choices ?? null, edited: !!edited, html: inner, subject }, summary, summary_source: "owner", finalized_at: sentAt, delivered_via: ["gmail_sent"], report_kind: "end_of_day", sent_at: sentAt, gmail_message_id: sent.id, gmail_thread_id: sent.threadId })
       .select("id")
       .single();
     const reportId = report ? String((report as Row).id) : null;

@@ -9,6 +9,7 @@ import { daysLabel } from "@/lib/work/stages";
 import { openTodos } from "@/lib/work/todos";
 import { AskAiPill } from "@/components/app/work/ask-ai";
 import { RecordHeader } from "@/components/app/work/record-header";
+import { RecordColumns } from "@/components/app/work/record-columns";
 import { WorkShell, WorkUpdateNotice } from "@/components/app/work/shell";
 import { Pill, ProgressMark, waitTone, What, WorkHeader } from "@/components/app/work/ui";
 import { DealHeaderActions, DecisionCard, FactsCard, FindingsCard, ListingTextCard, NextActionCard, TimelineCard, TodosCard } from "@/components/app/work/deal/cards";
@@ -141,20 +142,24 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
         }
         figures={figures}
       />
-      <div className="grid grid-cols-1 items-start gap-5 min-[1000px]:grid-cols-2">
-        <div className="flex min-w-0 flex-col gap-5">
+      <RecordColumns
+        left={
+          <>
           <FindingsCard deal={deal} compose={d.questionsCompose} aiTools={state.questionsTools} listsReady={listsReady} growthReady={growthReady} />
           <NextActionCard deal={deal} today={d.today} noActionHint={state.noActionHint} />
           <TodosCard deal={deal} todos={d.todos} />
-        </div>
-        <div className="flex min-w-0 flex-col gap-5">
+          </>
+        }
+        right={
+          <>
           <FactsCard deal={growthReady ? deal : { ...deal, financing: null }} />
           <ListingTextCard dealId={deal.id} text={d.listingText} ready={d.listingTextReady} notice={DB_UPDATE_NOTICE_0027} />
           <TimelineCard deal={deal} events={d.timeline} />
           {state.documents ? <DocumentsCard table="pipeline_items" id={deal.id} docs={d.documents} storageKey="work:deal" defaultOpen /> : null}
           <DecisionCard deal={deal} advanceTo={deal.status === "open" && !isListing ? d.advanceTo : null} listing={isListing} />
-        </div>
-      </div>
+          </>
+        }
+      />
     </WorkShell>
   );
 }

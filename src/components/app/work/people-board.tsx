@@ -5,39 +5,61 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Mail } from "lucide-react";
 import { ComposeEmailDialog } from "@/components/app/compose-email";
+import { FilterChips, FilterRow, FilterWindow, type FilterView } from "@/components/app/filter-window";
 import type { ComposeSetup } from "@/lib/compose-email";
+import { activeChips, applyFilters, clearGroup, filterSummary, optionCounts, showLabel, tickedCount, ticksToParam, toggleTick, type FilterGroup, type Ticks } from "@/lib/filters";
 import { date as fmtDate } from "@/lib/format";
-import { lastContactLabel, matchesOutreachFilter, matchesPersonSearch, OUTREACH_FILTERS, OUTREACH_SECTIONS, outreachFilterCounts, outreachSections, type OutreachFilter } from "@/lib/work/outreach";
+import { lastContactLabel, matchesPersonSearch, OUTREACH_SECTIONS, outreachSections } from "@/lib/work/outreach";
 import type { OutreachData, PersonRow as PersonRowData } from "@/lib/work/outreach-data";
 import type { OrganizationsData, OrgRow } from "@/lib/work/organizations-data";
-import { byName, matchesOrgFilter, matchesOrgSearch, matchesRole, onFollowUps, orgFilters, organizationHref, orgLine, PEOPLE_HREF, PEOPLE_VIEWS, peopleNamesLine, peopleViewHref, personHref, roleCounts, roleFilters, type OrgFilter, type PeopleView, type RoleFilter } from "@/lib/work/people";
+import { byName, matchesOrgSearch, onFollowUps, orgFilterGroups, organizationHref, orgLine, PEOPLE_HREF, PEOPLE_VIEWS, peopleNamesLine, peopleViewHref, personFilterGroups, personHref, type PeopleView } from "@/lib/work/people";
 import { AddOrganizationCard } from "@/components/app/work/add-organization";
 import { AddPersonCard } from "@/components/app/work/add-person";
 import { LogCallDrawer, type LogCallTarget } from "@/components/app/work/log-call-drawer";
 import { PersonRow } from "@/components/app/work/person-row";
 import { useSections } from "@/components/app/work/sections";
-import { Figure, Figures, FilterRow, Line1, Line2, Name, PinnedBlock, Quiet, ROW_COLS, RowButton, RowButtons, RowShell, SectionHeading, TargetBar, What, WorkCard } from "@/components/app/work/ui";
-import { cn } from "@/lib/utils";
+import { Figure, Figures, Line1, Line2, Name, Pill, PinnedBlock, Quiet, ROW_COLS, RowButton, RowButtons, RowShell, SectionHeading, TargetBar, What, WorkCard } from "@/components/app/work/ui";
 
 /**
- * People (push B, 2026-11-03; Outreach renamed, approved mockup 2026-11-02): the pinned block with the title, the add
- * button, the Work tabs, and one filter row: the view choice (Follow-ups, Everyone, Organizations, each with its count),
- * a hairline, the view's own pills, Find, and (Follow-ups) Collapse all.
+ * Contacts (push B, 2026-11-03; Outreach renamed People, then Contacts in the Push B edits): the pinned block with the
+ * title, the add button, the Work tabs, and one row: the view choice (Follow-ups, People, Organizations, each with the
+ * number of rows it shows), Find, and the Filter button; the ticked choices as chips under it. The Filter window
+ * (src/components/app/filter-window.tsx) has the view choice at its top and the groups of that view; each view keeps
+ * its own ticks (in the address, so a reload keeps them).
  *  - Follow-ups: what Outreach was. The weekly counter and the sections by next follow-up; Email, Log a call, Done.
- *  - Everyone: every person A to Z in one card, with the role filter; Email and Log a call.
- *  - Organizations: every firm A to Z with its kind and region, the people there, open deals, last contact; Email.
- * Archived people and organizations sit in a slim bar at the bottom of their view.
+ *  - People: every person A to Z in one card; Email and Log a call.
+ *  - Organizations: every organization A to Z with its kind and region, the people there, open deals, last contact;
+ *    Email. Archived ones show when Status: Archived is ticked.
+ * Archived people sit in a slim bar at the bottom of Follow-ups and People.
  */
 const STORAGE_KEY = "work-outreach-sections";
 const CARD = "rounded-xl border border-border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]";
 
-export function PeopleBoard({ header, view, data, orgs, adding, saved, role: roleAtStart }: { header: React.ReactNode; view: PeopleView; data: OutreachData; orgs: OrganizationsData; adding: boolean; saved?: string | null; role?: string | null }) {
+export type PeopleTicks = Record<PeopleView, Ticks>;
+
+/** The address of the page with a view and every view's ticks (ff, fp, fo). */
+function viewUrl(view: PeopleView, ticks: PeopleTicks): string {
+  const q = new URLSearchParams();
+  if (view !== "follow") q.set("view", view);
+  const keys: Record<PeopleView, string> = { follow: "ff", people: "fp", orgs: "fo" };
+  for (const v of Object.keys(keys) as PeopleView[]) {
+    const t = ticksToParam(ticks[v]);
+    if (t) q.set(keys[v], t);
+  }
+  const s = q.toString();
+  return s ? `${PEOPLE_HREF}?${s}` : PEOPLE_HREF;
+}
+
+export function PeopleBoard({ header, view: viewAtStart, data, orgs, adding, saved, ticks: ticksAtStart }: { header: React.ReactNode; view: PeopleView; data: OutreachData; orgs: OrganizationsData; adding: boolean; saved?: string | null; ticks: PeopleTicks }) {
   const router = useRouter();
-  const [filter, setFilter] = useState<OutreachFilter>("all");
-  const roles = useMemo(() => roleFilters(data.people), [data.people]);
-  const [role, setRole] = useState<RoleFilter>((roles.find((r) => r.key === roleAtStart)?.key ?? "all") as RoleFilter);
-  const kinds = useMemo(() => orgFilters(orgs.orgs), [orgs.orgs]);
-  const [kind, setKind] = useState<OrgFilter>("all");
+  const [view, setView] = useState<PeopleView>(viewAtStart);
+  const [prevView, setPrevView] = useState(viewAtStart);
+  if (prevView !== viewAtStart) {
+    setPrevView(viewAtStart);
+    setView(viewAtStart);
+  }
+  const [ticks, setTicks] = useState<PeopleTicks>(ticksAtStart);
+  const [filterOpen, setFilterOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [email, setEmail] = useState<{ key: string; setup: ComposeSetup } | null>(null);
   const [call, setCall] = useState<LogCallTarget | null>(null);
@@ -47,55 +69,70 @@ export function PeopleBoard({ header, view, data, orgs, adding, saved, role: rol
   const [showArchived, setShowArchived] = useState(false);
   const { today } = data;
 
-  const follow = useMemo(() => data.people.filter(onFollowUps), [data.people]);
-  const sections = useMemo(() => outreachSections(follow, today), [follow, today]);
-  const counts = useMemo(() => outreachFilterCounts(follow, today), [follow, today]);
-  const everyone = useMemo(() => byName(data.people), [data.people]);
-  const rCounts = useMemo(() => roleCounts(data.people, roles), [data.people, roles]);
-  const kCounts = useMemo(() => Object.fromEntries(kinds.map((k) => [k.key, orgs.orgs.filter((o) => matchesOrgFilter(o, k.key)).length])) as Record<OrgFilter, number>, [kinds, orgs.orgs]);
-  const shown = (p: PersonRowData) => matchesOutreachFilter(p, filter, today) && matchesPersonSearch(p, query);
-  const states = useMemo(() => OUTREACH_SECTIONS.map((s) => ({ name: s.label, count: sections[s.key].length, hasMatch: sections[s.key].some((p) => matchesOutreachFilter(p, filter, today)) })), [sections, filter, today]);
-  const ui = useSections(STORAGE_KEY, states, filter !== "all");
-  const pick = (f: OutreachFilter) => {
-    setFilter(f);
-    ui.resetOverrides();
+  // The groups of each view, built from the rows (the kinds held, the regions).
+  const allOrgs = useMemo(() => byName([...orgs.orgs, ...orgs.archived]), [orgs.orgs, orgs.archived]);
+  const kindById = useMemo(() => new Map(allOrgs.map((o) => [o.id, o.kind as string])), [allOrgs]);
+  const heldKinds = useMemo(() => [...new Set(allOrgs.map((o) => o.kind as string))], [allOrgs]);
+  const pGroups = useMemo(() => personFilterGroups<PersonRowData>(today, (id) => kindById.get(id) ?? null, heldKinds), [today, kindById, heldKinds]);
+  const oGroups = useMemo(() => orgFilterGroups<OrgRow>(allOrgs), [allOrgs]);
+
+  const followBase = useMemo(() => data.people.filter(onFollowUps), [data.people]);
+  const peopleBase = useMemo(() => byName(data.people), [data.people]);
+  const searchPeople = (list: PersonRowData[]) => list.filter((p) => matchesPersonSearch(p, query));
+  const searchOrgs = (list: OrgRow[]) => list.filter((o) => matchesOrgSearch(o, query));
+  const followRows = useMemo(() => applyFilters(followBase, pGroups, ticks.follow).filter((p) => matchesPersonSearch(p, query)), [followBase, pGroups, ticks.follow, query]);
+  const peopleRows = useMemo(() => applyFilters(peopleBase, pGroups, ticks.people).filter((p) => matchesPersonSearch(p, query)), [peopleBase, pGroups, ticks.people, query]);
+  const orgRows = useMemo(() => applyFilters(allOrgs, oGroups, ticks.orgs).filter((o) => matchesOrgSearch(o, query)), [allOrgs, oGroups, ticks.orgs, query]);
+  // The number on each view is the rows it shows (its ticks and the search); the menu badge keeps "due now".
+  const views: FilterView<PeopleView>[] = PEOPLE_VIEWS.map((v) => ({ key: v.key, label: v.label, count: v.key === "follow" ? followRows.length : v.key === "people" ? peopleRows.length : orgRows.length }));
+
+  const sections = useMemo(() => outreachSections(followRows, today), [followRows, today]);
+  const filtering = tickedCount(pGroups, ticks.follow) > 0 || !!query.trim();
+  const states = useMemo(() => OUTREACH_SECTIONS.map((s) => ({ name: s.label, count: sections[s.key].length, hasMatch: sections[s.key].length > 0 })), [sections]);
+  const ui = useSections(STORAGE_KEY, states, filtering);
+
+  const pickView = (v: PeopleView) => {
+    setView(v);
+    router.replace(viewUrl(v, ticks), { scroll: false });
   };
-  const viewCount: Record<PeopleView, number> = { follow: counts.today + counts.over, everyone: data.people.length, orgs: orgs.orgs.length };
+  const setViewTicks = (v: PeopleView, t: Ticks) => {
+    const next = { ...ticks, [v]: t };
+    setTicks(next);
+    router.replace(viewUrl(view, next), { scroll: false });
+  };
+  const groupsOf = (v: PeopleView) => (v === "orgs" ? (oGroups as FilterGroup<unknown>[]) : (pGroups as FilterGroup<unknown>[]));
+  const rowsForCounts = (v: PeopleView): unknown[] => (v === "orgs" ? searchOrgs(allOrgs) : v === "people" ? searchPeople(peopleBase) : searchPeople(followBase));
+  const g = groupsOf(view);
+  const t = ticks[view];
+  const counts = optionCounts(rowsForCounts(view), g, t);
+  const shownCount = view === "orgs" ? orgRows.length : view === "people" ? peopleRows.length : followRows.length;
+  const noun = view === "orgs" ? "organizations" : "people";
+  const summary = filterSummary(g, t, noun, view === "orgs" ? "that are" : "who are");
+  const show = view === "orgs" ? showLabel(shownCount, "organization", "organizations") : showLabel(shownCount, "person", "people");
+
   const onEmailPerson = (p: PersonRowData) => data.composes[p.id] && setEmail({ key: p.id, setup: data.composes[p.id] });
   const onCallPerson = (p: PersonRowData) => {
     setCallKey(p.id);
-    setCall({ contactId: p.id, dealId: null, who: p.name, from: view === "follow" ? "From People, Follow-ups" : "From People, Everyone", currentDate: p.nextFollowUp });
+    setCall({ contactId: p.id, dealId: null, who: p.name, from: view === "follow" ? "From Contacts, Follow-ups" : "From Contacts, People", currentDate: p.nextFollowUp });
   };
   const closeHref = peopleViewHref(view);
-
-  const viewChoice = (
-    <span className="inline-flex overflow-hidden rounded-full border border-border bg-white" role="group" aria-label="View" data-testid="people-view">
-      {PEOPLE_VIEWS.map((v, i) => (
-        <Link key={v.key} href={peopleViewHref(v.key)} aria-current={view === v.key ? "page" : undefined} className={cn("inline-flex items-center px-3 py-1 text-[12.5px] font-medium whitespace-nowrap", i ? "border-l border-border" : "", view === v.key ? "bg-primary-soft text-primary-strong" : "text-slate-600 hover:bg-slate-50")} data-testid={`people-view-${v.key}`}>
-          {v.label}
-          <span className={cn("tabular ml-[5px]", view === v.key ? "text-primary-strong" : "text-slate-400")}>{viewCount[v.key]}</span>
-        </Link>
-      ))}
-    </span>
+  const noMatch = (who: string) => (
+    <Quiet testId="filter-empty">
+      <b className="block font-semibold text-heading">No {who} matches.</b>
+      Change or clear the filters.
+    </Quiet>
   );
-  const sep = <span className="mx-0.5 hidden h-5 w-px bg-border sm:block" aria-hidden />;
 
   return (
     <>
       <PinnedBlock testId="people-sticky">
         {header}
-        <div className="-mt-2 flex flex-wrap items-center gap-2" data-testid="people-filter-row">
-          {viewChoice}
-          {sep}
-          {view === "follow" ? (
-            <FilterRow prefix="outreach" filters={OUTREACH_FILTERS.map((f) => ({ key: f.key, label: f.label, sepBefore: f.key === "off_market_deals" }))} active={filter} counts={counts} onPick={pick} query={query} onQuery={setQuery} placeholder="Find a person" collapse={{ allCollapsed: ui.allCollapsed, onClick: ui.toggleAll }} className="contents" searchClassName="sm:w-[150px]" />
-          ) : view === "everyone" ? (
-            <FilterRow prefix="everyone" filters={roles} active={role} counts={rCounts as Record<RoleFilter, number>} onPick={setRole} query={query} onQuery={setQuery} placeholder="Find a person" className="contents" searchClassName="sm:w-[150px]" />
-          ) : (
-            <FilterRow prefix="orgs" filters={kinds} active={kind} counts={kCounts} onPick={setKind} query={query} onQuery={setQuery} placeholder="Find an organization" className="contents" searchClassName="sm:w-[170px]" />
-          )}
+        <div className="-mt-2" data-testid="people-filter-row">
+          <FilterRow views={views} view={view} onView={pickView} query={query} onQuery={setQuery} placeholder={view === "orgs" ? "Find an organization" : "Find a person"} ticked={tickedCount(g, t)} onOpen={() => setFilterOpen(true)} />
+          <FilterChips chips={activeChips(g, t)} onRemove={(group, value) => setViewTicks(view, toggleTick(t, group, value))} onClear={() => setViewTicks(view, {})} />
         </div>
       </PinnedBlock>
+      <FilterWindow open={filterOpen} onOpenChange={setFilterOpen} views={views} view={view} onView={pickView} groups={g} ticks={t} counts={counts} onToggle={(group, value) => setViewTicks(view, toggleTick(t, group, value))} onClearGroup={(group) => setViewTicks(view, clearGroup(t, group))} onClearAll={() => setViewTicks(view, {})} summary={summary} show={show} />
       <div className="flex flex-col gap-[18px]">
         {saved ? (
           <p className="rounded-md bg-status-met-bg px-3 py-2 text-[13px] text-status-met" role="status" data-testid="person-saved">
@@ -111,9 +148,13 @@ export function PeopleBoard({ header, view, data, orgs, adding, saved, role: rol
           <section className={CARD} data-testid="outreach-card">
             <TargetBar count={data.counter.count} target={data.counter.target} pct={data.counter.pct} hint="Counted from emails sent and calls logged, Mon to Fri" />
             <div className="mx-[22px] h-px bg-rule" />
-            {follow.length ? (
+            {!followBase.length ? (
+              <Quiet testId="outreach-empty">Nobody here yet. Add a person to start keeping in touch.</Quiet>
+            ) : !followRows.length ? (
+              noMatch("one")
+            ) : (
               <div className="px-[22px] pt-1 pb-3">
-                {OUTREACH_SECTIONS.map((s) => {
+                {OUTREACH_SECTIONS.filter((s) => !filtering || sections[s.key].length).map((s) => {
                   const list = sections[s.key];
                   const closed = ui.isCollapsed(s.label);
                   return (
@@ -122,7 +163,7 @@ export function PeopleBoard({ header, view, data, orgs, adding, saved, role: rol
                       {list.length && !closed ? (
                         <div className="-mx-[22px] flex flex-col" data-testid="section-body">
                           {list.map((p) => (
-                            <div key={p.id} className={cn("border-t border-slate-100 first:border-t-0", !shown(p) && "hidden")} data-testid="outreach-row" data-hidden={shown(p) ? "0" : "1"}>
+                            <div key={p.id} className="border-t border-slate-100 first:border-t-0" data-testid="outreach-row">
                               <PersonRow person={p} today={today} onEmail={onEmailPerson} onCall={onCallPerson} done={logged[p.id]} />
                             </div>
                           ))}
@@ -132,32 +173,30 @@ export function PeopleBoard({ header, view, data, orgs, adding, saved, role: rol
                   );
                 })}
               </div>
-            ) : (
-              <Quiet testId="outreach-empty">Nobody here yet. Add a person to start keeping in touch.</Quiet>
             )}
           </section>
         ) : null}
 
-        {view === "everyone" ? (
-          <WorkCard title="Everyone" count={everyone.filter((p) => matchesRole(p, role) && matchesPersonSearch(p, query)).length || null} hint="A to Z" testId="everyone-card">
+        {view === "people" ? (
+          <WorkCard title="People" count={peopleRows.length || null} hint="A to Z" testId="everyone-card">
             <div className="flex flex-col pb-1" data-testid="everyone-rows">
-              {everyone.filter((p) => matchesRole(p, role) && matchesPersonSearch(p, query)).map((p) => (
+              {peopleRows.map((p) => (
                 <div key={p.id} className="border-t border-slate-100 first:border-t-0" data-testid="everyone-row" data-role={p.roleKey ?? ""}>
                   <PersonRow person={p} today={today} onEmail={onEmailPerson} onCall={onCallPerson} done={logged[p.id]} showDone={false} />
                 </div>
               ))}
-              {!everyone.some((p) => matchesRole(p, role) && matchesPersonSearch(p, query)) ? <Quiet testId="everyone-empty">{query.trim() ? "No one matches." : "No one with this role yet."}</Quiet> : null}
+              {!peopleRows.length ? (peopleBase.length ? noMatch("one") : <Quiet testId="everyone-empty">No one here yet. Add a person to start keeping in touch.</Quiet>) : null}
             </div>
           </WorkCard>
         ) : null}
 
         {view === "orgs" ? (
-          <WorkCard title="Organizations" count={orgs.orgs.filter((o) => matchesOrgFilter(o, kind) && matchesOrgSearch(o, query)).length || null} hint="A to Z" testId="orgs-card">
+          <WorkCard title="Organizations" count={orgRows.length || null} hint="A to Z" testId="orgs-card">
             <div className="flex flex-col pb-1" data-testid="org-rows">
-              {orgs.orgs.filter((o) => matchesOrgFilter(o, kind) && matchesOrgSearch(o, query)).map((o) => (
+              {orgRows.map((o) => (
                 <OrgListRow key={o.id} org={o} today={today} canEmail={!!orgs.composes[o.id]} onEmail={() => setEmail({ key: o.id, setup: orgs.composes[o.id] })} done={logged[o.id]} />
               ))}
-              {!orgs.orgs.some((o) => matchesOrgFilter(o, kind) && matchesOrgSearch(o, query)) ? <Quiet testId="orgs-empty">{orgs.orgs.length ? "No organization matches." : "No organizations yet. Add one, or type a firm on a person's Facts."}</Quiet> : null}
+              {!orgRows.length ? (allOrgs.length ? noMatch("organization") : <Quiet testId="orgs-empty">No organizations yet. Add one, or type one on a person&apos;s Facts.</Quiet>) : null}
             </div>
           </WorkCard>
         ) : null}
@@ -168,16 +207,6 @@ export function PeopleBoard({ header, view, data, orgs, adding, saved, role: rol
               <Link key={p.id} href={personHref(p.id)} className="row-hover flex flex-wrap items-center gap-x-2.5 border-t border-slate-100 px-[22px] py-2.5 text-sm first:border-t-0" data-testid="archived-row">
                 <span className="font-semibold text-slate-900">{p.name}</span>
                 <span className="text-[13px] text-muted-foreground">{[p.organization, p.roleLabel].filter(Boolean).join(" · ")}</span>
-              </Link>
-            ))}
-          </ArchivedBar>
-        ) : null}
-        {view === "orgs" && orgs.archived.length ? (
-          <ArchivedBar count={orgs.archived.length} open={showArchived} onToggle={() => setShowArchived((o) => !o)} hint="Reopen an organization on its page to bring it back" testId="orgs-archived">
-            {orgs.archived.map((o) => (
-              <Link key={o.id} href={organizationHref(o.id)} className="row-hover flex flex-wrap items-center gap-x-2.5 border-t border-slate-100 px-[22px] py-2.5 text-sm first:border-t-0" data-testid="archived-row">
-                <span className="font-semibold text-slate-900">{o.name}</span>
-                <span className="text-[13px] text-muted-foreground">{orgLine(o)}</span>
               </Link>
             ))}
           </ArchivedBar>
@@ -247,7 +276,7 @@ function OrgListRow({ org, today, canEmail, onEmail, done }: { org: OrgRow; toda
         right={
           <>
             <Figures className="mr-1" testId="org-figures">
-              <Figure value={String(org.peopleCount)} label="People" col="people" testId="org-people" />
+              <Figure value={org.peopleCount ? String(org.peopleCount) : "None"} label="People" col="people" testId="org-people" />
               <Figure value={org.openDeals ? String(org.openDeals) : "None"} label="Open deals" col="openDeals" testId="org-open-deals" />
               <Figure value={lastContactLabel(org.lastContactOn, org.lastContactKind, today, (d) => fmtDate(d, "MMM d"))} label="Last contact" col="lastContact" testId="org-last-contact" />
             </Figures>
@@ -264,8 +293,9 @@ function OrgListRow({ org, today, canEmail, onEmail, done }: { org: OrgRow; toda
             <Name>{org.name}</Name>
           </Link>
           <What>{orgLine(org)}</What>
+          {org.archived ? <Pill tone="charcoal">Archived</Pill> : null}
         </Line1>
-        <Line2 className="text-slate-600">{peopleNamesLine(org.peopleNames)}</Line2>
+        <Line2 className={org.peopleNames.length ? "text-slate-600" : "text-muted-foreground"}>{org.peopleNames.length ? peopleNamesLine(org.peopleNames) : "No people yet"}</Line2>
         {done ? <span className="mt-1.5 inline-block text-[12.5px] font-medium text-status-met">{done}</span> : null}
       </RowShell>
     </div>

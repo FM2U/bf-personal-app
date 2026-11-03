@@ -70,23 +70,28 @@ const shot = async (page, name) => {
     await page.getByRole("heading", { name: "Mark Reed" }).waitFor();
   });
 
-  await step("People: the tab, the three views, the role filter, and the kind filter", async () => {
+  await step("Contacts: the tab, the three views, the Filter window by role and by kind", async () => {
     await page.goto(`${BASE}/work/people`);
-    assert((await page.getByTestId("work-tab-work-people").innerText()).startsWith("People"), "tab label");
-    assert((await page.locator("nav[aria-label='Work sections']").innerText()).includes("People"), "no People tab");
+    assert((await page.getByTestId("work-tab-work-people").innerText()).startsWith("Contacts"), "tab label");
+    assert((await page.locator("nav[aria-label='Work sections']").innerText()).includes("Contacts"), "no Contacts tab");
     assert(!(await page.locator("nav[aria-label='Work sections']").innerText()).includes("Outreach"), "Outreach tab still there");
     await page.getByTestId("outreach-card").waitFor();
     assert(!(await page.getByTestId("outreach-card").innerText()).includes("Jake Morgan"), "a partner without a follow-up sits on Follow-ups");
-    await page.getByTestId("people-view-everyone").click();
+    await page.getByTestId("people-view-people").click();
     await page.getByTestId("everyone-card").waitFor();
     const n = await page.getByTestId("everyone-row").count();
     assert(n === (await one("select count(*)::int n from contacts where archived_at is null")).n, `everyone rows ${n}`);
-    await page.getByTestId("everyone-filter-accountability_partner").click();
+    await page.getByTestId("filter-open").click();
+    await page.locator("#fo-role-accountability_partner").check();
+    await page.getByTestId("filter-show").click();
     const names = await page.getByTestId("everyone-row").allInnerTexts();
     assert(names.length === 2 && names[0].includes("Jake Morgan") && names[1].includes("Sarah Klein") && names.every((t) => t.includes("Gets reports")), names.join(" | "));
+    assert((await page.getByTestId("filter-open").innerText()).includes("Filter · 1"), "Filter · 1");
     await page.getByTestId("people-view-orgs").click();
     await page.getByTestId("orgs-card").waitFor();
-    await page.getByTestId("orgs-filter-broker").click();
+    await page.getByTestId("filter-open").click();
+    await page.locator("#fo-kind-broker").check();
+    await page.getByTestId("filter-show").click();
     const orgs = await page.getByTestId("org-row").allInnerTexts();
     assert(orgs.length === 4 && orgs.some((t) => t.includes("Transworld Business Advisors") && t.includes("Mark Reed, Rachel Kim")), orgs.join(" | "));
     await shot(page, "people-organizations-1440.png");
@@ -146,11 +151,11 @@ const shot = async (page, name) => {
     assert(JSON.stringify(c.report_days) === "[1,2,4,5]", `days ${JSON.stringify(c.report_days)}`);
     await page.locator("[data-testid=partner-day][data-day='3']").click();
     await page.waitForFunction(() => document.querySelector("[data-testid=partner-day][data-day='3']")?.getAttribute("data-on") === "1");
-    await page.getByTestId("partner-section-moved").check();
+    await page.getByTestId("partner-section-jobs").uncheck();
     await page.waitForTimeout(800);
     c = await one("select report_days, report_sections from contacts where id = $1", [jake.id]);
-    assert(JSON.stringify(c.report_days) === "[1,2,3,4,5]" && c.report_sections.includes("moved"), JSON.stringify(c));
-    await page.getByTestId("partner-section-moved").uncheck();
+    assert(JSON.stringify(c.report_days) === "[1,2,3,4,5]" && !c.report_sections.includes("jobs") && c.report_sections.includes("top"), JSON.stringify(c));
+    await page.getByTestId("partner-section-jobs").check();
     await page.waitForTimeout(800);
   });
 
@@ -167,14 +172,39 @@ const shot = async (page, name) => {
     }
     assert(n === 2 && (await page.getByTestId("report-send").innerText()) === "Approve and send to 2", `send button ${n}`);
     assert((await page.getByTestId("report-due-line").innerText()) === "Jake gets weekdays; Sarah gets Fridays", await page.getByTestId("report-due-line").innerText());
-    assert((await page.getByTestId("report-to-choice").count()) === 2, "To choice");
-    const jakeHtml = await page.getByTestId("report-preview").innerText();
-    assert(jakeHtml.includes("Hello Jake,") && /TODAY/i.test(jakeHtml), "Jake's copy");
-    await page.locator("[data-testid=report-to-choice][data-partner=Sarah]").click();
+    assert((await page.getByTestId("report-card").innerText()).includes("Reports to Jake and Sarah"), "card title");
+    await page.getByTestId("report-view").click();
+    await page.getByTestId("report-window").waitFor();
+    assert((await page.getByTestId("report-tab").count()) === 2, "a tab per partner");
+    const jakeText = await page.getByTestId("report-preview").innerText();
+    assert(jakeText.includes("Hello Jake,") && /TODAY/i.test(jakeText) && /TOP 3 DEALS/i.test(jakeText), "Jake's copy");
+    const included = async () => page.$$eval("[data-testid=report-section]", (els) => els.filter((e) => e.getAttribute("data-included") === "1").map((e) => e.getAttribute("data-section")));
+    // Jake, today only: Job search left out, a different deal in the top 3, Waiting on brokers rewritten.
+    const sec = (k) => page.locator(`[data-testid=report-section][data-section=${k}]`);
+    await sec("jobs").getByTestId("section-include").uncheck();
+    await sec("top").getByTestId("section-change").click();
+    const offTop = sec("top").locator("[data-testid=picker-option][data-on='0']").first();
+    const swapIn = await offTop.getAttribute("data-id");
+    await sec("top").locator("[data-testid=picker-option][data-on='1']").first().locator("input").uncheck();
+    await sec("top").locator(`[data-testid=picker-option][data-id='${swapIn}'] input`).check();
+    await sec("top").getByTestId("picker-done").click();
+    await sec("waiting").getByTestId("section-edit").click();
+    await sec("waiting").getByTestId("section-edit-text").fill("Waiting on brokers\n  - Summit: Mark owes the seller call date");
+    await sec("waiting").getByTestId("section-edit-save").click();
+    await page.waitForTimeout(1500);
+    const jakeId = (await one("select id from contacts where name = 'Jake Morgan'")).id;
+    const saved = (await one("select report_edits from end_of_day order by day desc limit 1")).report_edits[jakeId];
+    assert(saved && saved.include && saved.include.jobs === false && saved.top && saved.top.includes(swapIn) && saved.edits && saved.edits.waiting.includes("Mark owes"), `saved choices ${JSON.stringify(saved)}`);
+    const swapName = await one("select coalesce(company_name, name) n from pipeline_items where id = $1", [swapIn]);
+    await page.locator("[data-testid=report-tab][data-partner=Sarah]").click();
     await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hello Sarah,"));
-    const sarahText = await page.getByTestId("report-preview").innerText();
-    assert(!/\nTODAY\n/i.test(sarahText) && !sarahText.includes("Waiting on brokers") && /TARGETS/i.test(sarahText) && /THE WEEK/i.test(sarahText), `Sarah's copy: ${sarahText.slice(0, 400)}`);
+    const sarahIn = await included();
+    assert(JSON.stringify(sarahIn) === JSON.stringify(["targets", "week", "tomorrow"]), `Sarah's standing sections ${JSON.stringify(sarahIn)}`);
+    // Sarah, today only: Top 3 deals added.
+    await sec("top").getByTestId("section-include").check();
+    await page.waitForTimeout(1500);
     await shot(page, "end-of-day-friday-sarah-1440.png");
+    await page.getByTestId("report-window-close").click();
     await page.getByTestId("report-send").click();
     const check = page.getByTestId("send-check-anyway");
     await Promise.race([check.waitFor({ timeout: 15000 }).then(() => check.click()), page.getByTestId("sent-line").waitFor({ timeout: 15000 })]).catch(() => {});
@@ -183,7 +213,9 @@ const shot = async (page, name) => {
     const reports = sent.filter((m) => /Daily report/.test(m.subject));
     assert(reports.length === 2 && reports.some((m) => m.to.includes("jake.morgan")) && reports.some((m) => m.to.includes("sarah.klein")), JSON.stringify(reports.map((m) => m.to)));
     const sarahMail = reports.find((m) => m.to.includes("sarah.klein"));
-    assert(sarahMail.body.includes("Hello Sarah,") && !sarahMail.body.includes("TODAY") && !sarahMail.body.includes("DEALS") && sarahMail.body.includes("TARGETS"), "Sarah's email has only her sections");
+    assert(sarahMail.body.includes("Hello Sarah,") && !sarahMail.body.includes("TODAY") && !sarahMail.body.includes("WAITING ON BROKERS") && sarahMail.body.includes("TARGETS") && sarahMail.body.includes("TOP 3 DEALS"), "Sarah's email has her sections and today's Top 3");
+    const jakeMail = reports.find((m) => m.to.includes("jake.morgan"));
+    assert(!jakeMail.body.includes("JOB SEARCH") && jakeMail.body.includes("Mark owes the seller call date") && jakeMail.body.includes(swapName.n), "Jake's email has today's choices");
     const rows = await all("select r.contact_id, r.gmail_thread_id, c.name from partner_reports r join contacts c on c.id = r.contact_id where r.period_start = (select max(day) from end_of_day where status = 'sent') and r.report_kind = 'end_of_day' order by c.name");
     assert(rows.length === 2 && rows.every((r) => r.gmail_thread_id && r.gmail_thread_id.startsWith("thread-")), JSON.stringify(rows));
     const comms = await all("select contact_id from communications where direction = 'outgoing' and partner_report_id in (select id from partner_reports where gmail_thread_id like 'thread-%')");
@@ -197,7 +229,7 @@ const shot = async (page, name) => {
     if (!friday) return;
     const before = (await g("/__sent")).length;
     await page.goto(`${BASE}/work/end-of-day`);
-    assert((await page.getByTestId("report-send").count()) === 0, "the send button is gone on a sent day");
+    assert(await page.getByTestId("report-send").isDisabled(), "the send button is off on a sent day");
     assert((await g("/__sent")).length === before, "an email went out again");
   });
 

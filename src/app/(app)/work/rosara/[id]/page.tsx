@@ -9,6 +9,7 @@ import { AskAiPill } from "@/components/app/work/ask-ai";
 import { projectAsk } from "@/lib/work/ask-ai";
 import { GoalCard, ProjectDecisionCard, ProjectFactsCard, ProjectNextActionCard, ProjectTasksCard, ProjectTimelineCard } from "@/components/app/work/project/cards";
 import { RecordHeader } from "@/components/app/work/record-header";
+import { RecordColumns } from "@/components/app/work/record-columns";
 import { WorkShell, WorkUpdateNotice } from "@/components/app/work/shell";
 import { Pill, What, WorkHeader } from "@/components/app/work/ui";
 import { EmptyState } from "@/components/app/page-header";
@@ -83,18 +84,22 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         }
         figures={figures}
       />
-      <div className="grid grid-cols-1 items-start gap-5 min-[1000px]:grid-cols-2">
-        <div className="flex min-w-0 flex-col gap-5">
+      <RecordColumns
+        left={
+          <>
           <GoalCard project={project} />
           <ProjectNextActionCard project={project} today={d.today} />
           <ProjectTasksCard project={project} tasks={d.tasks} />
-        </div>
-        <div className="flex min-w-0 flex-col gap-5">
+          </>
+        }
+        right={
+          <>
           <ProjectFactsCard project={project} />
           <ProjectTimelineCard project={project} events={d.timeline} />
           <ProjectDecisionCard project={project} />
-        </div>
-      </div>
+          </>
+        }
+      />
     </WorkShell>
   );
 }

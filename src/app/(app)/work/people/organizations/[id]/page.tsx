@@ -11,6 +11,7 @@ import type { HeaderFigure } from "@/lib/work/record-page";
 import { AskAiPill } from "@/components/app/work/ask-ai";
 import { OrgDealsCard, OrgDecisionCard, OrgFactsCard, OrgHeaderActions, OrgNextActionCard, OrgPeopleCard, OrgTasksCard, OrgTimelineCard } from "@/components/app/work/organization/cards";
 import { RecordHeader } from "@/components/app/work/record-header";
+import { RecordColumns } from "@/components/app/work/record-columns";
 import { WorkShell } from "@/components/app/work/shell";
 import { Pill, What, WorkHeader } from "@/components/app/work/ui";
 import { EmptyState } from "@/components/app/page-header";
@@ -19,7 +20,7 @@ import { Button } from "@/components/ui/button";
 export const metadata = { title: "Organization" };
 
 /**
- * The organization page (push B, 2026-11-03) under the record-page rule: breadcrumb People › Organizations, the name,
+ * The organization page (push B, 2026-11-03) under the record-page rule: breadcrumb Contacts › Organizations, the name,
  * Email (anyone at the firm), Log a call, Ask AI; the status strip with the kind pill, the region and what the firm
  * does, and the figures NEXT ACTION, OPEN DEALS, OPEN TASKS, LAST CONTACT. Left: People, Next action, Tasks. Right:
  * Facts, Deals, Timeline, Decision.
@@ -30,7 +31,7 @@ export default async function OrganizationPage({ params }: { params: Promise<{ i
   const crumb = (
     <>
       <Link href={PEOPLE_HREF} className="text-primary-strong hover:underline" data-testid="org-crumb">
-        People
+        Contacts
       </Link>
       <span className="mx-1.5 text-slate-400">›</span>
       <Link href={peopleViewHref("orgs")} className="hover:underline">
@@ -86,19 +87,23 @@ export default async function OrganizationPage({ params }: { params: Promise<{ i
         }
         figures={figures}
       />
-      <div className="grid grid-cols-1 items-start gap-5 min-[1000px]:grid-cols-2">
-        <div className="flex min-w-0 flex-col gap-5">
+      <RecordColumns
+        left={
+          <>
           <OrgPeopleCard org={org} people={d.people} others={d.others} today={d.today} />
           <OrgNextActionCard org={org} today={d.today} />
           <OrgTasksCard org={org} tasks={d.tasks} />
-        </div>
-        <div className="flex min-w-0 flex-col gap-5">
+          </>
+        }
+        right={
+          <>
           <OrgFactsCard org={org} />
-          <OrgDealsCard deals={d.deals} passed={d.passed} />
+          <OrgDealsCard deals={d.deals} passed={d.passed} orgName={org.name} />
           <OrgTimelineCard org={org} events={d.timeline} />
           <OrgDecisionCard org={org} />
-        </div>
-      </div>
+          </>
+        }
+      />
     </WorkShell>
   );
 }

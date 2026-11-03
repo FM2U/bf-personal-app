@@ -10,6 +10,7 @@ import { AskAiPill } from "@/components/app/work/ask-ai";
 import { itemAsk } from "@/lib/work/ask-ai";
 import { ConsultingFactsCard, FindOutCard, ItemDecisionCard, ItemHeaderActions, ItemNextActionCard, ItemTasksCard, ItemTimelineCard, OpportunityFactsCard } from "@/components/app/work/item/cards";
 import { RecordHeader } from "@/components/app/work/record-header";
+import { RecordColumns } from "@/components/app/work/record-columns";
 import { WorkShell, WorkUpdateNotice } from "@/components/app/work/shell";
 import { Figure, Pill, waitTone, What, WorkHeader } from "@/components/app/work/ui";
 import { EmptyState } from "@/components/app/page-header";
@@ -104,18 +105,22 @@ export async function ItemPage({ kind, id }: { kind: ItemKind; id: string }) {
         figures={figures}
         before={kind === "consulting" ? <Figure value={feeLabel(item.fee, item.stageName)} label="Fee" testId="figure-fee" /> : null}
       />
-      <div className="grid grid-cols-1 items-start gap-5 min-[1000px]:grid-cols-2">
-        <div className="flex min-w-0 flex-col gap-5">
+      <RecordColumns
+        left={
+          <>
           {kind === "job" ? <FindOutCard item={item} /> : null}
           <ItemNextActionCard item={item} today={d.today} />
           <ItemTasksCard item={item} tasks={d.todos} />
-        </div>
-        <div className="flex min-w-0 flex-col gap-5">
+          </>
+        }
+        right={
+          <>
           {kind === "job" ? <OpportunityFactsCard item={item} /> : <ConsultingFactsCard item={item} />}
           <ItemTimelineCard item={item} events={d.timeline} />
           <ItemDecisionCard item={item} advanceTo={item.status === "open" ? d.advanceTo : null} closeTo={d.closeTo} />
-        </div>
-      </div>
+          </>
+        }
+      />
     </WorkShell>
   );
 }

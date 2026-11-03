@@ -6,12 +6,14 @@ import { Figure, Figures, WorkHeader } from "@/components/app/work/ui";
  * right (Email, Log a call, Advance, Pass, Ask AI), then one white strip with the type pill and the status line at
  * the left and the labeled figures at the right (next action due or next follow-up, open tasks, last contact or
  * waiting), 28px apart with the label under each figure. Every record page uses it; only the names change.
+ * Push B edits: the title row and the figures strip stay pinned at the top while the page scrolls (desktop), on the
+ * page background with a hairline under them, as the pinned block of the list pages.
  */
 export function RecordHeader({ crumb, title, under, actions, status, figures, testId, before }: { crumb: React.ReactNode; title: React.ReactNode; under?: React.ReactNode; actions?: React.ReactNode; /** The type pill and the status line. */ status: React.ReactNode; figures: HeaderFigure[]; testId?: string; /** A figure before the three (the consulting FEE). */ before?: React.ReactNode }) {
   return (
-    <>
+    <div className="z-10 mb-4 border-b border-border bg-background pb-3 lg:sticky lg:top-0 lg:-mt-6 lg:pt-6" data-pinned="record" data-testid="record-pinned">
       <WorkHeader title={title} under={under} crumb={crumb} right={actions} />
-      <div className="mt-2.5 mb-5 flex flex-wrap items-center justify-between gap-x-6 gap-y-3 rounded-xl border border-border bg-white px-[22px] py-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]" data-testid={testId ?? "record-status"}>
+      <div className="mt-2.5 flex flex-wrap items-center justify-between gap-x-6 gap-y-3 rounded-xl border border-border bg-white px-[22px] py-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]" data-testid={testId ?? "record-status"}>
         <div className="flex min-w-0 flex-1 basis-[280px] flex-wrap items-center gap-2.5 [&>span:last-child]:min-w-0 [&>span:last-child]:truncate" data-testid="record-status-line">
           {status}
         </div>
@@ -22,6 +24,6 @@ export function RecordHeader({ crumb, title, under, actions, status, figures, te
           ))}
         </Figures>
       </div>
-    </>
+    </div>
   );
 }

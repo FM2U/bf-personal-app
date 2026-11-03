@@ -134,7 +134,7 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
   listing({ name: "Apex Precision Machining", what_it_does: "CNC parts for aerospace and medical device makers", source: "Broker newsletter", broker_name: "Transworld", location: "Huntsville, AL", industry: "Precision manufacturing", listing_url: "https://www.example.com/listings/apex-precision" }, { revenue: 6_200_000, ebitda: 1_400_000, asking: 5_500_000 });
   listing({ name: "Sunny Smiles Franchise, 3 units", what_it_does: "Children's dental franchise locations", source: "Broker newsletter", broker_name: "BizBuySell", location: "Orlando, FL", industry: "Dental services" }, { revenue: 2_800_000, sde: 410_000, asking: 1_600_000 });
   listing({ name: "Harbor Point Boat Storage", what_it_does: "Dry stack storage and service for private boats", source: "Broker newsletter", broker_name: "Murphy", location: "Savannah, GA", industry: "Marine services" }, { revenue: 1_100_000, sde: 180_000, asking: 900_000 });
-  listing({ name: "Northstar Managed IT", what_it_does: "Outsourced IT and help desk for firms with 20 to 200 staff", source: "Broker outreach", broker_name: "Benchmark", location: "Richmond, VA", industry: "IT services" }, { revenue: 7_800_000, ebitda: 1_900_000, asking: 8_500_000 });
+  listing({ name: "Northstar Managed IT", what_it_does: "Outsourced IT and help desk for companies with 20 to 200 staff", source: "Broker outreach", broker_name: "Benchmark", location: "Richmond, VA", industry: "IT services" }, { revenue: 7_800_000, ebitda: 1_900_000, asking: 8_500_000 });
   listing({ name: "Cascade Outdoor Retail", what_it_does: "Two retail stores selling camping gear", source: "Broker newsletter", broker_name: "BizBuySell", location: "Spokane, WA", industry: "Retail" }, { revenue: 3_300_000, sde: 520_000, asking: 1_400_000 });
   // A listing whose company is not named yet: the placeholder name, no company name.
   listing({ name: "00 Medicaid Transport Provider", company_name: null, what_it_does: "Non-emergency medical transport under Medicaid contracts", source: "Network", broker_name: "Intro from J. Alvarez", location: "Lexington, KY", industry: "Medical transport" }, { revenue: 5_000_000, ebitda: 1_100_000, asking: null });
@@ -157,7 +157,7 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
   const dalton = add({ name: "Dalton Services", stage_id: stage("Broker call"), what_it_does: "Commercial HVAC service and maintenance contracts", source: "Broker newsletter", broker_name: "Rachel Kim, Transworld", primary_contact_id: c.kim, organization_id: org.transworld, location: "Chattanooga, TN", industry: "Home and building services", why_selling: "Retiring, no successor", listing_url: "https://www.example.com/listings/dalton-services", next_action: "Review the CIM and write the key finding", next_action_due: today, next_action_minutes: 60, key_finding: "70% of revenue is recurring maintenance contracts; service calls are the rest",
     open_questions_json: {
       seller: ["Why sell now at 58, and would you stay 12 months after close?", "Can the service side (the other 30%) grow without adding technicians?", "How many of the 11 technicians have been with you over 3 years?", "Is any customer over 10% of revenue?"],
-      broker: ["Can we get 3 years of tax returns and the monthly P&L?", "Is the $6.0M asking firm, and is a seller note on the table?", "Are there other bidders or a deadline for offers?"],
+      broker: ["Can we get 3 years of tax returns and the monthly P&L?", "Is the $6.0M asking price fixed, and is a seller note on the table?", "Are there other bidders or a deadline for offers?"],
       self: ["How fast is commercial HVAC service growing in Chattanooga?", "What does a service call earn versus a maintenance visit?", "Who are the two or three local competitors, and do they sell maintenance contracts?"],
     } }, { revenue: 5_600_000, ebitda: 1_700_000, asking: 6_000_000 });
   entered(dalton, 3, [{ stageName: "Interested", daysAgo: 8 }, { stageName: "NDA signed", daysAgo: 7 }, { stageName: "CIM review", daysAgo: 4 }]);
@@ -330,7 +330,7 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
           entered(id, enteredDaysAgo, history);
           return id;
         };
-        opp({ name: "Southern Staffing Group", stage_id: js.stages.Contact, role_title: "VP Operations", contact_name: "Carla Jenkins", primary_contact_id: p.carla, organization_id: o.ssg, location: "Atlanta, GA", what_it_does: "Staffing for light industrial employers", source: "Personal network", next_action: "Ask Carla for the hiring manager's name", next_action_due: ahead(3), notes: "Portfolio company of a PE firm; open since September" }, 4);
+        opp({ name: "Southern Staffing Group", stage_id: js.stages.Contact, role_title: "VP Operations", contact_name: "Carla Jenkins", primary_contact_id: p.carla, organization_id: o.ssg, location: "Atlanta, GA", what_it_does: "Staffing for light industrial employers", source: "Personal network", next_action: "Ask Carla for the hiring manager's name", next_action_due: ahead(3), notes: "Portfolio company of a private equity fund; open since September" }, 4);
         noActionItems.push(opp({ name: "Peachtree Logistics", stage_id: js.stages.Contact, role_title: "Chief of Staff", contact_name: "Sam Patel", primary_contact_id: p.sam, organization_id: o.peachtree, location: "Atlanta, GA", what_it_does: "Regional trucking and warehousing", source: "Personal network", next_action: null, next_action_due: null, notes: "Sam mentioned it; nothing confirmed" }, 2));
         const harbor = opp({ name: "Harbor Health Partners", stage_id: js.stages.Conversation, role_title: "Director of Operations", contact_name: "Nina Reyes, Korn Ferry", primary_contact_id: p.nina, organization_id: o.kf, location: "Charlotte, NC, on site", what_it_does: "Multi-site home health", source: "Recruiter", pay_range: "$150K to $170K", listing_url: "https://www.example.com/harbor-health-partners", next_action: "Prepare for the call with the COO", next_action_due: today, next_action_minutes: 90, notes: "They want someone who has run scheduling across sites",
           open_questions_json: { seller: [], broker: [], self: ["How many sites and caregivers, and who runs scheduling today?", "Why is the role open, and how long has it been open?", "Pay range and whether the role could lead to COO."] } }, 4, [{ stageName: "Contact", daysAgo: 6 }]);
@@ -382,10 +382,10 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
     addOutreachTouches({ k, today, contacts, communications, newId });
     const jake = newId();
     // The accountability partner is a person with the role Accountability partner (final app, 2026-11-02).
-    contacts.push({ id: jake, name: "Jake Morgan", email: "jake.morgan@example.com", phone: "(404) 555-0131", title: "Friend, since college", outreach_role: "accountability_partner", report_days: [1, 2, 3, 4, 5], report_sections: ["today", "targets", "waiting", "tomorrow", "week"], notes: "Gets the End of day report by email, weekdays at 5:30." });
+    contacts.push({ id: jake, name: "Jake Morgan", email: "jake.morgan@example.com", phone: "(404) 555-0131", title: "Friend, since college", outreach_role: "accountability_partner", report_days: [1, 2, 3, 4, 5], report_sections: ["today", "targets", "top", "active", "waiting", "jobs", "week", "tomorrow"], notes: "Gets the End of day report by email, weekdays at 5:30." });
     // Push B: a second partner with other days and sections (Fridays: targets, the week, Monday's line).
     const sarah = newId();
-    contacts.push({ id: sarah, name: "Sarah Klein", email: "sarah.klein@example.com", phone: "(404) 555-0188", title: "Former colleague", outreach_role: "accountability_partner", report_days: [5], report_sections: ["targets", "tomorrow", "week"], notes: "Gets the Friday report: targets, the week, and Monday's line." });
+    contacts.push({ id: sarah, name: "Sarah Klein", email: "sarah.klein@example.com", phone: "(404) 555-0188", title: "Former colleague", outreach_role: "accountability_partner", report_days: [5], report_sections: ["targets", "week", "tomorrow"], notes: "Gets the Friday report: targets, the week, and Monday's line." });
     // The last four weekdays before today (newest first): d1 skipped, d2 to d4 sent.
     const weekdays: string[] = [];
     for (let i = 1; weekdays.length < 4 && i < 14; i++) if (isWeekday(ago(i))) weekdays.push(ago(i));
@@ -417,8 +417,8 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
     const friReport = own ? (fri === d2 ? r2 : fri === d3 ? r3 : r4) : newId();
     const sarahReport = newId();
     const friData = buildFridayReport(fri);
-    const jakeCopy = reportFor(friData, { name: "Jake Morgan", first: "Jake", sections: ["today", "targets", "waiting", "tomorrow", "week"] });
-    const sarahCopy = reportFor(friData, { name: "Sarah Klein", first: "Sarah", sections: ["targets", "tomorrow", "week"] });
+    const jakeCopy = reportFor(friData, { name: "Jake Morgan", first: "Jake", sections: ["today", "targets", "top", "active", "waiting", "jobs", "week", "tomorrow"] });
+    const sarahCopy = reportFor(friData, { name: "Sarah Klein", first: "Sarah", sections: ["targets", "week", "tomorrow"] });
     if (!own) {
       partnerReports.push({ id: friReport, contact_id: jake, period_start: fri, period_end: fri, status: "finalized", snapshot: { end_of_day: true, day: fri, sample: true, html: reportInnerHtml(jakeCopy), subject: reportSubject(jakeCopy) }, summary: "Listings screened 6 of 5 · outreach 11 of 10 · 3 deals moved this week", summary_source: "owner", finalized_at: at(fri, 17, 34), delivered_via: ["gmail_sent"], report_kind: "end_of_day", sent_at: at(fri, 17, 34), reviewed_at: at(fri, 18, 10), gmail_thread_id: "sample-thread-4" });
       endOfDay.push({ id: newId(), day: fri, status: "sent", reasons: {}, tomorrow_line: friData.tomorrow.text, sent_at: at(fri, 17, 35), report_id: friReport, report_subject: reportSubject(jakeCopy), report_html: reportInnerHtml(jakeCopy), report_edited: false, judged: [] });
@@ -437,7 +437,9 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
       { id: newId(), day: d4, status: "sent", reasons: { "sample-listings": "Two broker calls on Summit ran long; 1 listing carries to tomorrow." }, tomorrow_line: c.tomorrow4, sent_at: at(d4, 17, 33), report_id: r4, report_subject: c.subject4, report_html: c.html4, report_edited: false, judged: c.judged4 },
     );
     // Work events over the last eight weeks: follow-ups done (a few late), next actions done, the Rosara focus done most weeks.
-    const ev = (kind: string, daysAgo: number, label: string, more: R = {}) => workEvents.push({ id: newId(), kind, record_type: more.record_type ?? null, record_id: null, label, happened_on: ago(daysAgo), happened_at: `${ago(daysAgo)}T15:00:00Z`, on_time: more.on_time ?? null, meta: more.meta ?? {} });
+    // Push B edits: a next action done on a deal points at the deal, so the report's Active today names it.
+    const itemIdByName = (n: string) => (items.find((x) => x.company_name === n || x.name === n)?.id as string | undefined) ?? null;
+    const ev = (kind: string, daysAgo: number, label: string, more: R = {}) => workEvents.push({ id: newId(), kind, record_type: more.record_type ?? null, record_id: more.record_type === "pipeline_items" ? itemIdByName(label) : null, label, happened_on: ago(daysAgo), happened_at: `${ago(daysAgo)}T15:00:00Z`, on_time: more.on_time ?? null, meta: more.meta ?? {} });
     const followUps: [number, string, boolean][] = [[1, "Priya Natarajan", true], [2, "Dana Whitfield", true], [3, "Mark Reed", false], [4, "Tom Alvarez", true], [8, "Carla Jenkins", true], [9, "Luis Ortega", true], [10, "Priya Natarajan", false], [15, "Denise Walker", true], [16, "Maria Santos", true], [17, "Rachel Kim", true], [22, "Mark Reed", false], [23, "Jamal Whitaker", true], [29, "Dana Whitfield", true], [30, "Kevin O'Brien", true], [36, "Rita Caldwell", true], [37, "Sam Patel", true], [43, "Priya Natarajan", true], [44, "Tom Alvarez", false], [50, "Lena Fischer", true]];
     for (const [days, name, onTime] of followUps) ev("follow_up_done", days, name, { record_type: "contacts", on_time: onTime });
     const actions: [number, string, string][] = [[1, "Meridian Industrial Coatings", "Start the 7-year model"], [1, "Market research", "Call two agency owners"], [2, "Dalton Services", "Ask the broker for the CIM"], [2, "Harbor Health Partners", "Prepare for the COO call"], [3, "BrightPath Home Care", "Sign the NDA"], [4, "Pinecrest Landscaping", "Submit the LOI"], [8, "Coastal Fleet Maintenance", "Ask for the seller call"], [9, "Summit Logistics Group", "Read the CIM"], [10, "Rosara platform", "Write the onboarding flow"], [15, "Oakline Dental Lab", "Sign the NDA"], [16, "Ridgeline Commercial Roofing", "Book the partner meeting"], [22, "Meridian Industrial Coatings", "Ask for tax returns"], [23, "Business model", "Draft the pricing page"], [29, "Pinecrest Landscaping", "Finish the model"], [36, "Dalton Services", "Sign the NDA"], [43, "Valley Print Group", "Seller call"]];
@@ -476,13 +478,17 @@ function buildSampleReports(i: { d2: string; d3: string; d4: string; partnerFirs
       { label: "Emails", value: "2", note: "", status: "neutral", pct: null },
       { label: "Network outreach", value: "1", note: "3 of 10 this week", status: "missed", pct: 30 },
     ],
-    deals: ["Pinecrest Landscaping: Dana Whitfield expects the seller's answer on the LOI by Friday."],
     targets: [
-      { met: false, judged: true, line: "Listings screened 2 of 5 today, 7 of 10 this week", commitment: true, reason: "The Rosara investor call and the Sunbelt coffee took the morning; 3 listings carry to tomorrow." },
-      { met: false, judged: false, line: "Brokers contacted 3 of 5", commitment: false, reason: null },
-      { met: false, judged: false, line: "Network outreach 3 of 10", commitment: true, reason: null },
+      { id: "sample-listings", group: "missed", text: "Listings screened: 2 of 5 today, 7 of 10 this week", commitment: true, asks: true, reason: "The Rosara investor call and the Sunbelt coffee took the morning; 3 listings carry to tomorrow." },
+      { id: "sample-brokers", group: "now", text: "Brokers contacted: 3 of 5", commitment: false, asks: false, reason: null },
+      { id: "sample-outreach", group: "now", text: "Network outreach: 3 of 10", commitment: true, asks: false, reason: null },
     ],
-    owed: [],
+    owed: null,
+    waits: [{ id: "w-summit", name: "Summit Logistics Group", days: 8, who: "Mark Reed" }],
+    threshold: 5,
+    deals: SAMPLE_TOP_DEALS,
+    jobs: [],
+    period: "today",
     week: null,
     tomorrow: { label: "Tomorrow", text: tomorrow2 },
   };
@@ -498,8 +504,7 @@ function buildSampleReports(i: { d2: string; d3: string; d4: string; partnerFirs
       { label: "Emails", value: "5", note: "1 to a broker", status: "neutral", pct: null },
       { label: "Network outreach", value: "0", note: "0 of 10 this week", status: "missed", pct: 0 },
     ],
-    deals: ["BrightPath Home Care moved to NDA signed. Key finding: Caregiver retention is the question."],
-    targets: [{ met: true, judged: true, line: "Listings screened 5 of 5 today, 5 of 5 this week", commitment: true, reason: null }],
+    targets: [{ id: "sample-listings", group: "met", text: "Listings screened: 5 of 5 today, 5 of 5 this week", commitment: true, asks: false, reason: null }],
     tomorrow: { label: "Tomorrow", text: tomorrow3 },
   };
   const judged4 = [{ targetId: "sample-listings", name: "Listings screened", key: "listings_screened", cadence: "day", number: 5, commitment: true, value: 4, met: false, figure: "4 of 5", line: "Per weekday · target 5 · this week 4 of 5", detail: "3 passed, 1 Interested", judged: true }];
@@ -516,8 +521,7 @@ function buildSampleReports(i: { d2: string; d3: string; d4: string; partnerFirs
       { label: "Emails", value: "3", note: "2 to brokers", status: "neutral", pct: null },
       { label: "Network outreach", value: "2", note: "2 of 10 this week", status: "missed", pct: 20 },
     ],
-    deals: ["Meridian Industrial Coatings moved to Model. Key finding: Two customers are 40% of revenue."],
-    targets: [{ met: false, judged: true, line: "Listings screened 4 of 5 today, 4 of 25 this week", commitment: true, reason: "Two broker calls on Summit ran long; 1 listing carries to tomorrow." }],
+    targets: [{ id: "sample-listings", group: "missed", text: "Listings screened: 4 of 5 today, 4 of 25 this week", commitment: true, asks: true, reason: "Two broker calls on Summit ran long; 1 listing carries to tomorrow." }],
     tomorrow: { label: "Tomorrow", text: tomorrow4 },
   };
   return {
@@ -539,19 +543,32 @@ function buildFridayReport(day: string): ReportData {
       { label: "Deals moved", value: "1", note: "Dalton to Broker call", status: "neutral", pct: null },
       { label: "Calls", value: "2", note: "Mark Reed, Greg Thornton", status: "neutral", pct: null },
     ],
-    deals: [],
-    dealMoves: ["Dalton Services moved to Broker call. Key finding: 70% of revenue is recurring maintenance contracts."],
-    dealWaits: ["Waiting on brokers over 5 days: Summit Logistics Group (8 days, Mark Reed)."],
     targets: [
-      { met: true, judged: true, line: "Listings screened 6 of 5 today, 27 of 25 this week", commitment: true, reason: null },
-      { met: true, judged: true, line: "Network outreach 11 of 10", commitment: true, reason: null },
-      { met: false, judged: true, line: "Brokers contacted 4 of 5", commitment: false, reason: null },
+      { id: "sample-listings", group: "met", text: "Listings screened: 6 of 5 today, 27 of 25 this week", commitment: true, asks: false, reason: null },
+      { id: "sample-outreach", group: "met", text: "Network outreach: 11 of 10", commitment: true, asks: false, reason: null },
+      { id: "sample-brokers", group: "missed", text: "Brokers contacted: 4 of 5", commitment: false, asks: false, reason: null },
     ],
-    owed: [],
+    owed: null,
+    waits: [{ id: "w-summit", name: "Summit Logistics Group", days: 8, who: "Mark Reed" }],
+    threshold: 5,
+    deals: [...SAMPLE_TOP_DEALS, { id: "s-dalton", name: "Dalton Services", stage: "Broker call", position: 4, lastActivity: "9", status: "CIM read; broker call booked with Rachel Kim", next: "Broker call with Rachel, next Monday", activity: ["moved to Broker call", "note: 70% of revenue is recurring maintenance contracts"] }],
+    jobs: SAMPLE_TOP_JOBS,
+    period: "this week",
     week: { label: "The week", tiles: [{ label: "Deals moved", value: "3", note: "", status: "neutral", pct: null }, { label: "Listings screened", value: "27", small: "of 25", note: "", status: "met", pct: 100 }, { label: "Network outreach", value: "11", small: "of 10", note: "", status: "met", pct: 100 }] },
     tomorrow: { label: "Monday", text: "Meridian partner deck and the Summit decision." },
   };
 }
+
+/** The deals and opportunities the sample's sent reports name (the live End of day reads the real ones). */
+const SAMPLE_TOP_DEALS: ReportData["deals"] = [
+  { id: "s-pine", name: "Pinecrest Landscaping", stage: "IOI or LOI", position: 8, lastActivity: "3", status: "LOI sent at 3.2x; waiting on Dana Whitfield for the seller's answer", next: "Follow up with Dana, Monday", activity: ["emailed Dana Whitfield: LOI follow-up"] },
+  { id: "s-ridge", name: "Ridgeline Commercial Roofing", stage: "Partner presentation", position: 7, lastActivity: "2", status: "Moved from Model this week; nothing waiting", next: "Present to the partner, next week", activity: ["moved to Partner presentation"] },
+  { id: "s-summit", name: "Summit Logistics Group", stage: "CIM review", position: 3, lastActivity: "1", status: "Waiting on Mark Reed: a seller call to be scheduled (8 days)", next: "Push Mark for the call, Monday", activity: [] },
+];
+const SAMPLE_TOP_JOBS: ReportData["jobs"] = [
+  { id: "s-harbor", name: "COO, Harbor Health Partners", stage: "Interview", position: 4, lastActivity: "2", status: "Second interview booked with the CEO", next: "Prepare the 90-day plan, next week", activity: ["call with Nina Reyes, 20 min"] },
+  { id: "s-ssg", name: "VP Operations, Southern Staffing Group", stage: "Contact", position: 1, lastActivity: "1", status: "Waiting on Carla Jenkins for the hiring manager's name", next: "Ask Carla again, Monday", activity: [] },
+];
 
 const DAY_LONG: Record<string, string> = { Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday", Fri: "Friday", Sat: "Saturday", Sun: "Sunday" };
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];

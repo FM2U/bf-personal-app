@@ -295,7 +295,7 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
             </div>
           ) : (
             <p className="px-[22px] py-4 text-[13px] text-muted-foreground" data-testid="now-actions-empty">
-              {show ? "Nothing is due today in the lanes ticked under Show." : "Nothing is due today and every record has a next action. Deals, People, Rosara, Job search, and Consulting list every next action."}
+              {show ? "Nothing is due today in the lanes ticked under Show." : "Nothing is due today and every record has a next action. Deals, Contacts, Rosara, Job search, and Consulting list every next action."}
             </p>
           )}
         </WorkCard>
@@ -425,7 +425,7 @@ function NeedsActionRow({ deal }: { deal: DealRow }) {
 /** The People tile (batch B; Outreach renamed in push B): the weekly counter with its bar, up to three people due today with Email and Log a call, the link, and the overdue count. */
 function OutreachTile({ outreach, today, logged, onEmail, onCall }: { outreach: WorkNowData["outreach"]; today: string; logged: Record<string, string>; onEmail: (p: PersonRowData) => void; onCall: (p: PersonRowData) => void }) {
   return (
-    <WorkCard title="People" hint={`${outreach.due.length} due`} testId="home-outreach" pinned>
+    <WorkCard title="Contacts" hint={`${outreach.due.length} due`} testId="home-outreach" pinned>
       <TargetBar count={outreach.counter.count} target={outreach.counter.target} pct={outreach.counter.pct} className="py-2.5" testId="home-outreach-counter" />
       <div className="px-[22px] pb-1">
         <SectionHeading name="Due for follow-up today" count={outreach.dueToday.length} collapsed={false} className="mt-0" />
@@ -465,7 +465,7 @@ function OutreachTile({ outreach, today, logged, onEmail, onCall }: { outreach: 
       </div>
       <div className="flex items-center gap-2.5 border-t border-slate-100 px-[22px] pt-2.5 pb-4">
         <Link href={PEOPLE_HREF} className="text-[13px] font-medium text-primary-strong hover:underline" data-testid="home-open-outreach">
-          Open People
+          Open Contacts
         </Link>
         {outreach.overdue ? (
           <span className="text-xs font-medium text-status-missed" data-testid="home-outreach-overdue">

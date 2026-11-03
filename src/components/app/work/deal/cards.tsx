@@ -22,6 +22,7 @@ import { AiCardStar, AiFieldStar } from "@/components/app/work/ask-ai";
 import { NextActionRow } from "@/components/app/work/next-action-row";
 import { TasksCard } from "@/components/app/work/tasks-card";
 import { TimelineEvents } from "@/components/app/work/timeline-list";
+import { cappedNote } from "@/components/app/work/show-all";
 import { PassMenu } from "@/components/app/work/pass-menu";
 import { LogCallDrawer } from "@/components/app/work/log-call-drawer";
 import { AiButton, Pill, ROW_COLS, RowButton, WorkCard } from "@/components/app/work/ui";
@@ -779,6 +780,7 @@ export function FindingsCard({ deal, compose, aiTools = true, listsReady = true,
 export function TodosCard({ deal, todos }: { deal: DealRow; todos: DealTodo[] }) {
   return (
     <TasksCard
+      windowTitle={`Tasks · ${deal.name}`}
       tasks={todos}
       open={deal.status === "open"}
       actions={{
@@ -1176,8 +1178,8 @@ export function TimelineCard({ deal, events }: { deal: DealRow; events: Timeline
   const [note, setNote] = useState("");
   useUnsavedWork(note.trim() !== "", "The note is not saved yet.");
   return (
-    <WorkCard title="Timeline" hint="Newest first" testId="deal-timeline">
-      <TimelineEvents events={events} empty="Nothing yet. Notes, emails, calls, and stage moves show here." />
+    <WorkCard title="Timeline" hint={["Newest first", cappedNote(events.length)].filter(Boolean).join(" · ")} testId="deal-timeline">
+      <TimelineEvents events={events} empty="Nothing yet. Notes, emails, calls, and stage moves show here." windowTitle={`Timeline · ${deal.name}`} windowSub={`All ${events.length} entries, newest first`} />
       <div className="flex flex-col gap-2 px-[22px] pt-2 pb-4" data-testid="note-form">
         <div className="flex items-start gap-2">
           <GrowingTextarea id="deal-note" value={note} onChange={setNote} minRows={1} placeholder="Add a note: what you learned, who said what" className="flex-1" data-testid="deal-note" />

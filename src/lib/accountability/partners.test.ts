@@ -36,7 +36,9 @@ describe("which partners are due on a weekday", () => {
 
 describe("a partner's sections", () => {
   it("keeps the known sections in the report's order; unknown keys stay out of the checklist", () => {
-    expect(jake.sections).toEqual(["today", "targets", "waiting", "tomorrow", "week"]);
+    expect(jake.sections).toEqual(["today", "targets", "waiting", "week", "tomorrow"]);
+    // "Deals moved" from before the push B edits reads as Active today.
+    expect(partnerSettings({ report_days: [1], report_sections: ["today", "moved"] }).sections).toEqual(["today", "active"]);
     expect(sarah.days).toEqual([5]);
   });
   it("a partner never set up gets every weekday and every section", () => {
@@ -60,18 +62,19 @@ describe("each partner's copy of the report", () => {
     partnerName: "Partner", partnerFirst: "there", dateLong: "Friday, Nov 6, 2026", dateShort: "Friday, Nov 6", withWeek: true,
     pill: { text: "4 of 6 targets met", status: "missed" },
     today: [{ label: "Listings screened", value: "6", small: "of 5", note: "", status: "met", pct: 100 }],
-    deals: ["Dalton Services moved to NDA signed.", "Waiting on brokers over 5 days: Summit Logistics Group (13 days, Mark Reed)."],
-    dealMoves: ["Dalton Services moved to NDA signed."], dealWaits: ["Waiting on brokers over 5 days: Summit Logistics Group (13 days, Mark Reed)."],
-    targets: [{ met: true, judged: true, line: "Listings screened 6 of 5", commitment: true, reason: null }], owed: [],
+    targets: [{ id: "t1", group: "met", text: "Listings screened: 6 of 5", commitment: true, asks: false, reason: null }], owed: null,
+    waits: [{ id: "d9", name: "Summit Logistics Group", days: 13, who: "Mark Reed" }], threshold: 5,
+    deals: [{ id: "d1", name: "Dalton Services", stage: "NDA signed", position: 2, lastActivity: "2026-11-06T15:00:00Z", status: "Nothing waiting", next: null, activity: ["moved to NDA signed"] }],
+    jobs: [], period: "this week",
     week: { label: "The week, Nov 2 to 6", tiles: [{ label: "Deals moved", value: "3", note: "", status: "neutral", pct: null }] },
     tomorrow: { label: "Monday", text: "Meridian partner deck and the Summit decision." },
   };
-  it("Jake gets the counts, targets, the waits but not the moves, the week, and tomorrow", () => {
+  it("Jake gets the counts, targets, the waits, the week, and tomorrow, but not the top deals", () => {
     const html = reportInnerHtml(reportFor(base, { name: "Jake Morgan", first: "Jake", sections: jake.sections }));
     expect(html).toContain("Hello Jake,");
     expect(html).toContain("Listings screened");
     expect(html).toContain("Summit Logistics Group");
-    expect(html).not.toContain("Dalton Services moved");
+    expect(html).not.toContain("Top 3 deals");
     expect(html).toContain("The week, Nov 2 to 6");
     expect(html).toContain("Meridian partner deck");
   });
@@ -81,17 +84,18 @@ describe("each partner's copy of the report", () => {
     expect(html).toContain("Hello Sarah,");
     expect(html).not.toContain(">Today<");
     expect(html).not.toContain("Summit Logistics Group");
-    expect(html).toContain("Listings screened 6 of 5");
+    expect(html).toContain("Listings screened: 6 of 5");
     expect(html).toContain("The week, Nov 2 to 6");
     const text = reportText(d);
     expect(text).not.toContain("TODAY");
-    expect(text).not.toContain("DEALS");
+    expect(text).not.toContain("TOP 3 DEALS");
     expect(text).toContain("TARGETS");
     expect(text).toContain("MONDAY");
   });
-  it("a report without sections (built before push B) keeps every section", () => {
+  it("a report without sections keeps every section", () => {
     const html = reportInnerHtml(base);
-    expect(html).toContain("Dalton Services moved");
+    expect(html).toContain("Top 3 deals");
+    expect(html).toContain("Dalton Services");
     expect(html).toContain("Summit Logistics Group");
   });
 });

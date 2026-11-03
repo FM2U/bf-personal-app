@@ -10,9 +10,11 @@ import type { PeriodKey, PeriodView, ReportsPage, SentReply, SentRow, WeekTile }
 import { pastWeekPeriodKey, periodPills } from "@/lib/accountability/periods";
 import { shortTargetName } from "@/lib/accountability/targets";
 import { date as fmtDate } from "@/lib/format";
-import { Drawer } from "@/components/app/work/drawer";
+import { CenteredWindow } from "@/components/app/window";
+import type { TileHistory } from "@/lib/accountability/week-history";
 import { useSections } from "@/components/app/work/sections";
 import { CollapseAllButton, Confirm, Figure, Line1, Line2, Name, Pill, PinnedBlock, RowButton, Rows, SectionHeading, WorkCard } from "@/components/app/work/ui";
+import { StatusMark } from "@/components/app/work/targets-ui";
 import { cn } from "@/lib/utils";
 
 /**
@@ -208,7 +210,7 @@ function WeekView({ p, first, past, mostMissed, active, onOpen }: { p: PeriodVie
         <GroupHeading testId="went" note={<span data-testid="period-lead">{p.lead}</span>}>
           {month ? "How the month went" : "How the week went"}
         </GroupHeading>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4" data-testid="week-tiles">
+        <div className="grid grid-cols-1 gap-3 min-[561px]:grid-cols-2 min-[1001px]:grid-cols-3 md:gap-4" data-testid="week-tiles">
           {p.tiles.map((t) => (
             <div key={t.label} className="flex min-w-0 flex-col gap-0.5 rounded-xl border border-border bg-white px-4 py-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] md:px-5 md:py-4" data-testid="week-tile" data-label={t.label}>
               <b className={cn("tabular truncate text-[22px] leading-tight font-semibold tracking-[-0.01em] md:text-[26px]", t.status === "met" ? "text-status-met" : t.status === "missed" ? "text-status-missed" : t.value === "None" ? "text-slate-400" : "text-slate-900")}>
@@ -216,10 +218,12 @@ function WeekView({ p, first, past, mostMissed, active, onOpen }: { p: PeriodVie
                 {t.small ? <span className="ml-1 text-[13px] font-medium text-muted-foreground">{t.small}</span> : null}
               </b>
               <span className="label-caps mt-0.5">{t.label}</span>
-              <span className="mt-1 min-h-[19px] text-[12.5px] text-muted-foreground">{t.note}</span>
+              <span className="mt-0.5 min-h-[19px] text-[12.5px] text-muted-foreground">{t.note}</span>
+              {p.history[t.label] ? <Spark h={p.history[t.label]} /> : null}
             </div>
           ))}
         </div>
+        <TargetsMetRow past={past} mostMissed={mostMissed} active={active} onOpen={onOpen} />
       </section>
 
       <section data-testid="reports-group-needs">
@@ -267,7 +271,6 @@ function WeekView({ p, first, past, mostMissed, active, onOpen }: { p: PeriodVie
         </div>
       </section>
 
-      <PastWeeks past={past} mostMissed={mostMissed} active={active} onOpen={onOpen} />
       <p className="sr-only">{first}</p>
     </div>
   );
@@ -287,50 +290,67 @@ function Row({ name, line, figure, label, tone }: { name: string; line: string; 
   );
 }
 
+/** The last 4 weeks under a tile: small bars drawn to scale with the value and the week, or done and not done marks. */
+function Spark({ h }: { h: TileHistory }) {
+  return (
+    <div className="mt-3 grid grid-cols-4 gap-2 border-t border-slate-100 pt-2.5" data-testid="tile-history" data-kind={h.kind}>
+      {h.kind === "bars"
+        ? h.weeks.map((w) => (
+            <div key={w.weekStart} className="flex min-w-0 flex-col items-center gap-[3px] text-[10.5px] text-muted-foreground" data-testid="tile-history-week">
+              <span className="flex h-[26px] w-full items-end justify-center border-b border-rule" aria-hidden>
+                <i className={cn("block w-full max-w-[30px] rounded-t-[3px]", w.red ? "bg-status-missed-border" : "bg-[#b9cdf5]")} style={{ height: `${Math.round(w.share * 100)}%`, minHeight: w.value === "none" ? 0 : 1 }} />
+              </span>
+              <span className={cn("tabular text-xs font-semibold", w.value === "none" ? "font-medium text-slate-400" : "text-heading")}>{w.value}</span>
+              {fmtDate(w.weekStart, "MMM d")}
+            </div>
+          ))
+        : h.weeks.map((w) => (
+            <div key={w.weekStart} className="flex min-w-0 flex-col items-center gap-[3px] text-[10.5px] text-muted-foreground" data-testid="tile-history-week">
+              <span className="flex h-[26px] items-center justify-center">
+                <StatusMark mark={w.done ? "met" : "missed"} size={16} testId="tile-history-mark" />
+              </span>
+              <span className="text-[10.5px] font-medium text-heading">{w.word}</span>
+              {fmtDate(w.weekStart, "MMM d")}
+            </div>
+          ))}
+    </div>
+  );
+}
+
 /**
- * The Past weeks tiles (moved from Targets, Edit batch C item 7): "2 of 6", the week, then each miss on its own line
- * with a red dot, the target's short name, and its figure ("Listings 21 of 25"). A tile opens that week above.
+ * The slim "Targets met" row under the tiles (push B edits, in place of the Trend section): each of the past 4 weeks
+ * with its met count and small segments, newest first, and "Most missed over 7 weeks: ..." at the right. A week
+ * opens that week above.
  */
-function PastWeeks({ past, mostMissed, active, onOpen }: { past: WeekTile[]; mostMissed: ReportsPage["mostMissed"]; active: PeriodKey; onOpen: (k: PeriodKey) => void }) {
+function TargetsMetRow({ past, mostMissed, active, onOpen }: { past: WeekTile[]; mostMissed: ReportsPage["mostMissed"]; active: PeriodKey; onOpen: (k: PeriodKey) => void }) {
   if (!past.length) return null;
   return (
-    <section data-testid="past-weeks">
-      <GroupHeading
-        testId="trend"
-        note={
-          <span data-testid="most-missed">{mostMissed ? `Most missed over ${mostMissed.of} weeks: ${mostMissed.name}, ${mostMissed.n} of ${mostMissed.of}` : "Every week met"}</span>
-        }
-      >
-        Trend
-        <span className="ml-2 text-[12.5px] font-medium tracking-normal text-muted-foreground normal-case">past weeks, targets met of {past[0].total}</span>
-      </GroupHeading>
-      <div className="grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 md:gap-4 xl:grid-cols-4">
-        {past.map((w, i) => {
-          const key = pastWeekPeriodKey(i + 1);
-          return (
-            <button key={w.weekStart} type="button" onClick={() => onOpen(key)} aria-pressed={active === key} className={cn("row-hover flex min-w-0 flex-col gap-0.5 rounded-xl border bg-white px-4 py-3.5 text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] md:px-5 md:py-4", active === key ? "border-primary-border" : "border-border")} data-testid="past-week" data-period={key} data-met={w.met}>
-              <b className={cn("tabular text-[22px] leading-tight font-semibold tracking-[-0.01em] md:text-[26px]", w.total && w.met === w.total ? "text-status-met" : w.total && w.met * 2 < w.total ? "text-status-missed" : "text-slate-900")}>
-                {w.met} of {w.total}
-              </b>
-              <span className="label-caps mt-0.5">Week of {fmtDate(w.weekStart, "MMM d")}</span>
-              {w.missed.length ? (
-                <ul className="mt-1.5 flex flex-col gap-1" data-testid="past-week-misses">
-                  {w.missed.map((m) => (
-                    <li key={m.name} className="flex items-center gap-2 text-[12.5px] text-slate-700" data-testid="past-week-miss">
-                      <i className="block h-1.5 w-1.5 shrink-0 rounded-full bg-status-missed-solid" aria-hidden />
-                      <span className="min-w-0 flex-1">{shortTargetName(m.name)}</span>
-                      <span className="tabular shrink-0 font-medium text-status-missed">{m.figure}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <span className="mt-1.5 text-[12.5px] font-medium text-status-met">Every target met</span>
-              )}
-            </button>
-          );
-        })}
+    <div className="mt-4 grid grid-cols-2 items-center gap-x-5 gap-y-3 rounded-xl border border-border bg-white px-5 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)] min-[901px]:grid-cols-[minmax(150px,auto)_repeat(4,minmax(0,1fr))_minmax(0,1.6fr)]" data-testid="past-weeks">
+      <div className="col-span-2 text-[12.5px] font-medium text-heading min-[901px]:col-span-1">
+        Targets met
+        <small className="block text-xs font-normal text-muted-foreground">Past {past.length} weeks, of {past[0].total}</small>
       </div>
-    </section>
+      {past.map((w, i) => {
+        const key = pastWeekPeriodKey(i + 1);
+        const low = w.total > 0 && w.met * 3 < w.total * 2;
+        return (
+          <button key={w.weekStart} type="button" onClick={() => onOpen(key)} aria-pressed={active === key} className={cn("flex min-w-0 items-center gap-2 rounded-md px-1 py-0.5 text-left hover:bg-slate-50", active === key && "bg-primary-soft")} data-testid="past-week" data-period={key} data-met={w.met} title={w.missed.length ? `Missed: ${w.missed.map((m) => `${shortTargetName(m.name)} ${m.figure}`).join(", ")}` : "Every target met"}>
+            <b className={cn("tabular text-sm font-semibold whitespace-nowrap", low ? "text-status-missed" : "text-slate-900")}>
+              {w.met} of {w.total}
+            </b>
+            <span className="inline-flex gap-[2px]" aria-hidden>
+              {Array.from({ length: w.total }, (_, n) => (
+                <i key={n} className={cn("block h-3 w-1.5 rounded-[2px]", n < w.met ? (low ? "bg-status-missed-border" : "bg-[#b9cdf5]") : "bg-border")} />
+              ))}
+            </span>
+            <span className="text-[11px] whitespace-nowrap text-muted-foreground">{fmtDate(w.weekStart, "MMM d")}</span>
+          </button>
+        );
+      })}
+      <div className="col-span-2 text-left text-[12.5px] text-muted-foreground min-[901px]:col-span-1 min-[901px]:text-right" data-testid="most-missed">
+        {mostMissed ? `Most missed over ${mostMissed.of} weeks: ${mostMissed.name}, ${mostMissed.n} of ${mostMissed.of}` : "Every week met"}
+      </div>
+    </div>
   );
 }
 
@@ -341,50 +361,46 @@ function shortQuote(text: string): string {
 }
 
 /**
- * The sent report (push B): when it was sent and to whom, when it was opened, the replies read from Gmail (each with
- * Reply, which answers in the same Gmail thread, and "Make a task from this", which adds a task on that person's
- * page), then the report as each partner received it (the To choice when it went to more than one).
+ * The sent report (push B; push B edits: a large centered window, the same size as the report window on End of day):
+ * the email as sent (a tab per partner when it went to two), then the replies read from Gmail, each with Reply
+ * (which answers in the same Gmail thread) and "Make a task from this" (a task on that person's page).
  */
 function SentReportDrawer({ row, composes, onClose }: { row: SentRow; composes: Record<string, ComposeSetup>; onClose: () => void }) {
   const [copyId, setCopyId] = useState<string | null>(row.to[0]?.reportId ?? null);
   const copy = row.to.find((t) => t.reportId === copyId) ?? row.to[0] ?? null;
   const html = copy?.html ?? row.html;
   const toLine = row.to.map((t) => t.name).join(", ");
-  const sub = row.state === "skipped" ? `Skipped · ${row.skipReason ?? "no reason given"}` : `Sent ${row.sentTime}${toLine ? ` to ${toLine}` : ""}${row.replies.length ? ` · ${row.replies.length === 1 ? "1 reply" : `${row.replies.length} replies`}` : ""}`;
+  const opened = row.to.length > 1 ? row.to.map((t) => `${t.first} ${t.reviewedTime ?? "not yet"}`).join(" · ") : (row.reviewedTime ?? "not yet");
+  const sub = row.state === "skipped" ? `Skipped · ${row.skipReason ?? "no reason given"}` : `Sent ${row.sentTime}${toLine ? ` to ${toLine}` : ""} · opened ${opened} · ${row.replies.length === 1 ? "1 reply" : `${row.replies.length} replies`}`;
   return (
-    <Drawer open onOpenChange={(o) => !o && onClose()} title={`${fmtDate(row.day, "EEEE, MMM d")} · ${row.kind}`} sub={sub} testId="sent-report-drawer">
-      <div className="mb-3 flex flex-wrap gap-x-8 gap-y-3 border-b border-slate-100 pb-3" data-testid="sent-meta">
-        <Figure value={row.state === "skipped" ? "Not sent" : row.sentTime ?? ""} label={row.state === "skipped" ? "Skipped" : "Sent"} className="items-start sm:items-start" />
-        <Figure value={row.state === "skipped" ? "Nothing" : row.reviewedTime ?? "Not yet"} label="Opened" tone={row.reviewedTime ? "plain" : "none"} className={cn("items-start sm:items-start", row.reviewedTime && "[&>b]:text-status-met")} />
-        <Figure value={String(row.replies.length)} label={row.replies.length === 1 ? "Reply" : "Replies"} className="items-start sm:items-start" />
-      </div>
+    <CenteredWindow
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title={`${fmtDate(row.day, "EEEE, MMM d")} · ${row.kind}`}
+      sub={sub}
+      size="report"
+      testId="sent-report-drawer"
+      footer={
+        <>
+          <span className="text-[12.5px] text-muted-foreground">A sent report never changes. Escape or × closes this.</span>
+          <button type="button" onClick={onClose} className="inline-flex h-8 items-center rounded-[7px] border border-input bg-white px-3 text-[13px] font-medium text-slate-800 hover:bg-slate-50" data-testid="sent-close">
+            Close
+          </button>
+        </>
+      }
+    >
       {row.state === "skipped" ? (
         <p className="text-sm text-slate-800" data-testid="sent-skipped-text">
           No report was sent. Reason: {row.skipReason ?? "no reason given"}. The day is not counted on the per-weekday targets; the next End of day asked for any reason still owed.
         </p>
       ) : (
         <>
-          <div className="label-caps mb-2 flex items-center gap-2 border-b border-rule pb-[7px]" data-testid="sent-replies-heading">
-            Replies <span className="tabular rounded-full bg-status-neutral-bg px-2 py-px text-[11px] font-semibold leading-4 text-status-neutral">{row.replies.length}</span>
-            <span className="ml-auto text-xs font-normal tracking-normal text-muted-foreground normal-case">From Gmail</span>
-          </div>
-          {row.replies.length ? (
-            <div className="mb-5 flex flex-col" data-testid="sent-replies">
-              {row.replies.map((x) => (
-                <ReplyItem key={x.id} reply={x} compose={x.contactId ? composes[x.contactId] ?? null : null} subject={row.to.find((t) => t.reportId === x.reportId)?.subject ?? row.subject} />
-              ))}
-            </div>
-          ) : (
-            <p className="mb-5 text-[13px] text-muted-foreground" data-testid="sent-no-replies">
-              No reply yet. A reply to this email in Gmail shows here.
-            </p>
-          )}
-          <div className="label-caps mb-2 flex flex-wrap items-center gap-2 border-b border-rule pb-[7px]">
+          <div className="label-caps mb-2.5 flex flex-wrap items-center gap-2 border-b border-rule pb-[7px]" data-testid="sent-meta">
             The report as sent
             {row.to.length > 1 ? (
               <span className="ml-auto inline-flex overflow-hidden rounded-full border border-border bg-white tracking-normal normal-case" role="group" aria-label="Copy" data-testid="sent-copy-choice">
                 {row.to.map((t, i) => (
-                  <button key={t.reportId} type="button" onClick={() => setCopyId(t.reportId)} aria-pressed={t.reportId === copy?.reportId} className={cn("px-2.5 py-0.5 text-[12px] font-medium whitespace-nowrap", i ? "border-l border-border" : "", t.reportId === copy?.reportId ? "bg-primary-soft text-primary-strong" : "text-slate-600 hover:bg-slate-50")}>
+                  <button key={t.reportId} type="button" onClick={() => setCopyId(t.reportId)} aria-pressed={t.reportId === copy?.reportId} className={cn("px-[13px] py-[5px] text-[12.5px] font-medium whitespace-nowrap", i ? "border-l border-border" : "", t.reportId === copy?.reportId ? "bg-primary-soft text-primary-strong" : "text-heading hover:bg-slate-50")}>
                     {t.name}
                   </button>
                 ))}
@@ -392,14 +408,28 @@ function SentReportDrawer({ row, composes, onClose }: { row: SentRow; composes: 
             ) : null}
           </div>
           {html ? (
-            <div className="report-preview min-w-0 overflow-x-auto text-[13.5px] text-slate-900" dangerouslySetInnerHTML={{ __html: html }} data-testid="sent-html" />
+            <div className="report-preview report-window report-sent min-w-0 overflow-x-auto text-[13px] text-slate-900" dangerouslySetInnerHTML={{ __html: html }} data-testid="sent-html" />
           ) : (
             <p className="text-sm text-muted-foreground">The email of this report was not kept.</p>
           )}
-          <p className="mt-4 text-[12.5px] text-muted-foreground">{copy ? `The report as ${copy.first} received it.` : "The report as sent."} A sent report never changes.</p>
+          <div className="label-caps mt-[22px] mb-1 flex items-center gap-2 border-b border-rule pb-[7px]" data-testid="sent-replies-heading">
+            Replies <span className="tabular tracking-normal text-muted-foreground">{row.replies.length}</span>
+            <span className="ml-auto text-xs font-normal tracking-normal text-muted-foreground normal-case">From Gmail</span>
+          </div>
+          {row.replies.length ? (
+            <div className="flex flex-col" data-testid="sent-replies">
+              {row.replies.map((x) => (
+                <ReplyItem key={x.id} reply={x} compose={x.contactId ? composes[x.contactId] ?? null : null} subject={row.to.find((t) => t.reportId === x.reportId)?.subject ?? row.subject} />
+              ))}
+            </div>
+          ) : (
+            <p className="py-2 text-[13px] text-muted-foreground" data-testid="sent-no-replies">
+              No replies yet. A reply to this email in Gmail shows here.
+            </p>
+          )}
         </>
       )}
-    </Drawer>
+    </CenteredWindow>
   );
 }
 
@@ -411,7 +441,7 @@ function ReplyItem({ reply, compose, subject }: { reply: SentReply; compose: Com
   const [pending, start] = useTransition();
   const makeTask = () =>
     start(async () => {
-      if (!reply.contactId) return setDone({ tone: "warn", text: "The person who replied is not on People." });
+      if (!reply.contactId) return setDone({ tone: "warn", text: "The person who replied is not on Contacts." });
       const r = await taskFromReply(reply.contactId, reply.first, reply.text);
       if (!r.ok) return setDone({ tone: "warn", text: r.error });
       setDone({ tone: "ok", text: `Added to ${reply.first}'s tasks.`, href: r.href });
@@ -419,7 +449,7 @@ function ReplyItem({ reply, compose, subject }: { reply: SentReply; compose: Com
     });
   const setup = compose ? { ...compose, threadId: reply.threadId } : null;
   return (
-    <div className="grid grid-cols-[56px_22px_minmax(0,1fr)] gap-x-2.5 border-b border-slate-100 py-2.5 last:border-b-0" data-testid="sent-reply">
+    <div className="grid grid-cols-[52px_24px_minmax(0,1fr)] gap-x-2 border-t border-slate-100 py-3 first:border-t-0" data-testid="sent-reply">
       <span className="pt-0.5 text-xs text-muted-foreground">{reply.dateLabel}</span>
       <span className="flex h-[18px] w-[18px] items-center justify-center rounded-full border border-primary-border bg-primary-soft text-[8.5px] font-bold text-primary-strong" aria-hidden>
         Re

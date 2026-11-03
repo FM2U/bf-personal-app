@@ -16,6 +16,7 @@ import { Fact, GrowingTextarea, SaveLine, useSave, useSynced } from "@/component
 import { ProjectActionButtons } from "@/components/app/work/project-row";
 import { TasksCard } from "@/components/app/work/tasks-card";
 import { TimelineEvents } from "@/components/app/work/timeline-list";
+import { cappedNote } from "@/components/app/work/show-all";
 import { Pill, RowButton, WorkCard } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
 
@@ -131,6 +132,7 @@ export function ProjectNextActionCard({ project, today }: { project: ProjectRow;
 export function ProjectTasksCard({ project, tasks }: { project: ProjectRow; tasks: DealTodo[] }) {
   return (
     <TasksCard
+      windowTitle={`Tasks · ${project.name}`}
       tasks={tasks}
       open={project.status === "open"}
       actions={{
@@ -218,8 +220,8 @@ export function ProjectTimelineCard({ project, events }: { project: ProjectRow; 
   useUnsavedWork(note.trim() !== "", "The note is not saved yet.");
   const findings = events.filter((e) => e.kind === "finding").length;
   return (
-    <WorkCard title="Notes and findings" hint={findings ? `Newest first · ${findings} ${findings === 1 ? "finding" : "findings"}` : "Newest first"} testId="project-timeline">
-      <TimelineEvents events={events} empty="Nothing yet. Notes and findings show here." />
+    <WorkCard title="Notes and findings" hint={[findings ? `Newest first · ${findings} ${findings === 1 ? "finding" : "findings"}` : "Newest first", cappedNote(events.length)].filter(Boolean).join(" · ")} testId="project-timeline">
+      <TimelineEvents events={events} empty="Nothing yet. Notes and findings show here." windowTitle={`Notes and findings · ${project.name}`} windowSub={`All ${events.length} entries, newest first`} />
       <div className="flex flex-col gap-2 px-[22px] pt-2 pb-4" data-testid="note-form">
         <div className="flex items-start gap-2">
           <div className="relative min-w-0 flex-1">

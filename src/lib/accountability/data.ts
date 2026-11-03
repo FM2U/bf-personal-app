@@ -8,9 +8,12 @@ import { loadPipelineOfKind, loadWorkCtx, type WorkCtx, type WorkPipeline } from
 import { weekdayShort } from "@/lib/work/outreach";
 import { daysWaiting } from "@/lib/work/stages";
 import { buildFacts } from "@/lib/accountability/facts";
-import { dealBulletParts, pillOf, reportFor, reportInnerHtml, targetLine, type ReportData } from "@/lib/accountability/report-email";
+import { pillOf, reportFor, reportInnerHtml, targetGroup, targetLine, type ReportData } from "@/lib/accountability/report-email";
+import { cleanChoices, hasChoices, type ReportChoices } from "@/lib/accountability/report-sections";
+import { brokerPerson, reportDeals, type DealRows } from "@/lib/accountability/report-deals";
 import { firstName, partnerSettings, partnersDueOn, type ReportSectionKey } from "@/lib/accountability/partners";
 import { PAST_WEEKS, pastWeekPeriodKey, type PeriodKey } from "@/lib/accountability/periods";
+import { tileHistories, type TileHistory } from "@/lib/accountability/week-history";
 import {
   countedDays, countIn, DEFAULT_TARGETS, dayNumbers, figure, isCountKey, judgeDay, listNames, metThisWeek, mostMissed, mostMissedIn, owedFromLastClosed, owedReasons, pastWeeks, shortName,
   targetView, tileEodLine, tileTargetLine, tileTargets, todayTiles, tomorrowLabel, reportTiles, weekNumbers, weekTiles, workWeekOf,
@@ -69,9 +72,9 @@ async function seedDefaultTargets(sb: SupabaseClient, ownerId: string, existing:
 
 // ---------- The facts ----------
 
-type Wait = { name: string; days: number; who: string | null; what: string | null; since: string | null; dealId: string };
+type Wait = { name: string; days: number; who: string | null; what: string | null; since: string | null; /** YYYY-MM-DD. */ sinceDate: string | null; dealId: string };
 
-type FactsBundle = { facts: Facts; waits: Wait[]; /** Days skipped on End of day (not counted). */ skippedDays: string[]; /** Passed listings by reason in the window (for Reports). */ passes: { on: string; name: string; reason: string | null }[] };
+type FactsBundle = { facts: Facts; waits: Wait[]; /** Days skipped on End of day (not counted). */ skippedDays: string[]; /** Passed listings by reason in the window (for Reports). */ passes: { on: string; name: string; reason: string | null }[]; /** The rows the report's deal sections read (push B edits), with the deal and job pipeline ids. */ raw: DealRows & { acqId: string | null; jobId: string | null } };
 
 /** The facts from `since` (YYYY-MM-DD) to today: enough for the 8-week strips, the Past weeks, and This month. */
 export async function loadFacts(sb: SupabaseClient, ctx: WorkCtx, since: string): Promise<FactsBundle> {
@@ -85,13 +88,14 @@ export async function loadFacts(sb: SupabaseClient, ctx: WorkCtx, since: string)
   const stageById: Record<string, { name: string; outcome: string; position: number }> = {};
   for (const p of pipes) for (const s of p.stages) stageById[s.id] = { name: s.name, outcome: s.outcome, position: s.position };
 
-  const [{ data: items }, { data: hist }, { data: comms }, { data: events }, { data: eods }, { data: people }] = await Promise.all([
-    sb.from("pipeline_items").select("id,name,company_name,pipeline_id,status,stage_id,pass_reason,key_finding,waiting_on,waiting_since,next_action,screened,broker_name,primary_contact_id").eq("owner_id", ctx.ownerId).limit(5000),
+  const [{ data: items }, { data: hist }, { data: comms }, { data: events }, { data: eods }, { data: people }, { data: notes }] = await Promise.all([
+    sb.from("pipeline_items").select("id,name,company_name,pipeline_id,status,stage_id,pass_reason,key_finding,waiting_on,waiting_since,next_action,next_action_due,screened,broker_name,primary_contact_id,updated_at,role_title").eq("owner_id", ctx.ownerId).limit(5000),
     sb.from("stage_history").select("id,item_id,stage_id,entered_at").eq("owner_id", ctx.ownerId).order("entered_at").limit(20000),
-    sb.from("communications").select("id,occurred_at,method,direction,contact_id,awaiting_log").eq("owner_id", ctx.ownerId).gte("occurred_at", `${since}T00:00:00Z`).limit(5000),
-    sb.from("work_events").select("kind,record_type,record_id,label,happened_on,on_time,meta").eq("owner_id", ctx.ownerId).gte("happened_on", since).limit(5000),
+    sb.from("communications").select("id,occurred_at,method,direction,contact_id,awaiting_log,pipeline_item_id,subject,call_minutes").eq("owner_id", ctx.ownerId).gte("occurred_at", `${since}T00:00:00Z`).limit(5000),
+    sb.from("work_events").select("kind,record_type,record_id,label,happened_on,happened_at,on_time,meta").eq("owner_id", ctx.ownerId).gte("happened_on", since).limit(5000),
     sb.from("end_of_day").select("day,status").eq("owner_id", ctx.ownerId).eq("status", "skipped").gte("day", since).limit(500),
     sb.from("contacts").select("id,name,outreach_role").eq("owner_id", ctx.ownerId).limit(5000),
+    sb.from("notes").select("record_id,body,created_at").eq("owner_id", ctx.ownerId).eq("record_type", "pipeline_items").gte("created_at", `${addDaysISO(since, 56)}T00:00:00Z`).limit(5000),
   ]);
   const personById = new Map(((people ?? []) as Row[]).map((p) => [String(p.id), p]));
   const nameOf = (i: Row) => displayName({ name: String(i.name), companyName: (i.company_name as string | null) ?? null });
@@ -102,19 +106,12 @@ export async function loadFacts(sb: SupabaseClient, ctx: WorkCtx, since: string)
     .map((i) => {
       const contact = i.primary_contact_id ? personById.get(String(i.primary_contact_id)) : null;
       const who = String(contact?.name ?? "").trim() || brokerPerson(i.broker_name as string | null) || null;
-      return { dealId: String(i.id), name: nameOf(i), days: daysWaiting((i.waiting_since as string | null) ?? null, ctx.today), who, what: String(i.waiting_on), since: i.waiting_since ? fmtDate(String(i.waiting_since).slice(0, 10), "MMM d") : null };
+      return { dealId: String(i.id), name: nameOf(i), days: daysWaiting((i.waiting_since as string | null) ?? null, ctx.today), who, what: String(i.waiting_on), since: i.waiting_since ? fmtDate(String(i.waiting_since).slice(0, 10), "MMM d") : null, sinceDate: i.waiting_since ? String(i.waiting_since).slice(0, 10) : null };
     })
     .sort((a, b) => b.days - a.days);
   const skippedDays = ((eods ?? []) as Row[]).map((e) => String(e.day).slice(0, 10));
-  return { facts, waits, skippedDays, passes };
-}
-
-/** "Transworld, Rachel Kim" or "Rachel Kim, Transworld" to the person's name; a firm alone stays as typed. */
-function brokerPerson(brokerName: string | null): string | null {
-  const t = String(brokerName ?? "").trim();
-  if (!t) return null;
-  const parts = t.split(",").map((x) => x.trim()).filter(Boolean);
-  return parts.find((x) => /^[A-Z][a-z]+ [A-Z]/.test(x) && !/(Advisors|Brokers|Business|Partners|Group|LLC|Inc)/.test(x)) ?? parts[0];
+  const raw = { items: (items ?? []) as Row[], history: (hist ?? []) as Row[], comms: (comms ?? []) as Row[], notes: (notes ?? []) as Row[], events: (events ?? []) as Row[], people: (people ?? []) as Row[], stageById, acqId: acq?.id ?? null, jobId: job?.id ?? null };
+  return { facts, waits, skippedDays, passes, raw };
 }
 
 /** The window the screens read: 9 weeks back (the 8-week strips and four past weeks) or the start of the month, whichever is earlier. */
@@ -142,17 +139,17 @@ export async function loadPartners(sb: SupabaseClient, ownerId: string): Promise
 }
 
 /** The End of day reports already sent on a day, one per partner (push B: each partner gets their own copy). */
-export type SentCopy = { reportId: string; contactId: string; sentAt: string; html: string | null; subject: string | null };
+export type SentCopy = { reportId: string; contactId: string; sentAt: string; html: string | null; subject: string | null; /** Today's choices it was sent with (push B edits). */ choices: ReportChoices | null };
 
 export async function loadSentCopies(sb: SupabaseClient, ownerId: string, day: string): Promise<SentCopy[]> {
   const { data } = await sb.from("partner_reports").select("id,contact_id,sent_at,snapshot").eq("owner_id", ownerId).eq("report_kind", "end_of_day").eq("period_start", day).not("contact_id", "is", null).not("sent_at", "is", null).order("sent_at").limit(20);
   return ((data ?? []) as Row[]).map((r) => {
     const snap = (r.snapshot && typeof r.snapshot === "object" ? r.snapshot : {}) as Row;
-    return { reportId: String(r.id), contactId: String(r.contact_id), sentAt: String(r.sent_at), html: typeof snap.html === "string" ? snap.html : null, subject: typeof snap.subject === "string" ? snap.subject : null };
+    return { reportId: String(r.id), contactId: String(r.contact_id), sentAt: String(r.sent_at), html: typeof snap.html === "string" ? snap.html : null, subject: typeof snap.subject === "string" ? snap.subject : null, choices: snap.choices && typeof snap.choices === "object" ? cleanChoices(snap.choices) : null };
   });
 }
 
-type EodRow = { id: string | null; day: string; status: EodState; reasons: Record<string, string>; tomorrow: string; skipReason: string | null; sentAt: string | null; reportId: string | null; reportSubject: string | null; reportHtml: string | null; reportEdited: boolean; /** Push B: each partner's edited copy while the day is open, by contact id. */ reportEdits: Record<string, string>; judged: Judged[] };
+type EodRow = { id: string | null; day: string; status: EodState; reasons: Record<string, string>; tomorrow: string; skipReason: string | null; sentAt: string | null; reportId: string | null; reportSubject: string | null; reportHtml: string | null; reportEdited: boolean; /** Push B edits: each partner's choices for today's copy (include, Change, Edit), by contact id. */ reportEdits: Record<string, ReportChoices>; judged: Judged[] };
 
 export async function loadEodRow(sb: SupabaseClient, ownerId: string, day: string): Promise<EodRow> {
   const { data } = await sb.from("end_of_day").select("*").eq("owner_id", ownerId).eq("day", day).maybeSingle();
@@ -170,7 +167,8 @@ export async function loadEodRow(sb: SupabaseClient, ownerId: string, day: strin
     reportSubject: (r?.report_subject as string | null) ?? null,
     reportHtml: (r?.report_html as string | null) ?? null,
     reportEdited: !!r?.report_edited,
-    reportEdits: r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? Object.fromEntries(Object.entries(r.report_edits as Record<string, unknown>).filter(([, v]) => typeof v === "string" && v.trim()).map(([k, v]) => [k, String(v)])) : {},
+    // An edit saved before the push B edits (a whole email as HTML) is not a choice; the copy is built again.
+    reportEdits: r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? Object.fromEntries(Object.entries(r.report_edits as Record<string, unknown>).filter(([, v]) => v && typeof v === "object" && !Array.isArray(v)).map(([k, v]) => [k, cleanChoices(v)])) : {},
     judged: Array.isArray(r?.judged) ? (r!.judged as Judged[]) : [],
   };
 }
@@ -264,8 +262,14 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
   const tl = tomorrowLabel(day);
   const thisWeek = weekNumbers(targets, bundle.facts, week, bundle.waits, bundle.skippedDays, day);
   const lastWeek = weekNumbers(targets, bundle.facts, { start: addDaysISO(week.start, -7), end: addDaysISO(week.start, -3) }, bundle.waits, bundle.skippedDays);
-  const owedLines = i.owed ? i.owed.items.map((j) => `${fmtDate(i.owed!.day, "EEEE")}, ${j.name} ${j.figure}: ${String(i.owed!.reasons[j.targetId] ?? row.reasons[`owed:${i.owed!.day}:${j.targetId}`] ?? "").trim() || "(reason still to give)"}`) : [];
-  const dealParts = dealBulletParts(numbers.moves.filter((m) => m.lane === "Deals"), numbers.waits, i.threshold);
+  const owedPrev = i.owed;
+  const owed: ReportData["owed"] = owedPrev && owedPrev.items.length ? { dayWord: fmtDate(owedPrev.day, "EEEE"), items: owedPrev.items.map((j) => ({ id: j.targetId, text: `${j.name}: ${j.figure}`, reason: String(owedPrev.reasons[j.targetId] ?? row.reasons[`owed:${owedPrev.day}:${j.targetId}`] ?? "").trim() || null })) } : null;
+  // The report's period: the day, or the week on Friday (Active this week).
+  const period = friday ? { start: week.start, end: day } : { start: day, end: day };
+  const local = (ts: string) => todayInTz(i.tz, new Date(ts));
+  const dealArgs = { ...bundle.raw, period, today: day, local, fmt: (d: string) => fmtDate(d, "MMM d"), weekday: (d: string) => fmtDate(d, "EEEE") };
+  const deals = bundle.raw.acqId ? reportDeals({ ...dealArgs, pipelineId: bundle.raw.acqId }) : [];
+  const jobs = bundle.raw.jobId ? reportDeals({ ...dealArgs, pipelineId: bundle.raw.jobId }) : [];
   const report: ReportData = {
     partnerName: "Partner",
     partnerFirst: "there",
@@ -274,11 +278,13 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
     withWeek: friday,
     pill: pillOf(judged, friday),
     today: todayTiles(numbers, targets),
-    deals: [...dealParts.moves, ...dealParts.waits],
-    dealMoves: dealParts.moves,
-    dealWaits: dealParts.waits,
-    targets: judged.map((j) => ({ met: j.met, judged: j.judged, line: targetLine(j, j.cadence === "day" ? (weekSums[j.targetId] ?? null) : null, countedDays(day, bundle.skippedDays)), commitment: j.commitment, reason: j.judged && !j.met && j.commitment ? (row.reasons[j.targetId] ?? null) : null })),
-    owed: owedLines,
+    targets: judged.map((j) => ({ id: j.targetId, group: targetGroup(j), text: targetLine(j, j.cadence === "day" ? (weekSums[j.targetId] ?? null) : null, countedDays(day, bundle.skippedDays)), commitment: j.commitment, asks: j.judged && !j.met && j.commitment, reason: j.judged && !j.met && j.commitment ? String(row.reasons[j.targetId] ?? "").trim() || null : null })),
+    owed,
+    waits: bundle.waits.filter((w) => w.days > i.threshold).map((w) => ({ id: w.dealId, name: w.name, days: w.days, who: w.who })),
+    threshold: i.threshold,
+    deals,
+    jobs,
+    period: friday ? "this week" : "today",
     week: friday ? { label: `The week, ${fmtDate(week.start, "MMM d")} to ${fmtDate(week.end, "d")}`, tiles: weekTiles(thisWeek, lastWeek) } : null,
     tomorrow: { label: tl, text: row.tomorrow.trim() || null },
   };
@@ -288,13 +294,16 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
   const sentBy = new Map(i.sent.map((c) => [c.contactId, c]));
   const due = row.status === "open" ? partnersDueOn(partners, day) : [];
   const onReport = partners.filter((p) => sentBy.has(p.id) || due.includes(p));
-  const copies: PartnerCopy[] = onReport.map((p, n) => {
-    const r = reportFor(report, p);
+  const copies: PartnerCopy[] = onReport.map((p) => {
     const s = sentBy.get(p.id);
-    if (s) return { partner: p, report: r, html: s.html ?? (row.reportHtml && n === 0 ? row.reportHtml : reportInnerHtml(r)), edited: false, sentAt: s.sentAt, sentTime: time(s.sentAt) };
-    // An edit saved before push B (one edit for the day) belongs to the first copy.
-    const edit = row.reportEdits[p.id] ?? (n === 0 && row.reportEdited && row.reportHtml && !Object.keys(row.reportEdits).length ? row.reportHtml : null);
-    return { partner: p, report: r, html: edit ?? reportInnerHtml(r), edited: !!edit, sentAt: null, sentTime: null };
+    if (s) {
+      const r = reportFor(report, p, s.choices);
+      return { partner: p, report: r, html: s.html ?? reportInnerHtml(r), edited: hasChoices(s.choices), sentAt: s.sentAt, sentTime: time(s.sentAt) };
+    }
+    // Today's choices for this partner (the review window): include, Change, Edit.
+    const choices = row.reportEdits[p.id] ?? null;
+    const r = reportFor(report, p, choices);
+    return { partner: p, report: r, html: reportInnerHtml(r), edited: hasChoices(choices), sentAt: null, sentTime: null };
   });
   const first = copies[0] ?? null;
   return {
@@ -334,6 +343,8 @@ export type PeriodView = {
   /** "Week of Oct 27 to 31 · counted so far; the per-week targets are judged at End of day". */
   lead: string;
   tiles: ReturnType<typeof weekTiles>;
+  /** The last 4 weeks under each tile, by the tile's label (push B edits). */
+  history: Record<string, TileHistory>;
   /** Every target's row; the "What needs you" card lists only the ones not met (missed, or at risk while the week is open). */
   targets: { name: string; line: string; figure: string; met: boolean }[];
   /** How many targets are met in the period (the card's hint, since the Targets met tile gave way to Most missed). */
@@ -413,6 +424,7 @@ export async function loadReportsPage(sb: SupabaseClient, ctx: Ctx): Promise<Rep
     const most = mostMissedIn(targets, bundle.facts, d.period, ctx.today, bundle.skippedDays, d.key === "month");
     const mostLabel = d.key === "this" ? "Most missed this week" : d.key === "last" ? "Most missed last week" : d.key === "month" ? `Most missed in ${monthName}` : "Most missed that week";
     const tiles = reportTiles(w, prev, most, { label: mostLabel, open, month: d.key === "month" });
+    const history = tileHistories({ targets, facts: bundle.facts, weekStart: d.key === "month" ? week.start : workWeekOf(d.period.start).start, waits: bundle.waits, skipped: bundle.skippedDays, mostLabel, mostName: most?.name ?? null });
     const targetRows = targets.map((t) => targetRow(t, bundle, d.period, d.key, ctx.today));
     return {
       key: d.key,
@@ -420,6 +432,7 @@ export async function loadReportsPage(sb: SupabaseClient, ctx: Ctx): Promise<Rep
       label: d.label,
       lead: d.lead,
       tiles,
+      history,
       targets: targetRows,
       met: targetRows.filter((t) => t.met).length,
       waits: bundle.waits,

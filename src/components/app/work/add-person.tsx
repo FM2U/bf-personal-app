@@ -74,7 +74,7 @@ function PersonFields({ f, set, ids, withFollowUp = true, withTitle = false }: {
   return (
     <div className="grid grid-cols-1 gap-x-6 gap-y-3 md:grid-cols-2" data-testid="person-fields">
       {text("name", "Name", "First and last name")}
-      {text("organization", "Organization", "Company or firm")}
+      {text("organization", "Organization", "Company or organization")}
       {field(
         "role",
         "Role",

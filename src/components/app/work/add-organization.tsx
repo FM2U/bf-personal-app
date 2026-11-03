@@ -41,7 +41,7 @@ function OrgFields({ f, set, ids }: { f: OrgInput; set: (k: keyof OrgInput, v: s
       {text("dealSize", "Deal size", "$1M to $8M revenue")}
       {text("website", "Website", "example.com")}
       {text("phone", "Phone", "(404) 555-0100")}
-      {text("note", "One-line note", "What the firm does, in a few words", true)}
+      {text("note", "One-line note", "What they do, in a few words", true)}
     </div>
   );
 }
@@ -81,7 +81,7 @@ export function AddOrganizationCard({ onClose }: { onClose: () => void }) {
             {pending ? "Saving..." : "Save"}
           </RowButton>
         </div>
-        <p className="text-[12.5px] text-muted-foreground">A deal&apos;s company stays on the deal. Organizations are the firms you work with: brokers, lenders, employers, clients, investors.</p>
+        <p className="text-[12.5px] text-muted-foreground">A deal&apos;s company stays on the deal. Organizations are the ones you work with: brokers, lenders, employers, clients, investors.</p>
       </div>
     </WorkCard>
   );

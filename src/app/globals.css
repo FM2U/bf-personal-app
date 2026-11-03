@@ -367,3 +367,61 @@ select:not([multiple]):not([size]) {
   height: auto !important;
   min-height: 30px;
 }
+
+/* Push B edits: the report window on End of day and the sent report window. The email's tiles (180px wide, inline,
+   marked data-tile) sit three to a row and share one height, two on the phone; the window is denser than the email
+   (smaller tiles, about 15% less space); the email itself is sent unchanged. */
+.report-preview [style*="margin:0 -3px"] {
+  margin: 0 -3px !important;
+  display: flex;
+  flex-wrap: wrap;
+}
+.report-preview [data-tile] {
+  max-width: 33.333% !important;
+  display: flex !important;
+}
+.report-preview [data-tile] > table {
+  height: 100%;
+}
+.report-preview [data-tile] td {
+  vertical-align: top;
+}
+@media (max-width: 600px) {
+  .report-preview [data-tile] {
+    max-width: 50% !important;
+  }
+}
+.report-window [data-tile] > table > tbody > tr > td {
+  padding: 6px 10px 7px !important;
+}
+.report-window [data-tile] > table > tbody > tr > td > div:first-child {
+  font-size: 11.5px !important;
+}
+.report-window [data-tile] > table > tbody > tr > td > div:nth-child(2) {
+  font-size: 16px !important;
+  line-height: 21px !important;
+}
+.report-preview ul {
+  list-style: disc;
+}
+.report-preview ul ul {
+  list-style: circle;
+}
+.report-window ul {
+  margin-top: 1px !important;
+}
+.report-window li {
+  margin-bottom: 1px !important;
+}
+/* The sent report window shows the email as sent without its outer border. */
+.report-sent > table {
+  border: 0 !important;
+  border-radius: 0 !important;
+  max-width: none !important;
+  width: 100% !important;
+}
+.report-sent > table > tbody > tr > td,
+.report-sent > table > tr > td {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}

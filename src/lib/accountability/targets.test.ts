@@ -3,7 +3,7 @@ import {
   askedForReason, judgedMark, mostMissedIn, reportTiles, MARK_WORD, countIn, todayStrip, countedDays, DEFAULT_TARGETS, dayNumbers, EMPTY_FACTS, judgeDay, judgeWeek, metThisWeek, mostMissed, noReasonText, owedFromLastClosed, owedReasons, pastWeeks, reportSummary, statusItems, targetView, tileEodLine, tileTargetLine, tileTargets, todayTiles, tomorrowLabel, weekNumbers, weekTiles, workWeekOf,
   type Facts, type Target,
 } from "./targets";
-import { dealBullets, pillOf, reportInnerHtml, reportSubject, reportText, targetLine, type ReportData } from "./report-email";
+import { pillOf, reportInnerHtml, reportSubject, reportText, targetGroup, targetLine, type ReportData } from "./report-email";
 import { validateReasonsReply } from "./ask-ai";
 
 // Friday, Nov 6, 2026 (the week of Mon Nov 2 to Fri Nov 6).
@@ -184,28 +184,36 @@ describe("the report's numbers and the email", () => {
     expect(tiles[0].note).toBe("Missed: Listings, Brokers and 3 more");
     expect(tiles[1].note).toBe("Dalton, Meridian and 1 more");
     expect(tiles[5].note).toBe("3 open waits · Summit 11 days");
-    expect(dealBullets(n.moves, n.waits, 5)).toEqual(["Dalton Services moved to Seller call. Key finding: 70% of revenue is recurring maintenance contracts.", "Waiting on brokers over 5 days: Summit Logistics Group (11 days, Mark Reed), Pinecrest Landscaping (6 days, Dana Whitfield)."]);
+    expect(n.waits.map((w) => `${w.name} ${w.days}`)).toEqual(["Summit Logistics Group 11", "Pinecrest Landscaping 6"]);
   });
   it("the pill, the target lines, and the summary", () => {
     const fri = judgeDay(targets, facts, FRI);
     expect(pillOf(fri, true)).toEqual({ text: "1 of 6 targets met", status: "missed" });
     const wed = judgeDay(targets, facts, WED);
     expect(pillOf(wed, false)).toEqual({ text: "Listings screened missed", status: "missed" });
-    expect(targetLine(fri[0], 19)).toBe("Listings screened 3 of 5 today, 19 of 25 this week");
+    expect(targetLine(fri[0], 19)).toBe("Listings screened: 3 of 5 today, 19 of 25 this week");
     // Mid-week the week's number is the days counted so far (as on Targets): Wednesday, 3 days.
-    expect(targetLine(fri[0], 11, countedDays(WED, []))).toBe("Listings screened 3 of 5 today, 11 of 15 this week");
-    expect(targetLine(fri.find((j) => j.name === "Rosara focus done")!, null)).toBe("Rosara focus done not yet");
+    expect(targetLine(fri[0], 11, countedDays(WED, []))).toBe("Listings screened: 3 of 5 today, 11 of 15 this week");
+    expect(targetLine(fri.find((j) => j.name === "Rosara focus done")!, null)).toBe("Rosara focus: not done");
     expect(reportSummary(fri, n, true)).toBe("1 of 6 targets met · Dalton to Seller call · Priya Natarajan and Carla Jenkins contacted · the week added");
     expect(reportSummary(wed, dayNumbers(facts, WED, waits, 5), false)).toBe("Listings screened 4 of 5 · Meridian to Model");
   });
-  it("the email: the layout the app sends, the reasons as written, the short version, the text part", () => {
+  it("the email: the layout the app sends, the reasons as child lines, the text part", () => {
     const d: ReportData = {
       partnerName: "Jake Morgan", partnerFirst: "Jake", dateLong: "Friday, Nov 6, 2026", dateShort: "Friday, Nov 6", withWeek: true,
       pill: { text: "1 of 6 targets met", status: "missed" },
       today: todayTiles(n, targets),
-      deals: dealBullets(n.moves, n.waits, 5),
-      targets: [{ met: false, judged: true, line: "Listings screened 3 of 5 today, 19 of 25 this week", commitment: true, reason: "Deal work filled the block" }, { met: true, judged: true, line: "Deals moved a stage 3 of 2", commitment: false, reason: null }, { met: false, judged: true, line: "Network outreach 5 of 10", commitment: true, reason: null }],
-      owed: ["Wednesday, Listings screened 2 of 5: travel day"],
+      targets: [
+        { id: "t1", group: "missed", text: "Listings screened: 3 of 5 today, 19 of 25 this week", commitment: true, asks: true, reason: "Deal work filled the block" },
+        { id: "t5", group: "met", text: "Deals moved a stage: 3 of 2", commitment: false, asks: false, reason: null },
+        { id: "t3", group: "missed", text: "Network outreach: 5 of 10", commitment: true, asks: true, reason: null },
+      ],
+      owed: { dayWord: "Wednesday", items: [{ id: "t1", text: "Listings screened: 2 of 5", reason: "travel day" }] },
+      waits: [{ id: "d1", name: "Summit Logistics Group", days: 11, who: "Mark Reed" }],
+      threshold: 5,
+      deals: [],
+      jobs: [],
+      period: "this week",
       week: { label: "The week, Nov 2 to 6", tiles: weekTiles(weekNumbers(targets, facts, workWeekOf(FRI), waits), null) },
       tomorrow: { label: "Monday", text: "Monday: finish the Meridian model before 10" },
     };
@@ -213,23 +221,20 @@ describe("the report's numbers and the email", () => {
     expect(html).toContain("Daily report, with the week");
     expect(html).toContain("Hello Jake,");
     expect(html).toContain("It is Friday, so the week is at the end.");
-    expect(html).toContain("Commitment. Deal work filled the block");
-    expect(html).toContain("Commitment. (reason still to give)");
-    expect(html).toContain("Owed</span>&nbsp; Wednesday, Listings screened 2 of 5: travel day");
+    expect(html).toContain("Commitment. Reason: Deal work filled the block");
+    expect(html).toContain("(still to give)");
+    expect(html).toContain("Owed from Wednesday");
+    expect(html).toContain("Commitment. Reason: travel day");
     expect(html).toContain("Nothing is required from you. Reply to this email if you want to talk.");
     expect(html).toContain("Thank you,<br>Bram");
     expect(html).toContain("The week, Nov 2 to 6");
     expect(html).not.toMatch(/<script|<style|<img/i);
     expect(html).not.toMatch(/#b8862b|#7a5714|#fbf4e2/i);
-    const short = reportInnerHtml(d, true);
-    expect(short).toContain("short version");
-    expect(short).not.toContain(">Today<");
-    expect(short).not.toContain(">Deals<");
-    expect(short).toContain(">Targets<");
     expect(reportSubject(d)).toBe("Daily report with the week: Friday, Nov 6, 2026");
     const text = reportText(d);
     expect(text).toContain("TODAY\n- Listings screened: 3 of 5 (2 passed (Too small, Retail), 1 Interested: Industrial Filtration Distributor)");
-    expect(text).toContain("- Missed: Listings screened 3 of 5 today, 19 of 25 this week Commitment. Deal work filled the block");
+    expect(text).toContain("Missed\n  - Listings screened: 3 of 5 today, 19 of 25 this week\n    - Commitment. Reason: Deal work filled the block");
+    expect(text).toContain("Waiting on brokers over 5 days\n  - Summit Logistics Group: 11 days, Mark Reed");
     expect(text).toContain("MONDAY\nMonday: finish the Meridian model before 10");
     expect(text).toMatch(/Thank you,\nBram$/);
   });
@@ -259,7 +264,7 @@ describe("Edit batch C: the target pill, what a target counts, exceeded reads me
     expect(todayStrip(n, 5).map((p) => `${p.value} ${p.words}`)).toEqual(["3 screened", "1 moved", "2 calls", "2 emails", "2 next actions done", "1 waiting over 5 days"]);
     expect(n.screenedList.map((x) => `${x.name} ${x.outcome} ${x.reason ?? ""}`.trim())).toEqual(["Fri 1 passed Too small", "Fri 2 passed Retail", "Industrial Filtration Distributor interested"]);
     expect(n.contactsList.filter((c) => c.kind === "call").map((c) => c.name)).toEqual(["Priya Natarajan", "Carla Jenkins"]);
-    expect(n.contactsList.filter((c) => c.kind === "email").map((c) => c.name)).toEqual(["Tom Baker", "Someone not on People"]);
+    expect(n.contactsList.filter((c) => c.kind === "email").map((c) => c.name)).toEqual(["Tom Baker", "Someone not on Contacts"]);
     expect(n.actionsDoneList).toEqual([{ name: "Meridian Industrial Coatings", label: "Finish the model" }, { name: "Dalton Services", label: "Call Carla" }]);
     const one = dayNumbers({ ...EMPTY_FACTS, comms: [{ on: FRI, method: "call", contactId: "p1", contactName: "A", broker: false }] }, FRI, [], 5);
     expect(todayStrip(one, 5).find((p) => p.key === "calls")!.words).toBe("call");
@@ -285,17 +290,17 @@ describe("Edit batch C round 2: a weekly target is Met as soon as it is reached"
     const fri = judgeDay(targets, facts, FRI);
     expect(judgedMark(fri.find((j) => j.name === "Network outreach")!)).toBe("missed");
   });
-  it("the report preview's target lines say Met for a weekly target reached midweek", () => {
+  it("the report's target groups say Met for a weekly target reached midweek", () => {
     const wed = judgeDay(targets, facts, WED);
     const data: ReportData = {
       partnerName: "Jake Morgan", partnerFirst: "Jake", dateLong: "Wednesday, Nov 4, 2026", dateShort: "Wednesday, Nov 4", withWeek: false,
-      pill: { text: "x", status: "neutral" }, today: [], deals: [], owed: [], week: null, tomorrow: { label: "Tomorrow", text: null },
-      targets: wed.map((j) => ({ met: j.met, judged: j.judged, line: targetLine(j, null), commitment: j.commitment, reason: null })),
+      pill: { text: "x", status: "neutral" }, today: [], owed: null, waits: [], threshold: 5, deals: [], jobs: [], period: "today", week: null, tomorrow: { label: "Tomorrow", text: null },
+      targets: wed.map((j) => ({ id: j.targetId, group: targetGroup(j), text: targetLine(j, null), commitment: j.commitment, asks: j.judged && !j.met && j.commitment, reason: null })),
     };
     const text = reportText(data);
-    expect(text).toContain("- Met: Deals moved a stage 3 of 2");
-    expect(text).toMatch(/- Under way: Network outreach/);
-    expect(reportInnerHtml(data)).toContain("Met</span>&nbsp; Deals moved a stage 3 of 2");
+    expect(text).toMatch(/Met\n(  - .*\n)*  - Deals moved a stage: 3 of 2/);
+    expect(text).toMatch(/Under way\n(  - .*\n)*  - Network outreach/);
+    expect(reportInnerHtml(data)).toContain("Deals moved a stage: 3 of 2");
   });
   it("the Targets row: the mark is Met midweek once the week's count reaches the target", () => {
     expect(targetView(byName("Deals moved a stage"), facts, WED).mark).toBe("met");

@@ -126,7 +126,7 @@ function CallForm({ target, today, tz, onOpenChange, onSaved }: { target: LogCal
           {pending ? "Saving..." : "Save"}
         </RowButton>
       </div>
-      <p className="mt-4 text-[12.5px] leading-5 text-muted-foreground">Saved calls appear on the timeline as a call entry and count toward the weekly outreach target when the person is on People.</p>
+      <p className="mt-4 text-[12.5px] leading-5 text-muted-foreground">Saved calls appear on the timeline as a call entry and count toward the weekly outreach target when the person is on Contacts.</p>
     </>
   );
 }

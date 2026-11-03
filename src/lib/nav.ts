@@ -24,12 +24,12 @@ function isAccountabilityPath(path: string): boolean {
   return ACCOUNTABILITY_TABS.some((t) => path === t.href || path.startsWith(`${t.href}/`));
 }
 
-/** The Work tabs: Home, Screen listings, Deals, People (Outreach renamed in push B), Rosara, Job search, Consulting, To-dos. */
+/** The Work tabs: Home, Screen listings, Deals, Contacts (Outreach renamed People in push B, Contacts in the push B edits), Rosara, Job search, Consulting, To-dos. */
 export const WORK_TABS: NavTab[] = [
   { href: "/work", label: "Home" },
   { href: "/work/listings", label: "Screen listings" },
   { href: "/work/deals", label: "Deals" },
-  { href: "/work/people", label: "People" },
+  { href: "/work/people", label: "Contacts" },
   { href: "/work/rosara", label: "Rosara" },
   { href: "/work/jobs", label: "Job search" },
   { href: "/work/consulting", label: "Consulting" },
@@ -54,7 +54,7 @@ export function mainFor(path: string): NavModule {
   return MAIN_NAV[0];
 }
 
-/** The Work tab a path belongs to (the deal page belongs to Deals, the person and organization pages to People). */
+/** The Work tab a path belongs to (the deal page belongs to Deals, the person and organization pages to Contacts). */
 export function workTabFor(path: string): NavTab | null {
   if (!path.startsWith("/work") || isAccountabilityPath(path)) return null;
   return [...WORK_TABS].sort((a, b) => b.href.length - a.href.length).find((t) => path === t.href || path.startsWith(`${t.href}/`)) ?? WORK_TABS[0];

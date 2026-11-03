@@ -22,6 +22,7 @@ import { ItemActionButtons } from "@/components/app/work/item-row";
 import { LogCallDrawer } from "@/components/app/work/log-call-drawer";
 import { TasksCard } from "@/components/app/work/tasks-card";
 import { TimelineEvents } from "@/components/app/work/timeline-list";
+import { cappedNote } from "@/components/app/work/show-all";
 import { Pill, RowButton, WorkCard } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
 
@@ -307,6 +308,7 @@ export function FindOutCard({ item }: { item: ItemRow }) {
 export function ItemTasksCard({ item, tasks }: { item: ItemRow; tasks: DealTodo[] }) {
   return (
     <TasksCard
+      windowTitle={`Tasks · ${item.name}`}
       tasks={tasks}
       open={item.status === "open"}
       actions={{
@@ -381,7 +383,7 @@ export function OpportunityFactsCard({ item }: { item: ItemRow }) {
         <div className="grid grid-cols-1 gap-x-3.5 gap-y-2.5 px-[22px] pt-3 pb-5 sm:grid-cols-2" data-testid="facts-form">
           {field("company", "Company")}
           {field("role", "Role")}
-          {field("contact", "Contact", "Name, firm")}
+          {field("contact", "Contact", "Name, organization")}
           {field("source", "Source", "Recruiter, personal network, a posting")}
           {field("payRange", "Pay range", "$150K to $170K")}
           {field("location", "Location", "City, ST, on site or remote")}
@@ -517,8 +519,8 @@ export function ItemTimelineCard({ item, events }: { item: ItemRow; events: Time
   const [note, setNote] = useState("");
   useUnsavedWork(note.trim() !== "", "The note is not saved yet.");
   return (
-    <WorkCard title="Timeline" hint="Newest first" testId="item-timeline">
-      <TimelineEvents events={events} empty="Nothing yet. Notes, emails, calls, and stage moves show here." />
+    <WorkCard title="Timeline" hint={["Newest first", cappedNote(events.length)].filter(Boolean).join(" · ")} testId="item-timeline">
+      <TimelineEvents events={events} empty="Nothing yet. Notes, emails, calls, and stage moves show here." windowTitle={`Timeline · ${item.name}`} windowSub={`All ${events.length} entries, newest first`} />
       <div className="flex flex-col gap-2 px-[22px] pt-2 pb-4" data-testid="note-form">
         <div className="flex items-start gap-2">
           <GrowingTextarea id="item-note" value={note} onChange={setNote} minRows={1} placeholder="Add a note" className="flex-1" data-testid="item-note" />

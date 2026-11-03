@@ -536,7 +536,7 @@ export function TargetBar({ count, target, pct, hint, className, testId = "outre
 export function LanePill({ lane, className }: { lane: "People" | "Rosara" | "Job search" | "Consulting" | "To-do"; className?: string }) {
   return (
     <Pill tone="blue" className={className} testId="lane-pill">
-      {lane}
+      {lane === "People" ? "Contacts" : lane}
     </Pill>
   );
 }

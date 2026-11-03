@@ -23,6 +23,7 @@ import { LogCallDrawer } from "@/components/app/work/log-call-drawer";
 import { PurposePills } from "@/components/app/work/person-row";
 import { TasksCard } from "@/components/app/work/tasks-card";
 import { TimelineEvents } from "@/components/app/work/timeline-list";
+import { cappedNote, ShowAll } from "@/components/app/work/show-all";
 import { Confirm, Pill, RowButton, WorkCard } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
 
@@ -242,6 +243,7 @@ export function NextFollowUpCard({ person, today }: { person: PersonRow; today: 
 export function PersonTasksCard({ person, tasks }: { person: PersonRow; tasks: DealTodo[] }) {
   return (
     <TasksCard
+      windowTitle={`Tasks · ${person.name}`}
       tasks={tasks}
       open={!person.archived}
       actions={{
@@ -374,7 +376,14 @@ export function IncomingCard({ incoming }: { incoming: IncomingReply[] }) {
     <WorkCard title="Incoming" count={list.length} hint="Replies not yet on the timeline" testId="person-incoming">
       <div className="flex flex-col px-[22px] pt-1 pb-3">
         {list.length ? (
-          list.map((r) => (
+          <ShowAll
+            items={list}
+            title="Incoming"
+            sub={`All ${list.length} replies not yet on the timeline, newest first`}
+            text={(r) => `${r.subject} ${r.excerpt ?? ""}`}
+            testId="incoming-all"
+            wrap={(rows, inWindow) => <div className={inWindow ? "flex flex-col px-[22px]" : "contents"}>{rows}</div>}
+            render={(r) => (
             <div key={r.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-slate-100 py-2.5 last:border-b-0" data-testid="incoming-row">
               <div className="min-w-0 flex-1 basis-[220px]">
                 <div className="flex flex-wrap items-center gap-x-2.5">
@@ -387,7 +396,8 @@ export function IncomingCard({ incoming }: { incoming: IncomingReply[] }) {
                 Log it
               </RowButton>
             </div>
-          ))
+            )}
+          />
         ) : (
           <p className="py-2 text-[13px] text-muted-foreground" data-testid="incoming-empty">
             Nothing waiting. Replies pulled from Gmail will show here once Gmail reading is connected.
@@ -410,8 +420,8 @@ export function PersonTimelineCard({ person, events }: { person: PersonRow; even
   const [note, setNote] = useState("");
   useUnsavedWork(note.trim() !== "", "The note is not saved yet.");
   return (
-    <WorkCard title="Timeline" hint="Newest first" testId="person-timeline">
-      <TimelineEvents events={events} empty="Nothing yet. Notes, emails, and calls show here." />
+    <WorkCard title="Timeline" hint={["Newest first", cappedNote(events.length)].filter(Boolean).join(" · ")} testId="person-timeline">
+      <TimelineEvents events={events} empty="Nothing yet. Notes, emails, and calls show here." windowTitle={`Timeline · ${person.name}`} windowSub={`All ${events.length} entries, newest first`} />
       <div className="flex flex-col gap-2 px-[22px] pt-2 pb-4" data-testid="note-form">
         <div className="flex items-start gap-2">
           <GrowingTextarea id="person-note" value={note} onChange={setNote} minRows={1} placeholder="Add a note" className="flex-1" data-testid="person-note" />
@@ -443,7 +453,7 @@ export function PersonDecisionCard({ person }: { person: PersonRow }) {
       router.refresh();
     });
   return (
-    <WorkCard title="Decision" hint={person.archived ? "Archived; not on People" : person.roleKey === "accountability_partner" ? "Archive stops their reports" : "Archive takes the person off People"} testId="person-decision">
+    <WorkCard title="Decision" hint={person.archived ? "Archived; not on Contacts" : person.roleKey === "accountability_partner" ? "Archive stops their reports" : "Archive takes the person off Contacts"} testId="person-decision">
       <div className="flex flex-wrap items-center gap-2 px-[22px] pt-3 pb-5">
         {person.archived ? (
           <>

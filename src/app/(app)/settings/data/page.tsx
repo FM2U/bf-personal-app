@@ -10,7 +10,7 @@ export const metadata = { title: "Sample data" };
 
 const SAMPLE_LABELS: Record<string, string> = {
   organizations: "Organizations",
-  contacts: "People",
+  contacts: "Contacts",
   pipeline_items: "Listings, deals, jobs, clients",
   deal_financials: "Deal figures",
   consulting_details: "Consulting details",

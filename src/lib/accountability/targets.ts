@@ -541,7 +541,7 @@ export function dayNumbers(f: Facts, day: string, waits: DayNumbers["allWaits"],
     waits: waits.filter((w) => w.days > threshold),
     allWaits: waits,
     screenedList: f.screened.filter((x) => x.on === day).map((x) => ({ name: x.name, outcome: x.outcome, reason: x.reason })),
-    contactsList: f.comms.filter((c) => c.on === day && (c.method === "email" || isCall(c.method))).map((c) => ({ name: c.contactName ?? "Someone not on People", kind: c.method === "email" ? ("email" as const) : ("call" as const), method: c.method })),
+    contactsList: f.comms.filter((c) => c.on === day && (c.method === "email" || isCall(c.method))).map((c) => ({ name: c.contactName ?? "Someone not on Contacts", kind: c.method === "email" ? ("email" as const) : ("call" as const), method: c.method })),
     actionsDoneList: f.actionsDone.filter((x) => x.on === day).map((x) => ({ name: x.name, label: x.label })),
   };
 }

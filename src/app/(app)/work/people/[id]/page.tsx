@@ -18,6 +18,7 @@ import { IncomingCard, NextFollowUpCard, PersonDecisionCard, PersonFactsCard, Pe
 import { PartnerReportsCard } from "@/components/app/work/person/reports-card";
 import { PurposePills } from "@/components/app/work/person-row";
 import { RecordHeader } from "@/components/app/work/record-header";
+import { RecordColumns } from "@/components/app/work/record-columns";
 import { WorkShell } from "@/components/app/work/shell";
 import { Pill, What, WorkHeader } from "@/components/app/work/ui";
 import { EmptyState } from "@/components/app/page-header";
@@ -27,7 +28,7 @@ export const metadata = { title: "Person" };
 
 /**
  * The person page (/work/people/[id]) under the record-page rule (batch B, approved 2026-10-31; push B: under
- * People): breadcrumb to People with the view, the name, buttons Email, Log a call, Ask AI; the status strip with the
+ * Contacts): breadcrumb to People with the view, the name, buttons Email, Log a call, Ask AI; the status strip with the
  * purpose pills, the organization and role line, and the figures. Left: Why in touch, Next follow-up, Tasks. Right:
  * Facts, Incoming, Timeline, Decision (Archive or Reopen). An accountability partner (push B) has the Reports card in
  * place of Why in touch, and the figures NEXT REPORT, LAST REPLY, LAST CONTACT; opening the page looks for new replies.
@@ -37,7 +38,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
   const { supabase, ownerId } = await requireOwner();
   const crumbLink = (
     <Link href={PEOPLE_HREF} className="text-primary-strong hover:underline" data-testid="person-crumb">
-      People
+      Contacts
     </Link>
   );
   const ctx = await loadCtx(supabase, ownerId);
@@ -55,7 +56,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
           body="They may have been deleted."
           action={
             <Button asChild size="sm">
-              <Link href={PEOPLE_HREF}>Back to People</Link>
+              <Link href={PEOPLE_HREF}>Back to Contacts</Link>
             </Button>
           }
         />
@@ -64,8 +65,8 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
   }
   const fmt = (x: string) => fmtDate(x, "MMM d");
   const followSection = OUTREACH_SECTIONS.find((s) => s.key === outreachSectionOf(person, d.today))?.label ?? "";
-  const crumbTail = person.archived ? "Archived" : onFollowUps(person) ? followSection : "Everyone";
-  const crumbTailHref = person.archived || !onFollowUps(person) ? peopleViewHref("everyone") : PEOPLE_HREF;
+  const crumbTail = person.archived ? "Archived" : onFollowUps(person) ? followSection : "People";
+  const crumbTailHref = person.archived || !onFollowUps(person) ? peopleViewHref("people") : PEOPLE_HREF;
   const partner = d.partner;
   let figures: HeaderFigure[] = headerFigures({ nextDue: person.nextFollowUp, hasNext: !!person.nextFollowUp || !!person.followUpFor, nextLabel: "Next follow-up", openTasks: openTodos(d.tasks).length, lastContactAt: person.lastContactOn, lastContactKind: person.lastContactKind }, d.today, fmt);
   if (partner) {
@@ -107,19 +108,23 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
         }
         figures={figures}
       />
-      <div className="grid grid-cols-1 items-start gap-5 min-[1000px]:grid-cols-2">
-        <div className="flex min-w-0 flex-col gap-5">
+      <RecordColumns
+        left={
+          <>
           {partner ? <PartnerReportsCard personId={person.id} email={person.email} info={partner} replyNote={replyNote} /> : <WhyInTouchCard person={person} />}
           <NextFollowUpCard person={person} today={d.today} />
           <PersonTasksCard person={person} tasks={d.tasks} />
-        </div>
-        <div className="flex min-w-0 flex-col gap-5">
+          </>
+        }
+        right={
+          <>
           <PersonFactsCard person={person} records={d.records} today={d.today} />
           {partner && !d.incoming.length ? null : <IncomingCard incoming={d.incoming} />}
           <PersonTimelineCard person={person} events={d.timeline} />
           <PersonDecisionCard person={person} />
-        </div>
-      </div>
+          </>
+        }
+      />
     </WorkShell>
   );
 }
