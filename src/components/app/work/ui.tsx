@@ -123,8 +123,8 @@ export function WorkCard({ id, title, count, hint, sub, actions, children, class
 export function SectionHeading({ name, count, collapsed, onToggle, hint, title, testId = "section-heading", dataAttrs, className, countRight = false, band = false, urgent = false }: { name: string; count: number; collapsed: boolean; onToggle?: () => void; hint?: React.ReactNode; title?: string; testId?: string; dataAttrs?: Record<string, string>; className?: string; /** The count at the right end (the Deals stage headings) instead of next to the name. */ countRight?: boolean;
   /**
    * Band headings (Contacts Follow-ups, Home Next actions; approved 2026-11-03): a faint band across the card, the name
-   * in bold, the count in a filled badge (electric blue with a dark number; red with a white number for Overdue above 0;
-   * pale gray for 0), and the heading stays at the top while its section scrolls by (inside StickySections).
+   * in bold, the count in a badge before the name (electric blue with a dark number; soft red for Overdue above 0;
+   * a gray outline for 0), and the heading stays at the top while its section scrolls by (inside StickySections).
    */
   band?: boolean;
   /** With band: the Overdue section (a red badge while it has rows). */
@@ -167,16 +167,18 @@ function BandHeading({ name, count, collapsed, onToggle, hint, title, testId, da
     empty ? "cursor-default" : "cursor-pointer hover:bg-slate-100",
     className,
   );
-  const badge = empty ? "bg-slate-100 text-slate-400" : urgent ? "bg-status-missed-solid text-white" : "bg-electric text-slate-900";
+  // Approved 2026-11-03: the badge on the left (after the caret), one width so the names line up; electric blue with a
+  // dark number; Overdue in the soft red of the app's pills; 0 as a gray outline.
+  const badge = empty ? "border border-slate-300 bg-white text-slate-400" : urgent ? "border border-status-missed-border bg-status-missed-bg text-status-missed" : "bg-electric text-slate-900";
   const body = (
     <>
       <svg viewBox="0 0 10 10" className={cn("h-[9px] w-3 shrink-0 text-slate-500 transition-transform group-hover:text-slate-700", collapsed && "-rotate-90", empty && "invisible")} aria-hidden>
         <path d="M1 2.5h8L5 8z" fill="currentColor" />
       </svg>
-      <span className="min-w-0 truncate">{name}</span>
-      <span className={cn("tabular ml-1 inline-flex h-[18px] min-w-[22px] items-center justify-center rounded-full px-1.5 text-[11.5px] font-semibold tracking-normal", badge)} data-testid="section-count">
+      <span className={cn("tabular inline-flex h-[19px] min-w-[28px] shrink-0 items-center justify-center rounded-full px-1 text-[11.5px] font-semibold tracking-normal", badge)} data-testid="section-count">
         {count}
       </span>
+      <span className="min-w-0 truncate">{name}</span>
       {hint ? <span className="ml-auto hidden min-w-0 truncate text-xs font-normal tracking-normal normal-case text-slate-400 md:block">{hint}</span> : null}
     </>
   );
