@@ -23,7 +23,7 @@ export const COUNTABLES: readonly Countable[] = [
   { key: "brokers_contacted", label: "Brokers contacted", counts: "emails sent and calls logged to people with the role Broker, each person once", unit: "count" },
   { key: "emails_sent", label: "Emails sent", counts: "emails sent from the app or logged on a person", unit: "count" },
   { key: "calls_logged", label: "Calls logged", counts: "calls, meetings, and video calls logged", unit: "count" },
-  { key: "outreach_contacts", label: "Outreach contacts", counts: "emails sent and calls logged on Outreach, Mon to Fri", unit: "count" },
+  { key: "outreach_contacts", label: "Outreach contacts", counts: "emails sent and calls logged to people, Mon to Fri", unit: "count" },
   { key: "follow_ups_on_time", label: "Follow-ups on time", counts: "outreach follow-ups done on or before their date", unit: "percent" },
   { key: "deals_moved", label: "Deals moved", counts: "stage moves on Deals, Job search and Consulting", unit: "count" },
   { key: "next_actions_done", label: "Next actions done", counts: "next actions marked Done on deals, people, projects, and opportunities", unit: "count" },
@@ -541,7 +541,7 @@ export function dayNumbers(f: Facts, day: string, waits: DayNumbers["allWaits"],
     waits: waits.filter((w) => w.days > threshold),
     allWaits: waits,
     screenedList: f.screened.filter((x) => x.on === day).map((x) => ({ name: x.name, outcome: x.outcome, reason: x.reason })),
-    contactsList: f.comms.filter((c) => c.on === day && (c.method === "email" || isCall(c.method))).map((c) => ({ name: c.contactName ?? "Someone not on Outreach", kind: c.method === "email" ? ("email" as const) : ("call" as const), method: c.method })),
+    contactsList: f.comms.filter((c) => c.on === day && (c.method === "email" || isCall(c.method))).map((c) => ({ name: c.contactName ?? "Someone not on People", kind: c.method === "email" ? ("email" as const) : ("call" as const), method: c.method })),
     actionsDoneList: f.actionsDone.filter((x) => x.on === day).map((x) => ({ name: x.name, label: x.label })),
   };
 }

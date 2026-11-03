@@ -14,9 +14,14 @@ import { sendPermission } from "@/lib/google-scopes";
 import { sentEmailCommunication } from "@/lib/calc/sent-email";
 import { DB_UPDATE_NOTICE_0025, isMissingSchemaError } from "@/lib/schema-guard";
 import { recordWorkEvent } from "@/lib/accountability/events";
-import { buildEndOfDay, factsSince, loadEodRow, loadFacts, loadOwedFromSkipped, loadPartner, loadTargets, type EndOfDayPage } from "@/lib/accountability/data";
+import { buildEndOfDay, factsSince, loadEodRow, loadFacts, loadOwedFromSkipped, loadPartners, loadSentCopies, loadTargets, type EndOfDayPage, type PartnerCopy } from "@/lib/accountability/data";
+import { cleanPartnerSettings } from "@/lib/accountability/partners";
+import { replyTaskText } from "@/lib/gmail-replies";
+import { TODO_MAX_LENGTH } from "@/lib/work/questions";
+import { nextTodoPosition } from "@/lib/work/todos";
 import { reasonsPrompt, validateReasonsReply, type ReasonDraft } from "@/lib/accountability/ask-ai";
 import { reportInnerHtml, reportSubject, reportText } from "@/lib/accountability/report-email";
+import { personHref } from "@/lib/work/people";
 import { countable, isCountKey, noReasonText, owedReasons, reportSummary, type Cadence } from "@/lib/accountability/targets";
 import { loadWorkCtx } from "@/lib/work/data";
 import { loadWeeklyFocus } from "@/lib/work/projects-data";
@@ -195,24 +200,44 @@ function cleanReportHtml(html: string | null): string | null {
   return out.replace(/<[^>]+>/g, "").trim() ? out : null;
 }
 
-/** Edit in place: the report as edited (Done editing), or null to go back to the built one. */
-export async function saveReportEdit(day: string, html: string | null): Promise<{ ok: true; html: string } | Fail> {
+/** The copy a per-partner action is about: that partner's, or the first one when none is named. */
+function copyOf(page: EndOfDayPage, contactId: string | null | undefined): PartnerCopy | null {
+  return page.copies.find((c) => c.partner.id === contactId) ?? (contactId ? null : page.copies[0] ?? null);
+}
+
+/** Stores one partner's edit of the day's report (null clears it); the copies of other partners are kept. */
+async function storeEdit(sb: SupabaseClient, row: Row, contactId: string, html: string | null) {
+  const edits = { ...((row.report_edits && typeof row.report_edits === "object" && !Array.isArray(row.report_edits) ? row.report_edits : {}) as Record<string, string>) };
+  if (html) edits[contactId] = html;
+  else delete edits[contactId];
+  // The edit saved before push B (one for the day) gives way to the per-partner edits.
+  return sb.from("end_of_day").update({ report_edits: edits, report_html: null, report_edited: false }).eq("id", row.id);
+}
+
+/**
+ * Edit in place: one partner's copy as edited (Done editing), or null to go back to the built one. Push B: each partner
+ * due today has their own copy (their sections), so an edit belongs to the partner shown under To.
+ */
+export async function saveReportEdit(day: string, html: string | null, contactId?: string | null): Promise<{ ok: true; html: string } | Fail> {
   const s = await setup();
   if (isFail(s)) return s;
   const { sb, ctx } = s;
   const row = await ensureEod(sb, ctx, day);
   if (isFail(row)) return row;
   if (row.status !== "open") return fail(`Today is already ${row.status}.`);
+  const before = await loadPage(sb, ctx, day);
+  const copy = copyOf(before, contactId);
+  if (!copy) return fail("No partner gets the report today, so there is nothing to edit.");
   const cleaned = cleanReportHtml(html);
-  const { error } = await sb.from("end_of_day").update({ report_html: cleaned, report_edited: !!cleaned }).eq("id", row.id);
+  const { error } = await storeEdit(sb, row, copy.partner.id, cleaned);
   if (error) return notSaved(error);
   const page = await loadPage(sb, ctx, day);
   done();
-  return { ok: true, html: page.reportHtml };
+  return { ok: true, html: copyOf(page, copy.partner.id)?.html ?? page.reportHtml };
 }
 
-/** "Use the short version" (the Ask AI panel on the report card): the short report goes into the preview as an edit. */
-export async function putShortReport(day: string): Promise<{ ok: true; html: string } | Fail> {
+/** "Use the short version" (the Ask AI panel on the report card): the short report goes into that partner's preview as an edit. */
+export async function putShortReport(day: string, contactId?: string | null): Promise<{ ok: true; html: string } | Fail> {
   const s = await setup();
   if (isFail(s)) return s;
   const { sb, ctx } = s;
@@ -220,8 +245,10 @@ export async function putShortReport(day: string): Promise<{ ok: true; html: str
   if (isFail(row)) return row;
   if (row.status !== "open") return fail(`Today is already ${row.status}.`);
   const page = await loadPage(sb, ctx, day);
-  const html = reportInnerHtml(page.report, true);
-  const { error } = await sb.from("end_of_day").update({ report_html: html, report_edited: true }).eq("id", row.id);
+  const copy = copyOf(page, contactId);
+  if (!copy) return fail("No partner gets the report today.");
+  const html = reportInnerHtml(copy.report, true);
+  const { error } = await storeEdit(sb, row, copy.partner.id, html);
   if (error) return notSaved(error);
   done();
   return { ok: true, html };
@@ -229,8 +256,8 @@ export async function putShortReport(day: string): Promise<{ ok: true; html: str
 
 async function loadPage(sb: SupabaseClient, ctx: Ctx, day: string): Promise<EndOfDayPage> {
   const wctx = await loadWorkCtx(sb, ctx.ownerId);
-  const [targets, bundle, row, partner, owed] = await Promise.all([loadTargets(sb, ctx.ownerId), loadFacts(sb, wctx, factsSince(day)), loadEodRow(sb, ctx.ownerId, day), loadPartner(sb, ctx.ownerId), loadOwedFromSkipped(sb, ctx.ownerId, day)]);
-  return buildEndOfDay({ targets, bundle, row, partner, owed, day, tz: ctx.tz, threshold: wctx.threshold });
+  const [targets, bundle, row, partners, owed, sent] = await Promise.all([loadTargets(sb, ctx.ownerId), loadFacts(sb, wctx, factsSince(day)), loadEodRow(sb, ctx.ownerId, day), loadPartners(sb, ctx.ownerId), loadOwedFromSkipped(sb, ctx.ownerId, day), loadSentCopies(sb, ctx.ownerId, day)]);
+  return buildEndOfDay({ targets, bundle, row, partners, sent, owed, day, tz: ctx.tz, threshold: wctx.threshold });
 }
 
 function owedCount(page: EndOfDayPage): number {
@@ -239,13 +266,15 @@ function owedCount(page: EndOfDayPage): number {
   return todays + prev;
 }
 
-type SendResult = { ok: true; sentAt: string; sentTime: string; alreadySent?: boolean } | { ok: false; error: string; reason?: "reasons" | "partner" | "google" | "invalid"; owed?: number };
+type SendResult = { ok: true; sentAt: string; sentTime: string; sentTo: string[]; alreadySent?: boolean } | { ok: false; error: string; reason?: "reasons" | "partner" | "google" | "invalid" | "partial"; owed?: number; sentTo?: string[] };
 
 /**
- * Approve and send: the email goes to the partner through the existing Gmail sending (never by a job, never twice
- * for one click), the sent report is kept as a partner report (so Reviewed and the reply keep working), one
- * communication and a change log entry record the send, and the day is marked sent with the email exactly as sent.
- * With reasons still owed and `force` false it stops with "N commitments have no reason yet".
+ * Approve and send (push B: to every partner due today, each getting only their own sections): one email per partner
+ * through the existing Gmail sending (never by a job). Each sent copy is kept as a partner report with the partner and
+ * its Gmail thread (so replies can be found), one communication on the partner, and a change log entry with the
+ * click's request id. A second press of the same click, or a retry after one partner failed, skips every partner who
+ * already got today's report; the day is marked sent once every partner due has it. With reasons still owed and
+ * `force` false it stops with "N commitments have no reason yet".
  */
 export async function approveAndSend(day: string, requestId: string, force = false): Promise<SendResult> {
   const s = await setup();
@@ -254,60 +283,78 @@ export async function approveAndSend(day: string, requestId: string, force = fal
   if (!REQUEST_ID.test(String(requestId ?? ""))) return { ok: false, error: "The send request was not valid. Reload the page and try again.", reason: "invalid" };
   const row = await ensureEod(sb, ctx, day);
   if (isFail(row)) return { ok: false, error: row.error, reason: "invalid" };
-  if (row.status === "sent") return { ok: true, sentAt: String(row.sent_at), sentTime: timeOf(String(row.sent_at), ctx.tz), alreadySent: true };
+  if (row.status === "sent") return { ok: true, sentAt: String(row.sent_at), sentTime: timeOf(String(row.sent_at), ctx.tz), sentTo: [], alreadySent: true };
   if (row.status === "skipped") return { ok: false, error: "Today was skipped. Nothing is sent.", reason: "invalid" };
-  const { data: prior } = await sb.from("change_log").select("new_value").eq("field", "email_sent").eq("new_value->>request_id", requestId).limit(1).maybeSingle();
-  if (prior) {
-    const v = (prior as Row).new_value as Row;
-    return { ok: true, sentAt: String(v.sent_at), sentTime: timeOf(String(v.sent_at), ctx.tz), alreadySent: true };
-  }
   const page = await loadPage(sb, ctx, day);
+  const waiting = page.copies.filter((c) => !c.sentAt);
+  // This click already sent (a double press or a retry): those partners are not sent to again.
+  const { data: prior } = await sb.from("change_log").select("new_value").eq("field", "email_sent").eq("new_value->>request_id", requestId).limit(50);
+  const sentThisClick = new Set(((prior ?? []) as Row[]).map((p) => String(((p.new_value as Row) ?? {}).contact_id ?? "")));
+  const todo = waiting.filter((c) => !sentThisClick.has(c.partner.id));
+  if (!page.copies.length) return { ok: false, error: page.partners.length ? "No partner gets the report today. Change a partner's days on their page under People to send one." : "No accountability partner yet. Add a person under People with the role Accountability partner and an email address.", reason: "partner" };
+  if (!todo.length) return finishDay(sb, ctx, row, page, requestId);
   const owed = owedCount(page);
-  if (owed && !force) return { ok: false, error: noReasonText(owed, page.partner?.first ?? "Your partner"), reason: "reasons", owed };
-  const partner = page.partner;
-  if (!partner) return { ok: false, error: "No accountability partner yet. Add one under More, Partners (name and email), and the report goes to them.", reason: "partner" };
-  if (!partner.email || !isValidEmail(partner.email)) return { ok: false, error: `${partner.name} has no valid email address. Add it under More, Partners.`, reason: "partner" };
+  if (owed && !force) return { ok: false, error: noReasonText(owed, todo.length > 1 ? "Your partners" : todo[0].partner.first), reason: "reasons", owed };
+  const noEmail = todo.filter((c) => !c.partner.email || !isValidEmail(c.partner.email));
+  if (noEmail.length) return { ok: false, error: `${noEmail.map((c) => c.partner.name).join(" and ")} ${noEmail.length > 1 ? "have" : "has"} no valid email address. Add it on ${noEmail.length > 1 ? "their pages" : `${noEmail[0].partner.first}'s page`} under People, then press Approve and send again. Nothing was sent.`, reason: "partner" };
   const perm = isGoogleConfigured() ? sendPermission(await getGoogleConnection(sb, ctx.ownerId)) : "not_connected";
   if (perm === "reconnect") return { ok: false, error: "Sending from the app is not allowed yet. Reconnect Google once (1 minute) under Settings, Connections, then press Approve and send again.", reason: "google" };
   if (perm !== "allowed") return { ok: false, error: "Google is not connected. Connect Google in Settings, Connections, then press Approve and send again.", reason: "google" };
 
-  const edited = page.reportEdited ? cleanReportHtml(page.reportHtml) : null;
-  const inner = edited ?? reportInnerHtml(page.report);
-  const html = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;background-color:#f8fafc"><tr><td align="center" style="padding:12px 6px">${inner}</td></tr></table>`;
-  const body = edited ? signatureHtmlToText(edited) : reportText(page.report);
-  const subject = reportSubject(page.report);
-  let sent: { id: string; threadId: string | null };
-  try {
-    const r = await sendGmailMessage(sb, ctx.ownerId, { to: partner.email, subject, body, html });
-    if (!r) return { ok: false, error: "Google is not connected. Connect Google in Settings, Connections.", reason: "google" };
-    sent = r;
-  } catch (e) {
-    const x = explainGoogleError(e);
-    return { ok: false, error: x.message, reason: "google" };
-  }
-  const sentAt = new Date().toISOString();
   const summary = reportSummary(page.judged, page.numbers, page.friday);
-  // The sent report as a partner report (finalized: it never changes; Reviewed and the reply are recorded on it).
-  const { data: report } = await sb
-    .from("partner_reports")
-    .insert({ owner_id: ctx.ownerId, contact_id: partner.id, period_start: day, period_end: day, status: "finalized", snapshot: { end_of_day: true, day, judged: page.judged, reasons: page.reasons, tomorrow: page.tomorrow, report: page.report, edited: !!edited }, summary, summary_source: "owner", finalized_at: sentAt, delivered_via: ["gmail_sent"], report_kind: "end_of_day", sent_at: sentAt, gmail_message_id: sent.id })
-    .select("id")
-    .single();
-  const reportId = report ? String((report as Row).id) : null;
-  const contact = ((await sb.from("contacts").select("*").eq("id", partner.id).maybeSingle()).data as Row | null) ?? null;
-  const comm = { ...sentEmailCommunication({ kind: "partner_report", ownerId: ctx.ownerId, to: partner.email, subject, body, sentAt, contact }), gmail_message_id: sent.id, gmail_thread_id: sent.threadId };
-  const { data: c } = await sb.from("communications").insert(comm).select("id").single();
-  const commId = c ? String((c as Row).id) : null;
-  if (commId) {
-    const links: Row[] = [];
-    if (reportId) links.push({ owner_id: ctx.ownerId, from_type: "communications", from_id: commId, to_type: "partner_reports", to_id: reportId, relation: "report sent" });
-    if (links.length) await sb.from("record_links").insert(links);
+  const sentTo: string[] = [];
+  for (const copy of todo) {
+    const p = copy.partner;
+    const edited = copy.edited ? cleanReportHtml(copy.html) : null;
+    const inner = edited ?? reportInnerHtml(copy.report);
+    const html = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;background-color:#f8fafc"><tr><td align="center" style="padding:12px 6px">${inner}</td></tr></table>`;
+    const body = edited ? signatureHtmlToText(edited) : reportText(copy.report);
+    const subject = reportSubject(copy.report);
+    let sent: { id: string; threadId: string | null };
+    try {
+      const r = await sendGmailMessage(sb, ctx.ownerId, { to: p.email!, subject, body, html });
+      if (!r) return { ok: false, error: "Google is not connected. Connect Google in Settings, Connections.", reason: "google", sentTo };
+      sent = r;
+    } catch (e) {
+      const x = explainGoogleError(e);
+      if (!sentTo.length) return { ok: false, error: x.message, reason: "google" };
+      const left = todo.filter((c) => !sentTo.includes(c.partner.first)).map((c) => c.partner.first);
+      return { ok: false, error: `Sent to ${sentTo.join(" and ")}. Not sent to ${left.join(" and ")}: ${x.message} Press Approve and send again to send to ${left.join(" and ")} only.`, reason: "partial", sentTo };
+    }
+    const sentAt = new Date().toISOString();
+    // The sent copy as a partner report (finalized: it never changes), with the thread its replies come in.
+    const { data: report } = await sb
+      .from("partner_reports")
+      .insert({ owner_id: ctx.ownerId, contact_id: p.id, period_start: day, period_end: day, status: "finalized", snapshot: { end_of_day: true, day, judged: page.judged, reasons: page.reasons, tomorrow: page.tomorrow, report: copy.report, sections: p.sections, edited: !!edited, html: inner, subject }, summary, summary_source: "owner", finalized_at: sentAt, delivered_via: ["gmail_sent"], report_kind: "end_of_day", sent_at: sentAt, gmail_message_id: sent.id, gmail_thread_id: sent.threadId })
+      .select("id")
+      .single();
+    const reportId = report ? String((report as Row).id) : null;
+    const contact = ((await sb.from("contacts").select("*").eq("id", p.id).maybeSingle()).data as Row | null) ?? null;
+    const comm = { ...sentEmailCommunication({ kind: "partner_report", ownerId: ctx.ownerId, to: p.email!, subject, body, sentAt, contact }), gmail_message_id: sent.id, gmail_thread_id: sent.threadId, partner_report_id: reportId };
+    const { data: c } = await sb.from("communications").insert(comm).select("id").single();
+    const commId = c ? String((c as Row).id) : null;
+    if (commId && reportId) await sb.from("record_links").insert({ owner_id: ctx.ownerId, from_type: "communications", from_id: commId, to_type: "partner_reports", to_id: reportId, relation: "report sent" });
+    await sb.from("change_log").insert({ owner_id: ctx.ownerId, table_name: "partner_reports", record_id: reportId, action: "insert", field: "email_sent", new_value: { request_id: requestId, kind: "end_of_day", to: p.email, subject, contact_id: p.id, day, communication_id: commId, gmail_message_id: sent.id, gmail_thread_id: sent.threadId, sent_at: sentAt, edited: !!edited }, actor: "owner" });
+    sentTo.push(p.first);
   }
-  await sb.from("change_log").insert({ owner_id: ctx.ownerId, table_name: "partner_reports", record_id: reportId, action: "insert", field: "email_sent", new_value: { request_id: requestId, kind: "end_of_day", to: partner.email, subject, contact_id: partner.id, day, communication_id: commId, gmail_message_id: sent.id, gmail_thread_id: sent.threadId, sent_at: sentAt, edited: !!edited }, actor: "owner" });
-  const { error } = await sb.from("end_of_day").update({ status: "sent", sent_at: sentAt, report_id: reportId, report_subject: subject, report_html: inner, report_edited: !!edited, judged: page.judged }).eq("id", row.id);
-  if (error) return { ok: false, error: `The email was sent, but the day could not be marked sent: ${error.message}`, reason: "invalid" };
+  const after = await loadPage(sb, ctx, day);
+  const result = await finishDay(sb, ctx, row, after, requestId);
+  return result.ok ? { ...result, sentTo, alreadySent: false } : result;
+}
+
+/** Marks the day sent once every copy on it went out (the first copy's email is kept on the day for older screens). */
+async function finishDay(sb: SupabaseClient, ctx: Ctx, row: Row, page: EndOfDayPage, requestId: string): Promise<SendResult> {
+  void requestId;
+  const left = page.copies.filter((c) => !c.sentAt);
+  if (left.length) return { ok: false, error: `Not sent yet to ${left.map((c) => c.partner.first).join(" and ")}. Press Approve and send again.`, reason: "partial", sentTo: page.copies.filter((c) => c.sentAt).map((c) => c.partner.first) };
+  const sentAt = page.copies.map((c) => c.sentAt!).sort().slice(-1)[0] ?? new Date().toISOString();
+  const first = page.copies[0];
+  const { data: rep } = await sb.from("partner_reports").select("id,snapshot").eq("owner_id", ctx.ownerId).eq("report_kind", "end_of_day").eq("period_start", page.day).eq("contact_id", first.partner.id).order("sent_at").limit(1).maybeSingle();
+  const snap = ((rep as Row | null)?.snapshot ?? {}) as Row;
+  const { error } = await sb.from("end_of_day").update({ status: "sent", sent_at: sentAt, report_id: rep ? String((rep as Row).id) : null, report_subject: typeof snap.subject === "string" ? snap.subject : reportSubject(first.report), report_html: first.html, report_edited: first.edited, report_edits: {}, judged: page.judged }).eq("id", row.id);
+  if (error) return { ok: false, error: `The emails were sent, but the day could not be marked sent: ${error.message}`, reason: "invalid" };
   done();
-  return { ok: true, sentAt, sentTime: timeOf(sentAt, ctx.tz) };
+  return { ok: true, sentAt, sentTime: timeOf(sentAt, ctx.tz), sentTo: page.copies.map((c) => c.partner.first) };
 }
 
 function timeOf(ts: string, tz: string): string {
@@ -369,4 +416,42 @@ export async function draftReasons(day: string): Promise<{ ok: true; drafts: Rea
   } catch (e) {
     return aiError(e);
   }
+}
+
+// ---------- A partner's report settings (the Reports card on their page) and replies ----------
+
+/** The Reports card: the weekdays the partner gets the End of day report and the sections they get. */
+export async function savePartnerReports(contactId: string, input: { days: number[]; sections: string[] }): Promise<{ ok: true; days: number[]; sections: string[] } | Fail> {
+  const s = await setup();
+  if (isFail(s)) return s;
+  const { sb, ctx } = s;
+  if (!UUID.test(String(contactId ?? ""))) return fail("This person was not found.");
+  const { data } = await sb.from("contacts").select("id,outreach_role,report_sections").eq("owner_id", ctx.ownerId).eq("id", contactId).maybeSingle();
+  const c = data as Row | null;
+  if (!c) return fail("This person was not found.");
+  if (c.outreach_role !== "accountability_partner") return fail("Only an accountability partner gets the report. Set the role in Facts first.");
+  const clean = cleanPartnerSettings(input, c.report_sections);
+  if (!clean.ok) return fail(clean.error);
+  const { error } = await sb.from("contacts").update({ report_days: clean.days, report_sections: clean.sections }).eq("id", contactId);
+  if (error) return notSaved(error);
+  done();
+  return { ok: true, days: clean.days, sections: clean.sections };
+}
+
+/** "Make a task from this" under a reply on Reports: a task on the partner's page with the reply's first words. */
+export async function taskFromReply(contactId: string, first: string, text: string): Promise<{ ok: true; href: string } | Fail> {
+  const s = await setup();
+  if (isFail(s)) return s;
+  const { sb, ctx } = s;
+  if (!UUID.test(String(contactId ?? ""))) return fail("The person who replied was not found.");
+  const { data } = await sb.from("contacts").select("id,name").eq("owner_id", ctx.ownerId).eq("id", contactId).maybeSingle();
+  if (!data) return fail("The person who replied was not found.");
+  const line = replyTaskText(clean(first, 40) || String((data as Row).name).split(" ")[0], String(text ?? "")).slice(0, TODO_MAX_LENGTH);
+  const { data: existing } = await sb.from("deal_todos").select("id,text,position,done_at,created_at").eq("owner_id", ctx.ownerId).eq("record_type", "contacts").eq("record_id", contactId).limit(500);
+  const rows = ((existing ?? []) as Row[]).map((t) => ({ id: String(t.id), text: String(t.text ?? ""), position: Number(t.position ?? 0), doneAt: t.done_at ? String(t.done_at) : null, createdAt: String(t.created_at ?? "") }));
+  if (rows.some((t) => !t.doneAt && t.text === line)) return { ok: true, href: personHref(contactId) };
+  const { error } = await sb.from("deal_todos").insert({ owner_id: ctx.ownerId, record_type: "contacts", record_id: contactId, text: line, position: nextTodoPosition(rows) });
+  if (error) return notSaved(error);
+  done();
+  return { ok: true, href: personHref(contactId) };
 }

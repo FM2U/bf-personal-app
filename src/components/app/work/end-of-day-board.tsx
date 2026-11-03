@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { approveAndSend, saveReasons, saveReportEdit, saveTomorrow, skipToday, putShortReport } from "@/app/actions/accountability";
 import type { ReasonDraft } from "@/lib/accountability/ask-ai";
 import type { EndOfDayPage } from "@/lib/accountability/data";
+import { daysLabel, dueLine, sendLabel } from "@/lib/accountability/partners";
+import { personHref } from "@/lib/work/people";
 import { END_OF_DAY_TIME, judgedMark, MARK_WORD, owedReasons, statusItems, todayStrip, type DayNumbers, type Judged, type TodayPart } from "@/lib/accountability/targets";
 import type { AskContext } from "@/lib/work/ask-ai";
 import { AccountabilityTabs, type EodBadge } from "@/components/app/nav-links";
@@ -34,21 +37,30 @@ const newRequestId = () => (typeof crypto !== "undefined" && "randomUUID" in cry
 
 export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
   const router = useRouter();
-  const { day, partner } = data;
+  const { day } = data;
+  // Push B: one copy per partner due today (their own sections); the To choice picks the copy shown.
+  const copies = data.copies;
+  const [sel, setSel] = useState<string | null>(copies[0]?.partner.id ?? null);
+  const copy = copies.find((c) => c.partner.id === sel) ?? copies[0] ?? null;
+  const partner = copy?.partner ?? null;
   const first = partner?.first ?? "your partner";
+  const unsent = copies.filter((c) => !c.sentAt);
+  const toNames = (list: typeof copies) => list.map((c) => c.partner.first).join(" and ");
   const [reasons, setReasons] = useState<Record<string, string>>(data.reasons);
   const [tomorrow, setTomorrow] = useState(data.tomorrow);
   const [state, setState] = useState<{ status: EndOfDayPage["state"]; sentTime: string | null; skipReason: string | null }>({ status: data.state, sentTime: data.sentTime, skipReason: data.skipReason });
-  const [html, setHtml] = useState(data.reportHtml);
-  const [edited, setEdited] = useState(data.reportEdited);
+  const shownHtml = copy?.html ?? data.reportHtml;
+  const shownEdited = copy?.edited ?? data.reportEdited;
+  const [html, setHtml] = useState(shownHtml);
+  const [edited, setEdited] = useState(shownEdited);
   const [editing, setEditing] = useState(false);
-  // The preview follows the data after every save (reasons, the tomorrow line) unless Bram is editing it by hand.
-  const [prevHtml, setPrevHtml] = useState(data.reportHtml);
-  if (prevHtml !== data.reportHtml) {
-    setPrevHtml(data.reportHtml);
+  // The preview follows the data after every save (reasons, the tomorrow line) and the To choice, unless Bram is editing it by hand.
+  const [prevHtml, setPrevHtml] = useState(`${sel}|${shownHtml}`);
+  if (prevHtml !== `${sel}|${shownHtml}`) {
+    setPrevHtml(`${sel}|${shownHtml}`);
     if (!editing) {
-      setHtml(data.reportHtml);
-      setEdited(data.reportEdited);
+      setHtml(shownHtml);
+      setEdited(shownEdited);
     }
   }
   const [shared, setShared] = useState(false);
@@ -128,22 +140,24 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
     setEditing(false);
     start(async () => {
       setError(null);
-      const r = await saveReportEdit(day, current);
+      const r = await saveReportEdit(day, current, sel);
       if (!r.ok) return setError(r.error);
       setHtml(r.html);
       setEdited(true);
+      router.refresh();
     });
   };
   const resetEdit = () =>
     start(async () => {
-      const r = await saveReportEdit(day, null);
+      const r = await saveReportEdit(day, null, sel);
       if (!r.ok) return setError(r.error);
       setHtml(r.html);
       setEdited(false);
       setEditing(false);
+      router.refresh();
     });
   const applyShort = async () => {
-    const r = await putShortReport(day);
+    const r = await putShortReport(day, sel);
     if (!r.ok) {
       setError(r.error);
       return null;
@@ -160,7 +174,7 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
       if (editing) {
         const current = previewRef.current?.innerHTML ?? html;
         setEditing(false);
-        const e = await saveReportEdit(day, current);
+        const e = await saveReportEdit(day, current, sel);
         if (!e.ok) return setError(e.error);
         setHtml(e.html);
         setEdited(true);
@@ -168,7 +182,9 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
       const r = await approveAndSend(day, requestId.current, force);
       if (!r.ok) {
         if (r.reason === "reasons") return setCheck(r.error);
-        return setError(r.error);
+        setError(r.error);
+        if (r.reason === "partial") router.refresh();
+        return;
       }
       setState({ status: "sent", sentTime: r.sentTime, skipReason: null });
       setNote(r.alreadySent ? "This report was already sent." : null);
@@ -370,7 +386,7 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
         <div className="flex min-w-0 flex-col gap-4" data-testid="eod-right">
           <WorkCard
             id="report-card"
-            title={`Report to ${first}`}
+            title={copies.length > 1 ? "Report" : partner ? `Report to ${first}` : "Report"}
             actions={
               <>
                 <span className="text-[13px] text-muted-foreground" data-testid="report-hint">
@@ -381,8 +397,51 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
             }
             testId="report-card"
           >
+            {copies.length > 1 ? (
+              <div className="flex flex-wrap items-center gap-2 px-[22px] pt-3" data-testid="report-to">
+                <span className="text-[12.5px] font-medium text-slate-600">To</span>
+                <span className="inline-flex overflow-hidden rounded-full border border-border bg-white" role="group" aria-label="To">
+                  {copies.map((c, i) => (
+                    <button
+                      key={c.partner.id}
+                      type="button"
+                      onClick={() => {
+                        if (editing) toggleEdit();
+                        setSel(c.partner.id);
+                      }}
+                      aria-pressed={c.partner.id === copy?.partner.id}
+                      className={cn("px-3 py-1 text-[12.5px] font-medium whitespace-nowrap", i ? "border-l border-border" : "", c.partner.id === copy?.partner.id ? "bg-primary-soft text-primary-strong" : "text-slate-600 hover:bg-slate-50")}
+                      data-testid="report-to-choice"
+                      data-partner={c.partner.first}
+                    >
+                      {c.partner.name}
+                      {c.sentAt ? <span className="ml-1.5 text-status-met">sent</span> : null}
+                    </button>
+                  ))}
+                </span>
+              </div>
+            ) : null}
             <p className="px-[22px] pt-2.5 pb-1 text-[12.5px] text-muted-foreground" data-testid="report-meta">
-              {partner ? `To ${partner.name}${partner.email ? ` (${partner.email})` : ", no email address yet"}` : "No accountability partner yet: add one under More, Partners"} · {data.friday ? "Friday" : "weekday"} {END_OF_DAY_TIME} pm
+              {partner ? (
+                <>
+                  To {partner.name}
+                  {partner.email ? ` (${partner.email})` : ", no email address yet"} · {daysLabel(partner.days) === "every weekday" ? "weekdays" : daysLabel(partner.days)} · sections set on{" "}
+                  <Link href={personHref(partner.id)} className="font-medium text-primary-strong hover:underline" data-testid="report-partner-link">
+                    {partner.first}&apos;s page
+                  </Link>
+                  {copy?.sentAt ? ` · sent ${copy.sentTime}` : ""}
+                </>
+              ) : data.partners.length ? (
+                <>No partner gets the report today. Each partner&apos;s days are on their page under People.</>
+              ) : (
+                <>
+                  No accountability partner yet. Add a person under{" "}
+                  <Link href="/work/people?view=everyone" className="font-medium text-primary-strong hover:underline">
+                    People
+                  </Link>{" "}
+                  with the role Accountability partner.
+                </>
+              )}
             </p>
             <div className="px-[22px] pt-1 pb-3">
               <div
@@ -419,19 +478,21 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
                     Back to the built report
                   </button>
                 ) : null}
-                <RowButton tone="primary" onClick={() => send(false)} disabled={sending} data-testid="report-send">
-                  {sending ? "Sending..." : "Approve and send"}
+                <RowButton tone="primary" onClick={() => send(false)} disabled={sending || !unsent.length} data-testid="report-send" data-count={unsent.length}>
+                  {sending ? "Sending..." : sendLabel(unsent.length)}
                 </RowButton>
-                <span className="text-[12.5px] text-muted-foreground sm:ml-auto">Sends on weekdays. Friday adds the week.</span>
+                <span className="text-[12.5px] text-muted-foreground sm:ml-auto" data-testid="report-due-line">
+                  {copies.some((c) => c.sentAt) && unsent.length ? `Sent to ${toNames(copies.filter((c) => c.sentAt))}; ${toNames(unsent)} still to send` : dueLine(data.partners, day)}
+                </span>
               </div>
             ) : state.status === "sent" ? (
               <div id="report-acts" className="border-t border-slate-100 px-[22px] py-3 text-[12.5px] text-muted-foreground" data-testid="sent-line">
-                <b className="font-semibold text-status-met">Sent {state.sentTime}</b> · approved by you · to {first} by email · kept under Reports, Sent reports
+                <b className="font-semibold text-status-met">Sent {state.sentTime}</b> · approved by you · to {copies.length ? toNames(copies) : first} by email · kept under Reports, Sent reports
                 {note ? ` · ${note}` : ""}
               </div>
             ) : (
               <div id="report-acts" className="border-t border-slate-100 px-[22px] py-3 text-[12.5px] text-muted-foreground" data-testid="skipped-line">
-                <b className="font-semibold text-status-neutral">Skipped</b> · reason: {state.skipReason} · {first} gets nothing today; any reason still owed is asked on the next End of day
+                <b className="font-semibold text-status-neutral">Skipped</b> · reason: {state.skipReason} · {copies.length > 1 ? "nobody gets" : `${first} gets`} nothing today; any reason still owed is asked on the next End of day
               </div>
             )}
             {state.status === "open" ? (

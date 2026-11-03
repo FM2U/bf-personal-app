@@ -44,7 +44,7 @@ export function reportsLines(p: ReportsPage): string[] {
     for (const m of per.moves.slice(0, 8)) lines.push(`${per.label}, deal moved: ${m.name} | ${m.line} | ${m.when}`);
   }
   for (const w of p.periods[0]?.waits ?? []) lines.push(`waiting on broker: ${w.name}, ${w.days} days${w.who ? `, ${w.who}` : ""}`);
-  for (const s of p.sent) for (const r of s.rows.slice(0, 6)) lines.push(`sent report: ${r.title} | ${r.state}${r.sentTime ? ` ${r.sentTime}` : ""} | ${r.summary}${r.reviewedTime ? ` | reviewed ${r.reviewedTime}` : ""}${r.comment ? ` | reply: ${r.comment}` : ""}`);
+  for (const s of p.sent) for (const r of s.rows.slice(0, 6)) lines.push(`sent report: ${r.title} | ${r.state}${r.sentTime ? ` ${r.sentTime}` : ""} | ${r.summary}${r.reviewedTime ? ` | reviewed ${r.reviewedTime}` : ""}${r.to.length ? ` | to ${r.to.map((t) => t.name).join(", ")}` : ""}${r.replies.map((x) => ` | reply from ${x.name}: ${x.text}`).join("")}`);
   return lines;
 }
 

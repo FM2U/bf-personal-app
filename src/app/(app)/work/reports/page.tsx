@@ -1,4 +1,10 @@
 import { requireOwner } from "@/lib/auth";
+import { loadGmailSetup, type ComposeSetup } from "@/lib/compose-email";
+import { isGoogleConfigured } from "@/lib/env";
+import { getGoogleConnection } from "@/lib/google";
+import { RECONNECT_FOR_REPLIES, replyPermission } from "@/lib/google-scopes";
+import { syncRepliesQuietly } from "@/lib/replies-sync";
+import { isValidEmail } from "@/lib/email-address";
 import { loadCtx } from "@/lib/engine/helpers";
 import { loadEodBadge, loadReportsPage } from "@/lib/accountability/data";
 import { parsePeriodKey } from "@/lib/accountability/periods";
@@ -16,21 +22,30 @@ export const metadata = { title: "Reports" };
  * reports by week (src/components/app/work/reports-board.tsx). ?period=last, w2, w3, w4, or month opens that period
  * (the Past weeks line on Targets links here, Edit batch C item 7).
  */
-export default async function ReportsPage({ searchParams }: { searchParams: Promise<{ view?: string; period?: string }> }) {
+export default async function ReportsPage({ searchParams }: { searchParams: Promise<{ view?: string; period?: string; day?: string; partner?: string }> }) {
   const { supabase, ownerId } = await requireOwner();
   const sp = await searchParams;
   const notice = null;
   const ctx = await loadCtx(supabase, ownerId);
-  const badge = await loadEodBadge(supabase, ownerId, ctx.today);
-  const d = notice ? null : await loadReportsPage(supabase, ctx);
-  const partnerFirst = d?.partner?.first ?? "your partner";
+  // Push B: opening Reports looks for new replies (at most once every few minutes).
+  await syncRepliesQuietly(supabase, ownerId);
+  const [badge, d, gmail, conn] = await Promise.all([loadEodBadge(supabase, ownerId, ctx.today), notice ? null : loadReportsPage(supabase, ctx), loadGmailSetup(supabase, ownerId), getGoogleConnection(supabase, ownerId)]);
+  const replyNote = isGoogleConfigured() && replyPermission(conn) === "reconnect" ? RECONNECT_FOR_REPLIES : null;
+  // Reply under a reply: the email box to that partner (only people with an address).
+  const composes: Record<string, ComposeSetup> = {};
+  for (const p of d?.partners ?? []) {
+    if (!p.email || !isValidEmail(p.email)) continue;
+    composes[p.id] = { ...gmail, title: `Reply to ${p.name}`, recipients: [{ contactId: p.id, name: p.name, email: p.email, role: "Accountability partner" }], defaultTo: p.email, contactId: p.id, pipelineItemId: null, organizationId: null, toNote: null };
+  }
+  const names = (d?.partners ?? []).map((p) => p.first);
+  const partnerFirst = names.length ? names.join(" and ") : "your partner";
   const title = (
     <WorkHeader
       title="Reports"
       right={
         <>
           <span className="hidden sm:inline" data-testid="reports-summary">
-            To {partnerFirst} by email · weekdays at 5:30 · Friday adds the week
+            To {partnerFirst} by email · replies come from your Gmail
           </span>
           <AskAiPill context={{ page: "reports", label: d ? `Reports, ${d.periods[0].label.toLowerCase()}` : "Reports" }} />
         </>
@@ -50,7 +65,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
   }
   return (
     <WorkShell testId="work-reports">
-      <ReportsBoard data={d} title={title} tabs={<AccountabilityTabs eodBadge={badge} tight />} view={sp.view === "sent" ? "sent" : "week"} period={parsePeriodKey(sp.period)} />
+      <ReportsBoard data={d} title={title} tabs={<AccountabilityTabs eodBadge={badge} tight />} view={sp.view === "sent" || sp.day ? "sent" : "week"} period={parsePeriodKey(sp.period)} openDay={sp.day ?? null} partnerAtStart={sp.partner ?? null} composes={composes} replyNote={replyNote} />
     </WorkShell>
   );
 }

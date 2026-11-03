@@ -259,7 +259,7 @@ describe("Edit batch C: the target pill, what a target counts, exceeded reads me
     expect(todayStrip(n, 5).map((p) => `${p.value} ${p.words}`)).toEqual(["3 screened", "1 moved", "2 calls", "2 emails", "2 next actions done", "1 waiting over 5 days"]);
     expect(n.screenedList.map((x) => `${x.name} ${x.outcome} ${x.reason ?? ""}`.trim())).toEqual(["Fri 1 passed Too small", "Fri 2 passed Retail", "Industrial Filtration Distributor interested"]);
     expect(n.contactsList.filter((c) => c.kind === "call").map((c) => c.name)).toEqual(["Priya Natarajan", "Carla Jenkins"]);
-    expect(n.contactsList.filter((c) => c.kind === "email").map((c) => c.name)).toEqual(["Tom Baker", "Someone not on Outreach"]);
+    expect(n.contactsList.filter((c) => c.kind === "email").map((c) => c.name)).toEqual(["Tom Baker", "Someone not on People"]);
     expect(n.actionsDoneList).toEqual([{ name: "Meridian Industrial Coatings", label: "Finish the model" }, { name: "Dalton Services", label: "Call Carla" }]);
     const one = dayNumbers({ ...EMPTY_FACTS, comms: [{ on: FRI, method: "call", contactId: "p1", contactName: "A", broker: false }] }, FRI, [], 5);
     expect(todayStrip(one, 5).find((p) => p.key === "calls")!.words).toBe("call");
