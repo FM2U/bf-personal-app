@@ -6,6 +6,7 @@
 --
 -- The old database (the first Supabase project) is not touched by this file.
 -- Built from the 29 old updates with the old modules cut out (see docs in the project: 2026-11-02 build plan).
+-- Push B (2026-11-03) is included: People and Organizations, partner report days and sections, Gmail replies.
 
 -- Stops here, changing nothing, if this database already has the app's tables (for example the old project).
 do $$
@@ -482,6 +483,8 @@ begin
   select coalesce(jsonb_agg(storage_path), '[]'::jsonb) into v_paths from documents where owner_id = v_owner and record_id = any (v_ids);
   delete from documents where owner_id = v_owner and record_id = any (v_ids);
   get diagnostics v_n = row_count; v_counts := v_counts || jsonb_build_object('documents', v_n);
+  delete from communications where owner_id = v_owner and (contact_id = any (v_ids) or organization_id = any (v_ids));
+  get diagnostics v_n = row_count; v_counts := v_counts || jsonb_build_object('communications', v_n);
   delete from partner_reports where owner_id = v_owner and contact_id = any (v_ids);
   get diagnostics v_n = row_count; v_counts := v_counts || jsonb_build_object('partner_reports', v_n);
   delete from stage_history where owner_id = v_owner and item_id = any (v_ids);
@@ -705,6 +708,7 @@ CREATE TABLE public.communications (
     call_minutes integer,
     call_outcome text,
     awaiting_log boolean DEFAULT false NOT NULL,
+    partner_report_id uuid,
     CONSTRAINT communications_call_minutes_check CHECK (((call_minutes IS NULL) OR ((call_minutes >= 0) AND (call_minutes <= 1440)))),
     CONSTRAINT communications_direction_check CHECK ((direction = ANY (ARRAY['outgoing'::text, 'incoming'::text, 'both'::text]))),
     CONSTRAINT communications_method_check CHECK ((method = ANY (ARRAY['email'::text, 'call'::text, 'letter'::text, 'meeting'::text, 'text'::text, 'video'::text, 'other'::text]))),
@@ -772,7 +776,7 @@ CREATE TABLE public.contacts (
     report_days smallint[] DEFAULT '{}'::smallint[] NOT NULL,
     report_sections text[] DEFAULT '{}'::text[] NOT NULL,
     CONSTRAINT contacts_outreach_every_days_check CHECK (((outreach_every_days IS NULL) OR ((outreach_every_days >= 1) AND (outreach_every_days <= 3650)))),
-    CONSTRAINT contacts_outreach_role_check CHECK (((outreach_role IS NULL) OR (outreach_role = ANY (ARRAY['broker'::text, 'lender'::text, 'personal_network'::text, 'service_provider'::text, 'rosara_customer'::text, 'recruiter'::text, 'cofounder_candidate'::text, 'investor'::text, 'accountability_partner'::text, 'other'::text])))),
+    CONSTRAINT contacts_outreach_role_check CHECK (((outreach_role IS NULL) OR (outreach_role = ANY (ARRAY['broker'::text, 'lender'::text, 'personal_network'::text, 'service_provider'::text, 'rosara_customer'::text, 'recruiter'::text, 'cofounder_candidate'::text, 'investor'::text, 'accountability_partner'::text, 'consulting_client'::text, 'other'::text])))),
     CONSTRAINT contacts_purposes_check CHECK ((purposes <@ ARRAY['off_market_deals'::text, 'job_search'::text, 'consulting'::text, 'rosara'::text])),
     CONSTRAINT contacts_relationship_group_check CHECK (((relationship_group IS NULL) OR (relationship_group = ANY (ARRAY['close'::text, 'friend'::text, 'warm'::text, 'professional'::text, 'other'::text]))))
 );
@@ -815,7 +819,7 @@ CREATE TABLE public.deal_todos (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     record_type text DEFAULT 'pipeline_items'::text NOT NULL,
     record_id uuid,
-    CONSTRAINT deal_todos_record_type_check CHECK ((record_type = ANY (ARRAY['pipeline_items'::text, 'contacts'::text, 'projects'::text])))
+    CONSTRAINT deal_todos_record_type_check CHECK ((record_type = ANY (ARRAY['pipeline_items'::text, 'contacts'::text, 'projects'::text, 'organizations'::text])))
 );
 
 
@@ -861,6 +865,7 @@ CREATE TABLE public.end_of_day (
     judged jsonb DEFAULT '[]'::jsonb NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    report_edits jsonb DEFAULT '{}'::jsonb NOT NULL,
     CONSTRAINT end_of_day_status_check CHECK ((status = ANY (ARRAY['open'::text, 'sent'::text, 'skipped'::text])))
 );
 
@@ -881,6 +886,7 @@ CREATE TABLE public.google_connections (
     last_error text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    replies_checked_at timestamp with time zone,
     CONSTRAINT google_connections_status_check CHECK ((status = ANY (ARRAY['connected'::text, 'error'::text, 'disconnected'::text])))
 );
 
@@ -938,7 +944,12 @@ CREATE TABLE public.organizations (
     notes text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT organizations_kind_check CHECK ((kind = ANY (ARRAY['broker'::text, 'lender'::text, 'employer'::text, 'investor'::text, 'business'::text, 'service_provider'::text, 'nonprofit'::text, 'other'::text])))
+    region text,
+    deal_size text,
+    next_action text,
+    next_action_due date,
+    archived_at timestamp with time zone,
+    CONSTRAINT organizations_kind_check CHECK ((kind = ANY (ARRAY['broker'::text, 'lender'::text, 'employer'::text, 'investor'::text, 'consulting_client'::text, 'business'::text, 'service_provider'::text, 'nonprofit'::text, 'other'::text])))
 );
 
 
@@ -993,6 +1004,7 @@ CREATE TABLE public.partner_reports (
     report_kind text DEFAULT 'regular'::text NOT NULL,
     skipped_at timestamp with time zone,
     contact_id uuid,
+    gmail_thread_id text,
     CONSTRAINT partner_reports_report_kind_check CHECK ((report_kind = ANY (ARRAY['regular'::text, 'daily'::text, 'end_of_day'::text]))),
     CONSTRAINT partner_reports_status_check CHECK ((status = ANY (ARRAY['draft'::text, 'finalized'::text]))),
     CONSTRAINT partner_reports_summary_source_check CHECK ((summary_source = ANY (ARRAY['ai'::text, 'template'::text, 'owner'::text])))
@@ -1663,6 +1675,13 @@ CREATE INDEX communications_gmail_message_idx ON public.communications USING btr
 
 
 --
+-- Name: communications_incoming_gmail_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX communications_incoming_gmail_key ON public.communications USING btree (owner_id, gmail_message_id) WHERE ((direction = 'incoming'::text) AND (gmail_message_id IS NOT NULL));
+
+
+--
 -- Name: communications_item_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1674,6 +1693,13 @@ CREATE INDEX communications_item_idx ON public.communications USING btree (pipel
 --
 
 CREATE INDEX communications_outreach_idx ON public.communications USING btree (owner_id, is_outreach, occurred_at DESC);
+
+
+--
+-- Name: communications_partner_report_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX communications_partner_report_idx ON public.communications USING btree (partner_report_id) WHERE (partner_report_id IS NOT NULL);
 
 
 --
@@ -2240,6 +2266,14 @@ ALTER TABLE ONLY public.communications
 
 ALTER TABLE ONLY public.communications
     ADD CONSTRAINT communications_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: communications communications_partner_report_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.communications
+    ADD CONSTRAINT communications_partner_report_id_fkey FOREIGN KEY (partner_report_id) REFERENCES public.partner_reports(id) ON DELETE SET NULL;
 
 
 --
