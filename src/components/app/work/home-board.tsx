@@ -53,6 +53,8 @@ import { cn } from "@/lib/utils";
  * counts), Job search (the next conversation, the next interview, the counts), Screen listings, Deals at a glance.
  */
 const STORAGE_KEY = "work-home-sections";
+/** Next actions and Waiting on someone sit side by side: one title-row height so their lines and first headings line up. */
+const NOW_HEADER = "lg:min-h-[83px]";
 const HOME_ASK: AskContext = { page: "home", label: "Work on now" };
 const noSubscribe = () => () => {};
 
@@ -243,6 +245,7 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
             </>
           }
           testId="now-actions"
+          headerClassName={NOW_HEADER}
           pinned
           scroll
           className="lg:h-full"
@@ -303,7 +306,7 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
         </WorkCard>
 
         <div className="flex min-w-0 flex-col gap-[18px] lg:h-full lg:overflow-y-auto" data-testid="home-right">
-          <WorkCard id="now-wait" title="Waiting on someone" count={waitCount} sub={`Amber at ${threshold} days, red at ${threshold * 2}`} testId="now-wait" pinned>
+          <WorkCard id="now-wait" headerClassName={NOW_HEADER} title="Waiting on someone" count={waitCount} sub={`Amber at ${threshold} days, red at ${threshold * 2}`} testId="now-wait" pinned>
             {waitCount ? (
               <StickySections under="card" className="px-[22px] pb-3">
                 {waiting.map((w) => {
