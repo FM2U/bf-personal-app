@@ -380,17 +380,24 @@ server.listen(PORT, () => console.log(`Mock Supabase listening on http://localho
 // reviews, follow-ups); POST /__reset clears them. GET /gmail/v1/users/me/settings/sendAs returns two send-as
 // addresses; the default one has SAMPLE_SIGNATURE (a link, a phone number, an https image, and unsafe parts that the
 // app must remove).
+// Push B (reply reading): {"grantRead": false} makes the next sign-in grant no gmail.readonly (like a connection made
+// before push B). GET /gmail/v1/users/me/threads/<id> returns the thread of an email "sent" here (the sent message,
+// labeled SENT, from owner@example.com) plus any reply queued with POST /__reply {"to": "jake.morgan@example.com"} or
+// {"threadId": "..."}, optional "text", "from", "minutesAfter" (default 3); an unknown thread is a 404.
 const GOOGLE_PORT = Number(process.env.MOCK_GOOGLE_PORT || 54329);
 const BASE_SCOPES = ["openid", "email", "https://www.googleapis.com/auth/gmail.compose", "https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/calendar.readonly"];
 const SEND = "https://www.googleapis.com/auth/gmail.send";
 const SETTINGS = "https://www.googleapis.com/auth/gmail.settings.basic";
+const READ = "https://www.googleapis.com/auth/gmail.readonly";
 const SAMPLE_SIGNATURE =
   '<div dir="ltr"><div dir="ltr"><table cellpadding="0" cellspacing="0" style="font-family:Arial,sans-serif;font-size:13px;color:#333333"><tbody><tr>' +
   '<td style="padding-right:12px;vertical-align:top"><img src="https://lh3.googleusercontent.com/mock-signature/cyan-arc-logo.png" width="64" height="64" alt="Cyan Arc" onerror="alert(1)"></td>' +
   '<td style="vertical-align:top"><b style="color:#1d4ed8">Bram Frankel</b><br>Founder, Cyan Arc LLC<br>' +
   '<a href="tel:+14045550123" style="color:#333333">(404) 555-0123</a> | <a href="https://cyanarc.com" target="_blank">cyanarc.com</a><br>' +
   '<a href="javascript:alert(2)">Unsafe link</a><script>alert(3)</script></td></tr></tbody></table></div></div>';
-let gmode = { grantSend: true, grantSignature: true, sendError: null };
+let gmode = { grantSend: true, grantSignature: true, grantRead: true, sendError: null };
+let greplies = [];
+let gthreadReads = 0;
 let gsent = [];
 let gdraftList = [];
 let gdrafts = 0;
@@ -467,28 +474,59 @@ const google = http.createServer(async (req, res) => {
       return send(res, 200, gmode);
     }
     if (p === "/__reset" && req.method === "POST") {
-      gmode = { grantSend: true, grantSignature: true, sendError: null };
+      gmode = { grantSend: true, grantSignature: true, grantRead: true, sendError: null };
+      greplies = [];
+      gthreadReads = 0;
       gsent = [];
       gdraftList = [];
       gEventList = [];
       return send(res, 200, { ok: true });
     }
     if (p === "/__sent") return send(res, 200, gsent);
+    if (p === "/__replies") return send(res, 200, { replies: greplies, threadReads: gthreadReads });
+    if (p === "/__reply" && req.method === "POST") {
+      const b = JSON.parse((await readRaw(req)) || "{}");
+      const to = String(b.to || "").toLowerCase();
+      const sent = b.threadId ? gsent.find((m) => m.threadId === b.threadId) : [...gsent].reverse().find((m) => String(m.to || "").toLowerCase().includes(to));
+      if (!sent) return send(res, 404, { error: "No sent email to reply to" });
+      const id = `mock-reply-${greplies.length + 1}-${Date.now().toString(36)}`;
+      const from = b.from || (to ? `${to.split("@")[0].replace(/\./g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} <${to}>` : "Someone <someone@example.com>");
+      const at = (sent.at || Date.now()) + Number(b.minutesAfter ?? 3) * 60000;
+      greplies.push({ id, threadId: sent.threadId, from, subject: `Re: ${sent.subject}`, text: b.text || "Good day. What happened with Summit?", at });
+      return send(res, 200, { id, threadId: sent.threadId });
+    }
+    {
+      const m = p.match(/^\/gmail\/v1\/users\/me\/threads\/([^/]+)$/);
+      if (m && req.method === "GET") {
+        gthreadReads++;
+        if (!gmode.grantRead) return send(res, 403, { error: { code: 403, message: "Request had insufficient authentication scopes.", status: "PERMISSION_DENIED" } });
+        const threadId = decodeURIComponent(m[1]);
+        const sent = gsent.filter((x) => x.threadId === threadId);
+        if (!sent.length) return send(res, 404, { error: { code: 404, message: "Requested entity was not found.", status: "NOT_FOUND" } });
+        const b64 = (t) => Buffer.from(t, "utf8").toString("base64url");
+        const msg = (id, from, subject, text, at, labels) => ({ id, threadId, labelIds: labels, internalDate: String(at), snippet: text.slice(0, 80), payload: { mimeType: "multipart/alternative", headers: [{ name: "From", value: from }, { name: "Subject", value: subject }], parts: [{ mimeType: "text/plain", body: { data: b64(text) } }, { mimeType: "text/html", body: { data: b64(`<div>${text}</div>`) } }] } });
+        const messages = [
+          ...sent.map((x) => msg(x.id, "Bram Frankel <owner@example.com>", x.subject, x.body || "", x.at || Date.now(), ["SENT"])),
+          ...greplies.filter((r) => r.threadId === threadId).map((r) => msg(r.id, r.from, r.subject, `${r.text}\n\nOn ${new Date(r.at).toUTCString()} Bram Frankel <owner@example.com> wrote:\n> Hello`, r.at, ["INBOX", "UNREAD"])),
+        ];
+        return send(res, 200, { id: threadId, messages });
+      }
+    }
     if (p === "/__drafts") return send(res, 200, gdraftList);
     if (p === "/__events") return send(res, 200, gEventList);
     if (p === "/o/oauth2/v2/auth") {
       const back = new URL(url.searchParams.get("redirect_uri"));
-      back.searchParams.set("code", `mock-code-${gmode.grantSend ? "send" : "nosend"}-${gmode.grantSignature ? "sig" : "nosig"}`);
+      back.searchParams.set("code", `mock-code-${gmode.grantSend ? "send" : "nosend"}-${gmode.grantSignature ? "sig" : "nosig"}-${gmode.grantRead ? "read" : "noread"}`);
       back.searchParams.set("state", url.searchParams.get("state") || "");
       res.writeHead(302, { Location: back.toString() });
       return res.end();
     }
     if (p === "/token" && req.method === "POST") {
       const form = new URLSearchParams(await readRaw(req));
-      const scopes = [...BASE_SCOPES, ...(gmode.grantSend ? [SEND] : []), ...(gmode.grantSignature ? [SETTINGS] : [])];
+      const scopes = [...BASE_SCOPES, ...(gmode.grantSend ? [SEND] : []), ...(gmode.grantSignature ? [SETTINGS] : []), ...(gmode.grantRead ? [READ] : [])];
       if (form.get("grant_type") === "authorization_code") {
         const code = form.get("code") || "";
-        const granted = [...BASE_SCOPES, ...(code.includes("-send") ? [SEND] : []), ...(code.endsWith("-sig") ? [SETTINGS] : [])];
+        const granted = [...BASE_SCOPES, ...(code.includes("-send-") ? [SEND] : []), ...(code.includes("-sig-") ? [SETTINGS] : []), ...(code.endsWith("-read") ? [READ] : [])];
         return send(res, 200, { access_token: "mock-access", refresh_token: "mock-refresh-token", scope: granted.join(" "), expires_in: 3600, token_type: "Bearer" });
       }
       return send(res, 200, { access_token: "mock-access", scope: scopes.join(" "), expires_in: 3600, token_type: "Bearer" });
@@ -498,7 +536,7 @@ const google = http.createServer(async (req, res) => {
       if (gmode.sendError === "server") return send(res, 500, { error: { code: 500, message: "Backend Error", status: "INTERNAL" } });
       const body = JSON.parse((await readRaw(req)) || "{}");
       const id = `mock-msg-${gsent.length + 1}-${Date.now().toString(36)}`;
-      gsent.push({ id, threadId: body.threadId || `thread-${id}`, ...decodeRaw(body.raw) });
+      gsent.push({ id, threadId: body.threadId || `thread-${id}`, at: Date.now(), ...decodeRaw(body.raw) });
       return send(res, 200, { id, threadId: body.threadId || `thread-${id}`, labelIds: ["SENT"] });
     }
     if (p === "/gmail/v1/users/me/drafts" && req.method === "POST") {

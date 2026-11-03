@@ -28,7 +28,7 @@ const session = {
 const cookieValue = `base64-${Buffer.from(JSON.stringify(session)).toString("base64url")}`;
 
 const PAGES = (process.env.PAGES || [
-  "/", "/work", "/work/listings", "/work/listings?add=1", "/work/deals", "/work/outreach", "/work/outreach?add=1", "/work/todos", "/work/rosara", "/work/jobs", "/work/jobs?add=1", "/work/consulting", "/work/consulting?add=1", "/work/targets", "/work/targets?add=1", "/work/end-of-day", "/work/reports", "/work/reports?view=sent",
+  "/", "/work", "/work/listings", "/work/listings?add=1", "/work/deals", "/work/people", "/work/people?add=1", "/work/people?view=everyone", "/work/people?view=everyone&role=accountability_partner", "/work/people?view=orgs", "/work/people?view=orgs&add=1", "/work/todos", "/work/rosara", "/work/jobs", "/work/jobs?add=1", "/work/consulting", "/work/consulting?add=1", "/work/targets", "/work/targets?add=1", "/work/end-of-day", "/work/reports", "/work/reports?view=sent",
   "/settings", "/settings/email", "/settings/ai", "/settings/buy-box", "/settings/export", "/settings/profile", "/settings/data",
 ].join(",")).split(",");
 
@@ -54,7 +54,15 @@ async function keyPages() {
     if (listing) out.push(`/work/deals/${listing}#listing`);
     // The person page of the Work module (Mark Reed from the sample data, otherwise any contact).
     const person = (await one("select id from contacts where name = 'Mark Reed' limit 1").catch(() => null)) ?? (await one("select id from contacts order by created_at limit 1").catch(() => null));
-    if (person) out.push(`/work/outreach/${person}`);
+    if (person) out.push(`/work/people/${person}`);
+    // Push B: the organization page (Transworld from the sample data, otherwise any) and an accountability partner's page.
+    const org = (await one("select id from organizations where name = 'Transworld Business Advisors' limit 1").catch(() => null)) ?? (await one("select id from organizations order by created_at limit 1").catch(() => null));
+    if (org) out.push(`/work/people/organizations/${org}`);
+    const partner = (await one("select id from contacts where outreach_role = 'accountability_partner' and archived_at is null order by created_at limit 1").catch(() => null));
+    if (partner) out.push(`/work/people/${partner}#partner`);
+    // Sent reports with one day's drawer open (a partner's timeline links there).
+    const day = await one("select to_char(day, 'YYYY-MM-DD') as id from end_of_day where status = 'sent' order by day desc limit 1").catch(() => null);
+    if (day) out.push(`/work/reports?view=sent&day=${day}`);
     // Batch B2: a project, an opportunity, and a consulting item (the sample's when loaded, otherwise any).
     const project = (await one("select id from projects where name = 'Market research' limit 1").catch(() => null)) ?? (await one("select id from projects order by created_at limit 1").catch(() => null));
     if (project) out.push(`/work/rosara/${project}`);
@@ -100,14 +108,21 @@ async function keyPages() {
     if (p.startsWith("/records/pipeline_items/")) return "consulting-item";
     if (p.startsWith("/work/deals/") && p.endsWith("#listing")) return "work-listing-page";
     if (p.startsWith("/work/deals/")) return "work-deal";
-    if (p.startsWith("/work/outreach/")) return "work-person";
+    if (p.startsWith("/work/people/organizations/")) return "work-organization";
+    if (p.startsWith("/work/people/") && p.endsWith("#partner")) return "work-partner";
+    if (p.startsWith("/work/people/")) return "work-person";
+    if (p.startsWith("/work/reports?view=sent&day=")) return "work-reports-sent-drawer";
     if (p.startsWith("/work/rosara/")) return "work-project";
     if (p.startsWith("/work/jobs/")) return "work-opportunity";
     if (p.startsWith("/work/consulting/")) return "work-consulting-item";
     if (p === "/work/jobs?add=1") return "work-jobs-add";
     if (p === "/work/consulting?add=1") return "work-consulting-add";
     if (p === "/work/listings?add=1") return "work-listings-add";
-    if (p === "/work/outreach?add=1") return "work-outreach-add";
+    if (p === "/work/people?add=1") return "work-people-add";
+    if (p === "/work/people?view=everyone") return "work-people-everyone";
+    if (p === "/work/people?view=everyone&role=accountability_partner") return "work-people-partners";
+    if (p === "/work/people?view=orgs") return "work-people-orgs";
+    if (p === "/work/people?view=orgs&add=1") return "work-people-orgs-add";
     if (p === "/work/targets?add=1") return "work-targets-add";
     if (p === "/work/reports?view=sent") return "work-reports-sent";
     if (p.startsWith("/records/contacts/")) return "contact-deal-credit";
@@ -122,7 +137,7 @@ async function keyPages() {
     page.on("console", (m) => {
       if (m.type() === "error") errors.push(m.text());
     });
-    const base = vpName === "desktop" ? PAGES : vpName === "phone" ? (process.env.PHONE_PAGES || "/work,/work/listings,/work/deals,/work/outreach,/work/todos,/work/rosara,/work/jobs,/work/consulting,/work/targets,/work/end-of-day,/work/reports,/settings").split(",") : [];
+    const base = vpName === "desktop" || vpName === "desktop1280" ? PAGES : vpName === "phone" ? (process.env.PHONE_PAGES || "/work,/work/listings,/work/deals,/work/people,/work/people?view=everyone,/work/people?view=orgs,/work/todos,/work/rosara,/work/jobs,/work/consulting,/work/targets,/work/end-of-day,/work/reports,/settings").split(",") : [];
     const list = [...new Set([...base, ...KEY])];
     for (const p of list) {
       errors.length = 0;
