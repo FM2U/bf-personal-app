@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
+import { Check } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { savePartnerReports } from "@/app/actions/accountability";
 import { REPORT_SECTIONS, REPORT_WEEKDAYS, daysLabel } from "@/lib/accountability/partners";
@@ -49,7 +50,9 @@ export function PartnerReportsCard({ personId, email, info, replyNote }: { perso
           {REPORT_WEEKDAYS.map((d) => {
             const on = days.includes(d.n);
             return (
-              <button key={d.n} type="button" onClick={() => toggleDay(d.n)} disabled={pending} aria-pressed={on} className={cn("h-8 w-[52px] rounded-[7px] border text-[13px] font-medium", on ? "border-primary-border bg-primary-soft text-primary-strong" : "border-border bg-white text-slate-500 hover:bg-slate-50")} data-testid="partner-day" data-day={d.n} data-on={on ? "1" : "0"}>
+              <button key={d.n} type="button" onClick={() => toggleDay(d.n)} disabled={pending} aria-pressed={on} className={cn("inline-flex h-8 w-[60px] items-center justify-center gap-1 rounded-[7px] border text-[13px] font-medium", on ? "border-primary bg-primary text-white hover:opacity-90" : "border-border bg-white text-slate-500 hover:bg-slate-50")} data-testid="partner-day" data-day={d.n} data-on={on ? "1" : "0"}>
+                {/* On: the same cobalt as the ticked section boxes below, with a check (approved 2026-11-03). */}
+                {on ? <Check className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden /> : null}
                 {d.label}
               </button>
             );
