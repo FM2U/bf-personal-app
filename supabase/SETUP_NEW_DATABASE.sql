@@ -19,7 +19,6 @@ end $$;
 -- PostgreSQL database dump
 --
 
-\restrict pniUsSzJoPz3urXbZ61sbY108X4ZJ70p6fYe4SwEvEQ7cUl4HeLdHGwd9fXia2B
 
 
 SET statement_timeout = 0;
@@ -3411,7 +3410,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES 
 -- PostgreSQL database dump complete
 --
 
-\unrestrict pniUsSzJoPz3urXbZ61sbY108X4ZJ70p6fYe4SwEvEQ7cUl4HeLdHGwd9fXia2B
 
 
 -- ---------------------------------------------------------------------------------------------------------------
