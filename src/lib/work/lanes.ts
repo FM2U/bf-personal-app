@@ -7,7 +7,7 @@
  */
 import { daysBetween } from "@/lib/calc/dates";
 
-export type Lane = "Deals" | "Outreach" | "Rosara" | "Job search" | "Consulting" | "To-dos";
+export type Lane = "Deals" | "People" | "Rosara" | "Job search" | "Consulting" | "To-dos";
 /** One row of Next actions, whichever lane it comes from (a subset of what the row component shows). */
 export type HomeAction = {
   /** "deal:<id>", "person:<id>", "project:<id>", "job:<id>", "consulting:<id>" (the AI order and the cache use it). */
@@ -29,7 +29,7 @@ export type HomeAction = {
   dayInStage?: number | null;
 };
 
-const PREFIX: Record<Lane, string> = { Deals: "deal", Outreach: "person", Rosara: "project", "Job search": "job", Consulting: "consulting", "To-dos": "todo" };
+const PREFIX: Record<Lane, string> = { Deals: "deal", People: "person", Rosara: "project", "Job search": "job", Consulting: "consulting", "To-dos": "todo" };
 
 export function actionKey(lane: Lane, id: string): string {
   return `${PREFIX[lane]}:${id}`;
@@ -48,7 +48,7 @@ export function laneSectionOf(a: Pick<HomeAction, "action" | "due">, today: stri
 }
 
 /** Within a section: soonest due first (overdue: the oldest first), then by lane order (deals first), then by name. */
-const LANE_ORDER: Lane[] = ["Deals", "Outreach", "Rosara", "Job search", "Consulting", "To-dos"];
+const LANE_ORDER: Lane[] = ["Deals", "People", "Rosara", "Job search", "Consulting", "To-dos"];
 
 export function compareActions(a: HomeAction, b: HomeAction): number {
   const da = a.due ?? "9999";
@@ -86,7 +86,7 @@ export function matchesActionSearch(a: Pick<HomeAction, "name" | "meta">, query:
  * narrows Next actions and Waiting on someone, and the counts on the other pills follow it. To-dos narrows the personal
  * to-dos due today or earlier that sit on Next actions (Edit batch C round 2).
  */
-export const SHOW_LANES = ["Deals", "Outreach", "Rosara", "Job search", "Consulting", "To-dos"] as const;
+export const SHOW_LANES = ["Deals", "People", "Rosara", "Job search", "Consulting", "To-dos"] as const;
 export type ShowLane = (typeof SHOW_LANES)[number];
 
 /** The choice is remembered in this browser under this key. */
@@ -102,7 +102,9 @@ export function parseShowChoice(raw: string | null | undefined): ShowLane[] | nu
     return null;
   }
   if (!Array.isArray(v)) return null;
-  return normalizeShow(v.filter((x): x is ShowLane => (SHOW_LANES as readonly string[]).includes(String(x))));
+  // Push B: the Outreach lane is called People; a choice saved before keeps working.
+  v = v.map((x) => (x === "Outreach" ? "People" : x));
+  return normalizeShow((v as unknown[]).filter((x): x is ShowLane => (SHOW_LANES as readonly string[]).includes(String(x))));
 }
 
 /** In the menu's order, each lane once; none or all of them is All (null). */

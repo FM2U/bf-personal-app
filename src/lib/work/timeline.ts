@@ -4,7 +4,7 @@ import type { Row } from "@/lib/types";
  * One line of a record's timeline (notes, findings, emails, calls, stage moves), shared by the deal, person, project,
  * opportunity, and consulting pages. A finding (batch B2) shows a Finding pill; its `href` is the source link.
  */
-export type TimelineEvent = { id: string; kind: "note" | "finding" | "email" | "call" | "move" | "other"; when: string; date: string; title: string; detail: string | null; href: string | null };
+export type TimelineEvent = { id: string; kind: "note" | "finding" | "email" | "call" | "move" | "report" | "reply" | "other"; when: string; date: string; title: string; detail: string | null; href: string | null; /** Push B: the detail is a quote (a reply read from Gmail). */ quote?: boolean; /** Push B: a link under the line ("Open the report"). */ link?: { href: string; label: string } | null };
 
 /** "Email received: CIM received", "Call with Rachel Kim, 20 min" (no "Call:" twice), "Meeting: ...". */
 export function commTitle(c: Row): string {

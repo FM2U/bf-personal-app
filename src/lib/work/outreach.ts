@@ -13,14 +13,17 @@ export const OUTREACH_ROLES = [
   { key: "lender", label: "Lender" },
   // Edit batch C round 2 (item 5): "Former colleague" became "Personal network" (stored as personal_network since update 0026).
   { key: "personal_network", label: "Personal network" },
+  // Push B (2026-11-03): Consulting client and Accountability partner can be chosen on a person.
+  { key: "consulting_client", label: "Consulting client" },
   { key: "service_provider", label: "Service provider" },
   { key: "rosara_customer", label: "Rosara customer" },
   { key: "recruiter", label: "Recruiter" },
   { key: "cofounder_candidate", label: "Co-founder candidate" },
   { key: "investor", label: "Investor" },
+  { key: "accountability_partner", label: "Accountability partner" },
   { key: "other", label: "Other" },
 ] as const;
-type OutreachRole = (typeof OUTREACH_ROLES)[number]["key"];
+export type OutreachRole = (typeof OUTREACH_ROLES)[number]["key"];
 
 /** The four purposes. Every purpose pill is the one soft blue (the color system of Edit batch B, 2026-11-01). */
 export const PURPOSES = [

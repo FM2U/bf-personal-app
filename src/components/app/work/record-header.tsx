@@ -15,7 +15,7 @@ export function RecordHeader({ crumb, title, under, actions, status, figures, te
         <div className="flex min-w-0 flex-1 basis-[280px] flex-wrap items-center gap-2.5 [&>span:last-child]:min-w-0 [&>span:last-child]:truncate" data-testid="record-status-line">
           {status}
         </div>
-        <Figures className="shrink-0" testId="record-figures">
+        <Figures className="max-w-full min-w-0 sm:shrink-0" testId="record-figures">
           {before}
           {figures.map((f) => (
             <Figure key={f.key} value={f.value} label={f.label} tone={f.tone} testId={`figure-${f.key}`} />

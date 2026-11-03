@@ -4,6 +4,7 @@ import { date as fmtDate } from "@/lib/format";
 import { loadTabCounts, type DealRow } from "@/lib/work/data";
 import { loadHome } from "@/lib/work/home-data";
 import { composeForPerson } from "@/lib/work/outreach-data";
+import { syncRepliesQuietly } from "@/lib/replies-sync";
 import { AskAiPill } from "@/components/app/work/ask-ai";
 import { WorkTabs } from "@/components/app/nav-links";
 import { HomeBoard } from "@/components/app/work/home-board";
@@ -16,11 +17,13 @@ export const metadata = { title: "Work on now" };
  * Home, the start screen of the Work module (menu item "Home", heading "Work on now"; the bento of mockup v6,
  * approved 2026-10-31; batch B2 merges every lane on Next actions, adds the AI order, and fills the Rosara and Job
  * search tiles): the date, Ask AI, the Work tabs, the filter row, then Next actions (two thirds) and, stacked on the
- * right, Waiting on someone, Outreach, Rosara, Job search, the Screen listings tile, and Deals at a glance. The rows
+ * right, Waiting on someone, People, Rosara, Job search, the Screen listings tile, and Deals at a glance. The rows
  * and tiles are in src/components/app/work/home-board.tsx; the data comes from loadHome.
  */
 export default async function WorkNowPage() {
   const { supabase, ownerId } = await requireOwner();
+  // Push B: opening Home looks for new replies to the reports and emails the app sent (at most once every few minutes).
+  await syncRepliesQuietly(supabase, ownerId);
   const d = await loadHome(supabase, ownerId);
   const waiting = d.available ? d.deals.filter((x) => x.waitLevel !== "none") : [];
   const tilePeople = d.available ? d.outreach.dueToday : [];

@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Mail, Phone } from "lucide-react";
 import { addPersonNote, addPersonTask, archivePerson, completeFollowUp, deferFollowUp, deletePersonTask, logIncoming, makePersonTaskNext, reopenPerson, saveFollowUp, setPersonTaskDone, type PersonInput } from "@/app/actions/outreach";
@@ -11,6 +12,7 @@ import { addDaysISO } from "@/lib/calc/dates";
 import { date as fmtDate } from "@/lib/format";
 import { personAsk } from "@/lib/work/ask-ai";
 import { followUpHint, lastContactLabel, nextDateChoices, purposesText } from "@/lib/work/outreach";
+import { organizationHref } from "@/lib/work/people";
 import type { IncomingReply, PersonRecordLink, PersonRow } from "@/lib/work/outreach-data";
 import type { TimelineEvent } from "@/lib/work/timeline";
 import type { DealTodo } from "@/lib/work/todos";
@@ -25,7 +27,7 @@ import { Confirm, Pill, RowButton, WorkCard } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
 
 /**
- * The cards of the person page (/work/outreach/[id]) under the record-page rule (batch B, approved 2026-10-31).
+ * The cards of the person page (/work/people/[id]) under the record-page rule (batch B, approved 2026-10-31).
  * Left: Why in touch (purpose and the one-line note; what the follow-up is for lives in Next follow-up as "What for"
  * since Edit batch C round 2), Next follow-up (date, what for, the AI star that suggests both; Save,
  * Done, Later), Tasks. Right: Facts (Edit), Incoming (Gmail replies not yet on the timeline, Log it), Timeline
@@ -291,7 +293,13 @@ export function PersonFactsCard({ person, records, today }: { person: PersonRow;
             {person.name}
           </Fact>
           <Fact label="Organization" testId="pf-organization">
-            {person.organization ?? "Not set"}
+            {person.organization && person.organizationId ? (
+              <Link href={organizationHref(person.organizationId)} className="block truncate text-primary-strong hover:underline" data-testid="person-org-link">
+                {person.organization}
+              </Link>
+            ) : (
+              "Not set"
+            )}
           </Fact>
           <Fact label="Role" testId="pf-role">
             {[person.roleLabel, person.title].filter(Boolean).join(", ") || "Not set"}
@@ -435,7 +443,7 @@ export function PersonDecisionCard({ person }: { person: PersonRow }) {
       router.refresh();
     });
   return (
-    <WorkCard title="Decision" hint={person.archived ? "Archived; not on Outreach" : "Archive takes the person off Outreach"} testId="person-decision">
+    <WorkCard title="Decision" hint={person.archived ? "Archived; not on People" : person.roleKey === "accountability_partner" ? "Archive stops their reports" : "Archive takes the person off People"} testId="person-decision">
       <div className="flex flex-wrap items-center gap-2 px-[22px] pt-3 pb-5">
         {person.archived ? (
           <>

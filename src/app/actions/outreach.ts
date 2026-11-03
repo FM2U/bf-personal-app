@@ -186,6 +186,8 @@ type LogCallInput = {
   contactId: string | null;
   /** The deal the call was about (prefilled on a deal page). */
   dealId: string | null;
+  /** Push B: the organization's page the call was logged from. */
+  organizationId?: string | null;
   /** Who, as typed, when there is no contact record. */
   who: string;
   /** Local date and time from the form (YYYY-MM-DDTHH:MM). */
@@ -207,8 +209,21 @@ export async function logCall(input: LogCallInput): Promise<{ ok: true; commId: 
   const s = await setup();
   if (isFail(s)) return s;
   const { sb, ctx } = s;
-  const person = input.contactId ? await personOf(sb, ctx, input.contactId) : null;
+  let person = input.contactId ? await personOf(sb, ctx, input.contactId) : null;
   if (isFail(person)) return person;
+  // From an organization's page: the person named, when they are at that organization.
+  let org: Row | null = null;
+  if (!person && input.organizationId) {
+    if (!UUID.test(input.organizationId)) return fail("This organization was not found.");
+    const { data: o } = await sb.from("organizations").select("id,name,next_action,next_action_due").eq("owner_id", ctx.ownerId).eq("id", input.organizationId).maybeSingle();
+    org = (o as Row | null) ?? null;
+    if (!org) return fail("This organization was not found.");
+    const typed = clean(input.who, 120);
+    if (typed) {
+      const { data: hit } = await sb.from("contacts").select("*").eq("owner_id", ctx.ownerId).eq("organization_id", org.id).ilike("name", typed).limit(1);
+      person = ((hit ?? []) as Row[])[0] ?? null;
+    }
+  }
   let deal: Row | null = null;
   if (input.dealId) {
     if (!UUID.test(input.dealId)) return fail("This deal was not found.");
@@ -233,7 +248,7 @@ export async function logCall(input: LogCallInput): Promise<{ ok: true; commId: 
     method: "call",
     direction: "outgoing",
     contact_id: person ? person.id : (deal?.primary_contact_id ?? null),
-    organization_id: person?.organization_id ?? deal?.organization_id ?? null,
+    organization_id: person?.organization_id ?? deal?.organization_id ?? org?.id ?? null,
     subject: `Call with ${who}`,
     summary: said,
     is_outreach: !!person,
@@ -254,6 +269,17 @@ export async function logCall(input: LogCallInput): Promise<{ ok: true; commId: 
     if (Object.keys(update).length) {
       const { error: e2 } = await sb.from("contacts").update(update).eq("id", person.id);
       if (e2) return fail(`The call was logged, but the follow-up was not saved: ${e2.message}`);
+    }
+  } else if (org && !deal) {
+    // The outcome on an organization (nobody at it named): its next action.
+    const update: Row = {};
+    if (next) {
+      update.next_action = next;
+      update.next_action_due = date && date !== "keep" ? date : (org.next_action_due ?? addDaysISO(ctx.today, 1));
+    } else if (date !== "keep" && org.next_action) update.next_action_due = date;
+    if (Object.keys(update).length) {
+      const { error: e2 } = await sb.from("organizations").update(update).eq("id", org.id);
+      if (e2) return fail(`The call was logged, but the next action was not saved: ${e2.message}`);
     }
   } else if (deal) {
     const update: Row = {};

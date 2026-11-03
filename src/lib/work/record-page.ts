@@ -8,7 +8,7 @@
 import { dueLabel } from "@/lib/work/stages";
 import { lastContactLabel } from "@/lib/work/outreach";
 
-export type HeaderFigure = { key: "next" | "tasks" | "last" | "waiting"; value: string; label: string; tone: "today" | "over" | "later" | "none" | "amber" | "red" };
+export type HeaderFigure = { key: "next" | "tasks" | "last" | "waiting" | "deals"; value: string; label: string; tone: "today" | "over" | "later" | "none" | "amber" | "red" };
 
 type RecordHeaderInput = {
   /** The next action's or next follow-up's date (YYYY-MM-DD), or null. */

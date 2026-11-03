@@ -17,6 +17,7 @@ import { actionKey, applyAiOrder, compareActions, laneSectionOf, laneShown, matc
 import { compareNames } from "@/lib/work/names";
 import { contactKindLabel, orgRoleLine, overdueLabel } from "@/lib/work/outreach";
 import type { PersonRow as PersonRowData } from "@/lib/work/outreach-data";
+import { PEOPLE_HREF, personHref } from "@/lib/work/people";
 import { DEAL_FILTERS, matchesFilter, type DealFilter } from "@/lib/work/phases";
 import type { ItemRow } from "@/lib/work/pipelines-data";
 import { dueThisWeekLabel } from "@/lib/work/projects";
@@ -118,7 +119,7 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
       push("Deals", d.id, { key: actionKey("Deals", d.id), lane: "Deals", id: d.id, name: d.name, action: d.nextAction, due: d.nextActionDue, minutes: d.nextActionMinutes, meta: [d.stageName, d.whatItDoes, d.location].filter(Boolean).join(", ") }, { status: d.status, waitLevel: d.waitLevel, nextAction: d.nextAction, nextActionDue: d.nextActionDue, name: d.name }, (reason) => (d.nextAction ? <NextActionRow deal={d} today={today} reason={reason} /> : <NeedsActionRow deal={d} />));
     }
     for (const p of data.outreach.due) {
-      push("Outreach", p.id, { key: actionKey("Outreach", p.id), lane: "Outreach", id: p.id, name: p.name, action: p.followUpFor ?? "Follow up", due: p.nextFollowUp, minutes: null, meta: orgRoleLine(p) }, { status: "open", waitLevel: "none", nextAction: p.followUpFor ?? "Follow up", nextActionDue: p.nextFollowUp, name: p.name }, (reason) => <OutreachActionRow person={p} today={today} reason={reason} />);
+      push("People", p.id, { key: actionKey("People", p.id), lane: "People", id: p.id, name: p.name, action: p.followUpFor ?? "Follow up", due: p.nextFollowUp, minutes: null, meta: orgRoleLine(p) }, { status: "open", waitLevel: "none", nextAction: p.followUpFor ?? "Follow up", nextActionDue: p.nextFollowUp, name: p.name }, (reason) => <OutreachActionRow person={p} today={today} reason={reason} />);
     }
     for (const pr of data.rosara.actions) {
       push("Rosara", pr.id, { key: actionKey("Rosara", pr.id), lane: "Rosara", id: pr.id, name: pr.name, action: pr.nextAction, due: pr.nextActionDue, minutes: pr.nextActionMinutes, meta: pr.milestone ?? "" }, { status: "open", waitLevel: "none", nextAction: pr.nextAction, nextActionDue: pr.nextActionDue, name: pr.name }, (reason) => <ProjectActionRow project={pr} today={today} reason={reason} />);
@@ -294,7 +295,7 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
             </div>
           ) : (
             <p className="px-[22px] py-4 text-[13px] text-muted-foreground" data-testid="now-actions-empty">
-              {show ? "Nothing is due today in the lanes ticked under Show." : "Nothing is due today and every record has a next action. Deals, Outreach, Rosara, Job search, and Consulting list every next action."}
+              {show ? "Nothing is due today in the lanes ticked under Show." : "Nothing is due today and every record has a next action. Deals, People, Rosara, Job search, and Consulting list every next action."}
             </p>
           )}
         </WorkCard>
@@ -421,10 +422,10 @@ function NeedsActionRow({ deal }: { deal: DealRow }) {
   );
 }
 
-/** The Outreach tile (batch B): the weekly counter with its bar, up to three people due today with Email and Log a call, the link, and the overdue count. */
+/** The People tile (batch B; Outreach renamed in push B): the weekly counter with its bar, up to three people due today with Email and Log a call, the link, and the overdue count. */
 function OutreachTile({ outreach, today, logged, onEmail, onCall }: { outreach: WorkNowData["outreach"]; today: string; logged: Record<string, string>; onEmail: (p: PersonRowData) => void; onCall: (p: PersonRowData) => void }) {
   return (
-    <WorkCard title="Outreach" hint={`${outreach.due.length} due`} testId="home-outreach" pinned>
+    <WorkCard title="People" hint={`${outreach.due.length} due`} testId="home-outreach" pinned>
       <TargetBar count={outreach.counter.count} target={outreach.counter.target} pct={outreach.counter.pct} className="py-2.5" testId="home-outreach-counter" />
       <div className="px-[22px] pb-1">
         <SectionHeading name="Due for follow-up today" count={outreach.dueToday.length} collapsed={false} className="mt-0" />
@@ -433,7 +434,7 @@ function OutreachTile({ outreach, today, logged, onEmail, onCall }: { outreach: 
         {outreach.dueToday.map((p) => (
           <div key={p.id} className="flex flex-col gap-1.5 border-t border-slate-100 px-[22px] py-[9px]" data-testid="home-outreach-row" data-person={p.id}>
             <Line1>
-              <Link href={`/work/outreach/${p.id}`} className="hover:underline">
+              <Link href={personHref(p.id)} className="hover:underline">
                 <Name>{p.name}</Name>
               </Link>
               <PurposePills purposes={p.purposes.slice(0, 1)} />
@@ -463,8 +464,8 @@ function OutreachTile({ outreach, today, logged, onEmail, onCall }: { outreach: 
         {!outreach.dueToday.length ? <p className="border-t border-slate-100 px-[22px] py-3 text-[13px] text-muted-foreground">Nobody is due today.</p> : null}
       </div>
       <div className="flex items-center gap-2.5 border-t border-slate-100 px-[22px] pt-2.5 pb-4">
-        <Link href="/work/outreach" className="text-[13px] font-medium text-primary-strong hover:underline" data-testid="home-open-outreach">
-          Open Outreach
+        <Link href={PEOPLE_HREF} className="text-[13px] font-medium text-primary-strong hover:underline" data-testid="home-open-outreach">
+          Open People
         </Link>
         {outreach.overdue ? (
           <span className="text-xs font-medium text-status-missed" data-testid="home-outreach-overdue">

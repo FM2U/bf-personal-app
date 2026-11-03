@@ -12,6 +12,13 @@ const nextConfig: NextConfig = {
     },
   },
   serverExternalPackages: ["googleapis", "plaid"],
+  // Push B: Outreach is now People. Old links and bookmarks keep working (the query string goes along).
+  async redirects() {
+    return [
+      { source: "/work/outreach", destination: "/work/people", permanent: false },
+      { source: "/work/outreach/:id", destination: "/work/people/:id", permanent: false },
+    ];
+  },
   async headers() {
     return [
       {

@@ -24,6 +24,8 @@ export type LogCallTarget = {
   from: string;
   /** The person's or deal's current next date (shown in "Keep the current date"). */
   currentDate: string | null;
+  /** Push B: a call logged from an organization's page (the person named is looked up among its people). */
+  organizationId?: string | null;
 };
 
 const INPUT = "h-9 w-full min-w-0 rounded-[7px] border border-input bg-white px-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:bg-slate-50 disabled:text-slate-600";
@@ -63,7 +65,7 @@ function CallForm({ target, today, tz, onOpenChange, onSaved }: { target: LogCal
   const save = () =>
     start(async () => {
       setError(null);
-      const r = await logCall({ contactId: target.contactId, dealId: target.dealId, who, when, minutes, said, nextAction: next, nextDate });
+      const r = await logCall({ contactId: target.contactId, dealId: target.dealId, organizationId: target.organizationId ?? null, who, when, minutes, said, nextAction: next, nextDate });
       if (!r.ok) return setError(r.error);
       onOpenChange(false);
       onSaved?.({ minutes: Number(minutes) || 0, nextDate: nextDate === "keep" ? "keep" : nextDate === "none" ? null : nextDate, nextAction: next.trim() || null });
@@ -124,7 +126,7 @@ function CallForm({ target, today, tz, onOpenChange, onSaved }: { target: LogCal
           {pending ? "Saving..." : "Save"}
         </RowButton>
       </div>
-      <p className="mt-4 text-[12.5px] leading-5 text-muted-foreground">Saved calls appear on the timeline as a call entry and count toward the weekly outreach target when the person is on Outreach.</p>
+      <p className="mt-4 text-[12.5px] leading-5 text-muted-foreground">Saved calls appear on the timeline as a call entry and count toward the weekly outreach target when the person is on People.</p>
     </>
   );
 }

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createPerson, savePersonFacts, type PersonInput } from "@/app/actions/outreach";
 import { useUnsavedWork } from "@/components/app/unsaved-changes";
 import { OUTREACH_ROLES, PURPOSES, purposesText } from "@/lib/work/outreach";
+import { PEOPLE_HREF } from "@/lib/work/people";
 import { RowButton, WorkCard } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
 
@@ -95,7 +96,7 @@ function PersonFields({ f, set, ids, withFollowUp = true, withTitle = false }: {
   );
 }
 
-/** Add a person (the card under the Outreach filters): Name, role, and purpose are enough to start. */
+/** Add a person (the card under the People filters): Name, role, and purpose are enough to start. */
 export function AddPersonCard({ onClose }: { onClose: () => void }) {
   const ids = useId();
   const router = useRouter();
@@ -112,7 +113,7 @@ export function AddPersonCard({ onClose }: { onClose: () => void }) {
       if (!r.ok) return setError(r.error);
       setF(EMPTY);
       onClose();
-      router.push(`/work/outreach?saved=${encodeURIComponent(f.name.trim())}`);
+      router.push(`${PEOPLE_HREF}?saved=${encodeURIComponent(f.name.trim())}`);
       router.refresh();
     });
   return (
@@ -132,7 +133,7 @@ export function AddPersonCard({ onClose }: { onClose: () => void }) {
             {pending ? "Saving..." : "Save"}
           </RowButton>
         </div>
-        <p className="text-[12.5px] text-muted-foreground">People here are the app&apos;s contact records. Outreach is the working view of them.</p>
+        <p className="text-[12.5px] text-muted-foreground">An accountability partner gets the End of day report; set the days and sections on their page.</p>
       </div>
     </WorkCard>
   );

@@ -17,7 +17,7 @@ describe("the lanes of Home", () => {
     const rows = [
       a("Rosara", "Market research", { due: today }),
       a("Deals", "Dalton", { due: today }),
-      a("Outreach", "Mark Reed", { due: "2026-10-29" }),
+      a("People", "Mark Reed", { due: "2026-10-29" }),
       a("Deals", "Meridian", { due: "2026-11-02" }),
       a("Job search", "Harbor", { due: today }),
       a("Consulting", "Sunrise", { due: "2026-11-06" }),
@@ -86,14 +86,15 @@ describe("the AI order", () => {
 
 describe("the Show filter on Home (Edit batch C, item 2)", () => {
   it("lists the six lanes of the menu", () => {
-    expect([...SHOW_LANES]).toEqual(["Deals", "Outreach", "Rosara", "Job search", "Consulting", "To-dos"]);
+    expect([...SHOW_LANES]).toEqual(["Deals", "People", "Rosara", "Job search", "Consulting", "To-dos"]);
+    expect(parseShowChoice(JSON.stringify(["Outreach"]))).toEqual(["People"]);
   });
   it("starts at All; ticking lanes shows only those, several allowed; the pill counts them", () => {
     expect(showLabel(null)).toBe("Show: All");
-    const one = toggleShow(null, "Outreach");
-    expect(one).toEqual(["Outreach"]);
+    const one = toggleShow(null, "People");
+    expect(one).toEqual(["People"]);
     const two = toggleShow(one, "Deals");
-    expect(two).toEqual(["Deals", "Outreach"]);
+    expect(two).toEqual(["Deals", "People"]);
     expect(showLabel(two)).toBe("Show: 2");
     expect(laneShown("Deals", two)).toBe(true);
     expect(laneShown("Rosara", two)).toBe(false);
@@ -123,7 +124,7 @@ describe("to-dos on Home's Next actions", () => {
       a("To-dos", "Renew the car registration", { due: "2026-10-30" }),
       a("Deals", "Dalton", { due: today }),
       a("To-dos", "Call the dentist", { due: today }),
-      a("Outreach", "Mark Reed", { due: "2026-11-01" }),
+      a("People", "Mark Reed", { due: "2026-11-01" }),
       a("To-dos", "Book flights", { due: "2026-11-05" }),
     ];
     const s = mergeLanes(rows, today);

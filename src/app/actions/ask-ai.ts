@@ -283,7 +283,7 @@ async function todaysActions(sb: SupabaseClient, ownerId: string): Promise<{ act
   const [now, rosara, pipes, todos] = await Promise.all([loadWorkNow(sb, ownerId), loadRosaraHome(sb, wctx), loadPipelinesHome(sb, wctx), loadHomeTodos(sb, wctx)]);
   const all: HomeAction[] = [
     ...now.deals.map((d) => ({ key: actionKey("Deals", d.id), lane: "Deals" as const, id: d.id, name: d.name, action: d.nextAction, due: d.nextActionDue, minutes: d.nextActionMinutes, meta: [d.stageName, d.whatItDoes, d.location].filter(Boolean).join(", "), waitingOn: d.waitLevel !== "none" ? d.waitingOn : null, waitDays: d.waitDays, dayInStage: d.dayInStage })),
-    ...now.outreach.due.map((p) => ({ key: actionKey("Outreach", p.id), lane: "Outreach" as const, id: p.id, name: p.name, action: p.followUpFor ?? "Follow up", due: p.nextFollowUp, minutes: null, meta: orgRoleLine(p) })),
+    ...now.outreach.due.map((p) => ({ key: actionKey("People", p.id), lane: "People" as const, id: p.id, name: p.name, action: p.followUpFor ?? "Follow up", due: p.nextFollowUp, minutes: null, meta: orgRoleLine(p) })),
     ...rosara.actions.map((p) => ({ key: actionKey("Rosara", p.id), lane: "Rosara" as const, id: p.id, name: p.name, action: p.nextAction, due: p.nextActionDue, minutes: p.nextActionMinutes, meta: p.milestone ?? "" })),
     ...pipes.jobs.map((i) => ({ key: actionKey("Job search", i.id), lane: "Job search" as const, id: i.id, name: i.name, action: i.nextAction, due: i.nextActionDue, minutes: i.nextActionMinutes, meta: [i.stageName, i.title, i.location].filter(Boolean).join(", "), waitingOn: i.waitLevel !== "none" ? i.waitingOn : null, waitDays: i.waitDays, dayInStage: i.dayInStage })),
     // Edit batch C round 2: the personal to-dos due today or earlier, like any other row.

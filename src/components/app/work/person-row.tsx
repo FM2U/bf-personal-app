@@ -8,6 +8,7 @@ import { addDaysISO } from "@/lib/calc/dates";
 import { date as fmtDate } from "@/lib/format";
 import { lastContactLabel, nextDateChoices, nextFollowUpLabel, orgRoleLine, purposeLabel, purposeTone } from "@/lib/work/outreach";
 import type { PersonRow as PersonRowData } from "@/lib/work/outreach-data";
+import { personHref } from "@/lib/work/people";
 import { dueLabel } from "@/lib/work/stages";
 import { AiReason } from "@/components/app/work/project-row";
 import { ActionFigures, Confirm, Figure, Figures, LanePill, Line1, Line2, Line3, Name, Pill, ROW_COLS, RowButton, RowButtons, RowShell, What } from "@/components/app/work/ui";
@@ -32,7 +33,7 @@ export function PurposePills({ purposes, className }: { purposes: readonly strin
  * logged by the send), Log a call (the drawer), and Done (asks for the next date and what for, then the row moves).
  * The row opens the person page. The editor and the drawer are held by the board, so they survive the row moving.
  */
-export function PersonRow({ person, today, onEmail, onCall, done: doneText }: { person: PersonRowData; today: string; onEmail: (p: PersonRowData) => void; onCall: (p: PersonRowData) => void; /** A line to show after a call or an email was logged on this visit ("Call logged, 20 min"). */ done?: string | null }) {
+export function PersonRow({ person, today, onEmail, onCall, done: doneText, showDone = true }: { person: PersonRowData; today: string; onEmail: (p: PersonRowData) => void; onCall: (p: PersonRowData) => void; /** A line to show after a call or an email was logged on this visit ("Call logged, 20 min"). */ done?: string | null; /** Done (the follow-up is done) shows on Follow-ups only (push B: Everyone has Email and Log a call). */ showDone?: boolean }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [state, setState] = useState<{ kind: "idle" } | { kind: "ask" } | { kind: "done"; text: string } | { kind: "error"; text: string }>({ kind: "idle" });
@@ -65,7 +66,7 @@ export function PersonRow({ person, today, onEmail, onCall, done: doneText }: { 
       testId="person-row"
       textGap
       dataAttrs={{ "data-person": person.id, "data-section-date": person.nextFollowUp ?? "" }}
-      open={`/work/outreach/${person.id}`}
+      open={personHref(person.id)}
       openLabel={`Open ${person.name}`}
       right={
         asking ? undefined : (
@@ -81,24 +82,31 @@ export function PersonRow({ person, today, onEmail, onCall, done: doneText }: { 
             <RowButton onClick={() => onCall(person)} data-testid="row-log-call">
               Log a call
             </RowButton>
-            <RowButton tone="cobalt" disabled={pending} onClick={() => setState(asking ? { kind: "idle" } : { kind: "ask" })} className={ROW_COLS.button.cls} data-testid="row-done">
-              Done
-            </RowButton>
+            {showDone ? (
+              <RowButton tone="cobalt" disabled={pending} onClick={() => setState(asking ? { kind: "idle" } : { kind: "ask" })} className={ROW_COLS.button.cls} data-testid="row-done">
+                Done
+              </RowButton>
+            ) : null}
           </RowButtons>
         </>
         )
       }
     >
       <Line1>
-        <Link href={`/work/outreach/${person.id}`} className="hover:underline" data-testid="person-link">
+        <Link href={personHref(person.id)} className="hover:underline" data-testid="person-link">
           <Name>{person.name}</Name>
         </Link>
         {line ? <What>{line}</What> : null}
       </Line1>
       {person.note ? <Line3 className="text-[13px] text-slate-600">{person.note}</Line3> : null}
-      {person.purposes.length ? (
+      {person.purposes.length || person.roleKey === "accountability_partner" ? (
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5" data-testid="person-purposes">
           <PurposePills purposes={person.purposes} />
+          {person.roleKey === "accountability_partner" ? (
+            <Pill tone="gray" testId="gets-reports-pill">
+              Gets reports
+            </Pill>
+          ) : null}
         </div>
       ) : null}
       {doneText ? (
@@ -192,7 +200,7 @@ export function OutreachActionRow({ person, today, reason }: { person: PersonRow
     <RowShell
       testId="outreach-action-row"
       dataAttrs={{ "data-person": person.id }}
-      open={`/work/outreach/${person.id}`}
+      open={personHref(person.id)}
       openLabel={`Open ${person.name}`}
       right={
         asking ? undefined : (
@@ -210,8 +218,8 @@ export function OutreachActionRow({ person, today, reason }: { person: PersonRow
       }
     >
       <Line1>
-        <LanePill lane="Outreach" />
-        <Link href={`/work/outreach/${person.id}`} className="hover:underline">
+        <LanePill lane="People" />
+        <Link href={personHref(person.id)} className="hover:underline">
           <Name>{person.name}</Name>
         </Link>
         {line ? <What>{line}</What> : null}

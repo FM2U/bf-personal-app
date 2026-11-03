@@ -102,7 +102,7 @@ export function RosaraBoard({ data }: { data: RosaraData }) {
           </p>
         )}
         <p className="border-t border-slate-100 px-[22px] pt-3 pb-4 text-[13px] text-muted-foreground" data-testid="rosara-note">
-          Next actions here show on Home. People you talk to for Rosara live on Outreach with purpose Rosara.
+          Next actions here show on Home. People you talk to for Rosara live on People with purpose Rosara.
         </p>
       </WorkCard>
     </div>

@@ -9,6 +9,7 @@ import { date as fmtDate } from "@/lib/format";
 import { isValidEmail } from "@/lib/email-address";
 import { DEFAULT_OUTREACH_TARGET, normalizeRole, outreachSections, parsePurposes, roleLabel, workWeek, type PurposeKey } from "@/lib/work/outreach";
 import { commKind, commTitle, type TimelineEvent } from "@/lib/work/timeline";
+import { nextReportDay, partnerSettings, type ReportSectionKey } from "@/lib/accountability/partners";
 import { sortTodos, type DealTodo } from "@/lib/work/todos";
 import type { Row } from "@/lib/types";
 
@@ -48,9 +49,9 @@ export type PersonRow = {
   createdAt: string;
 };
 
-const CONTACT_COLUMNS = "id,name,organization_id,outreach_role,title,purposes,notes,email,phone,linkedin_url,follow_up_date,follow_up_note,last_contact_at,last_contact_kind,archived_at,created_at";
+export const CONTACT_COLUMNS = "id,name,organization_id,outreach_role,title,purposes,notes,email,phone,linkedin_url,follow_up_date,follow_up_note,last_contact_at,last_contact_kind,archived_at,created_at";
 
-function toPersonRow(c: Row, orgName: string | null, tz: string): PersonRow {
+export function toPersonRow(c: Row, orgName: string | null, tz: string): PersonRow {
   const note = String(c.notes ?? "").split("\n").map((l) => l.trim()).find(Boolean) ?? null;
   return {
     id: String(c.id),
@@ -100,7 +101,7 @@ async function loadOutreachCounter(sb: SupabaseClient, ctx: Ctx): Promise<Outrea
   return { count, target: t, pct: Math.min(100, Math.round((count / t) * 100)) };
 }
 
-async function loadPeople(sb: SupabaseClient, ownerId: string, tz: string): Promise<PersonRow[]> {
+export async function loadPeople(sb: SupabaseClient, ownerId: string, tz: string): Promise<PersonRow[]> {
   const [{ data, error }, { data: orgs }] = await Promise.all([
     sb.from("contacts").select(CONTACT_COLUMNS).eq("owner_id", ownerId).order("name").limit(2000),
     sb.from("organizations").select("id,name").eq("owner_id", ownerId).limit(2000),
@@ -178,8 +179,12 @@ export type IncomingReply = { id: string; date: string; subject: string; excerpt
 /** A deal, opportunity, or consulting item this person is the main contact of (a line in Facts). */
 export type PersonRecordLink = { id: string; name: string; href: string; kind: string };
 
+/** The Reports card and figures of an accountability partner's page (push B). */
+export type PartnerInfo = { days: number[]; sections: ReportSectionKey[]; sent: number; replies: number; lastSentOn: string | null; lastReplyOn: string | null; nextReport: string | null; todayOpen: boolean };
+
 type PersonPageData = {
   available: boolean;
+  partner: PartnerInfo | null;
   notice: string | null;
   today: string;
   tz: string;
@@ -199,14 +204,14 @@ function toTask(t: Row): DealTodo {
 
 /** The person page: the person, the timeline (notes, emails, calls; newest first), incoming replies, tasks, records, and the email setup. */
 export async function loadPersonPage(sb: SupabaseClient, ctx: Ctx, id: string): Promise<PersonPageData> {
-  const base: PersonPageData = { available: true, notice: null, today: ctx.today, tz: ctx.tz, person: null, timeline: [], incoming: [], tasks: [], records: [], compose: null };
+  const base: PersonPageData = { available: true, partner: null, notice: null, today: ctx.today, tz: ctx.tz, person: null, timeline: [], incoming: [], tasks: [], records: [], compose: null };
   const { data: row } = await sb.from("contacts").select("*").eq("owner_id", ctx.ownerId).eq("id", id).maybeSingle();
   const c = row as Row | null;
   if (!c) return base;
   const [{ data: org }, { data: notes }, { data: comms }, { data: taskRows }, { data: items }, { data: pipes }, compose] = await Promise.all([
     c.organization_id ? sb.from("organizations").select("id,name").eq("id", c.organization_id).maybeSingle() : Promise.resolve({ data: null }),
     sb.from("notes").select("id,body,created_at").eq("record_type", "contacts").eq("record_id", id).order("created_at", { ascending: false }).limit(50),
-    sb.from("communications").select("id,occurred_at,method,direction,subject,summary,call_minutes,call_outcome,awaiting_log,pipeline_item_id").eq("contact_id", id).order("occurred_at", { ascending: false }).limit(80),
+    sb.from("communications").select("id,occurred_at,method,direction,subject,summary,call_minutes,call_outcome,awaiting_log,pipeline_item_id,partner_report_id").eq("contact_id", id).order("occurred_at", { ascending: false }).limit(80),
     sb.from("deal_todos").select(TASK_COLUMNS).eq("owner_id", ctx.ownerId).eq("record_type", "contacts").eq("record_id", id).limit(500),
     sb.from("pipeline_items").select("id,name,company_name,pipeline_id,status").eq("owner_id", ctx.ownerId).eq("primary_contact_id", id).limit(50),
     sb.from("pipelines").select("id,kind").eq("owner_id", ctx.ownerId),
@@ -214,10 +219,40 @@ export async function loadPersonPage(sb: SupabaseClient, ctx: Ctx, id: string): 
   ]);
   const person = toPersonRow(c, (org as Row | null)?.name ? String((org as Row).name) : null, ctx.tz);
   const commRows = (comms ?? []) as Row[];
+  // Push B: the End of day reports sent to this person and the replies to them (an accountability partner).
+  const isPartner = c.outreach_role === "accountability_partner";
+  const { data: reportRows } = isPartner || commRows.some((m) => m.partner_report_id) ? await sb.from("partner_reports").select("id,period_start,sent_at,partner_comment,comment_at").eq("owner_id", ctx.ownerId).eq("contact_id", id).eq("report_kind", "end_of_day").order("sent_at", { ascending: false }).limit(400) : { data: [] as Row[] };
+  const reports = (reportRows ?? []) as Row[];
+  const reportDay = new Map(reports.map((r) => [String(r.id), String(r.period_start).slice(0, 10)]));
+  const reportHref = (day: string) => `/work/reports?view=sent&day=${day}`;
+  const dayWord = (day: string) => fmtDate(day, "EEEE");
+  const reportEvents: TimelineEvent[] = commRows
+    .filter((m) => m.partner_report_id && reportDay.has(String(m.partner_report_id)))
+    .map((m) => {
+      const day = reportDay.get(String(m.partner_report_id))!;
+      const incoming = m.direction === "incoming";
+      return { id: `comm:${m.id}`, kind: incoming ? ("reply" as const) : ("report" as const), when: String(m.occurred_at), date: fmtDate(String(m.occurred_at), "MMM d"), title: incoming ? `Reply to ${dayWord(day)}'s report` : `Report sent: ${fmtDate(day, "EEEE, MMM d")}`, detail: incoming ? String(m.summary ?? "").slice(0, 400) || null : null, quote: incoming, href: null, link: incoming ? { href: reportHref(day), label: "Open the report" } : null };
+    });
+  // A reply recorded on the report before push B (the batch C sample data), when no Gmail reply is stored for it.
+  const repliedReports = new Set(commRows.filter((m) => m.direction === "incoming" && m.partner_report_id).map((m) => String(m.partner_report_id)));
+  for (const r of reports) {
+    if (!r.partner_comment || repliedReports.has(String(r.id))) continue;
+    const day = String(r.period_start).slice(0, 10);
+    const at = String(r.comment_at ?? r.sent_at);
+    reportEvents.push({ id: `comment:${r.id}`, kind: "reply", when: at, date: fmtDate(at, "MMM d"), title: `Reply to ${dayWord(day)}'s report`, detail: String(r.partner_comment).slice(0, 400), quote: true, href: null, link: { href: reportHref(day), label: "Open the report" } });
+  }
+  // Reports sent before push B have no communication linked to them: one line per report.
+  const linked = new Set(commRows.filter((m) => m.partner_report_id && m.direction !== "incoming").map((m) => String(m.partner_report_id)));
+  for (const r of reports) {
+    if (linked.has(String(r.id)) || !r.sent_at) continue;
+    const day = String(r.period_start).slice(0, 10);
+    reportEvents.push({ id: `report:${r.id}`, kind: "report", when: String(r.sent_at), date: fmtDate(String(r.sent_at), "MMM d"), title: `Report sent: ${fmtDate(day, "EEEE, MMM d")}`, detail: null, href: null, link: null });
+  }
   const timeline: TimelineEvent[] = [
     ...((notes ?? []) as Row[]).map((n) => ({ id: `note:${n.id}`, kind: "note" as const, when: String(n.created_at), date: fmtDate(String(n.created_at), "MMM d"), title: "Note", detail: String(n.body ?? "").slice(0, 400) || null, href: null })),
+    ...reportEvents,
     ...commRows
-      .filter((m) => !m.awaiting_log)
+      .filter((m) => !m.awaiting_log && !(m.partner_report_id && reportDay.has(String(m.partner_report_id))))
       .map((m) => ({
         id: `comm:${m.id}`,
         kind: commKind(m.method),
@@ -238,5 +273,23 @@ export async function loadPersonPage(sb: SupabaseClient, ctx: Ctx, id: string): 
       const kind = kindOf[String(i.pipeline_id)] ?? "other";
       return { id: String(i.id), name: String(i.company_name || i.name), kind, href: kind === "acquisition" ? `/work/deals/${i.id}` : kind === "job" ? `/work/jobs/${i.id}` : kind === "consulting" ? `/work/consulting/${i.id}` : `/work/deals/${i.id}` };
     });
-  return { ...base, person, timeline, incoming, tasks: sortTodos(((taskRows ?? []) as Row[]).map(toTask)), records, compose: compose ? { ...compose, title: `Email ${person.name}` } : null };
+  let partner: PartnerInfo | null = null;
+  if (isPartner) {
+    const s = partnerSettings(c);
+    const replyDates = reportEvents.filter((e) => e.kind === "reply").map((e) => e.when).sort();
+    const { data: eod } = await sb.from("end_of_day").select("status").eq("owner_id", ctx.ownerId).eq("day", ctx.today).maybeSingle();
+    const todayClosed = !!eod && (eod as Row).status !== "open";
+    const lastSent = reports.find((r) => r.sent_at)?.sent_at as string | undefined;
+    partner = {
+      days: s.days,
+      sections: s.sections,
+      sent: reports.filter((r) => r.sent_at).length,
+      replies: replyDates.length,
+      lastSentOn: lastSent ? todayInTz(ctx.tz, new Date(lastSent)) : null,
+      lastReplyOn: replyDates.length ? todayInTz(ctx.tz, new Date(replyDates[replyDates.length - 1])) : null,
+      nextReport: nextReportDay(s.days, ctx.today, todayClosed),
+      todayOpen: !todayClosed,
+    };
+  }
+  return { ...base, partner, person, timeline, incoming, tasks: sortTodos(((taskRows ?? []) as Row[]).map(toTask)), records, compose: compose ? { ...compose, title: `Email ${person.name}` } : null };
 }

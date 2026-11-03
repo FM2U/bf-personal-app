@@ -5,7 +5,7 @@ import { ACCOUNTABILITY_TABS, MAIN_NAV, mainFor, moduleFor, WORK_TABS, workTabFo
 import { cn } from "@/lib/utils";
 import { ModuleIcon } from "@/components/app/module-icon";
 
-/** A small count next to a menu or tab label (listings to screen; amber for people due on Outreach). */
+/** A small count next to a menu or tab label (listings to screen; amber for people due on People, Follow-ups). */
 function CountBadge({ n, className, testId, tone = "gray" }: { n: number | null | undefined; className?: string; testId?: string; tone?: "gray" | "amber" }) {
   if (!n) return null;
   return (
@@ -26,10 +26,10 @@ function EodBadgeChip({ badge, testId }: { badge: EodBadge | undefined; testId?:
   );
 }
 
-/** The badge a Work tab shows: listings to screen (gray) or people due today or overdue on Outreach (amber). */
+/** The badge a Work tab shows: listings to screen (gray) or people due today or overdue (amber, on People). */
 function tabBadge(href: string, toScreen: number | null | undefined, outreachDue: number | null | undefined, where: "subnav" | "tab") {
   if (href === "/work/listings") return <CountBadge n={toScreen} testId={`${where}-to-screen`} />;
-  if (href === "/work/outreach") return <CountBadge n={outreachDue} tone="amber" testId={`${where}-outreach-due`} />;
+  if (href === "/work/people") return <CountBadge n={outreachDue} tone="amber" testId={`${where}-outreach-due`} />;
   return null;
 }
 
@@ -118,7 +118,7 @@ export function AccountabilityTabs({ eodBadge, tight = false }: { eodBadge?: Eod
   );
 }
 
-/** The Work tabs (Home, Screen listings with the count, Deals, Outreach with the due count, Rosara, Job search, Consulting, To-dos), in the module tab style. */
+/** The Work tabs (Home, Screen listings with the count, Deals, People with the due count, Rosara, Job search, Consulting, To-dos), in the module tab style. */
 export function WorkTabs({ toScreen, outreachDue, tight = false }: { toScreen?: number | null; outreachDue?: number | null; /** No space or line under the tabs (a pinned block with no filter row draws the hairline itself). */ tight?: boolean }) {
   const path = usePathname();
   const tab = workTabFor(path);

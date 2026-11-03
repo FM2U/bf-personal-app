@@ -16,7 +16,7 @@ export default async function EmailSignaturePage() {
   const googleState = isGoogleConfigured() ? signaturePermission(google) : "not_connected";
   return (
     <div>
-      <PageHeader title="Email signature" description="Your Gmail signature, added below emails sent or drafted from the app (Email button, Outreach Queue, partner reports)." />
+      <PageHeader title="Email signature" description="Your Gmail signature, added below emails sent or drafted from the app (Email button, People, partner reports)." />
       {!row.available ? (
         <div className="mb-4" data-testid="signature-db-update">
           <Notice tone="warn">{DB_UPDATE_NOTICE_0015} Until then, emails are sent without a signature.</Notice>

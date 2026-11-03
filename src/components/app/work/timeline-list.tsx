@@ -9,6 +9,8 @@ const ICON: Record<TimelineEvent["kind"], { text: string; cls: string }> = {
   email: { text: "E", cls: "border-border bg-status-neutral-bg text-status-neutral" },
   call: { text: "C", cls: "border-status-met-border bg-status-met-bg text-status-met" },
   move: { text: "→", cls: "border-primary-border bg-primary-soft text-primary-strong" },
+  report: { text: "R", cls: "border-border bg-status-neutral-bg text-status-neutral" },
+  reply: { text: "Re", cls: "border-primary-border bg-primary-soft text-primary-strong" },
   other: { text: "·", cls: "border-border bg-status-neutral-bg text-status-neutral" },
 };
 
@@ -32,7 +34,7 @@ export function TimelineEvents({ events, empty }: { events: TimelineEvent[]; emp
         events.map((e) => (
           <div key={e.id} className="grid grid-cols-[56px_22px_minmax(0,1fr)] gap-x-2.5 border-b border-slate-100 py-[9px] last:border-b-0" data-testid="timeline-event" data-kind={e.kind}>
             <span className="pt-0.5 text-xs text-muted-foreground">{e.date}</span>
-            <span className={cn("flex h-[18px] w-[18px] items-center justify-center rounded-full border text-[10px] font-bold", ICON[e.kind].cls)} aria-hidden>
+            <span className={cn("flex h-[18px] w-[18px] items-center justify-center rounded-full border font-bold", e.kind === "reply" ? "text-[8.5px] tracking-[-0.02em]" : "text-[10px]", ICON[e.kind].cls)} aria-hidden>
               {ICON[e.kind].text}
             </span>
             <span className="min-w-0 text-sm text-slate-900">
@@ -58,7 +60,12 @@ export function TimelineEvents({ events, empty }: { events: TimelineEvent[]; emp
                   ) : (
                     e.title
                   )}
-                  {e.detail ? <span className="block text-[12.5px] text-muted-foreground">{e.detail}</span> : null}
+                  {e.detail ? (e.quote ? <span className="mt-0.5 block text-[13px] text-slate-700 italic" data-testid="timeline-quote">&ldquo;{e.detail}&rdquo;</span> : <span className="block text-[12.5px] text-muted-foreground">{e.detail}</span>) : null}
+                  {e.link ? (
+                    <Link href={e.link.href} className="block text-[12.5px] text-primary-strong hover:underline" data-testid="timeline-link">
+                      {e.link.label}
+                    </Link>
+                  ) : null}
                 </>
               )}
             </span>

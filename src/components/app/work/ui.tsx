@@ -67,6 +67,10 @@ export const ROW_COLS = {
   money: { cls: "w-[88px]", longest: "Not stated" },
   /** The wider buttons: Interested, Set the next action. */
   wideButton: { cls: "min-w-[90px]", longest: "Interested" },
+  /** PEOPLE on an organization row (push B): a count under the label. */
+  people: { cls: "w-[60px]", longest: "PEOPLE" },
+  /** OPEN DEALS on an organization row (push B): "None" or a count. */
+  openDeals: { cls: "w-[88px]", longest: "OPEN DEALS" },
 } as const;
 
 /**
@@ -528,8 +532,8 @@ export function TargetBar({ count, target, pct, hint, className, testId = "outre
   );
 }
 
-/** A lane pill on a Home row (Outreach, Rosara, Job search, Consulting; deals have none): one soft blue for all four. */
-export function LanePill({ lane, className }: { lane: "Outreach" | "Rosara" | "Job search" | "Consulting" | "To-do"; className?: string }) {
+/** A lane pill on a Home row (People, Rosara, Job search, Consulting; deals have none): one soft blue for all four. */
+export function LanePill({ lane, className }: { lane: "People" | "Rosara" | "Job search" | "Consulting" | "To-do"; className?: string }) {
   return (
     <Pill tone="blue" className={className} testId="lane-pill">
       {lane}
