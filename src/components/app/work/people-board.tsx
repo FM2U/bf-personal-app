@@ -149,13 +149,14 @@ export function PeopleBoard({ header, view: viewAtStart, data, orgs, adding, sav
         {view === "follow" ? (
           <section className={CARD} data-testid="outreach-card">
             <TargetBar count={data.counter.count} target={data.counter.target} pct={data.counter.pct} hint="Counted from emails sent and calls logged, Mon to Fri" />
-            <div className="mx-[22px] h-px bg-rule" />
+            {/* The first band heading's top edge is the line under the counter; the hairline shows only with no sections. */}
+            {!followRows.length ? <div className="mx-[22px] h-px bg-rule" /> : null}
             {!followBase.length ? (
               <Quiet testId="outreach-empty">Nobody here yet. Add a person to start keeping in touch.</Quiet>
             ) : !followRows.length ? (
               noMatch("one")
             ) : (
-              <StickySections under="page" className="px-[22px] pt-1 pb-3">
+              <StickySections under="page" className="px-[22px] pb-3">
                 {OUTREACH_SECTIONS.filter((s) => !filtering || sections[s.key].length).map((s) => {
                   const list = sections[s.key];
                   const closed = ui.isCollapsed(s.label);

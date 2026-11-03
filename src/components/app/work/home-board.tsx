@@ -248,7 +248,7 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
           className="lg:h-full"
         >
           {actionCount ? (
-            <StickySections under="card" className="px-[22px] pt-1 pb-3">
+            <StickySections under="card" className="px-[22px] pb-3">
               {order === "ai" ? (
                 <div className="mt-3 mb-1 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-border py-1.5 pb-[7px]" data-testid="ai-order-heading">
                   <span className="text-[11.5px] font-semibold tracking-[0.09em] text-violet uppercase">{aiOrder ? orderedAtLabel(aiOrder.createdAt, today, data.hourLocal) : ordering ? "Asking the AI for the order..." : "By the AI"}</span>
@@ -305,7 +305,7 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
         <div className="flex min-w-0 flex-col gap-[18px] lg:h-full lg:overflow-y-auto" data-testid="home-right">
           <WorkCard id="now-wait" title="Waiting on someone" count={waitCount} sub={`Amber at ${threshold} days, red at ${threshold * 2}`} testId="now-wait" pinned>
             {waitCount ? (
-              <StickySections under="card" className="px-[22px] pt-1 pb-3">
+              <StickySections under="card" className="px-[22px] pb-3">
                 {waiting.map((w) => {
                   const closed = sections.isCollapsed(w.label);
                   return (

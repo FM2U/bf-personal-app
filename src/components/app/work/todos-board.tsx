@@ -8,6 +8,7 @@ import { date as fmtDate } from "@/lib/format";
 import { TODO_SECTIONS, todoDueLabel, type PersonalTodo, type TodoSectionKey } from "@/lib/work/personal-todos";
 import type { TodosData } from "@/lib/work/personal-todos-data";
 import { useSections } from "@/components/app/work/sections";
+import { StickySections } from "@/components/app/work/sticky-sections";
 import { rowClickOpens } from "@/components/app/work/open-row";
 import { CollapseAllButton, Due, RowButton, SectionHeading } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
@@ -37,9 +38,10 @@ export function TodosBoard({ data }: { data: TodosData }) {
   }
   useUnsavedWork(text.trim() !== "", "The to-do you typed is not added yet.");
   const { sections, today } = data;
+  // Only Today opens by default; what is opened or closed is remembered for the rest of the day (approved 2026-11-03).
   const ui = useSections(
-    STORAGE_KEY,
-    TODO_SECTIONS.map((s) => ({ name: s.label, count: sections[s.key].length, hasMatch: true, defaultOpen: s.key !== "done" })),
+    `${STORAGE_KEY}:${today}`,
+    TODO_SECTIONS.map((s) => ({ name: s.label, count: sections[s.key].length, hasMatch: true, defaultOpen: s.key === "today" })),
     false,
   );
   const act = (fn: () => Promise<{ ok: true } | { ok: false; error: string }>, after?: () => void) =>
@@ -62,15 +64,16 @@ export function TodosBoard({ data }: { data: TodosData }) {
   };
   return (
     <section className="w-full max-w-[720px] rounded-xl border border-border bg-white px-[22px] pt-1 pb-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]" data-testid="todos-card">
-      <div className="-mb-1 flex justify-end pt-2">
+      <div className="flex justify-end pt-2 pb-2">
         <CollapseAllButton allCollapsed={ui.allCollapsed} onClick={ui.toggleAll} />
       </div>
-      {TODO_SECTIONS.map((s) => {
-        const list = sections[s.key];
+      <StickySections under="page">
+        {TODO_SECTIONS.map((s) => {
+          const list = sections[s.key];
         const closed = ui.isCollapsed(s.label);
         return (
           <div key={s.key} data-testid="todos-section" data-section={s.key} data-collapsed={closed ? "1" : "0"}>
-            <SectionHeading name={s.label} count={list.length} collapsed={closed} onToggle={() => ui.toggle(s.label)} />
+            <SectionHeading name={s.label} count={list.length} collapsed={closed} onToggle={() => ui.toggle(s.label)} band />
             {list.length && !closed ? (
               <div className="flex flex-col" data-testid="section-body">
                 {list.map((t) => (
@@ -80,7 +83,8 @@ export function TodosBoard({ data }: { data: TodosData }) {
             ) : null}
           </div>
         );
-      })}
+        })}
+      </StickySections>
       <div className="mt-4 flex flex-wrap items-center gap-2" data-testid="todo-add-form">
         <input
           value={text}
