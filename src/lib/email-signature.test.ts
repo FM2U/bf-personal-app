@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 import { bodyToHtml, emailHtml, emailText, sanitizeSignatureHtml, signatureHasOwnSeparator, signatureHtmlToText, signatureOn } from "@/lib/email-signature";
 import { buildMimeMessage, gmailRaw } from "@/lib/gmail-mime";
 import {
+  canReadRepliesFromScopes,
   canReadSignatureFromScopes,
   connectResult,
+  GMAIL_READ_SCOPE,
   GMAIL_SEND_SCOPE,
   GMAIL_SETTINGS_SCOPE,
   GOOGLE_SCOPES,
   reconnectMessage,
+  replyPermission,
   sendPermission,
   signaturePermission,
 } from "@/lib/google-scopes";
@@ -32,12 +35,23 @@ describe("scope detection: Gmail signature (gmail.settings.basic)", () => {
   });
 
   it("with the settings scope: allowed, no Reconnect message", () => {
-    const conn = { status: "connected", refresh_token_enc: ENC, scopes: `${BASE} ${GMAIL_SEND_SCOPE} ${GMAIL_SETTINGS_SCOPE}` };
+    const conn = { status: "connected", refresh_token_enc: ENC, scopes: `${BASE} ${GMAIL_SEND_SCOPE} ${GMAIL_SETTINGS_SCOPE} ${GMAIL_READ_SCOPE}` };
     expect(signaturePermission(conn)).toBe("allowed");
-    expect(reconnectMessage(sendPermission(conn), signaturePermission(conn))).toBeNull();
+    expect(reconnectMessage(sendPermission(conn), signaturePermission(conn), replyPermission(conn))).toBeNull();
     expect(connectResult(conn.scopes)).toBe("connected");
     expect(canReadSignatureFromScopes("https://mail.google.com/")).toBe(true);
     expect(canReadSignatureFromScopes(`${GMAIL_SETTINGS_SCOPE}.x`)).toBe(false);
+  });
+
+  it("without the read scope (connected before push B): Reconnect to see replies, a note and not an error", () => {
+    const conn = { status: "connected", refresh_token_enc: ENC, scopes: `${BASE} ${GMAIL_SEND_SCOPE} ${GMAIL_SETTINGS_SCOPE}` };
+    expect(GOOGLE_SCOPES).toContain(GMAIL_READ_SCOPE);
+    expect(canReadRepliesFromScopes(conn.scopes)).toBe(false);
+    expect(replyPermission(conn)).toBe("reconnect");
+    expect(replyPermission(null)).toBe("not_connected");
+    expect(reconnectMessage(sendPermission(conn), signaturePermission(conn), replyPermission(conn))).toBe("Reconnect Google to see replies to your reports and emails (1 minute).");
+    expect(connectResult(conn.scopes)).toBe("connected_no_replies");
+    expect(canReadRepliesFromScopes("https://mail.google.com/")).toBe(true);
   });
 
   it("missing both: one message, the sending one (one Reconnect covers both)", () => {

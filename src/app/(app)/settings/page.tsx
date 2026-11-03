@@ -13,7 +13,7 @@ import { disconnectGoogle, runChecksNow } from "@/app/actions/settings";
 import { dateTime, money } from "@/lib/format";
 import { GuardedForm } from "@/components/app/unsaved-changes";
 import { ReconnectGoogle } from "@/components/app/send-email";
-import { reconnectMessage, sendPermission, signaturePermission } from "@/lib/google-scopes";
+import { reconnectMessage, replyPermission, sendPermission, signaturePermission } from "@/lib/google-scopes";
 import { StatusText } from "@/components/ui/badge";
 
 export const metadata = { title: "Connections" };
@@ -22,6 +22,7 @@ const GOOGLE_MESSAGES: Record<string, string> = {
   connected: "Google is connected. Sending from the app is allowed.",
   connected_no_send: "Google is connected, but sending from the app was not allowed on Google's screen. Press Reconnect Google and leave \"Send email on your behalf\" checked.",
   connected_no_signature: "Google is connected and sending is allowed, but reading your Gmail signature was not allowed on Google's screen. Press Reconnect Google and keep every box checked.",
+  connected_no_replies: "Google is connected and sending is allowed, but reading replies was not allowed on Google's screen. Press Reconnect Google and keep every box checked.",
   denied: "Google access was not granted.",
   state_mismatch: "The Google sign-in could not be verified. Try again.",
   no_refresh_token: "Google did not return offline access. Remove the app in your Google account permissions, then connect again.",
@@ -36,7 +37,8 @@ export default async function ConnectionsPage({ searchParams }: { searchParams: 
   const gStatus = google?.status ?? "disconnected";
   const sendPerm = isGoogleConfigured() ? sendPermission(google) : "not_connected";
   const sigPerm = isGoogleConfigured() ? signaturePermission(google) : "not_connected";
-  const reconnect = reconnectMessage(sendPerm, sigPerm);
+  const replyPerm = isGoogleConfigured() ? replyPermission(google) : "not_connected";
+  const reconnect = reconnectMessage(sendPerm, sigPerm, replyPerm);
   return (
     <div>
       <PageHeader title="Connections" description="Google (Gmail and Calendar) and the Anthropic API. Both are checked every morning; a problem shows as a to-do on Home." />
@@ -51,7 +53,7 @@ export default async function ConnectionsPage({ searchParams }: { searchParams: 
             <CardTitle className="flex items-center justify-between">
               Google <Badge variant={gStatus === "connected" ? "success" : gStatus === "error" ? "danger" : "neutral"}>{gStatus === "connected" ? "Connected" : gStatus === "error" ? "Failed" : "Not connected"}</Badge>
             </CardTitle>
-            <CardDescription>Sends an email only after you confirm it, creates Gmail drafts, adds calendar events, and reads today&apos;s meetings.</CardDescription>
+            <CardDescription>Sends an email only after you confirm it, creates Gmail drafts, adds calendar events, reads today&apos;s meetings, and reads replies in the threads of what the app sent (no other mail).</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <DetailGrid
@@ -60,6 +62,7 @@ export default async function ConnectionsPage({ searchParams }: { searchParams: 
                 { label: "Last checked", value: google?.last_checked_at ? dateTime(google.last_checked_at) : "Never" },
                 ...(sendPerm === "allowed" ? [{ label: "Sending from the app", value: <StatusText status="met">Allowed</StatusText> }] : []),
                 ...(sigPerm === "allowed" ? [{ label: "Gmail signature", value: <StatusText status="met">Can be copied</StatusText> }] : []),
+                ...(replyPerm === "allowed" ? [{ label: "Replies", value: <StatusText status="met">Read from the threads the app sent</StatusText> }] : []),
                 ...(google?.last_error ? [{ label: "Last error", value: <span className="text-status-missed">{google.last_error}</span> }] : []),
               ]}
             />

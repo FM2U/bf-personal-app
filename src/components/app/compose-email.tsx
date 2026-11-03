@@ -108,7 +108,7 @@ export function ComposeEmailDialog({
     });
   }
 
-  const context = { contactId, pipelineItemId: setup.pipelineItemId, organizationId: setup.organizationId };
+  const context = { contactId, pipelineItemId: setup.pipelineItemId, organizationId: setup.organizationId, threadId: setup.threadId ?? null };
   const toError = (toTouched || !!to) && toProblem ? toProblem : null;
 
   return (

@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { checkGoogle } from "@/lib/google";
+import { syncReplies } from "@/lib/replies-sync";
 import { env, isAIConfigured } from "@/lib/env";
 import { anthropicBaseUrl } from "@/lib/ai/claude";
 import { todayInTz } from "@/lib/calc/dates";
@@ -8,7 +9,8 @@ import type { Row } from "@/lib/types";
 
 /**
  * The scheduled jobs of the final app (2026-11-02). A problem becomes a to-do due today, so it shows on Home in
- * Next actions; nothing else is created. Reply reading (push B) and the monthly review row (push D) join here.
+ * Next actions; nothing else is created. Reply reading (push B) runs here every morning; the monthly review row
+ * (push D) joins here.
  */
 
 const KEY_EXPIRY_INPUT = "anthropic_key_expiry_date";
@@ -62,4 +64,11 @@ export async function connectionChecks(sb: SupabaseClient, ownerId: string) {
     if (Number.isFinite(daysLeft) && daysLeft <= KEY_EXPIRY_WARNING_DAYS) await todoOnce(sb, ownerId, today, `Replace the Anthropic API key before it expires on ${expiry} (5 minutes)`);
   }
   return { google: g, anthropic: key, keyExpiry: expiry ?? "not set", daysLeft };
+}
+
+/** Every morning (push B): replies in the threads of the reports and emails the app sent. */
+export async function morningJob(sb: SupabaseClient, ownerId: string) {
+  const checks = await connectionChecks(sb, ownerId);
+  const replies = await syncReplies(sb, ownerId, { force: true });
+  return { ...checks, replies };
 }

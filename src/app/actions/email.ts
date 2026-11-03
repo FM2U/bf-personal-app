@@ -163,6 +163,8 @@ type ComposeInput = {
   organizationId?: string | null;
   /** The Include signature checkbox (omitted: the setting in Settings, Email signature). */
   includeSignature?: boolean;
+  /** Push B: send into this Gmail thread (Reply on a report's reply). */
+  threadId?: string | null;
 };
 
 /** Loads the contact and the pipeline item's kind for a compose request. Ids that do not exist are dropped. */
@@ -206,6 +208,7 @@ export async function sendComposedEmail(input: ComposeInput & { requestId: strin
     organizationId,
     purpose: composePurpose({ contact, pipelineKind: (pipeline?.kind as string | null) ?? null }),
     includeSignature: typeof input.includeSignature === "boolean" ? input.includeSignature : undefined,
+    threadId: /^[A-Za-z0-9_-]{1,64}$/.test(String(input.threadId ?? "")) && !String(input.threadId).startsWith("sample-") ? String(input.threadId) : null,
   });
 }
 

@@ -1,14 +1,16 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { env } from "@/lib/env";
-import { connectionChecks, ownerIds } from "@/lib/jobs";
+import { connectionChecks, morningJob, ownerIds } from "@/lib/jobs";
+import { syncReplies } from "@/lib/replies-sync";
 
 export const maxDuration = 300;
 
 type Sb = ReturnType<typeof createServiceClient>;
-/** Scheduled jobs (see vercel.json): morning runs the daily checks; evening is kept for reply reading (push B). */
+/** Scheduled jobs (see vercel.json): morning runs the daily checks and reads replies; "replies" reads replies alone. */
 const JOBS: Record<string, (sb: Sb, ownerId: string) => Promise<unknown>> = {
-  morning: (sb, id) => connectionChecks(sb, id),
+  morning: (sb, id) => morningJob(sb, id),
+  replies: (sb, id) => syncReplies(sb, id, { force: true }),
   evening: async () => ({ skipped: "nothing scheduled in the evening yet" }),
   "connection-checks": (sb, id) => connectionChecks(sb, id),
 };

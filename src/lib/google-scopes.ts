@@ -3,6 +3,11 @@
 export const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 /** Reads Gmail settings, used only to copy the signature (users.settings.sendAs.list). */
 export const GMAIL_SETTINGS_SCOPE = "https://www.googleapis.com/auth/gmail.settings.basic";
+/**
+ * Reads Gmail (push B), used only to look in the threads of what the app sent (End of day reports, emails sent from
+ * the app) for replies. Other mail is never read into the app.
+ */
+export const GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 
 export const GOOGLE_SCOPES = [
   "openid",
@@ -12,6 +17,7 @@ export const GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/calendar.events",
   "https://www.googleapis.com/auth/calendar.readonly",
   GMAIL_SETTINGS_SCOPE,
+  GMAIL_READ_SCOPE,
 ];
 
 /** The saved scopes as a list (Google returns them separated by spaces). */
@@ -38,7 +44,22 @@ export function canReadSignatureFromScopes(scopes: string | null | undefined): b
   return list.includes(GMAIL_SETTINGS_SCOPE) || list.includes("https://mail.google.com/");
 }
 
+/** True only when the saved connection can read Gmail threads (gmail.readonly, gmail.modify, or full Gmail access). */
+export function canReadRepliesFromScopes(scopes: string | null | undefined): boolean {
+  const list = scopeList(scopes);
+  return list.includes(GMAIL_READ_SCOPE) || list.includes("https://www.googleapis.com/auth/gmail.modify") || list.includes("https://mail.google.com/");
+}
+
 export type SendPermission = "allowed" | "reconnect" | "not_connected";
+
+/** Reading replies for the saved connection: allowed, reconnect needed (connected before push B), or not connected. */
+export function replyPermission(conn: { status?: string | null; refresh_token_enc?: string | null; scopes?: string | null } | null | undefined): SendPermission {
+  if (!conn || conn.status === "disconnected" || !conn.refresh_token_enc) return "not_connected";
+  return canReadRepliesFromScopes(conn.scopes) ? "allowed" : "reconnect";
+}
+
+/** The note shown where replies would be (Reports, a partner's page) when Google must be reconnected first. */
+export const RECONNECT_FOR_REPLIES = "Reconnect Google to see replies (Settings, Connections; 1 minute).";
 
 /** What Settings and the Send now button show for a saved connection row. */
 export function sendPermission(conn: { status?: string | null; refresh_token_enc?: string | null; scopes?: string | null } | null | undefined): SendPermission {
@@ -56,16 +77,18 @@ export function signaturePermission(conn: { status?: string | null; refresh_toke
 }
 
 /** The one message shown on the Google card when Reconnect is needed (null when nothing is missing). */
-export function reconnectMessage(send: SendPermission, signature: SendPermission): string | null {
+export function reconnectMessage(send: SendPermission, signature: SendPermission, replies: SendPermission = "allowed"): string | null {
   if (send === "reconnect") return "Reconnect Google to allow sending from the app (1 minute).";
   if (send === "allowed" && signature === "reconnect") return "Reconnect Google to use your Gmail signature (1 minute).";
+  if (send === "allowed" && replies === "reconnect") return "Reconnect Google to see replies to your reports and emails (1 minute).";
   return null;
 }
 
 /** Where Connect or Reconnect returns to: connected, or which permission was left unchecked on Google's screen. */
-export function connectResult(scopes: string | null | undefined): "connected" | "connected_no_send" | "connected_no_signature" {
+export function connectResult(scopes: string | null | undefined): "connected" | "connected_no_send" | "connected_no_signature" | "connected_no_replies" {
   if (!canSendFromScopes(scopes)) return "connected_no_send";
   if (!canReadSignatureFromScopes(scopes)) return "connected_no_signature";
+  if (!canReadRepliesFromScopes(scopes)) return "connected_no_replies";
   return "connected";
 }
 

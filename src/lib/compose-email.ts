@@ -27,6 +27,8 @@ export type ComposeSetup = GmailSetup & {
   organizationId: string | null;
   /** Shown under To when nobody could be chosen for the owner. */
   toNote: string | null;
+  /** Push B: a reply goes into this Gmail thread (Reply under a report's reply on Reports). */
+  threadId?: string | null;
 };
 
 export async function loadGmailSetup(sb: SupabaseClient, ownerId: string): Promise<GmailSetup> {

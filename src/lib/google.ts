@@ -9,6 +9,7 @@ import { loadSignature } from "@/lib/signature-store";
 import { sanitizeSignatureHtml, signatureHtmlToText } from "@/lib/email-signature";
 
 export { GOOGLE_SCOPES, GMAIL_SEND_SCOPE, GMAIL_SETTINGS_SCOPE } from "@/lib/google-scopes";
+import type { GmailThreadMessage } from "@/lib/gmail-replies";
 
 /** An email the app sends or drafts. includeSignature: true or false from the checkbox; omitted uses the setting. */
 /** body: the plain text; bodyHtml: the formatted editor's HTML when the message was written there (see gmail-mime). */
@@ -122,6 +123,25 @@ export async function fetchGmailSignature(sb: SupabaseClient, ownerId: string): 
   return { html, text: signatureHtmlToText(html), address: pick?.sendAsEmail ?? null };
 }
 
+
+/**
+ * Reads one Gmail thread the app started (users.threads.get): the messages with their headers and text, for the
+ * reply check (push B). Only threads whose id the app stored when it sent something are ever asked for. Null when
+ * Google is not connected; a thread that is gone (deleted in Gmail) comes back empty. Throws Google's other errors.
+ */
+export async function getGmailThread(sb: SupabaseClient, ownerId: string, threadId: string): Promise<GmailThreadMessage[] | null> {
+  const auth = await authed(sb, ownerId);
+  if (!auth) return null;
+  const gmail = google.gmail({ version: "v1", auth, ...apiOptions() });
+  try {
+    const res = await gmail.users.threads.get({ userId: "me", id: threadId, format: "full" });
+    return (res.data.messages ?? []) as GmailThreadMessage[];
+  } catch (e) {
+    const status = Number((e as { code?: unknown; response?: { status?: unknown } })?.response?.status ?? (e as { code?: unknown })?.code);
+    if (status === 404) return [];
+    throw e;
+  }
+}
 
 /** Confirms the saved Google access still works. */
 export async function checkGoogle(sb: SupabaseClient, ownerId: string): Promise<{ ok: boolean; error?: string; skipped?: boolean }> {
