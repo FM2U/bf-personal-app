@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { env } from "@/lib/env";
+import { signInErrorMessage } from "@/lib/auth-errors";
 
 export type AuthState = { error?: string; message?: string } | null;
 
@@ -12,7 +13,7 @@ export async function signIn(_prev: AuthState, fd: FormData): Promise<AuthState>
   if (env.ownerEmail && email !== env.ownerEmail) return { error: "This app has one owner account. That email cannot sign in." };
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) return { error: "Email or password is not correct." };
+  if (error) return { error: signInErrorMessage(error) };
   redirect("/mfa");
 }
 
