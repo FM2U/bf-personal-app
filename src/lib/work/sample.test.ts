@@ -155,18 +155,40 @@ describe("the batch C sample (Jake, End of day rows, work events)", () => {
   // Friday, Oct 30, 2026: the four weekdays before it are Thu Oct 29 (skipped), Wed 28, Tue 27, Mon 26 (sent).
   const c = buildWorkSample({ pipelineId: "p-acq", stages, batchB: true, batchB2: true, batchC: true }, () => `00000000-0000-4000-8000-${String(++k).padStart(12, "0")}`, "2026-10-30");
 
-  it("has Jake as the daily partner, three sent reports and one skipped day, newest first", () => {
-    const jake = c.contacts.filter((p) => p.outreach_role === "accountability_partner");
-    expect(jake.map((p) => [p.name, p.report_days])).toEqual([["Jake Morgan", [1, 2, 3, 4, 5]]]);
-    expect(c.partnerReports.every((r) => r.contact_id === jake[0].id)).toBe(true);
-    expect(c.endOfDay.map((r) => [r.day, r.status])).toEqual([["2026-10-29", "skipped"], ["2026-10-28", "sent"], ["2026-10-27", "sent"], ["2026-10-26", "sent"]]);
-    expect(c.partnerReports).toHaveLength(3);
-    expect(c.partnerReports.every((r) => r.report_kind === "end_of_day" && r.status === "finalized" && r.sent_at)).toBe(true);
-    expect(c.partnerReports.filter((r) => r.reviewed_at)).toHaveLength(2);
-    expect(c.partnerReports.filter((r) => r.partner_comment)).toHaveLength(1);
+  it("has Jake (weekdays) and Sarah (Fridays) as partners, the sent reports with their threads, one skipped day, and replies", () => {
+    const partners = c.contacts.filter((p) => p.outreach_role === "accountability_partner");
+    expect(partners.map((p) => [p.name, p.report_days, p.report_sections])).toEqual([
+      ["Jake Morgan", [1, 2, 3, 4, 5], ["today", "targets", "waiting", "tomorrow", "week"]],
+      ["Sarah Klein", [5], ["targets", "tomorrow", "week"]],
+    ]);
+    const [jake, sarah] = partners;
+    // Four weekdays before Fri Oct 30 (none a Friday), plus the Friday before them (Oct 23), sent to both partners.
+    expect(c.endOfDay.map((r) => [r.day, r.status]).sort((a, b) => String(b[0]).localeCompare(String(a[0])))).toEqual([["2026-10-29", "skipped"], ["2026-10-28", "sent"], ["2026-10-27", "sent"], ["2026-10-26", "sent"], ["2026-10-23", "sent"]]);
+    expect(c.partnerReports).toHaveLength(5);
+    expect(c.partnerReports.filter((r) => r.contact_id === jake.id)).toHaveLength(4);
+    expect(c.partnerReports.filter((r) => r.contact_id === sarah.id).map((r) => r.period_start)).toEqual(["2026-10-23"]);
+    expect(c.partnerReports.every((r) => r.report_kind === "end_of_day" && r.status === "finalized" && r.sent_at && String(r.gmail_thread_id).startsWith("sample-thread-"))).toBe(true);
+    expect(c.partnerReports.filter((r) => r.partner_comment)).toHaveLength(0);
+    // The replies are incoming emails linked to their report, once each by Gmail id.
+    const replies = c.communications.filter((m) => m.direction === "incoming" && m.partner_report_id);
+    expect(replies.map((m) => m.gmail_message_id)).toEqual(["sample-reply-1", "sample-reply-2", "sample-reply-3"]);
+    expect(replies.every((m) => c.partnerReports.some((r) => r.id === m.partner_report_id && r.contact_id === m.contact_id))).toBe(true);
+    // Sarah's copy has only her sections.
+    const sarahHtml = String((c.partnerReports.find((r) => r.contact_id === sarah.id)!.snapshot as { html: string }).html);
+    expect(sarahHtml).toContain("Hello Sarah,");
+    expect(sarahHtml).not.toContain("Summit Logistics Group");
     const sent = c.endOfDay.filter((r) => r.status === "sent");
     expect(sent.every((r) => String(r.report_html).includes("Hello Jake,") && String(r.report_html).includes("Thank you,<br>Bram") && c.partnerReports.some((p) => p.id === r.report_id))).toBe(true);
     expect(sent.every((r) => !/#(c9a227|b8860b|d4a017|daa520|caa53d)/i.test(String(r.report_html)))).toBe(true);
+  });
+
+  it("puts details, tasks, and a note on Transworld, and the consulting clients get their role", () => {
+    const tw = c.organizations.find((o) => o.name === "Transworld Business Advisors")!;
+    expect(tw).toMatchObject({ kind: "broker", region: "Knoxville and Chattanooga, TN", next_action: "Ask for their full East Tennessee listing sheet" });
+    expect(c.todos.filter((t) => t.record_type === "organizations" && t.record_id === tw.id)).toHaveLength(3);
+    expect(c.notes.filter((n) => n.record_type === "organizations" && n.record_id === tw.id)).toHaveLength(1);
+    expect(c.contacts.filter((p) => p.outreach_role === "consulting_client").map((p) => p.name)).toEqual(["Greg Thornton", "Rita Caldwell"]);
+    expect(c.organizations.find((o) => o.name === "Sullivan Wickley")!.kind).toBe("consulting_client");
   });
 
   it("the skipped day keeps its judgment, so the reason it owes is asked on the next End of day", () => {

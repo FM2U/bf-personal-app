@@ -17,7 +17,7 @@
  * every row is still recorded in sample_records, so Remove sample data deletes them (the to-dos go with their deal).
  */
 import { addDaysISO, isWeekday } from "@/lib/calc/dates";
-import { reportInnerHtml, reportSubject, type ReportData } from "@/lib/accountability/report-email";
+import { reportFor, reportInnerHtml, reportSubject, type ReportData } from "@/lib/accountability/report-email";
 import { checkBuyBox, dealSourceTypeFor } from "@/lib/work/buy-box";
 import { weekdayShort } from "@/lib/work/outreach";
 import { STAGE_DEFAULTS } from "@/lib/work/stages";
@@ -101,10 +101,11 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
   const stage = (name: string) => s.stages[name] ?? null;
 
   const org = { transworld: newId(), sunbelt: newId(), murphy: newId() };
+  // Push B: the firms carry what the organization page shows (region, what they do, website, phone, deal size, the next action).
   const organizations: R[] = [
-    { id: org.transworld, name: "Transworld Business Advisors", kind: "broker" },
-    { id: org.sunbelt, name: "Sunbelt Business Brokers", kind: "broker" },
-    { id: org.murphy, name: "Murphy Business", kind: "broker" },
+    { id: org.transworld, name: "Transworld Business Advisors", kind: "broker", region: "Knoxville and Chattanooga, TN", notes: "Business brokers, lower middle market", website: "tworld.example.com/knoxville", phone: "(865) 555-0100", deal_size: "$1M to $8M revenue", next_action: "Ask for their full East Tennessee listing sheet", next_action_due: ahead(6) },
+    { id: org.sunbelt, name: "Sunbelt Business Brokers", kind: "broker", region: "Atlanta, GA", notes: "Main street and lower middle market brokers", website: "sunbelt.example.com/atlanta", phone: "(404) 555-0170", deal_size: "$500K to $10M revenue" },
+    { id: org.murphy, name: "Murphy Business", kind: "broker", region: "Birmingham, AL", notes: "Business brokers, healthcare and services", phone: "(205) 555-0130", deal_size: "$1M to $5M revenue" },
   ];
   const c = { kim: newId(), reed: newId(), whitfield: newId(), ortega: newId() };
   const broker = (id: string, name: string, orgId: string, email: string, more: R = {}) => ({ id, name, roles: ["broker"], organization_id: orgId, email, relationship_group: "professional", is_deal_source: true, title: "Business broker", ...(s.batchB ? { outreach_role: "broker", purposes: ["off_market_deals"], ...more } : {}) });
@@ -212,12 +213,12 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
   if (s.batchB) {
     const o = { truist: newId(), ssg: newId(), alvarez: newId(), sunrise: newId(), sw: newId(), av: newId(), bain: newId(), gahca: newId(), pathway: newId(), peachtree: newId(), kf: newId() };
     organizations.push(
-      { id: o.truist, name: "Truist", kind: "lender" },
-      { id: o.ssg, name: "Southern Staffing Group", kind: "business" },
-      { id: o.alvarez, name: "Alvarez Advisory", kind: "broker" },
-      { id: o.sunrise, name: "Sunrise Home Care", kind: "business" },
-      { id: o.sw, name: "Sullivan Wickley", kind: "business" },
-      { id: o.av, name: "Atlanta Ventures", kind: "investor" },
+      { id: o.truist, name: "Truist", kind: "lender", region: "Atlanta, GA", notes: "SBA lending desk" },
+      { id: o.ssg, name: "Southern Staffing Group", kind: "employer", region: "Atlanta, GA", notes: "Light industrial staffing, PE-backed" },
+      { id: o.alvarez, name: "Alvarez Advisory", kind: "broker", region: "Nashville, TN", notes: "Boutique sell-side advisor" },
+      { id: o.sunrise, name: "Sunrise Home Care", kind: "business", region: "Macon, GA" },
+      { id: o.sw, name: "Sullivan Wickley", kind: "consulting_client", region: "Atlanta, GA", notes: "Retail commercial real estate" },
+      { id: o.av, name: "Atlanta Ventures", kind: "investor", region: "Atlanta, GA", notes: "Early-stage venture fund" },
       { id: o.bain, name: "Bain, Atlanta", kind: "business" },
       { id: o.gahca, name: "GA Home Care Association", kind: "nonprofit" },
       { id: o.pathway, name: "Pathway Search Partners", kind: "other" },
@@ -237,10 +238,10 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
       tom: person("Tom Alvarez", o.alvarez, "broker", "Nashville", ["off_market_deals"], today, "Ask for the two owners thinking about selling in 2027", "Promised two owners who are thinking about selling in 2027", "tom.alvarez@example.com", { is_deal_source: true, phone: "(615) 555-0109" }),
       denise: person("Denise Walker", o.sunrise, "rosara_customer", "Owner", ["off_market_deals", "rosara"], today, "Ask for the Macon and Augusta owners; show the care-plan screens", "Knows two agency owners near retirement in Macon and Augusta; tests the care-plan screens", "denise.walker@example.com", { phone: "(478) 555-0162" }),
       lena: person("Lena Fischer", null, "cofounder_candidate", "Engineer, 8 years in caregiving software", ["rosara"], ahead(3), "Send the equity split in writing", "Co-founder candidate at the Offer step; she wants the equity split in writing", "lena.fischer@example.com", { linkedin_url: "linkedin.com/in/lenafischer-example" }),
-      greg: person("Greg Thornton", o.sw, "other", "Partner, consulting client", ["consulting"], ahead(4), "Send the scope and fee for the Q1 site selection work", "Wants a scope and fee for the Q1 site selection work", "greg.thornton@example.com", { is_consulting_lead: true }),
+      greg: person("Greg Thornton", o.sw, "consulting_client", "Partner", ["consulting"], ahead(4), "Send the scope and fee for the Q1 site selection work", "Wants a scope and fee for the Q1 site selection work", "greg.thornton@example.com", { is_consulting_lead: true }),
       maria: person("Maria Santos", o.av, "investor", null, ["rosara"], ahead(5), "Send the deck and three customer references", "Asked for the deck and three customer references after our call", "maria.santos@example.com", {}),
       jamal: person("Jamal Whitaker", o.bain, network, null, ["job_search"], ahead(5), "Thank him and ask for a call with his partner", "Introduced me to his partner who covers industrials", "jamal.whitaker@example.com", { linkedin_url: "linkedin.com/in/jamalwhitaker-example" }),
-      rita: person("Rita Caldwell", o.gahca, "other", "Director, consulting client", ["consulting"], ahead(13), "Ask whether the member survey project is funded for Q1", "Member survey project could use a consultant in Q1", "rita.caldwell@example.com", { is_consulting_lead: true }),
+      rita: person("Rita Caldwell", o.gahca, "consulting_client", "Director", ["consulting"], ahead(13), "Ask whether the member survey project is funded for Q1", "Member survey project could use a consultant in Q1", "rita.caldwell@example.com", { is_consulting_lead: true }),
       kevin: person("Kevin O'Brien", o.pathway, "recruiter", "Former boss", ["job_search"], ahead(14), "Monthly check-in", "Offered to be a reference; check in monthly", "kevin.obrien@example.com", {}),
       sam: person("Sam Patel", o.peachtree, network, "CFO", ["off_market_deals"], null, null, "Hears about carriers selling before the brokers do", "sam.patel@example.com", {}),
       nina: person("Nina Reyes", o.kf, "recruiter", null, ["job_search"], null, null, "Sent my resume for a COO search; also runs the Harbor Health search", "nina.reyes@example.com", {}),
@@ -276,6 +277,11 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
     todos.push({ id: newId(), record_type: "contacts", record_id: c.reed, text: "Send Mark my one-page buy box", position: 1 });
     todos.push({ id: newId(), record_type: "contacts", record_id: c.reed, text: "Ask Mark whether Summit's owner will take a call in November", position: 2 });
     todos.push({ id: newId(), record_type: "contacts", record_id: p.lena, text: "Draft the equity split memo", position: 1 });
+    // Push B: tasks and a note on the Transworld organization page.
+    todos.push({ id: newId(), record_type: "organizations", record_id: org.transworld, text: "Send Transworld my one-page buy box", position: 1 });
+    todos.push({ id: newId(), record_type: "organizations", record_id: org.transworld, text: "Check their new listings page", position: 2 });
+    todos.push({ id: newId(), record_type: "organizations", record_id: org.transworld, text: "Ask Rachel which owners in Chattanooga are near retirement", position: 3 });
+    notes.push({ id: newId(), record_type: "organizations", record_id: org.transworld, body: "Two brokers here: Mark covers East Tennessee, Rachel covers Chattanooga. Rachel's CIMs are the best prepared." });
     // Personal to-dos: Today (two, one without a date), Next 7 days (two), Later (one).
     personalTodos.push(
       { id: newId(), text: "Renew the Cyan Arc registered agent", due_on: today, position: 1 },
@@ -376,7 +382,10 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
     addOutreachTouches({ k, today, contacts, communications, newId });
     const jake = newId();
     // The accountability partner is a person with the role Accountability partner (final app, 2026-11-02).
-    contacts.push({ id: jake, name: "Jake Morgan", email: "jake.morgan@example.com", outreach_role: "accountability_partner", report_days: [1, 2, 3, 4, 5], report_sections: ["today", "targets", "waiting", "tomorrow", "week", "review"], notes: "Gets the End of day report by email, weekdays at 5:30." });
+    contacts.push({ id: jake, name: "Jake Morgan", email: "jake.morgan@example.com", phone: "(404) 555-0131", title: "Friend, since college", outreach_role: "accountability_partner", report_days: [1, 2, 3, 4, 5], report_sections: ["today", "targets", "waiting", "tomorrow", "week"], notes: "Gets the End of day report by email, weekdays at 5:30." });
+    // Push B: a second partner with other days and sections (Fridays: targets, the week, Monday's line).
+    const sarah = newId();
+    contacts.push({ id: sarah, name: "Sarah Klein", email: "sarah.klein@example.com", phone: "(404) 555-0188", title: "Former colleague", outreach_role: "accountability_partner", report_days: [5], report_sections: ["targets", "tomorrow", "week"], notes: "Gets the Friday report: targets, the week, and Monday's line." });
     // The last four weekdays before today (newest first): d1 skipped, d2 to d4 sent.
     const weekdays: string[] = [];
     for (let i = 1; weekdays.length < 4 && i < 14; i++) if (isWeekday(ago(i))) weekdays.push(ago(i));
@@ -388,11 +397,35 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
     const r2 = newId();
     const r3 = newId();
     const r4 = newId();
+    // Push B: each sent report keeps its Gmail thread (the sample's threads are not in Gmail, so nothing is read for them).
     partnerReports.push(
-      { id: r2, contact_id: jake, period_start: d2, period_end: d2, status: "finalized", snapshot: { end_of_day: true, day: d2, sample: true }, summary: c.summary2, summary_source: "owner", finalized_at: at(d2, 17, 38), delivered_via: ["gmail_sent"], report_kind: "end_of_day", sent_at: at(d2, 17, 38), reviewed_at: at(d2, 19, 5), partner_comment: "Thanks. Is the Pinecrest LOI still at 3.2x? Let me know what Dana says.", comment_at: at(d2, 19, 5) },
-      { id: r3, contact_id: jake, period_start: d3, period_end: d3, status: "finalized", snapshot: { end_of_day: true, day: d3, sample: true }, summary: c.summary3, summary_source: "owner", finalized_at: at(d3, 17, 35), delivered_via: ["gmail_sent"], report_kind: "end_of_day", sent_at: at(d3, 17, 35) },
-      { id: r4, contact_id: jake, period_start: d4, period_end: d4, status: "finalized", snapshot: { end_of_day: true, day: d4, sample: true }, summary: c.summary4, summary_source: "owner", finalized_at: at(d4, 17, 33), delivered_via: ["gmail_sent"], report_kind: "end_of_day", sent_at: at(d4, 17, 33), reviewed_at: at(d4, 20, 12) },
+      { id: r2, contact_id: jake, period_start: d2, period_end: d2, status: "finalized", snapshot: { end_of_day: true, day: d2, sample: true, html: c.html2, subject: c.subject2 }, summary: c.summary2, summary_source: "owner", finalized_at: at(d2, 17, 38), delivered_via: ["gmail_sent"], report_kind: "end_of_day", sent_at: at(d2, 17, 38), reviewed_at: at(d2, 19, 5), gmail_thread_id: "sample-thread-1" },
+      { id: r3, contact_id: jake, period_start: d3, period_end: d3, status: "finalized", snapshot: { end_of_day: true, day: d3, sample: true, html: c.html3, subject: c.subject3 }, summary: c.summary3, summary_source: "owner", finalized_at: at(d3, 17, 35), delivered_via: ["gmail_sent"], report_kind: "end_of_day", sent_at: at(d3, 17, 35), gmail_thread_id: "sample-thread-2" },
+      { id: r4, contact_id: jake, period_start: d4, period_end: d4, status: "finalized", snapshot: { end_of_day: true, day: d4, sample: true, html: c.html4, subject: c.subject4 }, summary: c.summary4, summary_source: "owner", finalized_at: at(d4, 17, 33), delivered_via: ["gmail_sent"], report_kind: "end_of_day", sent_at: at(d4, 17, 33), reviewed_at: at(d4, 20, 12), gmail_thread_id: "sample-thread-3" },
     );
+    // Push B: the reply to d2's report, as reply reading stores one (an incoming email on Jake, linked to the report).
+    const reply = (id: string, contactId: string, reportId: string, when: string, subject: string, text: string, thread: string) =>
+      communications.push({ id: newId(), occurred_at: when, method: "email", direction: "incoming", contact_id: contactId, organization_id: null, subject, summary: text, is_outreach: false, purpose: "general", gmail_message_id: id, gmail_thread_id: thread, awaiting_log: false, partner_report_id: reportId });
+    reply("sample-reply-1", jake, r2, at(d2, 19, 5), `Re: ${c.subject2}`, "Thanks. Is the Pinecrest LOI still at 3.2x? Let me know what Dana says.", "sample-thread-1");
+    // The last Friday report went to both partners (each their own sections); both replied.
+    const fri = [d2, d3, d4].find((x) => weekdayShort(x) === "Fri") ?? (() => {
+      let x = addDaysISO(d4, -1);
+      while (weekdayShort(x) !== "Fri") x = addDaysISO(x, -1);
+      return x;
+    })();
+    const own = [d2, d3, d4].includes(fri);
+    const friReport = own ? (fri === d2 ? r2 : fri === d3 ? r3 : r4) : newId();
+    const sarahReport = newId();
+    const friData = buildFridayReport(fri);
+    const jakeCopy = reportFor(friData, { name: "Jake Morgan", first: "Jake", sections: ["today", "targets", "waiting", "tomorrow", "week"] });
+    const sarahCopy = reportFor(friData, { name: "Sarah Klein", first: "Sarah", sections: ["targets", "tomorrow", "week"] });
+    if (!own) {
+      partnerReports.push({ id: friReport, contact_id: jake, period_start: fri, period_end: fri, status: "finalized", snapshot: { end_of_day: true, day: fri, sample: true, html: reportInnerHtml(jakeCopy), subject: reportSubject(jakeCopy) }, summary: "Listings screened 6 of 5 · outreach 11 of 10 · 3 deals moved this week", summary_source: "owner", finalized_at: at(fri, 17, 34), delivered_via: ["gmail_sent"], report_kind: "end_of_day", sent_at: at(fri, 17, 34), reviewed_at: at(fri, 18, 10), gmail_thread_id: "sample-thread-4" });
+      endOfDay.push({ id: newId(), day: fri, status: "sent", reasons: {}, tomorrow_line: friData.tomorrow.text, sent_at: at(fri, 17, 35), report_id: friReport, report_subject: reportSubject(jakeCopy), report_html: reportInnerHtml(jakeCopy), report_edited: false, judged: [] });
+      reply("sample-reply-2", jake, friReport, at(fri, 20, 15), `Re: ${reportSubject(jakeCopy)}`, "Nice week. Keep the broker calls going.", "sample-thread-4");
+    }
+    partnerReports.push({ id: sarahReport, contact_id: sarah, period_start: fri, period_end: fri, status: "finalized", snapshot: { end_of_day: true, day: fri, sample: true, html: reportInnerHtml(sarahCopy), subject: reportSubject(sarahCopy) }, summary: "Targets, the week, and Monday's line", summary_source: "owner", finalized_at: at(fri, 17, 39), delivered_via: ["gmail_sent"], report_kind: "end_of_day", sent_at: at(fri, 17, 39), gmail_thread_id: "sample-thread-5" });
+    reply("sample-reply-3", sarah, sarahReport, `${addDaysISO(fri, 1)}T14:20:00Z`, `Re: ${reportSubject(sarahCopy)}`, "What is the plan if Summit stalls?", "sample-thread-5");
     const judgedSkipped = [
       { targetId: "sample-listings", name: "Listings screened", key: "listings_screened", cadence: "day", number: 5, commitment: true, value: 2, met: false, figure: "2 of 5", line: "Per weekday · target 5 · this week 12 of 20", detail: "2 passed", judged: true },
       { targetId: "sample-outreach", name: "Network outreach", key: "outreach_contacts", cadence: "week", number: 10, commitment: true, value: 4, met: false, figure: "4 of 10", line: "Per week · target 10", detail: "", judged: weekdayShort(d1) === "Fri" },
@@ -492,6 +525,31 @@ function buildSampleReports(i: { d2: string; d3: string; d4: string; partnerFirs
     subject4: reportSubject(data4), html4: reportInnerHtml(data4), summary4: "Meridian Industrial Coatings to Model · 4 of 5 listings screened · outreach 2 of 10",
     subject2: reportSubject(data2), html2: reportInnerHtml(data2), summary2: "Listings screened 2 of 5 · Dana Whitfield coffee · Maria Santos call",
     subject3: reportSubject(data3), html3: reportInnerHtml(data3), summary3: "Listings screened 5 of 5 · BrightPath to NDA signed · Rachel Kim email",
+  };
+}
+
+/** The Friday report of the sample (push B): the day with the week, cut per partner by reportFor. */
+function buildFridayReport(day: string): ReportData {
+  const long = `${DAY_LONG[weekdayShort(day)]}, ${MONTHS[Number(day.slice(5, 7)) - 1]} ${Number(day.slice(8, 10))}, ${day.slice(0, 4)}`;
+  return {
+    partnerName: "Partner", partnerFirst: "there", dateLong: long, dateShort: long.replace(/, \d{4}$/, ""), withWeek: true,
+    pill: { text: "4 of 6 targets met", status: "missed" },
+    today: [
+      { label: "Listings screened", value: "6", small: "of 5", note: "5 passed, 1 Interested", status: "met", pct: 100 },
+      { label: "Deals moved", value: "1", note: "Dalton to Broker call", status: "neutral", pct: null },
+      { label: "Calls", value: "2", note: "Mark Reed, Greg Thornton", status: "neutral", pct: null },
+    ],
+    deals: [],
+    dealMoves: ["Dalton Services moved to Broker call. Key finding: 70% of revenue is recurring maintenance contracts."],
+    dealWaits: ["Waiting on brokers over 5 days: Summit Logistics Group (8 days, Mark Reed)."],
+    targets: [
+      { met: true, judged: true, line: "Listings screened 6 of 5 today, 27 of 25 this week", commitment: true, reason: null },
+      { met: true, judged: true, line: "Network outreach 11 of 10", commitment: true, reason: null },
+      { met: false, judged: true, line: "Brokers contacted 4 of 5", commitment: false, reason: null },
+    ],
+    owed: [],
+    week: { label: "The week", tiles: [{ label: "Deals moved", value: "3", note: "", status: "neutral", pct: null }, { label: "Listings screened", value: "27", small: "of 25", note: "", status: "met", pct: 100 }, { label: "Network outreach", value: "11", small: "of 10", note: "", status: "met", pct: 100 }] },
+    tomorrow: { label: "Monday", text: "Meridian partner deck and the Summit decision." },
   };
 }
 
