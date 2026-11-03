@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Mail } from "lucide-react";
 import { ComposeEmailDialog } from "@/components/app/compose-email";
 import { FilterChips, FilterRow, FilterWindow, type FilterView } from "@/components/app/filter-window";
+import { StickySections } from "@/components/app/work/sticky-sections";
 import type { ComposeSetup } from "@/lib/compose-email";
 import { activeChips, applyFilters, clearGroup, filterSummary, optionCounts, showLabel, tickedCount, ticksToParam, toggleTick, type FilterGroup, type Ticks } from "@/lib/filters";
 import { date as fmtDate } from "@/lib/format";
@@ -88,8 +89,9 @@ export function PeopleBoard({ header, view: viewAtStart, data, orgs, adding, sav
 
   const sections = useMemo(() => outreachSections(followRows, today), [followRows, today]);
   const filtering = tickedCount(pGroups, ticks.follow) > 0 || !!query.trim();
-  const states = useMemo(() => OUTREACH_SECTIONS.map((s) => ({ name: s.label, count: sections[s.key].length, hasMatch: sections[s.key].length > 0 })), [sections]);
-  const ui = useSections(STORAGE_KEY, states, filtering);
+  // Only Due today opens by default; what is opened or closed is remembered for the rest of the day (approved 2026-11-03).
+  const states = useMemo(() => OUTREACH_SECTIONS.map((s) => ({ name: s.label, count: sections[s.key].length, hasMatch: sections[s.key].length > 0, defaultOpen: s.key === "today" })), [sections]);
+  const ui = useSections(`${STORAGE_KEY}:${today}`, states, filtering);
 
   const pickView = (v: PeopleView) => {
     setView(v);
@@ -128,7 +130,7 @@ export function PeopleBoard({ header, view: viewAtStart, data, orgs, adding, sav
       <PinnedBlock testId="people-sticky">
         {header}
         <div className="-mt-2" data-testid="people-filter-row">
-          <FilterRow views={views} view={view} onView={pickView} query={query} onQuery={setQuery} placeholder={view === "orgs" ? "Find an organization" : "Find a person"} ticked={tickedCount(g, t)} onOpen={() => setFilterOpen(true)} />
+          <FilterRow views={views} view={view} onView={pickView} query={query} onQuery={setQuery} placeholder={view === "orgs" ? "Find an organization" : "Find a person"} ticked={tickedCount(g, t)} onOpen={() => setFilterOpen(true)} collapse={view === "follow" && followRows.length ? { allCollapsed: ui.allCollapsed, onClick: ui.toggleAll } : null} />
           <FilterChips chips={activeChips(g, t)} onRemove={(group, value) => setViewTicks(view, toggleTick(t, group, value))} onClear={() => setViewTicks(view, {})} />
         </div>
       </PinnedBlock>
@@ -153,13 +155,13 @@ export function PeopleBoard({ header, view: viewAtStart, data, orgs, adding, sav
             ) : !followRows.length ? (
               noMatch("one")
             ) : (
-              <div className="px-[22px] pt-1 pb-3">
+              <StickySections under="page" className="px-[22px] pt-1 pb-3">
                 {OUTREACH_SECTIONS.filter((s) => !filtering || sections[s.key].length).map((s) => {
                   const list = sections[s.key];
                   const closed = ui.isCollapsed(s.label);
                   return (
                     <div key={s.key} data-testid="outreach-section" data-section={s.key} data-collapsed={closed ? "1" : "0"}>
-                      <SectionHeading name={s.label} count={list.length} collapsed={closed} onToggle={() => ui.toggle(s.label)} hint={s.hint} />
+                      <SectionHeading name={s.label} count={list.length} collapsed={closed} onToggle={() => ui.toggle(s.label)} hint={s.hint} band urgent={s.key === "overdue"} />
                       {list.length && !closed ? (
                         <div className="-mx-[22px] flex flex-col" data-testid="section-body">
                           {list.map((p) => (
@@ -172,7 +174,7 @@ export function PeopleBoard({ header, view: viewAtStart, data, orgs, adding, sav
                     </div>
                   );
                 })}
-              </div>
+              </StickySections>
             )}
           </section>
         ) : null}

@@ -32,7 +32,7 @@
   --primary-soft: #eaf2ff; /* soft blue A: the fill */
   --primary-border: #cfe0ff; /* soft blue A: the edge */
   --primary-soft-hover: #dbe8ff; /* a soft blue control on hover */
-  --electric: #00f0ff; /* only the stage mark's current segment and the counter bar fill */
+  --electric: #00f0ff; /* the stage mark's current segment, the counter bar fill, and the section count badges on Contacts and Home (2026-11-03) */
   --stage-soft: #e6fdff; /* the very faded cyan fill of the stage pill ("Interested · day 2"); nothing else uses it */
   --heading: #334155; /* section headings and card titles, small caps; the text of the neutral pill */
   --rule: #d5dbe3; /* the hairline under card titles and section headings, the sidebar sub-menu line */

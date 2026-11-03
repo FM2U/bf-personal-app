@@ -2,6 +2,7 @@
 
 import { ListFilter, Search, X } from "lucide-react";
 import { CenteredWindow } from "@/components/app/window";
+import { CollapseAllButton } from "@/components/app/work/ui";
 import type { FilterGroup, Ticks } from "@/lib/filters";
 import { cn } from "@/lib/utils";
 
@@ -31,7 +32,7 @@ export function ViewChoice<K extends string>({ views, active, onPick, counts = t
 }
 
 /** The top row: the view choice, Find, and the Filter button. */
-export function FilterRow<K extends string>({ views, view, onView, query, onQuery, placeholder, ticked, onOpen, testId = "filter-row" }: { views: readonly FilterView<K>[]; view: K; onView: (k: K) => void; query: string; onQuery: (q: string) => void; placeholder: string; ticked: number; onOpen: () => void; testId?: string }) {
+export function FilterRow<K extends string>({ views, view, onView, query, onQuery, placeholder, ticked, onOpen, testId = "filter-row", collapse }: { views: readonly FilterView<K>[]; view: K; onView: (k: K) => void; query: string; onQuery: (q: string) => void; placeholder: string; ticked: number; onOpen: () => void; testId?: string; /** Collapse all / Expand all, for a view with sections (Follow-ups). */ collapse?: { allCollapsed: boolean; onClick: () => void } | null }) {
   return (
     <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2" data-testid={testId}>
       <ViewChoice views={views} active={view} onPick={onView} testId="people-view" />
@@ -43,6 +44,7 @@ export function FilterRow<K extends string>({ views, view, onView, query, onQuer
         <ListFilter className="h-[15px] w-[15px]" aria-hidden />
         Filter{ticked ? ` · ${ticked}` : ""}
       </button>
+      {collapse ? <CollapseAllButton allCollapsed={collapse.allCollapsed} onClick={collapse.onClick} className="ml-1" /> : null}
     </div>
   );
 }

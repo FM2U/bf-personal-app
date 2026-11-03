@@ -120,8 +120,17 @@ export function WorkCard({ id, title, count, hint, sub, actions, children, class
  * small triangle that turns when the section is collapsed. An empty section is a faint heading with "none" and does
  * not collapse. `hint` shows at the right on wider screens (the buy box line, "Next by default: ...").
  */
-export function SectionHeading({ name, count, collapsed, onToggle, hint, title, testId = "section-heading", dataAttrs, className, countRight = false }: { name: string; count: number; collapsed: boolean; onToggle?: () => void; hint?: React.ReactNode; title?: string; testId?: string; dataAttrs?: Record<string, string>; className?: string; /** The count at the right end (the Deals stage headings) instead of next to the name. */ countRight?: boolean }) {
+export function SectionHeading({ name, count, collapsed, onToggle, hint, title, testId = "section-heading", dataAttrs, className, countRight = false, band = false, urgent = false }: { name: string; count: number; collapsed: boolean; onToggle?: () => void; hint?: React.ReactNode; title?: string; testId?: string; dataAttrs?: Record<string, string>; className?: string; /** The count at the right end (the Deals stage headings) instead of next to the name. */ countRight?: boolean;
+  /**
+   * Band headings (Contacts Follow-ups, Home Next actions; approved 2026-11-03): a faint band across the card, the name
+   * in bold, the count in a filled badge (electric blue with a dark number; red with a white number for Overdue above 0;
+   * pale gray for 0), and the heading stays at the top while its section scrolls by (inside StickySections).
+   */
+  band?: boolean;
+  /** With band: the Overdue section (a red badge while it has rows). */
+  urgent?: boolean }) {
   const empty = count === 0;
+  if (band) return <BandHeading name={name} count={count} collapsed={collapsed} onToggle={onToggle} hint={hint} title={title} testId={testId} dataAttrs={dataAttrs} className={className} urgent={urgent} />;
   const cls = cn(
     "label-caps group mt-3 mb-1 flex w-full items-center gap-2 border-b py-1.5 pb-[7px] text-left select-none",
     empty ? "cursor-default border-slate-100" : "cursor-pointer border-rule",
@@ -146,6 +155,40 @@ export function SectionHeading({ name, count, collapsed, onToggle, hint, title, 
   }
   return (
     <button type="button" onClick={onToggle} aria-expanded={!collapsed} title={title} className={cls} data-testid={testId} data-count={count} {...dataAttrs}>
+      {body}
+    </button>
+  );
+}
+
+function BandHeading({ name, count, collapsed, onToggle, hint, title, testId, dataAttrs, className, urgent }: { name: string; count: number; collapsed: boolean; onToggle?: () => void; hint?: React.ReactNode; title?: string; testId: string; dataAttrs?: Record<string, string>; className?: string; urgent: boolean }) {
+  const empty = count === 0;
+  const cls = cn(
+    "label-caps group sticky top-[var(--section-top,0px)] z-[1] -mx-[22px] -mt-px flex w-[calc(100%+44px)] items-center gap-2 border-y border-rule bg-slate-50 px-[22px] py-2 text-left font-semibold text-heading select-none",
+    empty ? "cursor-default" : "cursor-pointer hover:bg-slate-100",
+    className,
+  );
+  const badge = empty ? "bg-slate-100 text-slate-400" : urgent ? "bg-status-missed-solid text-white" : "bg-electric text-slate-900";
+  const body = (
+    <>
+      <svg viewBox="0 0 10 10" className={cn("h-[9px] w-3 shrink-0 text-slate-500 transition-transform group-hover:text-slate-700", collapsed && "-rotate-90", empty && "invisible")} aria-hidden>
+        <path d="M1 2.5h8L5 8z" fill="currentColor" />
+      </svg>
+      <span className="min-w-0 truncate">{name}</span>
+      <span className={cn("tabular ml-1 inline-flex h-[18px] min-w-[22px] items-center justify-center rounded-full px-1.5 text-[11.5px] font-semibold tracking-normal", badge)} data-testid="section-count">
+        {count}
+      </span>
+      {hint ? <span className="ml-auto hidden min-w-0 truncate text-xs font-normal tracking-normal normal-case text-slate-400 md:block">{hint}</span> : null}
+    </>
+  );
+  if (empty || !onToggle) {
+    return (
+      <div title={title} className={cls} data-testid={testId} data-count={count} data-band="1" {...dataAttrs}>
+        {body}
+      </div>
+    );
+  }
+  return (
+    <button type="button" onClick={onToggle} aria-expanded={!collapsed} title={title} className={cls} data-testid={testId} data-count={count} data-band="1" {...dataAttrs}>
       {body}
     </button>
   );

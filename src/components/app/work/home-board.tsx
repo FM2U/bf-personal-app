@@ -31,6 +31,7 @@ import { OutreachActionRow, PurposePills } from "@/components/app/work/person-ro
 import { ProjectActionRow } from "@/components/app/work/project-row";
 import { TodoActionRow } from "@/components/app/work/todo-row";
 import { useSections } from "@/components/app/work/sections";
+import { StickySections } from "@/components/app/work/sticky-sections";
 import { ShowFilter } from "@/components/app/work/show-filter";
 import { Due, Figure, FilterRow, Line1, Line2, Name, Pill, PinnedBlock, ProgressMark, RowButton, RowButtons, RowLink, RowShell, SectionHeading, TargetBar, Thinking, What, WorkCard, type PillTone } from "@/components/app/work/ui";
 import { WaitingRow } from "@/components/app/work/waiting-row";
@@ -171,11 +172,12 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
   ];
   // The filter decides which sections open; Find narrows the rows inside them.
   const states = useMemo(
-    () => [...SECTIONS.map((s) => ({ name: s.label, count: sectionsOf[s.key].length, hasMatch: sectionsOf[s.key].some((r) => rowMatches(r, filter)) })), ...waiting.map((w) => ({ name: w.label, count: w.deals.length, hasMatch: w.deals.some((d) => matchesFilter(d, filter, today)) }))],
+    () => [...SECTIONS.map((s) => ({ name: s.label, count: sectionsOf[s.key].length, hasMatch: sectionsOf[s.key].some((r) => rowMatches(r, filter)), defaultOpen: s.key === "today" })), ...waiting.map((w) => ({ name: w.label, count: w.deals.length, hasMatch: w.deals.some((d) => matchesFilter(d, filter, today)), defaultOpen: false }))],
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [sectionsOf, waiting, filter, today],
   );
-  const sections = useSections(STORAGE_KEY, states, filter !== "all");
+  // Only Due today opens by default; what is opened or closed is remembered for the rest of the day (approved 2026-11-03).
+  const sections = useSections(`${STORAGE_KEY}:${today}`, states, filter !== "all");
   const pick = (f: DealFilter) => {
     setFilter(f);
     sections.resetOverrides();
@@ -246,7 +248,7 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
           className="lg:h-full"
         >
           {actionCount ? (
-            <div className="px-[22px] pt-1 pb-3">
+            <StickySections under="card" className="px-[22px] pt-1 pb-3">
               {order === "ai" ? (
                 <div className="mt-3 mb-1 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-border py-1.5 pb-[7px]" data-testid="ai-order-heading">
                   <span className="text-[11.5px] font-semibold tracking-[0.09em] text-violet uppercase">{aiOrder ? orderedAtLabel(aiOrder.createdAt, today, data.hourLocal) : ordering ? "Asking the AI for the order..." : "By the AI"}</span>
@@ -283,7 +285,7 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
                 const closed = sections.isCollapsed(s.label);
                 return (
                   <div key={s.key} data-testid="home-section" data-section={s.key} data-collapsed={closed ? "1" : "0"}>
-                    <SectionHeading name={s.label} count={list.length} collapsed={closed} onToggle={() => sections.toggle(s.label)} />
+                    <SectionHeading name={s.label} count={list.length} collapsed={closed} onToggle={() => sections.toggle(s.label)} band urgent={s.key === "overdue"} />
                     {list.length && !closed ? (
                       <div className="-mx-[22px] flex flex-col" data-testid="section-body">
                         {list.map((r) => rowBox(r))}
@@ -292,7 +294,7 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
                   </div>
                 );
               })}
-            </div>
+            </StickySections>
           ) : (
             <p className="px-[22px] py-4 text-[13px] text-muted-foreground" data-testid="now-actions-empty">
               {show ? "Nothing is due today in the lanes ticked under Show." : "Nothing is due today and every record has a next action. Deals, Contacts, Rosara, Job search, and Consulting list every next action."}
@@ -303,12 +305,12 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
         <div className="flex min-w-0 flex-col gap-[18px] lg:h-full lg:overflow-y-auto" data-testid="home-right">
           <WorkCard id="now-wait" title="Waiting on someone" count={waitCount} sub={`Amber at ${threshold} days, red at ${threshold * 2}`} testId="now-wait" pinned>
             {waitCount ? (
-              <div className="px-[22px] pt-1 pb-3">
+              <StickySections under="card" className="px-[22px] pt-1 pb-3">
                 {waiting.map((w) => {
                   const closed = sections.isCollapsed(w.label);
                   return (
                     <div key={w.key} data-testid="home-section" data-section={`wait-${w.key}`} data-collapsed={closed ? "1" : "0"}>
-                      <SectionHeading name={w.label} count={w.deals.length} collapsed={closed} onToggle={() => sections.toggle(w.label)} />
+                      <SectionHeading name={w.label} count={w.deals.length} collapsed={closed} onToggle={() => sections.toggle(w.label)} band />
                       {w.deals.length && !closed ? (
                         <div className="-mx-[22px] flex flex-col" data-testid="section-body">
                           {w.deals.map((deal) => (
@@ -321,7 +323,7 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
                     </div>
                   );
                 })}
-              </div>
+              </StickySections>
             ) : (
               <p className="px-[22px] py-4 text-[13px] text-muted-foreground" data-testid="now-wait-empty">
                 {laneShown("Deals", show) ? "Nobody is keeping you waiting." : "Deals is not ticked under Show."}
