@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireOwner } from "@/lib/auth";
-import { addDaysISO } from "@/lib/calc/dates";
+import { addDaysISO, todayInTz } from "@/lib/calc/dates";
 import { documentPath } from "@/lib/documents";
 import { loadPipelineOfKind, loadWorkPipeline } from "@/lib/work/data";
 import type { WorkSample } from "@/lib/work/sample";
@@ -133,12 +133,38 @@ async function samplePdf(text: string): Promise<Buffer> {
 }
 
 /** Deletes only the sample rows and the rows the app made from them (one transaction). */
+/**
+ * End of day days to clear with the sample: days from the day the sample was loaded onward on which no report went to a
+ * real (not sample) partner. What was typed or sent while testing on the sample goes with it; a day with a report to a
+ * real partner, and every day before the sample was loaded, is kept.
+ */
+async function testDaysToClear(sb: SupabaseClient, ownerId: string): Promise<string[]> {
+  const { data: first } = await sb.from("sample_records").select("created_at").eq("owner_id", ownerId).order("created_at", { ascending: true }).limit(1);
+  const loadedAt = first?.[0]?.created_at as string | undefined;
+  if (!loadedAt) return [];
+  const { tz } = await loadCtx(sb, ownerId);
+  const fromDay = todayInTz(tz, new Date(loadedAt));
+  const { data: sampleContacts } = await sb.from("sample_records").select("record_id").eq("owner_id", ownerId).eq("table_name", "contacts");
+  const sampleIds = new Set((sampleContacts ?? []).map((r) => String(r.record_id)));
+  const { data: sends } = await sb.from("change_log").select("new_value").eq("owner_id", ownerId).eq("field", "email_sent").eq("new_value->>kind", "end_of_day");
+  const realDays = new Set((sends ?? []).map((r) => r.new_value as Row).filter((v) => v?.contact_id && !sampleIds.has(String(v.contact_id))).map((v) => String(v.day)));
+  const { data: days } = await sb.from("end_of_day").select("day").eq("owner_id", ownerId).gte("day", fromDay);
+  return (days ?? []).map((d) => String(d.day)).filter((d) => !realDays.has(d));
+}
+
 export async function removeSampleData() {
-  const { supabase } = await requireOwner();
+  const { supabase, user } = await requireOwner();
+  const clearDays = await testDaysToClear(supabase, user.id);
   const { data, error } = await supabase.rpc("remove_sample_data");
   if (error) back(`Sample data was not removed (nothing was deleted): ${error.message}`);
   const failed = await removeFiles(supabase, (data as Row | null)?.storage_paths);
+  let cleared = 0;
+  if (clearDays.length) {
+    const { data: gone } = await supabase.from("end_of_day").delete().eq("owner_id", user.id).in("day", clearDays).select("id");
+    cleared = gone?.length ?? 0;
+  }
   revalidatePath("/", "layout");
   const total = Number((data as Row | null)?.total ?? 0);
-  back(total ? `Sample data removed: ${total} records. Your other records were not changed.${failed ? ` ${failed} document files could not be removed from storage.` : ""}` : "There was no sample data to remove.");
+  const days = cleared ? ` End of day was reset for ${cleared === 1 ? "1 test day" : `${cleared} test days`}.` : "";
+  back(total ? `Sample data removed: ${total} records.${days} Your other records were not changed.${failed ? ` ${failed} document files could not be removed from storage.` : ""}` : "There was no sample data to remove.");
 }

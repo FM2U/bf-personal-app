@@ -305,7 +305,7 @@ const shot = async (page, name) => {
     await db.query("update google_connections set scopes = $1", [before.scopes]);
   });
 
-  await step("Remove sample data removes the sample people's reports, emails, and replies; real records stay", async () => {
+  await step("Remove sample data removes the sample people's reports, emails, replies and the test End of day days; real records stay", async () => {
     await page.goto(`${BASE}/settings/data`);
     page.once("dialog", (d) => d.accept());
     await page.getByTestId("sample-remove").click();
@@ -317,6 +317,8 @@ const shot = async (page, name) => {
     const left = await one(`select (select count(*)::int from sample_records) s, (select count(*)::int from partner_reports) r, (select count(*)::int from communications where partner_report_id is not null or direction = 'incoming') c,
       (select string_agg(name, ',' order by name) from organizations) orgs, (select string_agg(name, ',' order by name) from contacts) people, (select count(*)::int from deal_todos) t`);
     assert(left.s === 0 && left.r === 0 && left.c === 0 && left.orgs === "Peak Capital" && left.people === "Pat Example", JSON.stringify(left));
+    const days = await one("select count(*)::int n from end_of_day");
+    assert(days.n === 0, `the test End of day days sent only to sample partners are cleared: ${days.n} left`);
   });
 
   if (errors.length) {
