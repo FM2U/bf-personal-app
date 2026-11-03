@@ -253,7 +253,7 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
             actions={
               <>
                 <span className="tabular rounded-full bg-status-neutral-bg px-2 py-px text-[11px] font-semibold leading-4 text-status-neutral" data-testid="eod-met-count">
-                  {met} of {judgedCount} met
+                  {judgedCount < judged.length ? `${met} of ${judgedCount} met today · ${judged.length} targets` : `${met} of ${judged.length} met`}
                 </span>
                 {asked.length + (owedPrev?.items.length ?? 0) >= 2 && !closed ? (
                   <button type="button" onClick={() => setShared((s) => !s)} className="text-[12.5px] font-medium text-primary-strong hover:underline" data-testid="same-reason-toggle">

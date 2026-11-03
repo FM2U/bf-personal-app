@@ -4,7 +4,7 @@
  * lists the organizations (brokers, lenders, employers, clients, investors). Each view has the Filter window
  * (src/lib/filters.ts) with its own groups. Pure and tested in src/lib/work/people.test.ts.
  */
-import { addDaysISO, daysBetween } from "@/lib/calc/dates";
+import { daysBetween } from "@/lib/calc/dates";
 import type { FilterGroup } from "@/lib/filters";
 import { outreachSectionOf, workWeek, type OutreachRole } from "@/lib/work/outreach";
 
@@ -117,14 +117,22 @@ export function kindOptions(held: readonly string[]): { value: string; label: st
 /** What a person row needs for the filters: the role, the last contact and next follow-up dates, the organization's kind. */
 export type PersonFilterRow = { roleKey: string | null; lastContactOn: string | null; nextFollowUp: string | null; organizationId: string | null };
 
-/** Last contact: This week (since Monday), Last 30 days (this week included), 90+ days, Never. */
+/**
+ * Last contact, in groups that never overlap: This week (since Monday), This month (the last 30 days, before this
+ * week), 1 to 3 months (31 to 90 days ago), 3+ months (more than 90 days ago), Never. Older saved values "30" and "90"
+ * still work.
+ */
 export function lastContactBucket(on: string | null, today: string, value: string): boolean {
   if (value === "never") return !on;
   if (!on) return false;
   const d = on.slice(0, 10);
-  if (value === "week") return d >= workWeek(today).start && d <= today;
-  if (value === "30") return d >= addDaysISO(today, -30) && d <= today;
-  if (value === "90") return daysBetween(d, today) >= 90;
+  if (d > today) return false;
+  const weekStart = workWeek(today).start;
+  const ago = daysBetween(d, today);
+  if (value === "week") return d >= weekStart;
+  if (value === "month" || value === "30") return d < weekStart && ago <= 30;
+  if (value === "1to3") return ago > 30 && ago <= 90;
+  if (value === "3plus" || value === "90") return ago > 90;
   return false;
 }
 
@@ -143,12 +151,13 @@ export function personFilterGroups<T extends PersonFilterRow>(today: string, kin
       title: "Last contact",
       options: [
         { value: "week", label: "This week" },
-        { value: "30", label: "Last 30 days" },
-        { value: "90", label: "90+ days" },
+        { value: "month", label: "This month" },
+        { value: "1to3", label: "1 to 3 months" },
+        { value: "3plus", label: "3+ months" },
         { value: "never", label: "Never" },
       ],
       test: (p, v) => lastContactBucket(p.lastContactOn, today, v),
-      phrase: (v) => ({ week: "contacted this week", "30": "contacted in the last 30 days", "90": "not contacted in 90+ days", never: "never contacted" })[v] ?? v,
+      phrase: (v) => ({ week: "contacted this week", month: "contacted earlier this month", "1to3": "contacted 1 to 3 months ago", "3plus": "not contacted in 3+ months", never: "never contacted" })[v] ?? v,
     },
     {
       key: "fu",

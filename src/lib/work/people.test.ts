@@ -79,7 +79,13 @@ describe("Contacts filter groups", () => {
   it("buckets the last contact and the follow-up", () => {
     expect(lastContactBucket("2026-11-02", today, "week")).toBe(true);
     expect(lastContactBucket("2026-10-30", today, "week")).toBe(false);
-    expect(lastContactBucket("2026-10-30", today, "30")).toBe(true);
+    expect(lastContactBucket("2026-10-30", today, "month")).toBe(true);
+    expect(lastContactBucket("2026-11-02", today, "month")).toBe(false);
+    expect(lastContactBucket("2026-09-20", today, "month")).toBe(false);
+    expect(lastContactBucket("2026-09-20", today, "1to3")).toBe(true);
+    expect(lastContactBucket("2026-08-05", today, "1to3")).toBe(true);
+    expect(lastContactBucket("2026-07-14", today, "1to3")).toBe(false);
+    expect(lastContactBucket("2026-07-14", today, "3plus")).toBe(true);
     expect(lastContactBucket("2026-07-14", today, "90")).toBe(true);
     expect(lastContactBucket(null, today, "never")).toBe(true);
     expect(followUpBucket("2026-11-02", today, "overdue")).toBe(true);
