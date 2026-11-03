@@ -147,7 +147,12 @@ async function testDaysToClear(sb: SupabaseClient, ownerId: string): Promise<str
   const { data: sampleContacts } = await sb.from("sample_records").select("record_id").eq("owner_id", ownerId).eq("table_name", "contacts");
   const sampleIds = new Set((sampleContacts ?? []).map((r) => String(r.record_id)));
   const { data: sends } = await sb.from("change_log").select("new_value").eq("owner_id", ownerId).eq("field", "email_sent").eq("new_value->>kind", "end_of_day");
-  const realDays = new Set((sends ?? []).map((r) => r.new_value as Row).filter((v) => v?.contact_id && !sampleIds.has(String(v.contact_id))).map((v) => String(v.day)));
+  // A report counts as sent to a real partner only if that person still exists and is not sample data: a partner from
+  // an earlier sample load was deleted with it and does not make the day real.
+  const sentTo = [...new Set((sends ?? []).map((r) => String((r.new_value as Row)?.contact_id ?? "")).filter(Boolean))];
+  const { data: alive } = sentTo.length ? await sb.from("contacts").select("id").eq("owner_id", ownerId).in("id", sentTo) : { data: [] };
+  const realIds = new Set((alive ?? []).map((c) => String(c.id)).filter((id) => !sampleIds.has(id)));
+  const realDays = new Set((sends ?? []).map((r) => r.new_value as Row).filter((v) => v?.contact_id && realIds.has(String(v.contact_id))).map((v) => String(v.day)));
   const { data: days } = await sb.from("end_of_day").select("day").eq("owner_id", ownerId).gte("day", fromDay);
   return (days ?? []).map((d) => String(d.day)).filter((d) => !realDays.has(d));
 }
