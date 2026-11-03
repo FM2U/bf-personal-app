@@ -7,6 +7,14 @@
 -- The old database (the first Supabase project) is not touched by this file.
 -- Built from the 29 old updates with the old modules cut out (see docs in the project: 2026-11-02 build plan).
 
+-- Stops here, changing nothing, if this database already has the app's tables (for example the old project).
+do $$
+begin
+  if to_regclass('public.pipeline_items') is not null or to_regclass('public.contacts') is not null then
+    raise exception 'This database already has the app''s tables. Run this file only in the new, empty project (bf-personal-app-final). Nothing was changed.';
+  end if;
+end $$;
+
 --
 -- PostgreSQL database dump
 --
