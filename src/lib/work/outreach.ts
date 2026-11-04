@@ -100,7 +100,7 @@ export type OutreachPerson = {
   archived?: boolean;
 };
 
-type OutreachSectionKey = "overdue" | "today" | "week" | "later" | "nodate";
+export type OutreachSectionKey = "overdue" | "today" | "week" | "later" | "nodate";
 
 export const OUTREACH_SECTIONS: readonly { key: OutreachSectionKey; label: string; hint?: string }[] = [
   { key: "overdue", label: "Overdue" },

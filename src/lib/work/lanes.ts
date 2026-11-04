@@ -1,9 +1,10 @@
 /**
- * The lanes of Home (batch B2, approved 2026-10-31): Next actions merges every lane into one list. A deal row has no
- * pill; outreach follow-ups, Rosara project actions, Job search opportunities, Consulting items, and (Edit batch C
- * round 2) personal to-dos due today or earlier carry a lane pill ("To-do"). Pure and tested in src/lib/work/lanes.test.ts: the row key per lane, the sections (Overdue, Due today, Needs
- * a next action), the filter counts, the AI order (the reply's check, the cache, and how a cached order is applied
- * to the rows on the page), and the prompt the AI gets.
+ * The areas of Work on now (batch B2, approved 2026-10-31; "lanes" in the code): Next actions merges every area
+ * into one list. A deal row has no pill; outreach follow-ups, Rosara project actions, Job search opportunities,
+ * Consulting items, and (Edit batch C round 2) personal to-dos due today or earlier carry an area pill ("To-do").
+ * Pure and tested in src/lib/work/lanes.test.ts: the row key per lane, the sections (Overdue, Due today, Needs a next
+ * action), the Area filter, the AI order (the reply's check, the cache, how a cached order is applied to the rows on
+ * the page, and the day-start rule), and the prompt the AI gets.
  */
 import { daysBetween } from "@/lib/calc/dates";
 
@@ -79,66 +80,64 @@ export function matchesActionSearch(a: Pick<HomeAction, "name" | "meta">, query:
   return !q || a.name.toLowerCase().includes(q) || a.meta.toLowerCase().includes(q);
 }
 
-// ---------- The Show filter (Edit batch C, item 2) ----------
+// ---------- The Area filter (2026-11-04) ----------
 
 /**
- * "Show: All" after the filter pills on Home: a checklist of the lanes (several allowed, Reset at the bottom). It
- * narrows Next actions and Waiting on someone, and the counts on the other pills follow it. To-dos narrows the personal
- * to-dos due today or earlier that sit on Next actions (Edit batch C round 2).
+ * The Filter window on Work on now has one column, Area: Deals, Contacts, Rosara, Job search, Consulting, To-dos, and
+ * Tasks (a dated task on a record). Ticking areas narrows Next actions and its tile numbers; Waiting on someone is not
+ * filtered. Several ticks mean either one; none ticked shows every area.
  */
-export const SHOW_LANES = ["Deals", "People", "Rosara", "Job search", "Consulting", "To-dos"] as const;
-export type ShowLane = (typeof SHOW_LANES)[number];
+export const AREAS = [
+  { value: "deals", label: "Deals" },
+  { value: "contacts", label: "Contacts" },
+  { value: "rosara", label: "Rosara" },
+  { value: "job-search", label: "Job search" },
+  { value: "consulting", label: "Consulting" },
+  { value: "todos", label: "To-dos" },
+  { value: "tasks", label: "Tasks" },
+] as const;
+export type AreaKey = (typeof AREAS)[number]["value"];
 
-/** The choice is remembered in this browser under this key. */
-export const SHOW_STORAGE_KEY = "work-home-show";
+/** The ticked areas are remembered in this browser under this key. */
+export const AREA_STORAGE_KEY = "work-home-areas";
 
-/** The chosen lanes, or null for All (nothing saved, nothing valid saved, none chosen, or every lane chosen). */
-export function parseShowChoice(raw: string | null | undefined): ShowLane[] | null {
-  if (!raw) return null;
-  let v: unknown;
-  try {
-    v = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  if (!Array.isArray(v)) return null;
-  // Push B: the Outreach lane is called People; a choice saved before keeps working.
-  v = v.map((x) => (x === "Outreach" ? "People" : x));
-  return normalizeShow((v as unknown[]).filter((x): x is ShowLane => (SHOW_LANES as readonly string[]).includes(String(x))));
+/** The area of a row: its lane, with a to-do on a record counted as a Task. */
+export function areaOf(lane: Lane, onRecord = false): AreaKey {
+  if (lane === "To-dos") return onRecord ? "tasks" : "todos";
+  return ({ Deals: "deals", People: "contacts", Rosara: "rosara", "Job search": "job-search", Consulting: "consulting" } as const)[lane];
 }
 
-/** In the menu's order, each lane once; none or all of them is All (null). */
-export function normalizeShow(lanes: readonly ShowLane[] | null): ShowLane[] | null {
-  if (!lanes) return null;
-  const out = SHOW_LANES.filter((l) => lanes.includes(l));
-  return out.length === 0 || out.length === SHOW_LANES.length ? null : out;
-}
-
-/** Ticks or unticks one lane. From All, ticking a lane shows only that lane. */
-export function toggleShow(choice: readonly ShowLane[] | null, lane: ShowLane): ShowLane[] | null {
-  if (!choice) return normalizeShow([lane]);
-  return normalizeShow(choice.includes(lane) ? choice.filter((l) => l !== lane) : [...choice, lane]);
-}
-
-/** "Show: All" or "Show: 2" (how many lanes are chosen). */
-export function showLabel(choice: readonly ShowLane[] | null): string {
-  return choice ? `Show: ${choice.length}` : "Show: All";
-}
-
-/** Is a lane on the page under the choice? */
-export function laneShown(lane: ShowLane, choice: readonly ShowLane[] | null): boolean {
-  return !choice || choice.includes(lane);
+/** "Showing: Deals or Contacts", or "Showing every area". */
+export function areaSummary(ticked: readonly string[]): string {
+  const labels = AREAS.filter((a) => ticked.includes(a.value)).map((a) => a.label);
+  return labels.length ? `Showing: ${labels.join(" or ")}` : "Showing every area";
 }
 
 // ---------- The AI order ----------
 
 export type OrderChoice = "soonest" | "ai";
 
-/** The choice is remembered in this browser under this key. */
+/** The choice is remembered in this browser under this key, with the day it was made. */
 export const ORDER_STORAGE_KEY = "work-home-order";
 
-export function parseOrderChoice(v: unknown): OrderChoice {
-  return v === "ai" ? "ai" : "soonest";
+/**
+ * Each new day starts on Soonest first (approved 2026-11-04): By the AI is remembered for the rest of the day it was
+ * picked only. The saved value is {"choice":"ai","day":"YYYY-MM-DD"}; anything else (an older plain "ai", another
+ * day, nothing saved) is Soonest first.
+ */
+export function parseOrderChoice(raw: string | null | undefined, today: string): OrderChoice {
+  if (!raw) return "soonest";
+  try {
+    const v = JSON.parse(raw) as { choice?: unknown; day?: unknown } | null;
+    return v && v.choice === "ai" && v.day === today ? "ai" : "soonest";
+  } catch {
+    return "soonest";
+  }
+}
+
+/** What is saved for a choice made today. */
+export function orderToStore(choice: OrderChoice, today: string): string {
+  return JSON.stringify({ choice, day: today });
 }
 
 /** The AI's order of the day: the row keys in the order to do them, and one reason per key. */
@@ -205,7 +204,7 @@ export function orderedAtLabel(createdAt: string, today: string, hourLocal: numb
  */
 export function aiOrderPrompt(actions: readonly HomeAction[], today: string): string {
   const lines = actions.map((a) => {
-    const parts = [`key=${a.key}`, `lane=${a.lane}`, `name=${a.name}`, `action=${a.action ?? "(none)"}`, `due=${a.due ?? "no date"}`];
+    const parts = [`key=${a.key}`, `area=${a.lane === "People" ? "Contacts" : a.lane}`, `name=${a.name}`, `action=${a.action ?? "(none)"}`, `due=${a.due ?? "no date"}`];
     if (a.minutes) parts.push(`minutes=${a.minutes}`);
     if (a.meta) parts.push(`context=${a.meta}`);
     if (a.waitingOn) parts.push(`waiting_on=${a.waitingOn} for ${a.waitDays ?? 0} days`);

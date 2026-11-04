@@ -425,3 +425,41 @@ select:not([multiple]):not([size]) {
   padding-left: 0 !important;
   padding-right: 0 !important;
 }
+
+/*
+ * The slim pinned bar (2026-11-04, src/components/app/work/slim-bar.tsx): fixed at the top under the iPhone notch,
+ * beside the left menu from 1024px. It slides in after about 40px of scroll in 180ms; no slide with reduced motion.
+ */
+.slim-bar {
+  position: fixed;
+  top: env(safe-area-inset-top, 0px);
+  left: 0;
+  right: 0;
+  z-index: 25;
+  transform: translateY(-105%);
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    transform 0.18s ease,
+    opacity 0.18s ease,
+    visibility 0s linear 0.18s;
+}
+.slim-bar[data-shown="1"] {
+  transform: none;
+  opacity: 1;
+  visibility: visible;
+  transition:
+    transform 0.18s ease,
+    opacity 0.18s ease;
+}
+@media (min-width: 1024px) {
+  .slim-bar {
+    left: 15rem;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .slim-bar,
+  .slim-bar[data-shown="1"] {
+    transition: none;
+  }
+}

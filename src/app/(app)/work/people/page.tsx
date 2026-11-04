@@ -10,14 +10,14 @@ import { WorkTabs } from "@/components/app/nav-links";
 import { AskAiPill } from "@/components/app/work/ask-ai";
 import { PeopleBoard } from "@/components/app/work/people-board";
 import { WorkShell } from "@/components/app/work/shell";
-import { WorkHeader } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
 
 export const metadata = { title: "Contacts" };
 
 /**
  * Contacts (push B, 2026-11-03; Outreach renamed People, then Contacts in the Push B edits): the title with Add a
- * person (or Add an organization on the Organizations view) and Ask AI, the Work tabs, then three views: Follow-ups
+ * person (or Add an organization on the Organizations view) and Ask AI, the view choice under it, the top menu row
+ * under 1024px, then three views: Follow-ups
  * (today's working list, what Outreach was), People (every person A to Z), Organizations. The views and the Filter
  * window are in src/components/app/work/people-board.tsx. "?view=people" (or the old "?view=everyone") or
  * "?view=orgs" picks a view; "?ff=", "?fp=", "?fo=" keep each view's ticks; the old "?role=<role>" ticks that role on
@@ -34,25 +34,14 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
   const ticks = { follow: parseTicks(sp.ff), people: roleTick && !sp.fp ? roleTick : parseTicks(sp.fp), orgs: parseTicks(sp.fo) };
   const here = peopleViewHref(view);
   const addHref = `${here}${here.includes("?") ? "&" : "?"}add=1`;
-  const header = (
-    <>
-      <WorkHeader
-        title={CONTACTS_LABEL}
-        right={
-          <>
-            <Link href={adding ? here : addHref} className={cn("inline-flex h-9 items-center rounded-[7px] border px-3.5 text-[13px] font-medium", adding ? "border-input bg-white text-slate-800 hover:bg-slate-50" : "border-primary-solid bg-primary-solid text-white hover:border-primary-solid-hover hover:bg-primary-solid-hover")} data-testid={view === "orgs" ? "add-org-button" : "add-person-button"}>
-              {adding ? "Close the form" : view === "orgs" ? "Add an organization" : "Add a person"}
-            </Link>
-            <AskAiPill context={{ page: "outreach", label: CONTACTS_LABEL }} />
-          </>
-        }
-      />
-      <WorkTabs toScreen={tabs.toScreen} outreachDue={tabs.outreachDue} />
-    </>
+  const addButton = (
+    <Link href={adding ? here : addHref} className={cn("inline-flex h-9 items-center rounded-[7px] border px-3.5 text-[13px] font-medium whitespace-nowrap", adding ? "border-input bg-white text-slate-800 hover:bg-slate-50" : "border-primary-solid bg-primary-solid text-white hover:border-primary-solid-hover hover:bg-primary-solid-hover")} data-testid={view === "orgs" ? "add-org-button" : "add-person-button"}>
+      {adding ? "Close the form" : view === "orgs" ? "Add an organization" : "Add a person"}
+    </Link>
   );
   return (
     <WorkShell testId="work-people">
-      <PeopleBoard header={header} view={view} data={d} orgs={orgs} adding={adding} saved={sp.saved ?? null} ticks={ticks} />
+      <PeopleBoard view={view} data={d} orgs={orgs} adding={adding} saved={sp.saved ?? null} ticks={ticks} addButton={addButton} askAi={<AskAiPill context={{ page: "outreach", label: CONTACTS_LABEL }} />} tabs={<WorkTabs toScreen={tabs.toScreen} outreachDue={tabs.outreachDue} className="mt-3 mb-0 border-b border-border" />} />
     </WorkShell>
   );
 }

@@ -1,18 +1,17 @@
 "use client";
 
-import { ListFilter, Search, X } from "lucide-react";
+import { X } from "lucide-react";
 import { CenteredWindow } from "@/components/app/window";
-import { CollapseAllButton } from "@/components/app/work/ui";
 import type { FilterGroup, Ticks } from "@/lib/filters";
 import { cn } from "@/lib/utils";
 
 /**
- * The filter row and the Filter window (Push B edits, 2026-11-03), shared by every list that filters (Contacts now;
- * Screen listings, Deals, Job search, Consulting, and Sent reports later). The row: the view choice (each view with
- * the number of rows it shows), Find, and the Filter button ("Filter · 2" while boxes are ticked); the ticked choices
- * as removable chips under it, only while set. The window: the same view choice at the top, one column of
- * checkboxes per group with live counts, and Clear all, the summary line, and the solid Show button at the bottom.
- * The logic is in src/lib/filters.ts.
+ * The Filter window (Push B edits, 2026-11-03), shared by every list that filters (Contacts and Work on now; Screen
+ * listings, Deals, Job search, Consulting, and Sent reports later), and the ticked choices as removable chips under
+ * the title row, only while set. The window: an optional view choice at the top, one column of checkboxes per group
+ * with live counts (a single group lists its choices in two columns), and Clear all, the summary line, and the solid
+ * Show button at the bottom. Find and the Filter button are in src/components/app/work/title-row.tsx. The logic is in
+ * src/lib/filters.ts.
  */
 
 export type FilterView<K extends string> = { key: K; label: string; count: number };
@@ -28,24 +27,6 @@ export function ViewChoice<K extends string>({ views, active, onPick, counts = t
         </button>
       ))}
     </span>
-  );
-}
-
-/** The top row: the view choice, Find, and the Filter button. */
-export function FilterRow<K extends string>({ views, view, onView, query, onQuery, placeholder, ticked, onOpen, testId = "filter-row", collapse }: { views: readonly FilterView<K>[]; view: K; onView: (k: K) => void; query: string; onQuery: (q: string) => void; placeholder: string; ticked: number; onOpen: () => void; testId?: string; /** Collapse all / Expand all, for a view with sections (Follow-ups). */ collapse?: { allCollapsed: boolean; onClick: () => void } | null }) {
-  return (
-    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2" data-testid={testId}>
-      <ViewChoice views={views} active={view} onPick={onView} testId="people-view" />
-      <span className="relative ml-0 min-w-[160px] flex-1 basis-[160px] sm:ml-auto sm:max-w-[240px]">
-        <Search className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" aria-hidden />
-        <input type="search" value={query} onChange={(e) => onQuery(e.target.value)} placeholder={placeholder} aria-label={placeholder} className="h-8 w-full rounded-[7px] border border-input bg-white pr-2.5 pl-[30px] text-[13px] text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" data-testid="filter-search" />
-      </span>
-      <button type="button" onClick={onOpen} aria-haspopup="dialog" className={cn("inline-flex h-8 items-center gap-[7px] rounded-[7px] border px-3 text-[13px] font-medium whitespace-nowrap", ticked ? "border-primary-border bg-primary-soft text-primary-strong" : "border-input bg-white text-slate-800 hover:bg-slate-50")} data-testid="filter-open" data-ticked={ticked}>
-        <ListFilter className="h-[15px] w-[15px]" aria-hidden />
-        Filter{ticked ? ` · ${ticked}` : ""}
-      </button>
-      {collapse ? <CollapseAllButton allCollapsed={collapse.allCollapsed} onClick={collapse.onClick} className="ml-1" /> : null}
-    </div>
   );
 }
 
@@ -75,13 +56,14 @@ export function FilterChips({ chips, onRemove, onClear }: { chips: { group: stri
  * checkboxes (four across, two on a tablet, one on the phone), the count beside each choice, a Clear link on a group
  * with ticks; the footer with Clear all, the summary line, and "Show 12 people".
  */
-export function FilterWindow<T, K extends string>({ open, onOpenChange, views, view, onView, groups, ticks, counts, onToggle, onClearGroup, onClearAll, summary, show }: { open: boolean; onOpenChange: (o: boolean) => void; views: readonly FilterView<K>[]; view: K; onView: (k: K) => void; groups: readonly FilterGroup<T>[]; ticks: Ticks; counts: Record<string, Record<string, number>>; onToggle: (group: string, value: string) => void; onClearGroup: (group: string) => void; onClearAll: () => void; summary: string; show: string }) {
+export function FilterWindow<T, K extends string>({ open, onOpenChange, views, view, onView, groups, ticks, counts, onToggle, onClearGroup, onClearAll, summary, show, sub }: { open: boolean; onOpenChange: (o: boolean) => void; /** The view choice at the top (left out when the page has it). */ views?: readonly FilterView<K>[]; view?: K; onView?: (k: K) => void; groups: readonly FilterGroup<T>[]; ticks: Ticks; counts: Record<string, Record<string, number>>; onToggle: (group: string, value: string) => void; onClearGroup: (group: string) => void; onClearAll: () => void; summary: string; show: string; /** The line under the title. */ sub?: string }) {
+  const one = groups.length === 1;
   return (
     <CenteredWindow
       open={open}
       onOpenChange={onOpenChange}
       title="Filter"
-      sub="Ticks in one column mean either one. Ticks in different columns must all match. The number beside each choice is how many you would see."
+      sub={sub ?? "Ticks in one column mean either one. Ticks in different columns must all match. The number beside each choice is how many you would see."}
       testId="filter-window"
       footer={
         <>
@@ -97,10 +79,12 @@ export function FilterWindow<T, K extends string>({ open, onOpenChange, views, v
         </>
       }
     >
-      <div className="mb-5">
-        <ViewChoice views={views} active={view} onPick={onView} counts={false} testId="filter-view" />
-      </div>
-      <div className="grid grid-cols-1 gap-x-7 gap-y-[22px] min-[561px]:grid-cols-2 min-[901px]:grid-cols-4" data-testid="filter-groups">
+      {views && view && onView ? (
+        <div className="mb-5">
+          <ViewChoice views={views} active={view} onPick={onView} counts={false} testId="filter-view" />
+        </div>
+      ) : null}
+      <div className={cn("grid grid-cols-1 gap-x-8 gap-y-[22px]", !one && "min-[561px]:grid-cols-2", groups.length >= 3 && "min-[901px]:grid-cols-4")} data-testid="filter-groups">
         {groups.map((g) => {
           const on = ticks[g.key] ?? [];
           return (
@@ -113,6 +97,7 @@ export function FilterWindow<T, K extends string>({ open, onOpenChange, views, v
                   </button>
                 ) : null}
               </h3>
+              <div className={cn(one && "min-[701px]:grid min-[701px]:grid-cols-2 min-[701px]:gap-x-8")}>
               {g.options.map((o) => {
                 const ticked = on.includes(o.value);
                 const n = counts[g.key]?.[o.value] ?? 0;
@@ -125,6 +110,7 @@ export function FilterWindow<T, K extends string>({ open, onOpenChange, views, v
                   </label>
                 );
               })}
+              </div>
             </div>
           );
         })}

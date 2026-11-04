@@ -3,6 +3,7 @@ import { progressSegments, type WaitLevel } from "@/lib/work/stages";
 import { FIGURE_GAP_CLS, FIGURE_LABEL_CLS, figureValueClass, isEmptyValue, type FigureTone } from "@/lib/work/figure-style";
 import { cn } from "@/lib/utils";
 import { OpenRow } from "@/components/app/work/open-row";
+import { SlimBar } from "@/components/app/work/slim-bar";
 
 /**
  * The building blocks of the Work screens (approved mockup 2026-10-30, mockup v6 2026-10-31; the color system of Edit
@@ -96,9 +97,9 @@ export function PinnedBlock({ children, testId }: { children: React.ReactNode; t
 /** A card header that stays at the top while the card scrolls (desktop): solid white, a hairline across the full width. */
 export const PINNED_CARD_HEADER = "bg-white border-b border-rule lg:sticky lg:top-0 lg:z-[2]";
 
-export function WorkCard({ id, title, count, hint, sub, actions, children, className, testId, rule = true, pinned = false, scroll = false, bodyClassName, headerClassName }: { id?: string; title: React.ReactNode; count?: number | null; hint?: React.ReactNode; /** A quiet line under the title (for narrow cards, where a hint at the right would wrap). */ sub?: React.ReactNode; actions?: React.ReactNode; children: React.ReactNode; className?: string; testId?: string; /** False: no rule under the title (a closed card ends at its title row). */ rule?: boolean; /** The title row stays at the top while the content under it scrolls (desktop): solid white with the hairline across the full width. */ pinned?: boolean; /** The card scrolls on its own (desktop); give it a height through className. */ scroll?: boolean; bodyClassName?: string; /** Extra classes on the title row (a minimum height so cards side by side line up). */ headerClassName?: string }) {
+export function WorkCard({ id, ref, role, labelledBy, title, count, hint, sub, actions, children, className, testId, rule = true, pinned = false, scroll = false, bodyClassName, headerClassName }: { ref?: React.Ref<HTMLElement>; /** "tabpanel" under status tiles, with the selected tile's id in labelledBy. */ role?: string; labelledBy?: string; id?: string; title: React.ReactNode; count?: number | null; hint?: React.ReactNode; /** A quiet line under the title (for narrow cards, where a hint at the right would wrap). */ sub?: React.ReactNode; actions?: React.ReactNode; children: React.ReactNode; className?: string; testId?: string; /** False: no rule under the title (a closed card ends at its title row). */ rule?: boolean; /** The title row stays at the top while the content under it scrolls (desktop): solid white with the hairline across the full width. */ pinned?: boolean; /** The card scrolls on its own (desktop); give it a height through className. */ scroll?: boolean; bodyClassName?: string; /** Extra classes on the title row (a minimum height so cards side by side line up). */ headerClassName?: string }) {
   return (
-    <section id={id} className={cn("flex min-w-0 flex-col rounded-xl border border-border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]", scroll && "lg:overflow-y-auto", className)} data-testid={testId}>
+    <section id={id} ref={ref} role={role} aria-labelledby={labelledBy} className={cn("flex min-w-0 flex-col rounded-xl border border-border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]", scroll && "lg:overflow-y-auto", className)} data-testid={testId}>
       <div className={cn("rounded-t-xl bg-white", pinned && rule && PINNED_CARD_HEADER, headerClassName)} data-pinned={pinned && rule ? "card" : undefined}>
         <div className={cn("flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-[22px] pt-4", rule ? "pb-3" : "pb-4")}>
           <h2 className="flex items-center gap-2 text-[15px] font-semibold tracking-[-0.01em] whitespace-nowrap text-heading">
@@ -160,22 +161,49 @@ export function SectionHeading({ name, count, collapsed, onToggle, hint, title, 
   );
 }
 
+/**
+ * The band across a card (approved 2026-11-03): faint fill, hairlines above and below, charcoal small caps. It stays at
+ * the top while its list scrolls: under the card's pinned title row when the card scrolls on its own (--section-top,
+ * set by StickySections), otherwise under the slim pinned bar of the page (--mini-h, set by SlimBar).
+ */
+export const BAND_CLS = "label-caps group sticky top-[var(--section-top,var(--mini-h,0px))] z-[1] -mx-[22px] -mt-px flex w-[calc(100%+44px)] items-center gap-2 border-y border-rule bg-slate-50 px-[22px] py-2 text-left font-semibold text-heading select-none";
+
+/** The band's count badge: electric blue with a dark number; soft red for Overdue above 0; a gray outline for 0. */
+export function bandBadgeClass(count: number, urgent = false): string {
+  const tone = count === 0 ? "border border-slate-300 bg-white text-slate-400" : urgent ? "border border-status-missed-border bg-status-missed-bg text-status-missed" : "bg-electric text-slate-900";
+  return cn("tabular inline-flex h-[19px] min-w-[28px] shrink-0 items-center justify-center rounded-full px-1 text-[11.5px] font-semibold tracking-normal", tone);
+}
+
+/**
+ * The flat band that heads the one list a status tile picks (approved 2026-11-04): the badge, then the title, aligned
+ * left; no caret, not clickable. It stays pinned while the rows scroll.
+ */
+export function ListBand({ name, count, urgent = false, hint, testId = "list-band", id }: { name: string; count: number; urgent?: boolean; hint?: React.ReactNode; testId?: string; id?: string }) {
+  return (
+    <div id={id} className={cn(BAND_CLS, "cursor-default")} data-testid={testId} data-count={count} data-band="1">
+      <span className={bandBadgeClass(count, urgent)} data-testid="section-count">
+        {count}
+      </span>
+      <span className="min-w-0 truncate">{name}</span>
+      {hint ? <span className="ml-auto hidden min-w-0 truncate text-xs font-normal tracking-normal normal-case text-slate-400 md:block">{hint}</span> : null}
+    </div>
+  );
+}
+
 function BandHeading({ name, count, collapsed, onToggle, hint, title, testId, dataAttrs, className, urgent }: { name: string; count: number; collapsed: boolean; onToggle?: () => void; hint?: React.ReactNode; title?: string; testId: string; dataAttrs?: Record<string, string>; className?: string; urgent: boolean }) {
   const empty = count === 0;
   const cls = cn(
-    "label-caps group sticky top-[var(--section-top,0px)] z-[1] -mx-[22px] -mt-px flex w-[calc(100%+44px)] items-center gap-2 border-y border-rule bg-slate-50 px-[22px] py-2 text-left font-semibold text-heading select-none",
+    BAND_CLS,
     empty ? "cursor-default" : "cursor-pointer hover:bg-slate-100",
     className,
   );
-  // Approved 2026-11-03: the badge on the left (after the caret), one width so the names line up; electric blue with a
-  // dark number; Overdue in the soft red of the app's pills; 0 as a gray outline.
-  const badge = empty ? "border border-slate-300 bg-white text-slate-400" : urgent ? "border border-status-missed-border bg-status-missed-bg text-status-missed" : "bg-electric text-slate-900";
+  // Approved 2026-11-03: the badge on the left (after the caret), one width so the names line up.
   const body = (
     <>
       <svg viewBox="0 0 10 10" className={cn("h-[9px] w-3 shrink-0 text-slate-500 transition-transform group-hover:text-slate-700", collapsed && "-rotate-90", empty && "invisible")} aria-hidden>
         <path d="M1 2.5h8L5 8z" fill="currentColor" />
       </svg>
-      <span className={cn("tabular inline-flex h-[19px] min-w-[28px] shrink-0 items-center justify-center rounded-full px-1 text-[11.5px] font-semibold tracking-normal", badge)} data-testid="section-count">
+      <span className={bandBadgeClass(count, urgent)} data-testid="section-count">
         {count}
       </span>
       <span className="min-w-0 truncate">{name}</span>
@@ -521,10 +549,16 @@ export function AiButton({ busy, children, className, disabled, tone = "outline"
   );
 }
 
-/** The page title row: the title on the left, the date or buttons on the right. */
-export function WorkHeader({ title, right, crumb, under }: { title: React.ReactNode; right?: React.ReactNode; crumb?: React.ReactNode; /** A quiet line under the title ("Listed as 00 ..."). */ under?: React.ReactNode }) {
+/**
+ * The page title row: the title on the left, the date or buttons on the right. `slim` (2026-11-04): the slim pinned
+ * bar with the small title that slides in after about 40px of scroll; "narrow" (the default) only under 1024px, where
+ * nothing else stays pinned; "always" at every width (record pages); false when the page draws its own (Work on now,
+ * Contacts, To-dos).
+ */
+export function WorkHeader({ title, right, crumb, under, slim = "narrow" }: { title: React.ReactNode; right?: React.ReactNode; crumb?: React.ReactNode; /** A quiet line under the title ("Listed as 00 ..."). */ under?: React.ReactNode; slim?: "narrow" | "always" | false }) {
   return (
     <div className="mb-1.5">
+      {slim ? <SlimBar title={title} mode={slim} /> : null}
       {crumb ? <div className="mb-1.5 text-[13px] text-muted-foreground">{crumb}</div> : null}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
@@ -580,7 +614,7 @@ export function TargetBar({ count, target, pct, hint, className, testId = "outre
   );
 }
 
-/** A lane pill on a Home row (People, Rosara, Job search, Consulting; deals have none): one soft blue for all four. */
+/** An area pill on a Work on now row (Contacts, Rosara, Job search, Consulting, To-do, Task; deals have none): one soft blue for all. */
 export function LanePill({ lane, className }: { lane: "People" | "Rosara" | "Job search" | "Consulting" | "To-do" | "Task"; className?: string }) {
   return (
     <Pill tone="blue" className={className} testId="lane-pill">

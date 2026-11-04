@@ -196,7 +196,7 @@ export function ProjectFactsCard({ project }: { project: ProjectRow }) {
           <Fact label="Started">{project.createdAt ? fmtDate(project.createdAt, "MMM d, yyyy") : "Not known"}</Fact>
           <Fact label="Closed">{project.closedAt ? fmtDate(project.closedAt, "MMM d, yyyy") : "Not yet"}</Fact>
           <Fact label="Open tasks">{projectTasksLabel(project.openTasks)}</Fact>
-          <Fact label="Lane">Rosara</Fact>
+          <Fact label="Area">Rosara</Fact>
           {state.kind === "saved" ? (
             <span className="self-end text-[13px] font-medium text-status-met" role="status" data-testid="save-ok">
               Saved

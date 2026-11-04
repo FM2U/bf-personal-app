@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actionKey, aiOrderPrompt, applyAiOrder, laneSectionOf, laneShown, matchesActionSearch, mergeLanes, normalizeShow, orderedAtLabel, parseOrderChoice, parseShowChoice, SHOW_LANES, showLabel, toggleShow, validateAiOrderReply, type HomeAction } from "./lanes";
+import { actionKey, aiOrderPrompt, applyAiOrder, AREAS, areaOf, areaSummary, laneSectionOf, matchesActionSearch, mergeLanes, orderedAtLabel, orderToStore, parseOrderChoice, validateAiOrderReply, type HomeAction } from "./lanes";
 
 const today = "2026-11-03";
 const a = (lane: HomeAction["lane"], id: string, over: Partial<HomeAction> = {}): HomeAction => ({ key: actionKey(lane, id), lane, id, name: id, action: "Do it", due: today, minutes: null, meta: "", ...over });
@@ -71,9 +71,6 @@ describe("the AI order", () => {
     expect(orderedAtLabel("2026-11-03T09:10:00Z", today, 14)).toBe("Ordered by the AI this afternoon");
     expect(orderedAtLabel("2026-11-03T09:10:00Z", today, 19)).toBe("Ordered by the AI this evening");
     expect(orderedAtLabel("2026-11-02T09:10:00Z", today, 9)).toBe("Ordered by the AI yesterday");
-    expect(parseOrderChoice("ai")).toBe("ai");
-    expect(parseOrderChoice(null)).toBe("soonest");
-    expect(parseOrderChoice("junk")).toBe("soonest");
     const prompt = aiOrderPrompt([a("Deals", "Dalton", { minutes: 60, meta: "CIM review, HVAC", waitingOn: "Rachel Kim", waitDays: 3, dayInStage: 4 }), a("Job search", "Harbor", { meta: "Conversation" })], today);
     expect(prompt).toContain("TASK: ai_order");
     expect(prompt).toContain("key=deal:Dalton");
@@ -84,36 +81,36 @@ describe("the AI order", () => {
   });
 });
 
-describe("the Show filter on Home (Edit batch C, item 2)", () => {
-  it("lists the six lanes of the menu", () => {
-    expect([...SHOW_LANES]).toEqual(["Deals", "People", "Rosara", "Job search", "Consulting", "To-dos"]);
-    expect(parseShowChoice(JSON.stringify(["Outreach"]))).toEqual(["People"]);
+describe("the order choice: each new day starts on Soonest first (approved 2026-11-04)", () => {
+  it("keeps By the AI for the rest of the day it was picked", () => {
+    expect(parseOrderChoice(orderToStore("ai", today), today)).toBe("ai");
+    expect(parseOrderChoice(orderToStore("soonest", today), today)).toBe("soonest");
   });
-  it("starts at All; ticking lanes shows only those, several allowed; the pill counts them", () => {
-    expect(showLabel(null)).toBe("Show: All");
-    const one = toggleShow(null, "People");
-    expect(one).toEqual(["People"]);
-    const two = toggleShow(one, "Deals");
-    expect(two).toEqual(["Deals", "People"]);
-    expect(showLabel(two)).toBe("Show: 2");
-    expect(laneShown("Deals", two)).toBe(true);
-    expect(laneShown("Rosara", two)).toBe(false);
-    expect(laneShown("Rosara", null)).toBe(true);
+  it("starts the next day on Soonest first", () => {
+    expect(parseOrderChoice(orderToStore("ai", "2026-11-02"), today)).toBe("soonest");
   });
-  it("unticking the last lane, or ticking all six, is All again", () => {
-    expect(toggleShow(["Rosara"], "Rosara")).toBeNull();
-    let c: ReturnType<typeof toggleShow> = null;
-    for (const l of SHOW_LANES) c = toggleShow(c, l);
-    expect(c).toBeNull();
-    expect(normalizeShow([])).toBeNull();
+  it("reads nothing saved, an older plain value, or junk as Soonest first", () => {
+    expect(parseOrderChoice(null, today)).toBe("soonest");
+    expect(parseOrderChoice("ai", today)).toBe("soonest");
+    expect(parseOrderChoice("junk", today)).toBe("soonest");
+    expect(parseOrderChoice(JSON.stringify({ choice: "ai" }), today)).toBe("soonest");
   });
-  it("reads the remembered choice back safely (bad or old values are All)", () => {
-    expect(parseShowChoice(JSON.stringify(["Consulting", "Deals"]))).toEqual(["Deals", "Consulting"]);
-    expect(parseShowChoice(JSON.stringify(["Deals", "Nope"]))).toEqual(["Deals"]);
-    expect(parseShowChoice("not json")).toBeNull();
-    expect(parseShowChoice(JSON.stringify({ Deals: true }))).toBeNull();
-    expect(parseShowChoice(null)).toBeNull();
-    expect(parseShowChoice(JSON.stringify([]))).toBeNull();
+});
+
+describe("the Area filter on Work on now (2026-11-04)", () => {
+  it("lists the seven areas in the window's order", () => {
+    expect(AREAS.map((x) => x.label)).toEqual(["Deals", "Contacts", "Rosara", "Job search", "Consulting", "To-dos", "Tasks"]);
+  });
+  it("puts each row in its area; a to-do on a record is a Task", () => {
+    expect(areaOf("Deals")).toBe("deals");
+    expect(areaOf("People")).toBe("contacts");
+    expect(areaOf("Job search")).toBe("job-search");
+    expect(areaOf("To-dos")).toBe("todos");
+    expect(areaOf("To-dos", true)).toBe("tasks");
+  });
+  it("sums up the ticks in plain words", () => {
+    expect(areaSummary([])).toBe("Showing every area");
+    expect(areaSummary(["contacts", "deals"])).toBe("Showing: Deals or Contacts");
   });
 });
 
@@ -133,15 +130,9 @@ describe("to-dos on Home's Next actions", () => {
     expect(s.needs).toEqual([]);
     expect([...s.overdue, ...s.today].filter((r) => r.lane === "To-dos").every((r) => r.minutes === null)).toBe(true);
   });
-  it("the Show filter's To-dos narrows to them", () => {
-    expect([...SHOW_LANES]).toContain("To-dos");
-    const only = toggleShow(null, "To-dos");
-    expect(laneShown("To-dos", only)).toBe(true);
-    expect(laneShown("Deals", only)).toBe(false);
-  });
   it("are in the AI order prompt like any other row", () => {
     const p = aiOrderPrompt([a("To-dos", "t9", { name: "Call the dentist", action: "Call the dentist" })], today);
-    expect(p).toContain("key=todo:t9 | lane=To-dos | name=Call the dentist");
+    expect(p).toContain("key=todo:t9 | area=To-dos | name=Call the dentist");
     expect(validateAiOrderReply({ order: [{ key: "todo:t9", reason: "Two minutes" }] }, ["todo:t9"])).toEqual({ ok: true, value: { order: ["todo:t9"], reasons: { "todo:t9": "Two minutes" } } });
   });
 });

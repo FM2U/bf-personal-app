@@ -71,7 +71,7 @@ export function PhaseColumns<T extends ColumnItem>({ header, before, groups, tod
     <>
       <PinnedBlock testId={`${prefix}-sticky`}>
         {header}
-        <FilterRow prefix={prefix} filters={DEAL_FILTERS} active={filter} counts={counts} onPick={pick} query={query} onQuery={setQuery} placeholder={placeholder} collapse={{ allCollapsed: sections.allCollapsed, onClick: sections.toggleAll }} className="-mt-2" />
+        <FilterRow prefix={prefix} filters={DEAL_FILTERS} active={filter} counts={counts} onPick={pick} query={query} onQuery={setQuery} placeholder={placeholder} collapse={{ allCollapsed: sections.allCollapsed, onClick: sections.toggleAll }} className="-mt-2 lg:mt-2.5" />
       </PinnedBlock>
       {before ? <div className="mb-[18px]">{before}</div> : null}
 

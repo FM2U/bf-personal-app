@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { applyFilters, optionCount } from "@/lib/filters";
-import { byName, followUpBucket, kindOptions, lastContactBucket, matchesOrgSearch, onFollowUps, orgFilterGroups, orgKindLabel, orgLine, parseOrgKind, parsePeopleView, peopleNamesLine, peopleViewHref, personFilterGroups, regionOf } from "./people";
+import { byName, followUpBucket, followUpFilterGroups, kindOptions, lastContactBucket, matchesOrgSearch, onFollowUps, orgFilterGroups, orgKindLabel, orgLine, parseOrgKind, parsePeopleView, peopleNamesLine, peopleViewHref, personFilterGroups, regionOf } from "./people";
 
 const people = [
   { name: "mark Reed", roleKey: "broker", nextFollowUp: "2026-11-01" },
@@ -130,5 +130,21 @@ describe("Contacts filter groups", () => {
     expect(applyFilters(orgs, g, { kind: ["broker"], status: ["active", "archived"] }).map((o) => o.name)).toEqual(["Transworld", "Example Brokers"]);
     expect(applyFilters(orgs, g, { deals: ["none"] }).map((o) => o.name)).toEqual(["Truist"]);
     expect(optionCount(orgs, g, {}, "status", "archived")).toBe(1);
+  });
+});
+
+describe("the Follow-ups Filter window (2026-11-04)", () => {
+  type F = { roleKey: string | null; lastContactOn: string | null; nextFollowUp: string | null; organizationId: string | null; purposes: string[] };
+  const g = followUpFilterGroups<F>();
+  const p = (roleKey: string | null, purposes: string[]): F => ({ roleKey, lastContactOn: null, nextFollowUp: null, organizationId: null, purposes });
+  it("has only Role and Project (the tiles pick the follow-up group)", () => {
+    expect(g.map((x) => x.title)).toEqual(["Role", "Project"]);
+    expect(g[1].options.map((o) => o.label)).toEqual(["Off-market deals", "Rosara", "Job search", "Consulting", "None"]);
+  });
+  it("matches a project the person is on, and None for a person on no project", () => {
+    const rows = [p("broker", ["off_market_deals"]), p("lender", []), p("broker", ["rosara", "job_search"])];
+    expect(applyFilters(rows, g, { proj: ["rosara"] })).toEqual([rows[2]]);
+    expect(applyFilters(rows, g, { proj: ["none"] })).toEqual([rows[1]]);
+    expect(applyFilters(rows, g, { role: ["broker"], proj: ["off_market_deals", "none"] })).toEqual([rows[0]]);
   });
 });

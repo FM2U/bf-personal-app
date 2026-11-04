@@ -33,7 +33,7 @@ export function ConsultingBoard({ header, data, adding }: { header: React.ReactN
     <>
       <PinnedBlock testId="consulting-sticky">
         {header}
-        <FilterRow prefix="consulting" filters={CONSULTING_FILTERS} active={filter} counts={counts} onPick={setFilter} query={query} onQuery={setQuery} placeholder="Find a client" className="-mt-2" />
+        <FilterRow prefix="consulting" filters={CONSULTING_FILTERS} active={filter} counts={counts} onPick={setFilter} query={query} onQuery={setQuery} placeholder="Find a client" className="-mt-2 lg:mt-2.5" />
       </PinnedBlock>
       {adding ? (
         <div className="mb-[18px]">

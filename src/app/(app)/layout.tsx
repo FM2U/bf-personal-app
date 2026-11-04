@@ -34,7 +34,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </form>
         </div>
       </aside>
-      <header className="no-print sticky top-0 z-30 border-b border-border bg-white/95 pt-3 backdrop-blur lg:hidden">
+      {/* Under 1024px this header scrolls away with the page; the slim pinned bar of each page takes the top (2026-11-04). */}
+      <header className="no-print border-b border-border bg-white pt-3 lg:hidden">
         <div className="mb-2 flex items-center justify-between px-4">
           <Link href="/" className="flex items-center gap-2 text-base font-semibold">
             <span aria-hidden className="h-2 w-2 rotate-45 rounded-[1px] bg-primary" />

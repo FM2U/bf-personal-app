@@ -6,7 +6,7 @@
  */
 import { daysBetween } from "@/lib/calc/dates";
 import type { FilterGroup } from "@/lib/filters";
-import { outreachSectionOf, workWeek, type OutreachRole } from "@/lib/work/outreach";
+import { outreachSectionOf, purposeLabel, workWeek, type OutreachRole } from "@/lib/work/outreach";
 
 export type PeopleView = "follow" | "people" | "orgs";
 
@@ -142,7 +142,7 @@ export function followUpBucket(date: string | null, today: string, value: string
   return value === "overdue" ? s === "overdue" : value === "today" ? s === "today" : value === "week" ? s === "week" : value === "none" ? s === "nodate" : false;
 }
 
-/** The four groups of People and Follow-ups: Role, Last contact, Follow-up, Organization kind. */
+/** The four groups of People: Role, Last contact, Follow-up, Organization kind. */
 export function personFilterGroups<T extends PersonFilterRow>(today: string, kindOf: (orgId: string) => string | null, heldKinds: readonly string[]): FilterGroup<T>[] {
   return [
     { key: "role", title: "Role", options: ROLE_ORDER.map((r) => ({ value: r.key, label: r.label })), test: (p, v) => p.roleKey === v },
@@ -177,6 +177,26 @@ export function personFilterGroups<T extends PersonFilterRow>(today: string, kin
       options: [...kindOptions(heldKinds), { value: "none", label: "No organization" }],
       test: (p, v) => (v === "none" ? !p.organizationId : !!p.organizationId && kindOf(p.organizationId) === v),
       phrase: (v) => (v === "none" ? "no organization" : `at ${/^[aeiou]/i.test(orgKindLabel(v)) ? "an" : "a"} ${orgKindLabel(v).toLowerCase()} organization`),
+    },
+  ];
+}
+
+/** The Project choices of Follow-ups, in the window's order, then None (no project ticked on the person). */
+const PROJECT_ORDER = ["off_market_deals", "rosara", "job_search", "consulting"] as const;
+
+/**
+ * The two groups of Follow-ups (approved 2026-11-04): Role and Project. The tiles above the list pick the follow-up
+ * group (Overdue, Due today, Next 7 days, Later, No date), so the window has no Follow-up or Last contact column.
+ */
+export function followUpFilterGroups<T extends PersonFilterRow & { purposes: readonly string[] }>(): FilterGroup<T>[] {
+  return [
+    { key: "role", title: "Role", options: ROLE_ORDER.map((r) => ({ value: r.key, label: r.label })), test: (p, v) => p.roleKey === v },
+    {
+      key: "proj",
+      title: "Project",
+      options: [...PROJECT_ORDER.map((k) => ({ value: k, label: purposeLabel(k) })), { value: "none", label: "None" }],
+      test: (p, v) => (v === "none" ? !p.purposes.length : p.purposes.includes(v)),
+      phrase: (v) => (v === "none" ? "on no project" : `on ${purposeLabel(v)}`),
     },
   ];
 }

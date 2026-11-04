@@ -92,12 +92,18 @@ export function SidebarLinks({ toScreen, outreachDue, eodBadge }: { toScreen?: n
   );
 }
 
-/** The Accountability tabs (batch C): Targets, End of day with its badge, Reports, in the Work tab style. */
+/**
+ * The top menu row (2026-11-04): shown only under 1024px, where the left menu is hidden; from 1024px the left menu
+ * lists the same pages with the same badges, so the row is left out.
+ */
+const TOP_ROW = "no-print -mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0 lg:hidden";
+
+/** The Accountability tabs (batch C): Targets, End of day with its badge, Reports, in the Work tab style (under 1024px). */
 export function AccountabilityTabs({ eodBadge, tight = false }: { eodBadge?: EodBadge; tight?: boolean }) {
   const path = usePathname();
   const active = ACCOUNTABILITY_TABS.find((t) => path === t.href || path.startsWith(`${t.href}/`)) ?? null;
   return (
-    <div className={cn("no-print -mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0", tight ? "mb-0" : "mb-6 border-b border-border")}>
+    <div className={cn(TOP_ROW, tight ? "mb-0" : "mb-6 border-b border-border")} data-testid="top-menu-row">
       <nav className="flex min-w-max gap-1" aria-label="Accountability sections">
         {ACCOUNTABILITY_TABS.map((t) => (
           <Link
@@ -118,12 +124,12 @@ export function AccountabilityTabs({ eodBadge, tight = false }: { eodBadge?: Eod
   );
 }
 
-/** The Work tabs (Home, Screen listings with the count, Deals, People with the due count, Rosara, Job search, Consulting, To-dos), in the module tab style. */
-export function WorkTabs({ toScreen, outreachDue, tight = false }: { toScreen?: number | null; outreachDue?: number | null; /** No space or line under the tabs (a pinned block with no filter row draws the hairline itself). */ tight?: boolean }) {
+/** The Work tabs (Home, Screen listings with the count, Deals, Contacts with the due count, Rosara, Job search, Consulting, To-dos), in the module tab style (under 1024px). */
+export function WorkTabs({ toScreen, outreachDue, tight = false, className }: { toScreen?: number | null; outreachDue?: number | null; /** No space or line under the tabs (a pinned block with no filter row draws the hairline itself). */ tight?: boolean; className?: string }) {
   const path = usePathname();
   const tab = workTabFor(path);
   return (
-    <div className={cn("no-print -mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0", tight ? "mb-0" : "mb-6 border-b border-border")}>
+    <div className={cn(TOP_ROW, tight ? "mb-0" : "mb-6 border-b border-border", className)} data-testid="top-menu-row">
       <nav className="flex min-w-max gap-1" aria-label="Work sections">
         {WORK_TABS.map((t) => (
           <Link

@@ -25,9 +25,10 @@ export default async function TodosPage() {
     notice = DB_UPDATE_NOTICE_PUSH_C;
   }
   const tabs = await loadTabCounts(supabase, ownerId, ctx.today);
+  const askAi = <AskAiPill context={{ page: "todos", label: "To-dos" }} />;
   const header = (
     <PinnedBlock testId="todos-sticky">
-      <WorkHeader title="To-dos" right={<AskAiPill context={{ page: "todos", label: "To-dos" }} />} />
+      <WorkHeader title="To-dos" right={askAi} />
       <WorkTabs toScreen={tabs.toScreen} outreachDue={tabs.outreachDue} tight />
     </PinnedBlock>
   );
@@ -41,8 +42,7 @@ export default async function TodosPage() {
   }
   return (
     <WorkShell testId="work-todos">
-      {header}
-      <TodosBoard data={d} />
+      <TodosBoard data={d} askAi={askAi} tabs={<WorkTabs toScreen={tabs.toScreen} outreachDue={tabs.outreachDue} className="mt-3 mb-0 border-b border-border" />} />
     </WorkShell>
   );
 }

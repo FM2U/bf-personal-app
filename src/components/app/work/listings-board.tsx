@@ -63,7 +63,7 @@ export function ListingsBoard({ header, listings, passed, buyBox, children }: { 
     <>
       <PinnedBlock testId="listings-sticky">
         {header}
-        <FilterRow prefix="listings" filters={FILTERS} active={filter} counts={counts} onPick={pick} query={query} onQuery={setQuery} placeholder="Find" collapse={{ allCollapsed: sections.allCollapsed, onClick: sections.toggleAll }} className="-mt-2" />
+        <FilterRow prefix="listings" filters={FILTERS} active={filter} counts={counts} onPick={pick} query={query} onQuery={setQuery} placeholder="Find" collapse={{ allCollapsed: sections.allCollapsed, onClick: sections.toggleAll }} className="-mt-2 lg:mt-2.5" />
       </PinnedBlock>
       <div className="flex flex-col gap-[18px]">
         {children}

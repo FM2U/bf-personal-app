@@ -1,28 +1,30 @@
 "use client";
 
-import { useMemo, useState, useSyncExternalStore, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { aiOrderToday } from "@/app/actions/ask-ai";
 import { resetWaiting } from "@/app/actions/work";
 import { ComposeEmailDialog } from "@/components/app/compose-email";
+import { FilterWindow } from "@/components/app/filter-window";
 import type { ComposeSetup } from "@/lib/compose-email";
 import { readRaw } from "@/lib/disclosure";
+import { optionCounts, parseTicks, ticksToParam, toggleTick, type FilterGroup, type Ticks } from "@/lib/filters";
 import { date as fmtDate } from "@/lib/format";
 import type { AskContext } from "@/lib/work/ask-ai";
 import type { DealRow, ListingTile, WorkNowData } from "@/lib/work/data";
 import { waitSections } from "@/lib/work/home";
 import type { HomeData } from "@/lib/work/home-data";
-import { actionKey, applyAiOrder, compareActions, laneSectionOf, laneShown, matchesActionSearch, ORDER_STORAGE_KEY, orderedAtLabel, parseOrderChoice, parseShowChoice, SHOW_LANES, SHOW_STORAGE_KEY, type AiOrder, type HomeAction, type Lane, type LaneSectionKey, type OrderChoice, type ShowLane } from "@/lib/work/lanes";
+import { actionKey, applyAiOrder, AREA_STORAGE_KEY, AREAS, areaOf, areaSummary, compareActions, laneSectionOf, matchesActionSearch, ORDER_STORAGE_KEY, orderedAtLabel, orderToStore, parseOrderChoice, type AiOrder, type AreaKey, type HomeAction, type Lane, type LaneSectionKey, type OrderChoice } from "@/lib/work/lanes";
 import { compareNames } from "@/lib/work/names";
 import { contactKindLabel, orgRoleLine, overdueLabel } from "@/lib/work/outreach";
 import type { PersonRow as PersonRowData } from "@/lib/work/outreach-data";
 import { PEOPLE_HREF, personHref } from "@/lib/work/people";
-import { DEAL_FILTERS, matchesFilter, type DealFilter } from "@/lib/work/phases";
 import type { ItemRow } from "@/lib/work/pipelines-data";
 import { dueThisWeekLabel } from "@/lib/work/projects";
 import type { ProjectRow } from "@/lib/work/projects-data";
 import { dueLabel, followUpDraft, STAGE_DEFAULTS, type WorkStageName } from "@/lib/work/stages";
+import { clickTile, selectedTile, tileAfterFilter, type Tile } from "@/lib/work/tiles";
 import { AiCardStar } from "@/components/app/work/ask-ai";
 import { ItemActionRow, itemHref } from "@/components/app/work/item-row";
 import { LogCallDrawer } from "@/components/app/work/log-call-drawer";
@@ -30,10 +32,11 @@ import { NextActionRow } from "@/components/app/work/next-action-row";
 import { OutreachActionRow, PurposePills } from "@/components/app/work/person-row";
 import { ProjectActionRow } from "@/components/app/work/project-row";
 import { TodoActionRow } from "@/components/app/work/todo-row";
-import { useSections } from "@/components/app/work/sections";
 import { StickySections } from "@/components/app/work/sticky-sections";
-import { ShowFilter } from "@/components/app/work/show-filter";
-import { Due, Figure, FilterRow, Line1, Line2, Name, Pill, PinnedBlock, ProgressMark, RowButton, RowButtons, RowLink, RowShell, SectionHeading, TargetBar, Thinking, What, WorkCard, type PillTone } from "@/components/app/work/ui";
+import { SlimBar, SlimTools } from "@/components/app/work/slim-bar";
+import { StatusTiles, TileChips } from "@/components/app/work/status-tiles";
+import { FilterButton, FindBox, TitleRow } from "@/components/app/work/title-row";
+import { BAND_CLS, Due, Figure, Line1, Line2, ListBand, Name, Pill, ProgressMark, RowButton, RowButtons, RowLink, RowShell, SectionHeading, TargetBar, Thinking, What, WorkCard, type PillTone } from "@/components/app/work/ui";
 import { WaitingRow } from "@/components/app/work/waiting-row";
 import { BlockTimeProvider } from "@/components/app/work/block-time";
 import { CalendarTile } from "@/components/app/work/calendar-tile";
@@ -43,34 +46,35 @@ import { Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
- * Home (Work on now) as the bento of mockup v6 (approved 2026-10-31), batch B2: Next actions merges every lane (a
- * deal row has no pill; Outreach, Rosara, Job search, and Consulting rows carry a lane pill) in the sections
- * Overdue, Due today, Needs a next action. The card header holds "Order: Soonest first | By the AI": By the AI asks
- * the AI once a day for the order of the day's actions (cached; "Order again" asks again) and shows one purple
- * reason under each row; Soonest first is the default and costs nothing; the choice is remembered in this browser.
- * Edit batch C round 2: personal to-dos due today or earlier join Next actions with a "To-do" lane pill.
- * Edit batch C round 3: every next-action and waiting row opens its record when clicked outside its buttons and links
- * (the deal or listing, person, project, opportunity, consulting page, or To-dos), with the shared hover; a listing
- * with a next action shows with the deals; the Screen listings tile opens each listing's page.
- * Edit batch C: "Show: All" after the filter pills narrows Next actions and Waiting on someone to the ticked lanes
- * (the pill counts follow, remembered in this browser), and the AI order numbers sit in their own column.
- * Push C: the solid "Work through" button opens the step-by-step window (work-through.tsx); every row with Done
- * has the block icon (Block time, block-time.tsx) and "Blocked 2:00" under its date; dated record tasks join the
- * to-dos with the Task pill and the gray record pill; Today's calendar sits under Waiting on someone.
- * Right third, stacked: Waiting on someone, Outreach, Rosara (the weekly focus, the next project action, the
- * counts), Job search (the next conversation, the next interview, the counts), Screen listings, Deals at a glance.
+ * Work on now (Home; the bento of mockup v6, approved 2026-10-31, with the header of 2026-11-04). The title row: the
+ * title, the date, Find, Filter, Ask AI. Then three tiles that work like tabs over the Next actions column (Overdue,
+ * Due today, Needs a next action; src/lib/work/tiles.ts): exactly one is selected and the card under them shows only
+ * its list under one pinned band. The Filter window has one column, Area (Deals, Contacts, Rosara, Job search,
+ * Consulting, To-dos, Tasks); it narrows Next actions and its tile numbers, and is remembered in this browser.
+ * Next actions merges every area (a deal row has no pill; the others carry an area pill). "Order: Soonest first | By
+ * the AI": By the AI asks the AI once a day for the order (cached; "Order again" asks again), shows the full ranked list
+ * of all three kinds with one purple reason under each row, and leaves no tile selected; a tile click goes back to
+ * Soonest first. Each new day starts on Soonest first. Push C: the solid "Work through" button opens the step-by-step
+ * window (work-through.tsx); every row with Done has the block icon (block-time.tsx) and "Blocked 2:00" under its date.
+ * Right third, level with the tiles: Waiting on someone (never filtered; its two groups start closed and the card
+ * scrolls on its own), Today's calendar, Targets today, Contacts, Rosara, Job search, Screen listings, Deals at a
+ * glance. On desktop the two columns scroll inside; under 1024px (or in a short window) the page scrolls and the slim
+ * pinned bar slides in.
  */
-const STORAGE_KEY = "work-home-sections";
-/** Next actions and Waiting on someone sit side by side: one title-row height so their lines and first headings line up. */
-const NOW_HEADER = "lg:min-h-[83px]";
 const HOME_ASK: AskContext = { page: "home", label: "Work on now" };
 const noSubscribe = () => () => {};
+const PANEL_ID = "now-actions-panel";
+const FIND_ID = "home-find";
 
-type Row = { key: string; lane: Lane; section: LaneSectionKey; action: HomeAction; /** The filters read these. */ status: string; waitLevel: string; nextAction: string | null; nextActionDue: string | null; name: string; render: (reason: string | null) => React.ReactNode; /** Work through's view of the row (push C). */ step: WorkStep | null };
+type Row = { key: string; lane: Lane; area: AreaKey; section: LaneSectionKey; action: HomeAction; render: (reason: string | null) => React.ReactNode; /** Work through's view of the row (push C). */ step: WorkStep | null };
 
-export function HomeBoard({ header, data, composes, personComposes, askCompose }: { /** The title, the date, and the Work tabs (server-rendered). */ header: React.ReactNode; data: HomeData; /** The email setup per waiting deal (Follow up). */ composes: Record<string, ComposeSetup>; /** The email setup per person on the Outreach tile. */ personComposes: Record<string, ComposeSetup>; /** The email setup for "Open in email" in the Ask AI panel (a typed address). */ askCompose?: ComposeSetup | null }) {
+const TILE_LABEL: Record<LaneSectionKey, string> = { overdue: "Overdue", today: "Due today", needs: "Needs a next action" };
+const TILE_KEYS: LaneSectionKey[] = ["overdue", "today", "needs"];
+const TILE_EMPTY: Record<LaneSectionKey, string> = { overdue: "Nothing is overdue.", today: "Nothing else is due today.", needs: "Every item has a next action." };
+const AREA_GROUP: FilterGroup<Row>[] = [{ key: "area", title: "Area", options: AREAS.map((a) => ({ value: a.value, label: a.label })), test: (r, v) => r.area === v }];
+
+export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personComposes, askCompose }: { data: HomeData; /** The date at the right of the title, long and short. */ dateLabel: { long: string; short: string }; /** Ask AI (server-rendered). */ askAi: React.ReactNode; /** The top menu row (under 1024px). */ tabs: React.ReactNode; /** The email setup per waiting deal (Follow up). */ composes: Record<string, ComposeSetup>; /** The email setup per person on the Outreach tile. */ personComposes: Record<string, ComposeSetup>; /** The email setup for "Open in email" in the Ask AI panel (a typed address). */ askCompose?: ComposeSetup | null }) {
   const router = useRouter();
-  const [filter, setFilter] = useState<DealFilter>("all");
   const [query, setQuery] = useState("");
   const [personEmail, setPersonEmail] = useState<PersonRowData | null>(null);
   const [personCall, setPersonCall] = useState<PersonRowData | null>(null);
@@ -79,11 +83,11 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
   const [followedUp, setFollowedUp] = useState<Record<string, boolean>>({});
   /** The deal whose Follow up editor is open (held here, so the editor survives the row moving after the send). */
   const [followUp, setFollowUp] = useState<DealRow | null>(null);
+  const [filterOpen, setFilterOpen] = useState(false);
   const { deals, today, threshold } = data;
 
-  // ---------- The AI order ----------
-  // The choice is remembered in this browser (read once, without an effect, as the other saved choices).
-  const savedOrder = useSyncExternalStore(noSubscribe, () => parseOrderChoice(readRaw(ORDER_STORAGE_KEY)), () => "soonest" as OrderChoice);
+  // ---------- The AI order: By the AI is remembered for the rest of the day it was picked (read once, without an effect) ----------
+  const savedOrder = useSyncExternalStore(noSubscribe, () => parseOrderChoice(readRaw(ORDER_STORAGE_KEY), today), () => "soonest" as OrderChoice);
   const [chosenOrder, setOrder] = useState<OrderChoice | null>(null);
   const order: OrderChoice = chosenOrder ?? savedOrder;
   const [aiOrder, setAiOrder] = useState<AiOrder | null>(data.aiOrder);
@@ -102,123 +106,131 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
       setAiOrder(r.order);
     });
   };
+  const listRef = useRef<HTMLElement>(null);
+  const toListTop = () => {
+    if (listRef.current && window.matchMedia("(min-width: 1024px)").matches) listRef.current.scrollTop = 0;
+  };
   const pickOrder = (c: OrderChoice) => {
+    if (c === order) return;
     setOrder(c);
     try {
-      window.localStorage.setItem(ORDER_STORAGE_KEY, c);
+      window.localStorage.setItem(ORDER_STORAGE_KEY, orderToStore(c, today));
     } catch {
       /* no storage */
     }
+    toListTop();
     if (c === "ai" && !aiOrder) askOrder(false);
   };
 
-  // ---------- The Show filter (Edit batch C, item 2): the lanes on the page, remembered in this browser ----------
-  const savedShowRaw = useSyncExternalStore(noSubscribe, () => readRaw(SHOW_STORAGE_KEY), () => null);
-  const savedShow = useMemo(() => parseShowChoice(savedShowRaw), [savedShowRaw]);
-  const [chosenShow, setChosenShow] = useState<{ lanes: ShowLane[] | null } | null>(null);
-  const show = chosenShow ? chosenShow.lanes : savedShow;
+  // ---------- The Area filter, remembered in this browser ----------
+  const savedAreaRaw = useSyncExternalStore(noSubscribe, () => readRaw(AREA_STORAGE_KEY), () => null);
+  const savedTicks = useMemo(() => parseTicks(savedAreaRaw, AREA_GROUP), [savedAreaRaw]);
+  const [chosenTicks, setChosenTicks] = useState<Ticks | null>(null);
+  const ticks = chosenTicks ?? savedTicks;
+  const ticked = useMemo(() => ticks.area ?? [], [ticks]);
 
-  // ---------- The rows of every lane ----------
+  // ---------- The rows of every area ----------
   const allRows = useMemo<Row[]>(() => {
     const out: Row[] = [];
-    const push = (lane: Lane, id: string, action: HomeAction, extra: Pick<Row, "status" | "waitLevel" | "nextAction" | "nextActionDue" | "name">, render: Row["render"], step: WorkStep | null = null) => {
+    const push = (lane: Lane, area: AreaKey, action: HomeAction, render: Row["render"], step: WorkStep | null = null) => {
       const section = laneSectionOf(action, today);
-      if (section) out.push({ key: actionKey(lane, id), lane, section, action, ...extra, render, step });
+      if (section) out.push({ key: action.key, lane, area, section, action, render, step });
     };
     // Edit batch C round 3: a listing to screen with a next action (optional on a listing) shows with the deals.
     for (const d of [...deals, ...(data.listingActions ?? [])]) {
-      push("Deals", d.id, { key: actionKey("Deals", d.id), lane: "Deals", id: d.id, name: d.name, action: d.nextAction, due: d.nextActionDue, minutes: d.nextActionMinutes, meta: [d.stageName, d.whatItDoes, d.location].filter(Boolean).join(", ") }, { status: d.status, waitLevel: d.waitLevel, nextAction: d.nextAction, nextActionDue: d.nextActionDue, name: d.name }, (reason) => (d.nextAction ? <NextActionRow deal={d} today={today} reason={reason} /> : <NeedsActionRow deal={d} />), d.nextAction ? { kind: "deal", key: actionKey("Deals", d.id), deal: d } : null);
+      push("Deals", "deals", { key: actionKey("Deals", d.id), lane: "Deals", id: d.id, name: d.name, action: d.nextAction, due: d.nextActionDue, minutes: d.nextActionMinutes, meta: [d.stageName, d.whatItDoes, d.location].filter(Boolean).join(", ") }, (reason) => (d.nextAction ? <NextActionRow deal={d} today={today} reason={reason} /> : <NeedsActionRow deal={d} />), d.nextAction ? { kind: "deal", key: actionKey("Deals", d.id), deal: d } : null);
     }
     for (const p of data.outreach.due) {
-      push("People", p.id, { key: actionKey("People", p.id), lane: "People", id: p.id, name: p.name, action: p.followUpFor ?? "Follow up", due: p.nextFollowUp, minutes: null, meta: orgRoleLine(p) }, { status: "open", waitLevel: "none", nextAction: p.followUpFor ?? "Follow up", nextActionDue: p.nextFollowUp, name: p.name }, (reason) => <OutreachActionRow person={p} today={today} reason={reason} />, { kind: "person", key: actionKey("People", p.id), person: p });
+      push("People", "contacts", { key: actionKey("People", p.id), lane: "People", id: p.id, name: p.name, action: p.followUpFor ?? "Follow up", due: p.nextFollowUp, minutes: null, meta: orgRoleLine(p) }, (reason) => <OutreachActionRow person={p} today={today} reason={reason} />, { kind: "person", key: actionKey("People", p.id), person: p });
     }
     for (const pr of data.rosara.actions) {
-      push("Rosara", pr.id, { key: actionKey("Rosara", pr.id), lane: "Rosara", id: pr.id, name: pr.name, action: pr.nextAction, due: pr.nextActionDue, minutes: pr.nextActionMinutes, meta: pr.milestone ?? "" }, { status: "open", waitLevel: "none", nextAction: pr.nextAction, nextActionDue: pr.nextActionDue, name: pr.name }, (reason) => <ProjectActionRow project={pr} today={today} reason={reason} />, pr.nextAction ? { kind: "project", key: actionKey("Rosara", pr.id), project: pr } : null);
+      push("Rosara", "rosara", { key: actionKey("Rosara", pr.id), lane: "Rosara", id: pr.id, name: pr.name, action: pr.nextAction, due: pr.nextActionDue, minutes: pr.nextActionMinutes, meta: pr.milestone ?? "" }, (reason) => <ProjectActionRow project={pr} today={today} reason={reason} />, pr.nextAction ? { kind: "project", key: actionKey("Rosara", pr.id), project: pr } : null);
     }
     for (const i of [...data.pipelines.jobs, ...data.pipelines.consulting]) {
       const lane: Lane = i.kind === "job" ? "Job search" : "Consulting";
-      push(lane, i.id, { key: actionKey(lane, i.id), lane, id: i.id, name: i.name, action: i.nextAction, due: i.nextActionDue, minutes: i.nextActionMinutes, meta: [i.stageName, i.title].filter(Boolean).join(", ") }, { status: i.status, waitLevel: i.waitLevel, nextAction: i.nextAction, nextActionDue: i.nextActionDue, name: i.name }, (reason) => <ItemActionRow item={i} today={today} reason={reason} />, i.nextAction ? { kind: "item", key: actionKey(lane, i.id), item: i } : null);
+      push(lane, areaOf(lane), { key: actionKey(lane, i.id), lane, id: i.id, name: i.name, action: i.nextAction, due: i.nextActionDue, minutes: i.nextActionMinutes, meta: [i.stageName, i.title].filter(Boolean).join(", ") }, (reason) => <ItemActionRow item={i} today={today} reason={reason} />, i.nextAction ? { kind: "item", key: actionKey(lane, i.id), item: i } : null);
     }
-    // Edit batch C round 2: personal to-dos due today or earlier, with the To-do lane pill (no minutes). Push C: dated
-    // record tasks come with them, with the Task lane pill and the gray record pill.
+    // Personal to-dos due today or earlier (the To-do pill) and dated record tasks (the Task pill and the gray record pill).
     for (const t of data.todos) {
-      push("To-dos", t.id, { key: actionKey("To-dos", t.id), lane: "To-dos", id: t.id, name: t.text, action: t.text, due: t.dueOn, minutes: null, meta: t.record ? recordPillText(t.record) : "Personal to-do" }, { status: "open", waitLevel: "none", nextAction: t.text, nextActionDue: t.dueOn, name: t.text }, (reason) => <TodoActionRow todo={t} today={today} reason={reason} />, { kind: "todo", key: actionKey("To-dos", t.id), todo: t });
+      push("To-dos", areaOf("To-dos", !!t.record), { key: actionKey("To-dos", t.id), lane: "To-dos", id: t.id, name: t.text, action: t.text, due: t.dueOn, minutes: null, meta: t.record ? recordPillText(t.record) : "Personal to-do" }, (reason) => <TodoActionRow todo={t} today={today} reason={reason} />, { kind: "todo", key: actionKey("To-dos", t.id), todo: t });
     }
     return out;
   }, [deals, data.listingActions, data.outreach.due, data.rosara.actions, data.pipelines.jobs, data.pipelines.consulting, data.todos, today]);
-  const rows = useMemo(() => allRows.filter((r) => laneShown(r.lane, show)), [allRows, show]);
+  const rows = useMemo(() => allRows.filter((r) => !ticked.length || ticked.includes(r.area)), [allRows, ticked]);
 
+  // The three lists, each sorted (Soonest first); the tile numbers follow the Area ticks, not Find.
   const sectionsOf = useMemo(() => {
     const by: Record<LaneSectionKey, Row[]> = { overdue: [], today: [], needs: [] };
     for (const r of rows) by[r.section].push(r);
     by.overdue.sort((a, b) => compareActions(a.action, b.action));
     by.today.sort((a, b) => compareActions(a.action, b.action));
-    by.needs.sort((a, b) => compareNames(a.name, b.name));
+    by.needs.sort((a, b) => compareNames(a.action.name, b.action.name));
     return by;
   }, [rows]);
-  const allWaiting = useMemo(() => waitSections(deals, threshold).map((w) => ({ ...w, deals: [...w.deals].sort((a, b) => b.waitDays - a.waitDays || compareNames(a.name, b.name)) })), [deals, threshold]);
-  // Waiting on someone lists deals, so it follows the Deals tick.
-  const waiting = useMemo(() => (laneShown("Deals", show) ? allWaiting : allWaiting.map((w) => ({ ...w, deals: [] }))), [allWaiting, show]);
-  const laneCounts = useMemo(() => {
-    const c = Object.fromEntries(SHOW_LANES.map((l) => [l, 0])) as Record<ShowLane, number>;
-    for (const r of allRows) c[r.lane]++;
-    c.Deals += allWaiting.reduce((s, w) => s + w.deals.length, 0);
-    return c;
-  }, [allRows, allWaiting]);
+  const tiles: Tile<LaneSectionKey>[] = TILE_KEYS.map((k) => ({ key: k, label: TILE_LABEL[k], count: sectionsOf[k].length, red: k === "overdue" }));
+  const found = (r: Row) => matchesActionSearch(r.action, query);
 
-  const rowMatches = (r: Row, f: DealFilter) => matchesFilter({ name: r.name, status: r.status, nextAction: r.nextAction, nextActionDue: r.nextActionDue, waitLevel: r.waitLevel }, f, today);
-  const counts = useMemo(() => {
-    const waitRows = waiting.flatMap((w) => w.deals);
-    const count = (f: DealFilter) => rows.filter((r) => rowMatches(r, f)).length + waitRows.filter((d) => matchesFilter(d, f, today)).length;
-    return { all: rows.length + waitRows.length, today: count("today"), wait: count("wait"), needs: count("needs") };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, waiting, today]);
-  const shownRow = (r: Row) => rowMatches(r, filter) && matchesActionSearch(r.action, query);
-  const shownDeal = (d: DealRow) => matchesFilter(d, filter, today) && (!query.trim() || d.name.toLowerCase().includes(query.trim().toLowerCase()));
-
-  const SECTIONS: { key: LaneSectionKey; label: string }[] = [
-    { key: "overdue", label: "Overdue" },
-    { key: "today", label: "Due today" },
-    { key: "needs", label: "Needs a next action" },
-  ];
-  // The filter decides which sections open; Find narrows the rows inside them.
-  const states = useMemo(
-    () => [...SECTIONS.map((s) => ({ name: s.label, count: sectionsOf[s.key].length, hasMatch: sectionsOf[s.key].some((r) => rowMatches(r, filter)), defaultOpen: s.key === "today" })), ...waiting.map((w) => ({ name: w.label, count: w.deals.length, hasMatch: w.deals.some((d) => matchesFilter(d, filter, today)), defaultOpen: false }))],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sectionsOf, waiting, filter, today],
-  );
-  // Only Due today opens by default; what is opened or closed is remembered for the rest of the day (approved 2026-11-03).
-  const sections = useSections(`${STORAGE_KEY}:${today}`, states, filter !== "all");
-  const pick = (f: DealFilter) => {
-    setFilter(f);
-    sections.resetOverrides();
+  // ---------- The tiles ----------
+  const [chosenTile, setChosenTile] = useState<LaneSectionKey | null>(null);
+  const selected = selectedTile(chosenTile, tiles, order);
+  const pickTile = (k: LaneSectionKey) => {
+    const next = clickTile({ order, selected }, k);
+    if (!next.changed) return;
+    if (order !== next.order) pickOrder(next.order);
+    setChosenTile(next.selected);
+    toListTop();
   };
-  const pickShow = (lanes: ShowLane[] | null) => {
-    setChosenShow({ lanes });
+  const setTicks = (t: Ticks) => {
+    setChosenTicks(t);
     try {
-      if (lanes) window.localStorage.setItem(SHOW_STORAGE_KEY, JSON.stringify(lanes));
-      else window.localStorage.removeItem(SHOW_STORAGE_KEY);
+      const v = ticksToParam(t);
+      if (v) window.localStorage.setItem(AREA_STORAGE_KEY, v);
+      else window.localStorage.removeItem(AREA_STORAGE_KEY);
     } catch {
       /* no storage: the choice holds until the page reloads */
     }
-    sections.resetOverrides();
+    // A Filter tick that drops the selected tile to 0 selects the first tile with items.
+    const nextRows = allRows.filter((r) => !(t.area ?? []).length || (t.area ?? []).includes(r.area));
+    const nextTiles = TILE_KEYS.map((k) => ({ key: k, count: nextRows.filter((r) => r.section === k).length }));
+    if (selected) setChosenTile(tileAfterFilter(selected, nextTiles));
   };
 
-  const actionCount = rows.length;
+  // ---------- Waiting on someone: never filtered ----------
+  const waiting = useMemo(() => waitSections(deals, threshold).map((w) => ({ ...w, deals: [...w.deals].sort((a, b) => b.waitDays - a.waitDays || compareNames(a.name, b.name)) })), [deals, threshold]);
   const waitCount = waiting.reduce((s, w) => s + w.deals.length, 0);
-  const aiRows = useMemo(() => (aiOrder ? applyAiOrder([...sectionsOf.overdue, ...sectionsOf.today], aiOrder.order) : []), [aiOrder, sectionsOf]);
+  const [waitOpen, setWaitOpen] = useState<Record<string, boolean>>({});
+
+  const shownCount = rows.filter(found).length;
+  const aiRows = useMemo(() => (aiOrder ? applyAiOrder([...sectionsOf.overdue, ...sectionsOf.today, ...sectionsOf.needs], aiOrder.order) : []), [aiOrder, sectionsOf]);
   const byAi = order === "ai" && !!aiOrder;
   // Work through (push C): every row due today or earlier, in the order Next actions shows them.
   const [working, setWorking] = useState(false);
-  const steps = useMemo(() => (byAi ? aiRows : [...sectionsOf.overdue, ...sectionsOf.today]).map((r) => r.step).filter((x): x is WorkStep => !!x), [byAi, aiRows, sectionsOf]);
+  const steps = useMemo(() => (byAi ? aiRows.filter((r) => r.section !== "needs") : [...sectionsOf.overdue, ...sectionsOf.today]).map((r) => r.step).filter((x): x is WorkStep => !!x), [byAi, aiRows, sectionsOf]);
+
+  // The desktop bento fills the window under the header: its top is measured once the page is at the top.
+  const bentoRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const set = () => {
+      const b = bentoRef.current;
+      if (b && window.scrollY === 0) b.style.setProperty("--bento-top", `${b.getBoundingClientRect().top}px`);
+    };
+    set();
+    window.addEventListener("resize", set);
+    return () => window.removeEventListener("resize", set);
+  }, []);
+
+  // The Filter window: the count beside each area is how many next actions would show (with Find).
+  const filterCounts = optionCounts(allRows.filter(found), AREA_GROUP, ticks);
+  const showN = rows.filter(found).length;
+  const filterSlot = { count: ticked.length, open: () => setFilterOpen(true) };
 
   /**
    * One row box; with a number (the AI order) the row sits beside a small purple badge in its own 54px column (the
    * card's 22px edge, the 18px badge, a 14px gap), level with the name line, so it never touches the stage mark or the
-   * lane pill (Edit batch C, item 1).
+   * area pill (Edit batch C, item 1).
    */
   const rowBox = (r: Row, number?: number) => (
-    <div key={r.key} className={cn("border-t border-slate-100 first:border-t-0", number !== undefined && "grid grid-cols-[54px_minmax(0,1fr)] items-start", !shownRow(r) && "hidden")} data-testid="home-row" data-lane={r.lane.toLowerCase().replace(" ", "-")} data-key={r.key} data-hidden={shownRow(r) ? "0" : "1"}>
+    <div key={r.key} className={cn("border-t border-slate-100 first:border-t-0", number !== undefined && "grid grid-cols-[54px_minmax(0,1fr)] items-start")} data-testid="home-row" data-lane={r.lane.toLowerCase().replace(" ", "-")} data-area={r.area} data-key={r.key} data-section={r.section}>
       {number !== undefined ? (
         <span className="pt-[11px] pl-[22px]" data-col="ai-number">
           <span className="tabular inline-flex h-[18px] w-[18px] items-center justify-center rounded-full border border-violet/30 bg-violet-soft text-[11px] font-semibold text-violet" aria-hidden data-testid="ai-order-number">
@@ -230,110 +242,148 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
     </div>
   );
 
+  const narrowed = ticked.length > 0 || !!query.trim();
+  const empty = (k: LaneSectionKey | null) => (
+    <div className="px-[22px] py-[22px] text-[13px] text-muted-foreground" data-testid="now-actions-empty">
+      <b className="mb-0.5 block text-[13.5px] font-semibold text-heading">{narrowed ? "Nothing matches." : k ? TILE_EMPTY[k] : "Nothing is due today."}</b>
+      {narrowed ? "Change the filter or the Find box." : "Pick another tile above."}
+    </div>
+  );
+  const list = selected ? sectionsOf[selected].filter(found) : [];
+  const aiList = aiRows.filter(found);
+
   return (
     <BlockTimeProvider today={today} nowLocal={data.nowLocal} blockMinutes={data.blockMinutes} rowBlocks={data.rowBlocks} calendar={data.calendar}>
-      <PinnedBlock testId="home-sticky">
-        {header}
-        <FilterRow prefix="home" filters={DEAL_FILTERS} active={filter} counts={counts} onPick={pick} query={query} onQuery={setQuery} placeholder="Find" collapse={{ allCollapsed: sections.allCollapsed, onClick: sections.toggleAll }} className="-mt-2" extra={<ShowFilter choice={show} counts={laneCounts} onChange={pickShow} />} />
-      </PinnedBlock>
-
-      <div className="grid grid-cols-1 items-start gap-[18px] lg:h-[calc(100vh-272px)] lg:min-h-[460px] lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] lg:items-stretch" data-testid="home-bento">
-        <WorkCard
-          id="now-actions"
-          title="Next actions"
-          count={actionCount}
-          sub={byAi ? "Every lane, in the AI's order; one reason under each row" : "Every lane, due today or earlier, soonest first"}
-          actions={
+      <SlimBar title="Work on now" chips={<TileChips tiles={tiles} selected={selected} onPick={pickTile} label="Next actions" idPrefix="home-chip" panelId={PANEL_ID} />} tools={<SlimTools findId={FIND_ID} filterCount={filterSlot.count} onFilter={filterSlot.open} />} />
+      <header className="pb-5" data-testid="home-header">
+        <TitleRow
+          title="Work on now"
+          date={dateLabel}
+          tools={
             <>
-              <button type="button" onClick={() => setWorking(true)} disabled={!steps.length} className="mr-1 inline-flex h-[30px] items-center gap-1.5 rounded-[7px] border border-primary-solid bg-primary-solid px-3 text-[13px] font-medium whitespace-nowrap text-white hover:border-primary-solid-hover hover:bg-primary-solid-hover disabled:opacity-50" data-testid="work-through-open" title={steps.length ? `Step through the ${steps.length} due today or earlier, one at a time` : "Nothing is due today"}>
-                <Play className="h-3 w-3 fill-current" aria-hidden />
-                Work through
-              </button>
-              <span className="text-[13px] text-muted-foreground">Order:</span>
-              <div className="inline-flex rounded-full border border-border bg-slate-50 p-0.5" role="radiogroup" aria-label="Order" data-testid="home-order">
-                {(["soonest", "ai"] as OrderChoice[]).map((c) => (
-                  <button key={c} type="button" role="radio" aria-checked={order === c} onClick={() => pickOrder(c)} className={cn("rounded-full px-3 py-[3px] text-[12.5px] font-medium whitespace-nowrap", order === c ? "bg-white text-primary-strong shadow-[0_1px_2px_rgba(15,23,42,0.08)]" : "text-slate-600 hover:text-slate-900")} data-testid={`home-order-${c}`}>
-                    {c === "soonest" ? "Soonest first" : "By the AI"}
-                  </button>
-                ))}
-              </div>
-              <AiCardStar context={{ ...HOME_ASK, card: "Next actions" }} compose={askCompose} />
+              <FindBox id={FIND_ID} value={query} onChange={setQuery} testId="home-search" />
+              <FilterButton ticked={filterSlot.count} onOpen={filterSlot.open} />
             </>
           }
-          testId="now-actions"
-          headerClassName={NOW_HEADER}
-          pinned
-          scroll
-          className="lg:h-full"
-        >
-          {actionCount ? (
+          askAi={askAi}
+        />
+        {tabs}
+      </header>
+      <FilterWindow
+        open={filterOpen}
+        onOpenChange={setFilterOpen}
+        groups={AREA_GROUP}
+        ticks={ticks}
+        counts={filterCounts}
+        onToggle={(g, v) => setTicks(toggleTick(ticks, g, v))}
+        onClearGroup={() => setTicks({})}
+        onClearAll={() => setTicks({})}
+        summary={areaSummary(ticked)}
+        show={`Show ${showN} next action${showN === 1 ? "" : "s"}`}
+        sub="Tick one or more areas. The number beside each is how many next actions you would see. Waiting on someone is not filtered."
+      />
+
+      <div ref={bentoRef} className="grid grid-cols-1 items-start gap-[18px] lg:-mb-[72px] lg:h-[calc(100vh-var(--bento-top,104px)-24px)] lg:min-h-[460px] lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] lg:items-stretch" data-testid="home-bento">
+        <div className="flex min-h-0 min-w-0 flex-col gap-6" data-testid="home-left">
+          <StatusTiles tiles={tiles} selected={selected} onPick={pickTile} label="Next actions" idPrefix="home-tile" panelId={PANEL_ID} testId="home-tiles" />
+          <WorkCard
+            id={PANEL_ID}
+            ref={listRef}
+            role="tabpanel"
+            labelledBy={selected ? `home-tile-${selected}` : undefined}
+            title="Next actions"
+            count={shownCount}
+            sub={byAi ? "Every area, in the AI's order; one reason under each row" : "Every area, due today or earlier, soonest first"}
+            actions={
+              <>
+                <button type="button" onClick={() => setWorking(true)} disabled={!steps.length} className="mr-1 inline-flex h-[30px] items-center gap-1.5 rounded-[7px] border border-primary-solid bg-primary-solid px-3 text-[13px] font-medium whitespace-nowrap text-white hover:border-primary-solid-hover hover:bg-primary-solid-hover disabled:opacity-50" data-testid="work-through-open" title={steps.length ? `Step through the ${steps.length} due today or earlier, one at a time` : "Nothing is due today"}>
+                  <Play className="h-3 w-3 fill-current" aria-hidden />
+                  Work through
+                </button>
+                <span className="inline-flex items-center gap-2 whitespace-nowrap">
+                <span className="text-[12.5px] text-muted-foreground">Order:</span>
+                <div className="inline-flex rounded-full border border-border bg-white p-px" role="radiogroup" aria-label="Order" data-testid="home-order">
+                  {(["soonest", "ai"] as OrderChoice[]).map((c) => (
+                    <button key={c} type="button" role="radio" aria-checked={order === c} onClick={() => pickOrder(c)} className={cn("rounded-full px-3 py-1 text-[12.5px] font-medium whitespace-nowrap", order === c ? "bg-primary-soft text-primary-strong shadow-[inset_0_0_0_1.5px_var(--primary)]" : "text-heading hover:bg-slate-100")} data-testid={`home-order-${c}`}>
+                      {c === "soonest" ? "Soonest first" : "By the AI"}
+                    </button>
+                  ))}
+                </div>
+                </span>
+                <AiCardStar context={{ ...HOME_ASK, card: "Next actions" }} compose={askCompose} />
+              </>
+            }
+            testId="now-actions"
+            pinned
+            scroll
+            className="lg:min-h-0 lg:flex-1 lg:overscroll-contain"
+          >
             <StickySections under="card" className="px-[22px] pb-3">
               {order === "ai" ? (
-                <div className="mt-3 mb-1 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-border py-1.5 pb-[7px]" data-testid="ai-order-heading">
-                  <span className="text-[11.5px] font-semibold tracking-[0.09em] text-violet uppercase">{aiOrder ? orderedAtLabel(aiOrder.createdAt, today, data.hourLocal) : ordering ? "Asking the AI for the order..." : "By the AI"}</span>
-                  <span className="flex items-center gap-3 text-xs text-slate-400">
-                    {aiOrder ? <span className="hidden sm:inline">One reason under each row</span> : null}
-                    <button type="button" onClick={() => askOrder(true)} disabled={ordering} className="font-medium text-violet hover:underline disabled:text-slate-400 disabled:no-underline" data-testid="ai-order-again">
-                      {ordering ? <Thinking /> : aiOrder ? "Order again" : "Ask now"}
-                    </button>
-                  </span>
-                </div>
-              ) : null}
-              {order === "ai" && orderError ? (
-                <p className="rounded-lg border border-status-missed-border bg-status-missed-bg px-3.5 py-2 text-[13px] text-status-missed" role="alert" data-testid="ai-order-error">
-                  {orderError.error}
-                  {orderError.reply ? (
-                    <>
-                      {" "}
-                      Its reply: <q className="text-slate-700 italic" data-testid="ai-order-error-reply">{orderError.reply}</q>
-                    </>
-                  ) : null}{" "}
-                  Showing soonest first.{" "}
-                  <button type="button" onClick={() => askOrder(true)} disabled={ordering} className="font-medium text-primary-strong hover:underline" data-testid="ai-order-retry">
-                    Try again
-                  </button>
-                </p>
-              ) : null}
-              {byAi ? (
-                <div className="-mx-[22px] flex flex-col" data-testid="ai-order-rows">
-                  {aiRows.map((r, n) => rowBox(r, n + 1))}
-                </div>
-              ) : null}
-              {SECTIONS.filter((s) => !byAi || s.key === "needs").map((s) => {
-                const list = sectionsOf[s.key];
-                const closed = sections.isCollapsed(s.label);
-                return (
-                  <div key={s.key} data-testid="home-section" data-section={s.key} data-collapsed={closed ? "1" : "0"}>
-                    <SectionHeading name={s.label} count={list.length} collapsed={closed} onToggle={() => sections.toggle(s.label)} band urgent={s.key === "overdue"} />
-                    {list.length && !closed ? (
-                      <div className="-mx-[22px] flex flex-col" data-testid="section-body">
-                        {list.map((r) => rowBox(r))}
-                      </div>
-                    ) : null}
+                <>
+                  <div className={cn(BAND_CLS, "cursor-default flex-wrap justify-between gap-x-3 gap-y-1 text-violet")} data-testid="ai-order-heading">
+                    <span>{aiOrder ? orderedAtLabel(aiOrder.createdAt, today, data.hourLocal) : ordering ? "Asking the AI for the order..." : "By the AI"}</span>
+                    <span className="flex items-center gap-3 text-[12.5px] font-normal tracking-normal text-slate-400 normal-case">
+                      {aiOrder ? <span className="hidden sm:inline">One reason under each row</span> : null}
+                      <button type="button" onClick={() => askOrder(true)} disabled={ordering} className="font-medium text-violet hover:underline disabled:text-slate-400 disabled:no-underline" data-testid="ai-order-again">
+                        {ordering ? <Thinking /> : aiOrder ? "Order again" : "Ask now"}
+                      </button>
+                    </span>
                   </div>
-                );
-              })}
+                  {orderError ? (
+                    <p className="mt-3 rounded-lg border border-status-missed-border bg-status-missed-bg px-3.5 py-2 text-[13px] text-status-missed" role="alert" data-testid="ai-order-error">
+                      {orderError.error}
+                      {orderError.reply ? (
+                        <>
+                          {" "}
+                          Its reply: <q className="text-slate-700 italic" data-testid="ai-order-error-reply">{orderError.reply}</q>
+                        </>
+                      ) : null}{" "}
+                      Pick a tile to see the lists soonest first.{" "}
+                      <button type="button" onClick={() => askOrder(true)} disabled={ordering} className="font-medium text-primary-strong hover:underline" data-testid="ai-order-retry">
+                        Try again
+                      </button>
+                    </p>
+                  ) : null}
+                  {byAi ? (
+                    aiList.length ? (
+                      <div className="-mx-[22px] flex flex-col" data-testid="ai-order-rows">
+                        {aiList.map((r, n) => rowBox(r, n + 1))}
+                      </div>
+                    ) : (
+                      <div className="-mx-[22px]">{empty(null)}</div>
+                    )
+                  ) : null}
+                </>
+              ) : selected ? (
+                <div data-testid="home-list" data-section={selected}>
+                  <ListBand name={TILE_LABEL[selected]} count={list.length} urgent={selected === "overdue"} testId="home-band" />
+                  {list.length ? (
+                    <div className="-mx-[22px] flex flex-col" data-testid="section-body">
+                      {list.map((r) => rowBox(r))}
+                    </div>
+                  ) : (
+                    <div className="-mx-[22px]">{empty(selected)}</div>
+                  )}
+                </div>
+              ) : null}
             </StickySections>
-          ) : (
-            <p className="px-[22px] py-4 text-[13px] text-muted-foreground" data-testid="now-actions-empty">
-              {show ? "Nothing is due today in the lanes ticked under Show." : "Nothing is due today and every record has a next action. Deals, Contacts, Rosara, Job search, and Consulting list every next action."}
-            </p>
-          )}
-        </WorkCard>
+          </WorkCard>
+        </div>
 
-        <div className="flex min-w-0 flex-col gap-[18px] lg:h-full lg:overflow-y-auto" data-testid="home-right">
-          <WorkCard id="now-wait" headerClassName={NOW_HEADER} title="Waiting on someone" count={waitCount} sub={`Amber at ${threshold} days, red at ${threshold * 2}`} testId="now-wait" pinned>
+        <div className="flex min-w-0 flex-col gap-[18px] lg:h-full lg:overflow-y-auto lg:overscroll-contain lg:pb-0.5" data-testid="home-right">
+          <WorkCard id="now-wait" title="Waiting on someone" count={waitCount} sub={`Amber at ${threshold} days, red at ${threshold * 2}`} testId="now-wait" pinned headerClassName="sticky top-0 z-[2]" className="max-h-[340px] shrink-0 overflow-y-auto overscroll-contain">
             {waitCount ? (
-              <StickySections under="card" className="px-[22px] pb-3">
+              <StickySections under="card" always className="px-[22px] pb-3">
                 {waiting.map((w) => {
-                  const closed = sections.isCollapsed(w.label);
+                  const closed = !waitOpen[w.key];
                   return (
                     <div key={w.key} data-testid="home-section" data-section={`wait-${w.key}`} data-collapsed={closed ? "1" : "0"}>
-                      <SectionHeading name={w.label} count={w.deals.length} collapsed={closed} onToggle={() => sections.toggle(w.label)} band />
+                      <SectionHeading name={w.label} count={w.deals.length} collapsed={closed} onToggle={() => setWaitOpen((m) => ({ ...m, [w.key]: !m[w.key] }))} band />
                       {w.deals.length && !closed ? (
                         <div className="-mx-[22px] flex flex-col" data-testid="section-body">
                           {w.deals.map((deal) => (
-                            <div key={deal.id} className={cn("border-t border-slate-100 first:border-t-0", !shownDeal(deal) && "hidden")} data-testid="home-row" data-hidden={shownDeal(deal) ? "0" : "1"}>
+                            <div key={deal.id} className="border-t border-slate-100 first:border-t-0" data-testid="home-row">
                               <WaitingRow deal={deal} followedUp={!!followedUp[deal.id]} onFollowUp={() => setFollowUp(deal)} />
                             </div>
                           ))}
@@ -345,7 +395,7 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
               </StickySections>
             ) : (
               <p className="px-[22px] py-4 text-[13px] text-muted-foreground" data-testid="now-wait-empty">
-                {laneShown("Deals", show) ? "Nobody is keeping you waiting." : "Deals is not ticked under Show."}
+                Nobody is keeping you waiting.
               </p>
             )}
           </WorkCard>

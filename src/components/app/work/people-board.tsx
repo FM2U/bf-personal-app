@@ -5,36 +5,45 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Mail } from "lucide-react";
 import { ComposeEmailDialog } from "@/components/app/compose-email";
-import { FilterChips, FilterRow, FilterWindow, type FilterView } from "@/components/app/filter-window";
+import { FilterChips, FilterWindow, type FilterView } from "@/components/app/filter-window";
 import { StickySections } from "@/components/app/work/sticky-sections";
 import type { ComposeSetup } from "@/lib/compose-email";
 import { activeChips, applyFilters, clearGroup, filterSummary, optionCounts, showLabel, tickedCount, ticksToParam, toggleTick, type FilterGroup, type Ticks } from "@/lib/filters";
 import { date as fmtDate } from "@/lib/format";
-import { lastContactLabel, matchesPersonSearch, OUTREACH_SECTIONS, outreachSections } from "@/lib/work/outreach";
+import { lastContactLabel, matchesPersonSearch, OUTREACH_SECTIONS, outreachSections, type OutreachSectionKey } from "@/lib/work/outreach";
 import type { OutreachData, PersonRow as PersonRowData } from "@/lib/work/outreach-data";
 import type { OrganizationsData, OrgRow } from "@/lib/work/organizations-data";
-import { byName, matchesOrgSearch, onFollowUps, orgFilterGroups, organizationHref, orgLine, PEOPLE_HREF, PEOPLE_VIEWS, peopleNamesLine, peopleViewHref, personFilterGroups, personHref, type PeopleView } from "@/lib/work/people";
+import { byName, followUpFilterGroups, matchesOrgSearch, onFollowUps, orgFilterGroups, organizationHref, orgLine, PEOPLE_HREF, PEOPLE_VIEWS, peopleNamesLine, peopleViewHref, personFilterGroups, personHref, type PeopleView } from "@/lib/work/people";
+import { selectedTile, tileAfterFilter, type Tile } from "@/lib/work/tiles";
 import { AddOrganizationCard } from "@/components/app/work/add-organization";
 import { AddPersonCard } from "@/components/app/work/add-person";
 import { LogCallDrawer, type LogCallTarget } from "@/components/app/work/log-call-drawer";
 import { PersonRow } from "@/components/app/work/person-row";
-import { useSections } from "@/components/app/work/sections";
-import { Figure, Figures, Line1, Line2, Name, Pill, PinnedBlock, Quiet, ROW_COLS, RowButton, RowButtons, RowShell, SectionHeading, TargetBar, What, WorkCard } from "@/components/app/work/ui";
+import { SlimBar, SlimTools } from "@/components/app/work/slim-bar";
+import { StatusTiles, TileChips } from "@/components/app/work/status-tiles";
+import { FilterButton, FindBox, TitleRow, ViewSelector } from "@/components/app/work/title-row";
+import { Figure, Figures, Line1, Line2, ListBand, Name, Pill, Quiet, ROW_COLS, RowButton, RowButtons, RowShell, TargetBar, What, WorkCard } from "@/components/app/work/ui";
 
 /**
- * Contacts (push B, 2026-11-03; Outreach renamed People, then Contacts in the Push B edits): the pinned block with the
- * title, the add button, the Work tabs, and one row: the view choice (Follow-ups, People, Organizations, each with the
- * number of rows it shows), Find, and the Filter button; the ticked choices as chips under it. The Filter window
- * (src/components/app/filter-window.tsx) has the view choice at its top and the groups of that view; each view keeps
- * its own ticks (in the address, so a reload keeps them).
- *  - Follow-ups: what Outreach was. The weekly counter and the sections by next follow-up; Email, Log a call, Done.
+ * Contacts (push B, 2026-11-03; Outreach renamed People, then Contacts in the Push B edits; the header of 2026-11-04):
+ * the title row with Add a person (or Add an organization) and Ask AI; under it the view choice as the page's main
+ * control (Follow-ups, People, Organizations, each with the number of rows it shows) with Find and the Filter button
+ * at the right; the ticked choices as chips; the top menu row under 1024px. Each view keeps its own ticks (in the
+ * address, so a reload keeps them); the Filter window has the groups of the view.
+ *  - Follow-ups: five tiles that work like tabs (Overdue, Due today, Next 7 days, Later, No date;
+ *    src/lib/work/tiles.ts), then one card: the weekly counter and the selected tile's list under its pinned band;
+ *    Email, Log a call, Done. Its Filter has Role and Project only.
  *  - People: every person A to Z in one card; Email and Log a call.
  *  - Organizations: every organization A to Z with its kind and region, the people there, open deals, last contact;
  *    Email. Archived ones show when Status: Archived is ticked.
- * Archived people sit in a slim bar at the bottom of Follow-ups and People.
+ * After about 40px of scroll the slim pinned bar slides in: the small title, the compact view choice, the tiles as
+ * chips (Follow-ups), and Find and Filter as icon buttons. Archived people sit in a slim bar at the bottom of
+ * Follow-ups and People.
  */
-const STORAGE_KEY = "work-outreach-sections";
 const CARD = "rounded-xl border border-border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]";
+const FIND_ID = "contacts-find";
+const PANEL_ID = "follow-panel";
+const FOLLOW_EMPTY: Record<OutreachSectionKey, string> = { overdue: "Nobody is overdue.", today: "Nobody is due today.", week: "Nobody is due in the next 7 days.", later: "Nobody is due later.", nodate: "Everyone has a follow-up date." };
 
 export type PeopleTicks = Record<PeopleView, Ticks>;
 
@@ -51,7 +60,7 @@ function viewUrl(view: PeopleView, ticks: PeopleTicks): string {
   return s ? `${PEOPLE_HREF}?${s}` : PEOPLE_HREF;
 }
 
-export function PeopleBoard({ header, view: viewAtStart, data, orgs, adding, saved, ticks: ticksAtStart }: { header: React.ReactNode; view: PeopleView; data: OutreachData; orgs: OrganizationsData; adding: boolean; saved?: string | null; ticks: PeopleTicks }) {
+export function PeopleBoard({ view: viewAtStart, data, orgs, adding, saved, ticks: ticksAtStart, addButton, askAi, tabs }: { view: PeopleView; data: OutreachData; orgs: OrganizationsData; adding: boolean; saved?: string | null; ticks: PeopleTicks; /** Add a person or Add an organization (server-rendered, follows the view). */ addButton: React.ReactNode; askAi: React.ReactNode; /** The top menu row (under 1024px). */ tabs: React.ReactNode }) {
   const router = useRouter();
   const [view, setView] = useState<PeopleView>(viewAtStart);
   const [prevView, setPrevView] = useState(viewAtStart);
@@ -75,25 +84,30 @@ export function PeopleBoard({ header, view: viewAtStart, data, orgs, adding, sav
   const kindById = useMemo(() => new Map(allOrgs.map((o) => [o.id, o.kind as string])), [allOrgs]);
   const heldKinds = useMemo(() => [...new Set(allOrgs.map((o) => o.kind as string))], [allOrgs]);
   const pGroups = useMemo(() => personFilterGroups<PersonRowData>(today, (id) => kindById.get(id) ?? null, heldKinds), [today, kindById, heldKinds]);
+  const fGroups = useMemo(() => followUpFilterGroups<PersonRowData>(), []);
   const oGroups = useMemo(() => orgFilterGroups<OrgRow>(allOrgs), [allOrgs]);
 
   const followBase = useMemo(() => data.people.filter(onFollowUps), [data.people]);
   const peopleBase = useMemo(() => byName(data.people), [data.people]);
   const searchPeople = (list: PersonRowData[]) => list.filter((p) => matchesPersonSearch(p, query));
   const searchOrgs = (list: OrgRow[]) => list.filter((o) => matchesOrgSearch(o, query));
-  const followRows = useMemo(() => applyFilters(followBase, pGroups, ticks.follow).filter((p) => matchesPersonSearch(p, query)), [followBase, pGroups, ticks.follow, query]);
+  // Follow-ups: the ticks pick the people (and the tile numbers); Find narrows the list under the selected tile.
+  const followTicked = useMemo(() => applyFilters(followBase, fGroups, ticks.follow), [followBase, fGroups, ticks.follow]);
+  const followRows = useMemo(() => followTicked.filter((p) => matchesPersonSearch(p, query)), [followTicked, query]);
   const peopleRows = useMemo(() => applyFilters(peopleBase, pGroups, ticks.people).filter((p) => matchesPersonSearch(p, query)), [peopleBase, pGroups, ticks.people, query]);
   const orgRows = useMemo(() => applyFilters(allOrgs, oGroups, ticks.orgs).filter((o) => matchesOrgSearch(o, query)), [allOrgs, oGroups, ticks.orgs, query]);
   // The number on each view is the rows it shows (its ticks and the search); the menu badge keeps "due now".
   const views: FilterView<PeopleView>[] = PEOPLE_VIEWS.map((v) => ({ key: v.key, label: v.label, count: v.key === "follow" ? followRows.length : v.key === "people" ? peopleRows.length : orgRows.length }));
 
-  const sections = useMemo(() => outreachSections(followRows, today), [followRows, today]);
-  const filtering = tickedCount(pGroups, ticks.follow) > 0 || !!query.trim();
-  // Only Due today opens by default; what is opened or closed is remembered for the rest of the day (approved 2026-11-03).
-  const states = useMemo(() => OUTREACH_SECTIONS.map((s) => ({ name: s.label, count: sections[s.key].length, hasMatch: sections[s.key].length > 0, defaultOpen: s.key === "today" })), [sections]);
-  const ui = useSections(`${STORAGE_KEY}:${today}`, states, filtering);
+  // ---------- The Follow-ups tiles ----------
+  const tileSections = useMemo(() => outreachSections(followTicked, today), [followTicked, today]);
+  const tiles: Tile<OutreachSectionKey>[] = OUTREACH_SECTIONS.map((s) => ({ key: s.key, label: s.label, count: tileSections[s.key].length, red: s.key === "overdue" }));
+  const [chosenTile, setChosenTile] = useState<OutreachSectionKey | null>(null);
+  const selected = selectedTile(chosenTile, tiles) as OutreachSectionKey;
+  const listed = tileSections[selected].filter((p) => matchesPersonSearch(p, query));
 
   const pickView = (v: PeopleView) => {
+    if (v === view) return;
     setView(v);
     router.replace(viewUrl(v, ticks), { scroll: false });
   };
@@ -101,8 +115,13 @@ export function PeopleBoard({ header, view: viewAtStart, data, orgs, adding, sav
     const next = { ...ticks, [v]: t };
     setTicks(next);
     router.replace(viewUrl(view, next), { scroll: false });
+    // A Filter tick that drops the selected tile to 0 selects the first tile with items.
+    if (v === "follow") {
+      const s = outreachSections(applyFilters(followBase, fGroups, t), today);
+      setChosenTile(tileAfterFilter(selected, OUTREACH_SECTIONS.map((x) => ({ key: x.key, count: s[x.key].length }))));
+    }
   };
-  const groupsOf = (v: PeopleView) => (v === "orgs" ? (oGroups as FilterGroup<unknown>[]) : (pGroups as FilterGroup<unknown>[]));
+  const groupsOf = (v: PeopleView) => (v === "orgs" ? (oGroups as FilterGroup<unknown>[]) : v === "follow" ? (fGroups as FilterGroup<unknown>[]) : (pGroups as FilterGroup<unknown>[]));
   const rowsForCounts = (v: PeopleView): unknown[] => (v === "orgs" ? searchOrgs(allOrgs) : v === "people" ? searchPeople(peopleBase) : searchPeople(followBase));
   const g = groupsOf(view);
   const t = ticks[view];
@@ -111,6 +130,7 @@ export function PeopleBoard({ header, view: viewAtStart, data, orgs, adding, sav
   const noun = view === "orgs" ? "organizations" : "people";
   const summary = filterSummary(g, t, noun, view === "orgs" ? "that are" : "who are");
   const show = view === "orgs" ? showLabel(shownCount, "organization", "organizations") : showLabel(shownCount, "person", "people");
+  const ticked = tickedCount(g, t);
 
   const onEmailPerson = (p: PersonRowData) => data.composes[p.id] && setEmail({ key: p.id, setup: data.composes[p.id] });
   const onCallPerson = (p: PersonRowData) => {
@@ -124,17 +144,30 @@ export function PeopleBoard({ header, view: viewAtStart, data, orgs, adding, sav
       Change or clear the filters.
     </Quiet>
   );
+  const pickTile = (k: OutreachSectionKey) => setChosenTile(k);
+  const placeholder = view === "orgs" ? "Find an organization" : "Find a person";
 
   return (
     <>
-      <PinnedBlock testId="people-sticky">
-        {header}
-        <div className="-mt-2" data-testid="people-filter-row">
-          <FilterRow views={views} view={view} onView={pickView} query={query} onQuery={setQuery} placeholder={view === "orgs" ? "Find an organization" : "Find a person"} ticked={tickedCount(g, t)} onOpen={() => setFilterOpen(true)} collapse={view === "follow" && followRows.length ? { allCollapsed: ui.allCollapsed, onClick: ui.toggleAll } : null} />
-          <FilterChips chips={activeChips(g, t)} onRemove={(group, value) => setViewTicks(view, toggleTick(t, group, value))} onClear={() => setViewTicks(view, {})} />
+      <SlimBar
+        title="Contacts"
+        seg={<ViewSelector views={views} active={view} onPick={pickView} compact testId="slim-view" />}
+        chips={view === "follow" ? <TileChips tiles={tiles} selected={selected} onPick={pickTile} label="Follow-ups" idPrefix="follow-chip" panelId={PANEL_ID} /> : null}
+        tools={<SlimTools findId={FIND_ID} filterCount={ticked} onFilter={() => setFilterOpen(true)} />}
+      />
+      <header className="pb-5" data-testid="people-header">
+        <TitleRow title="Contacts" add={addButton} askAi={askAi} />
+        <div className="mt-3.5 flex flex-wrap items-center gap-x-3 gap-y-2.5" data-testid="people-filter-row">
+          <ViewSelector views={views} active={view} onPick={pickView} />
+          <div className="ml-auto flex items-center gap-2.5 max-[700px]:ml-0 max-[700px]:basis-full">
+            <FindBox id={FIND_ID} value={query} onChange={setQuery} placeholder={placeholder} testId="filter-search" />
+            <FilterButton ticked={ticked} onOpen={() => setFilterOpen(true)} />
+          </div>
         </div>
-      </PinnedBlock>
-      <FilterWindow open={filterOpen} onOpenChange={setFilterOpen} views={views} view={view} onView={pickView} groups={g} ticks={t} counts={counts} onToggle={(group, value) => setViewTicks(view, toggleTick(t, group, value))} onClearGroup={(group) => setViewTicks(view, clearGroup(t, group))} onClearAll={() => setViewTicks(view, {})} summary={summary} show={show} />
+        <FilterChips chips={activeChips(g, t)} onRemove={(group, value) => setViewTicks(view, toggleTick(t, group, value))} onClear={() => setViewTicks(view, {})} />
+        {tabs}
+      </header>
+      <FilterWindow open={filterOpen} onOpenChange={setFilterOpen} groups={g} ticks={t} counts={counts} onToggle={(group, value) => setViewTicks(view, toggleTick(t, group, value))} onClearGroup={(group) => setViewTicks(view, clearGroup(t, group))} onClearAll={() => setViewTicks(view, {})} summary={summary} show={show} />
       <div className="flex flex-col gap-[18px]">
         {saved ? (
           <p className="rounded-md bg-status-met-bg px-3 py-2 text-[13px] text-status-met" role="status" data-testid="person-saved">
@@ -147,37 +180,39 @@ export function PeopleBoard({ header, view: viewAtStart, data, orgs, adding, sav
         {adding ? view === "orgs" ? <AddOrganizationCard onClose={() => router.push(closeHref)} /> : <AddPersonCard onClose={() => router.push(closeHref)} /> : null}
 
         {view === "follow" ? (
-          <section className={CARD} data-testid="outreach-card">
-            <TargetBar count={data.counter.count} target={data.counter.target} pct={data.counter.pct} hint="Counted from emails sent and calls logged, Mon to Fri" />
-            {/* The first band heading's top edge is the line under the counter; the hairline shows only with no sections. */}
-            {!followRows.length ? <div className="mx-[22px] h-px bg-rule" /> : null}
-            {!followBase.length ? (
-              <Quiet testId="outreach-empty">Nobody here yet. Add a person to start keeping in touch.</Quiet>
-            ) : !followRows.length ? (
-              noMatch("one")
-            ) : (
-              <StickySections under="page" className="px-[22px] pb-3">
-                {OUTREACH_SECTIONS.filter((s) => !filtering || sections[s.key].length).map((s) => {
-                  const list = sections[s.key];
-                  const closed = ui.isCollapsed(s.label);
-                  return (
-                    <div key={s.key} data-testid="outreach-section" data-section={s.key} data-collapsed={closed ? "1" : "0"}>
-                      <SectionHeading name={s.label} count={list.length} collapsed={closed} onToggle={() => ui.toggle(s.label)} hint={s.hint} band urgent={s.key === "overdue"} />
-                      {list.length && !closed ? (
-                        <div className="-mx-[22px] flex flex-col" data-testid="section-body">
-                          {list.map((p) => (
-                            <div key={p.id} className="border-t border-slate-100 first:border-t-0" data-testid="outreach-row">
-                              <PersonRow person={p} today={today} onEmail={onEmailPerson} onCall={onCallPerson} done={logged[p.id]} />
-                            </div>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </StickySections>
-            )}
-          </section>
+          <>
+            <StatusTiles tiles={tiles} selected={selected} onPick={pickTile} label="Follow-ups" idPrefix="follow-tile" panelId={PANEL_ID} testId="follow-tiles" className="mb-1.5" />
+            <section id={PANEL_ID} role="tabpanel" aria-labelledby={`follow-tile-${selected}`} className={CARD} data-testid="outreach-card">
+              <TargetBar count={data.counter.count} target={data.counter.target} pct={data.counter.pct} hint="Counted from emails sent and calls logged, Mon to Fri" className="py-3.5" />
+              {!followBase.length ? (
+                <>
+                  <div className="mx-[22px] h-px bg-rule" />
+                  <Quiet testId="outreach-empty">Nobody here yet. Add a person to start keeping in touch.</Quiet>
+                </>
+              ) : (
+                <StickySections under="page" className="px-[22px] pb-2.5">
+                  <div data-testid="outreach-section" data-section={selected}>
+                    <ListBand name={OUTREACH_SECTIONS.find((s) => s.key === selected)?.label ?? ""} count={listed.length} urgent={selected === "overdue"} hint={OUTREACH_SECTIONS.find((s) => s.key === selected)?.hint} testId="follow-band" />
+                    {listed.length ? (
+                      <div className="-mx-[22px] flex flex-col" data-testid="section-body">
+                        {listed.map((p) => (
+                          <div key={p.id} className="border-t border-slate-100 first:border-t-0" data-testid="outreach-row">
+                            <PersonRow person={p} today={today} onEmail={onEmailPerson} onCall={onCallPerson} done={logged[p.id]} />
+                          </div>
+                        ))}
+                      </div>
+                    ) : ticked || query.trim() ? (
+                      <div className="-mx-[22px]">{noMatch("one")}</div>
+                    ) : (
+                      <div className="-mx-[22px]">
+                        <Quiet testId="follow-empty">{FOLLOW_EMPTY[selected]} Pick another tile above.</Quiet>
+                      </div>
+                    )}
+                  </div>
+                </StickySections>
+              )}
+            </section>
+          </>
         ) : null}
 
         {view === "people" ? (
