@@ -72,9 +72,11 @@ const shot = async (page, name) => {
 
   await step("Contacts: the tab, the three views, the Filter window by role and by kind", async () => {
     await page.goto(`${BASE}/work/people`);
-    assert((await page.getByTestId("work-tab-work-people").innerText()).startsWith("Contacts"), "tab label");
-    assert((await page.locator("nav[aria-label='Work sections']").innerText()).includes("Contacts"), "no Contacts tab");
-    assert(!(await page.locator("nav[aria-label='Work sections']").innerText()).includes("Outreach"), "Outreach tab still there");
+    // 2026-11-04: no top menu row from 1024px; the left menu lists the Work pages.
+    assert(!(await page.getByTestId("top-menu-row").isVisible()), "no top menu row at 1440");
+    assert((await page.getByTestId("work-subnav").innerText()).includes("Contacts"), "no Contacts in the left menu");
+    assert(!(await page.getByTestId("work-subnav").innerText()).includes("Outreach"), "Outreach still in the left menu");
+    assert((await page.getByTestId("follow-tiles").locator('[data-testid="status-tile"]').count()) === 5, "the five Follow-ups tiles");
     await page.getByTestId("outreach-card").waitFor();
     assert(!(await page.getByTestId("outreach-card").innerText()).includes("Jake Morgan"), "a partner without a follow-up sits on Follow-ups");
     await page.getByTestId("people-view-people").click();

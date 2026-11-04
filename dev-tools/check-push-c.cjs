@@ -1,4 +1,6 @@
-// LOCAL TESTING ONLY. Click-through checks of push C (Work additions) against the local stand-ins: Work through, a
+// LOCAL TESTING ONLY. Click-through checks of push C (Work additions) against the local stand-ins: the header of
+// 2026-11-04 (tiles that work like tabs on Work on now, Contacts and To-dos, the Area filter, By the AI with no tile
+// selected, the day-start Soonest first, the slim pinned bar, no top menu row on desktop), Work through, a
 // repeating to-do adds the next, the Link to picker (click, type, chips, keyboard), a linked to-do shows on the
 // record, a dated record task shows on To-dos and Home and checks off everywhere, Block time creates a Google event
 // in the stand-in and the row shows "Blocked", Today's calendar, and Remove sample data.
@@ -65,17 +67,14 @@ const until = async (fn, msg, tries = 40) => {
   page.on("pageerror", (e) => errors.push(e.message));
   await g("/__reset", {});
   const today = ny();
-  // Opens a section (the open sections are remembered per day, so wait for the page to settle before reading).
-  const openSection = async (scope, key) => {
+  // Picks a status tile (2026-11-04: the tiles work like tabs; the card shows only the selected tile's list).
+  const pickTile = async (tiles, key) => {
     await page.waitForLoadState("networkidle");
-    await page.waitForTimeout(300);
-    const sec = page.locator(`${scope}[data-section="${key}"]`).first();
-    for (let i = 0; i < 3 && (await sec.getAttribute("data-collapsed")) === "1"; i++) {
-      await sec.getByTestId("section-heading").click();
-      await page.waitForTimeout(200);
-    }
-    assert((await sec.getAttribute("data-collapsed")) === "0", `the ${key} section opens`);
+    const t = page.getByTestId(tiles).locator(`[data-testid="status-tile"][data-key="${key}"]`);
+    await t.click();
+    await until(async () => (await t.getAttribute("aria-selected")) === "true", `the ${key} tile is selected`);
   };
+  const tileCount = async (tiles, key) => Number(await page.getByTestId(tiles).locator(`[data-testid="status-tile"][data-key="${key}"]`).getAttribute("data-count"));
   const homeRow = (text) => page.getByTestId("home-row").filter({ hasText: text }).first();
   const todoLine = (text) => page.getByTestId("personal-todo").filter({ hasText: text }).first();
 
@@ -93,6 +92,195 @@ const until = async (fn, msg, tries = 40) => {
     assert(conn.scopes.includes("calendar.readonly") && conn.scopes.includes("calendar.events"), "the calendar permissions are saved");
     const s = await one("select (select count(*)::int from deal_todos where record_id is null) personal, (select count(*)::int from deal_todos where repeat is not null) repeating, (select count(*)::int from time_blocks) blocks, (select count(*)::int from sample_records where table_name = 'time_blocks') tracked");
     assert(s.personal >= 6 && s.repeating >= 3 && s.blocks === 2 && s.tracked === 2, `sample: ${JSON.stringify(s)}`);
+  });
+
+  // ---------- The header of 2026-11-04: tiles that work like tabs, the Area filter, By the AI, the slim pinned bar ----------
+  const tileKeys = (tiles) => page.getByTestId(tiles).locator('[data-testid="status-tile"]').evaluateAll((els) => els.map((e) => e.getAttribute("data-key")));
+  const tileCounts = (tiles) => page.getByTestId(tiles).locator('[data-testid="status-tile"]').evaluateAll((els) => els.map((e) => Number(e.getAttribute("data-count"))));
+  const selectedKeys = (tiles) => page.getByTestId(tiles).locator('[aria-selected="true"]').evaluateAll((els) => els.map((e) => e.getAttribute("data-key")));
+  const firstWithItems = (keys, counts) => keys[counts.findIndex((n) => n > 0)] ?? keys[0];
+
+  await step("Work on now: three tiles work like tabs; the first tile with items is selected; one list at a time, no collapsing", async () => {
+    await page.goto(`${BASE}/work`);
+    await page.getByTestId("home-tiles").waitFor();
+    const keys = await tileKeys("home-tiles");
+    const counts = await tileCounts("home-tiles");
+    assert(JSON.stringify(keys) === '["overdue","today","needs"]', `tiles ${keys}`);
+    assert(JSON.stringify(await selectedKeys("home-tiles")) === JSON.stringify([firstWithItems(keys, counts)]), `default tile ${await selectedKeys("home-tiles")} for ${counts}`);
+    const listOf = async () => ({ section: await page.getByTestId("home-list").getAttribute("data-section"), rows: await page.locator('[data-testid="home-list"] [data-testid="home-row"]').evaluateAll((els) => els.map((e) => e.getAttribute("data-section"))) });
+    let l = await listOf();
+    assert(l.section === firstWithItems(keys, counts) && l.rows.length === counts[keys.indexOf(l.section)] && l.rows.every((x) => x === l.section), `list ${JSON.stringify(l)}`);
+    assert((await page.getByTestId("home-band").evaluate((e) => e.tagName)) === "DIV" && (await page.getByTestId("home-band").locator("svg").count()) === 0, "the band is flat: no caret, not a button");
+    assert((await page.getByTestId("collapse-all").count()) === 0 && (await page.getByTestId("home-filters").count()) === 0 && (await page.getByTestId("home-show").count()) === 0, "no Collapse all and no pill row");
+    await pickTile("home-tiles", "today");
+    l = await listOf();
+    assert(l.section === "today" && l.rows.length === counts[1] && l.rows.every((x) => x === "today"), `today list ${JSON.stringify(l)}`);
+    // A click on the selected tile does nothing; the arrow keys move between tiles.
+    await page.getByTestId("home-tiles").locator('[data-key="today"]').click();
+    assert((await listOf()).section === "today", "the selected tile stays");
+    await page.getByTestId("home-tiles").locator('[data-key="today"]').focus();
+    await page.keyboard.press("ArrowRight");
+    await until(async () => JSON.stringify(await selectedKeys("home-tiles")) === '["needs"]', "ArrowRight selects the next tile");
+    await page.keyboard.press("ArrowLeft");
+    await until(async () => JSON.stringify(await selectedKeys("home-tiles")) === '["today"]', "ArrowLeft selects the one before");
+    // The right column starts level with the tiles; Waiting on someone's two groups start closed.
+    const tb = await page.getByTestId("home-tiles").boundingBox();
+    const wb = await page.getByTestId("now-wait").boundingBox();
+    assert(Math.abs(tb.y - wb.y) <= 1, `tiles at ${tb.y}, Waiting at ${wb.y}`);
+    const wait = await page.locator('[data-testid="home-section"][data-section^="wait-"]').evaluateAll((els) => els.map((e) => e.getAttribute("data-collapsed")));
+    assert(wait.length === 2 && wait.every((c) => c === "1"), `waiting groups ${wait}`);
+    await shot(page, "home-tiles.png");
+  });
+
+  await step("Filter by Area: only the Area column; the ticks change the tile numbers; Waiting on someone is not filtered", async () => {
+    await page.goto(`${BASE}/work`);
+    await page.getByTestId("home-tiles").waitFor();
+    const before = await tileCounts("home-tiles");
+    const waitBefore = await page.getByTestId("now-wait").innerText();
+    await pickTile("home-tiles", "needs");
+    await page.getByTestId("filter-open").click();
+    const w = page.getByTestId("filter-window");
+    await w.waitFor();
+    const groups = await w.getByTestId("filter-group").evaluateAll((els) => els.map((e) => e.getAttribute("data-group")));
+    const opts = await w.getByTestId("filter-option").evaluateAll((els) => els.map((e) => e.innerText.split("\n")[0].trim()));
+    assert(JSON.stringify(groups) === '["area"]', `groups ${groups}`);
+    assert(JSON.stringify(opts) === JSON.stringify(["Deals", "Contacts", "Rosara", "Job search", "Consulting", "To-dos", "Tasks"]), `areas ${opts}`);
+    assert((await w.innerText()).includes("Waiting on someone is not filtered"), "the window says Waiting is not filtered");
+    const contactsN = Number(await w.locator('[data-testid="filter-option"][data-value="contacts"]').getAttribute("data-count"));
+    await page.locator("#fo-area-contacts").check();
+    assert((await page.getByTestId("filter-show").innerText()) === `Show ${contactsN} next action${contactsN === 1 ? "" : "s"}`, await page.getByTestId("filter-show").innerText());
+    await shot(page, "home-filter-area.png");
+    await page.getByTestId("filter-show").click();
+    await w.waitFor({ state: "detached" });
+    assert((await page.getByTestId("filter-open").innerText()).includes("Filter · 1"), "Filter · 1");
+    const after = await tileCounts("home-tiles");
+    assert(after.reduce((a, b) => a + b, 0) === contactsN && after[2] === 0 && JSON.stringify(after) !== JSON.stringify(before), `tile numbers ${after} (were ${before})`);
+    // Needs a next action dropped to 0, so the first tile with items is selected.
+    assert(JSON.stringify(await selectedKeys("home-tiles")) === JSON.stringify([firstWithItems(["overdue", "today", "needs"], after)]), `selected ${await selectedKeys("home-tiles")}`);
+    const areas = await page.locator('[data-testid="home-list"] [data-testid="home-row"]').evaluateAll((els) => [...new Set(els.map((e) => e.getAttribute("data-area")))]);
+    assert(JSON.stringify(areas) === '["contacts"]', `areas shown ${areas}`);
+    assert((await page.getByTestId("now-wait").innerText()) === waitBefore, "Waiting on someone did not change");
+    // Remembered in this browser; Clear all puts every area back.
+    await page.reload();
+    assert(JSON.stringify(await tileCounts("home-tiles")) === JSON.stringify(after), "the ticks are remembered");
+    await page.getByTestId("filter-open").click();
+    await page.getByTestId("filter-clear-all").click();
+    await page.getByTestId("filter-show").click();
+    assert(JSON.stringify(await tileCounts("home-tiles")) === JSON.stringify(before), "Clear all");
+  });
+
+  await step("By the AI: no tile selected, the full ranked list of all three kinds; a tile click goes back to Soonest first; a new day starts on Soonest first", async () => {
+    await page.goto(`${BASE}/work`);
+    await page.getByTestId("home-tiles").waitFor();
+    const counts = await tileCounts("home-tiles");
+    await page.getByTestId("home-order-ai").click();
+    await page.getByTestId("ai-order-rows").waitFor({ timeout: 30000 });
+    assert((await selectedKeys("home-tiles")).length === 0, "no tile selected");
+    assert(JSON.stringify(await tileCounts("home-tiles")) === JSON.stringify(counts), "the tiles keep their numbers");
+    const rows = await page.locator('[data-testid="ai-order-rows"] [data-testid="home-row"]').evaluateAll((els) => els.map((e) => e.getAttribute("data-section")));
+    const total = counts.reduce((a, b) => a + b, 0);
+    assert(rows.length === total && (await page.getByTestId("ai-order-number").count()) === total, `${rows.length} ranked rows for ${total}`);
+    assert(["overdue", "today", "needs"].every((k) => !counts[["overdue", "today", "needs"].indexOf(k)] || rows.includes(k)), `kinds ${[...new Set(rows)]}`);
+    const head = await page.getByTestId("ai-order-heading").innerText();
+    assert(/ordered by the ai/i.test(head) && head.includes("Order again"), head);
+    await shot(page, "home-by-the-ai.png");
+    // Remembered for the rest of the day.
+    await page.reload();
+    await page.getByTestId("ai-order-rows").waitFor();
+    // A tile click goes back to Soonest first with that tile's list.
+    await pickTile("home-tiles", "today");
+    assert((await page.getByTestId("home-order-soonest").getAttribute("aria-checked")) === "true", "Soonest first");
+    assert((await page.getByTestId("home-list").getAttribute("data-section")) === "today" && (await page.getByTestId("ai-order-rows").count()) === 0, "the Due today list");
+    // By the AI saved on another day: the page opens on Soonest first.
+    await page.evaluate(() => window.localStorage.setItem("work-home-order", JSON.stringify({ choice: "ai", day: "2000-01-01" })));
+    await page.reload();
+    await page.getByTestId("home-list").waitFor();
+    assert((await page.getByTestId("home-order-soonest").getAttribute("aria-checked")) === "true" && (await selectedKeys("home-tiles")).length === 1, "a new day starts on Soonest first");
+  });
+
+  await step("Contacts: the view choice under the title; tiles only on Follow-ups; Filter has Role and Project; the slim bar after scrolling", async () => {
+    await page.goto(`${BASE}/work/people`);
+    await page.getByTestId("follow-tiles").waitFor();
+    const keys = await tileKeys("follow-tiles");
+    const counts = await tileCounts("follow-tiles");
+    assert(JSON.stringify(keys) === '["overdue","today","week","later","nodate"]', `tiles ${keys}`);
+    const sel = firstWithItems(keys, counts);
+    assert(JSON.stringify(await selectedKeys("follow-tiles")) === JSON.stringify([sel]), "default tile");
+    assert((await page.getByTestId("outreach-row").count()) === counts[keys.indexOf(sel)], "the selected tile's list");
+    assert((await page.getByTestId("collapse-all").count()) === 0, "no Collapse all");
+    const vb = await page.getByTestId("people-view").boundingBox();
+    const tb = await page.getByTestId("title-row").boundingBox();
+    assert(vb.y > tb.y + tb.height - 1 && vb.height >= 40, `the view choice sits under the title (${vb.y}, ${vb.height} tall)`);
+    await page.getByTestId("filter-open").click();
+    let groups = await page.getByTestId("filter-group").evaluateAll((els) => els.map((e) => e.getAttribute("data-group")));
+    assert(JSON.stringify(groups) === '["role","proj"]', `Follow-ups groups ${groups}`);
+    await page.keyboard.press("Escape");
+    await page.getByTestId("people-view-people").click();
+    await page.getByTestId("everyone-card").waitFor();
+    assert((await page.getByTestId("follow-tiles").count()) === 0, "no tiles on People");
+    await page.getByTestId("filter-open").click();
+    groups = await page.getByTestId("filter-group").evaluateAll((els) => els.map((e) => e.getAttribute("data-group")));
+    assert(JSON.stringify(groups) === '["role","lc","fu","org"]', `People groups ${groups}`);
+    await page.keyboard.press("Escape");
+    await page.getByTestId("people-view-orgs").click();
+    await page.getByTestId("orgs-card").waitFor();
+    assert((await page.getByTestId("follow-tiles").count()) === 0, "no tiles on Organizations");
+    await page.getByTestId("people-view-follow").click();
+    await page.getByTestId("follow-tiles").waitFor();
+    // The slim pinned bar: hidden at rest, in after about 40px of scroll, with the compact view choice, the chips, Find and Filter.
+    await pickTile("follow-tiles", keys[counts.indexOf(Math.max(...counts))]);
+    const bar = page.getByTestId("slim-bar");
+    assert((await bar.getAttribute("data-shown")) === "0", "no slim bar at rest");
+    await page.evaluate(() => window.scrollTo(0, 120));
+    await until(async () => (await bar.getAttribute("data-shown")) === "1", "the slim bar slides in");
+    assert((await bar.getByTestId("slim-chip").count()) === 5 && (await bar.getByTestId("slim-view").count()) === 1 && (await bar.getByTestId("slim-find").count()) === 1 && (await bar.getByTestId("slim-filter").count()) === 1, "chips, view choice, Find and Filter");
+    const bb = await bar.boundingBox();
+    assert(bb.height < 80, `slim bar ${bb.height}px tall`);
+    await shot(page, "contacts-slim-bar.png");
+    const other = keys.find((k, i) => counts[i] > 0 && k !== keys[counts.indexOf(Math.max(...counts))]);
+    await bar.locator(`[data-testid="slim-chip"][data-key="${other}"]`).click();
+    await until(async () => JSON.stringify(await selectedKeys("follow-tiles")) === JSON.stringify([other]), "a chip picks the tile");
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await until(async () => (await bar.getAttribute("data-shown")) === "0", "the slim bar leaves at the top");
+  });
+
+  await step("To-dos: four tiles (Done today's dot blue) and the intro line; one list at a time", async () => {
+    await page.goto(`${BASE}/work/todos`);
+    await page.getByTestId("todos-tiles").waitFor();
+    const keys = await tileKeys("todos-tiles");
+    const counts = await tileCounts("todos-tiles");
+    assert(JSON.stringify(keys) === '["today","week","later","done"]', `tiles ${keys}`);
+    const dots = await page.getByTestId("todos-tiles").locator("[data-dot]").evaluateAll((els) => els.map((e) => e.getAttribute("data-dot")));
+    assert(dots.length === 4 && dots.every((d) => d === "blue"), `dots ${dots}`);
+    assert((await page.getByTestId("todos-card").innerText()).includes("Personal to-dos and record tasks with a date"), "the intro line");
+    assert(JSON.stringify(await selectedKeys("todos-tiles")) === JSON.stringify([firstWithItems(keys, counts)]), "default tile");
+    await pickTile("todos-tiles", "later");
+    assert((await page.getByTestId("todos-section").getAttribute("data-section")) === "later" && (await page.getByTestId("personal-todo").count()) === counts[2], "the Later list");
+    assert((await page.getByTestId("collapse-all").count()) === 0, "no Collapse all");
+  });
+
+  await step("No top menu row at 1440 (the left menu has the pages and badges); the row shows at 400; Settings keeps its tabs; no 'lane' in the text", async () => {
+    for (const p of ["/work", "/work/people", "/work/todos", "/work/deals", "/work/targets"]) {
+      await page.goto(`${BASE}${p}`);
+      await page.waitForLoadState("networkidle");
+      assert(!(await page.getByTestId("top-menu-row").isVisible()), `no top menu row on ${p}`);
+    }
+    assert(await page.getByTestId("accountability-subnav").isVisible(), "the left menu lists Accountability's pages");
+    await page.goto(`${BASE}/work`);
+    assert(await page.getByTestId("work-subnav").isVisible(), "the left menu lists Work's pages");
+    assert(!/\blanes?\b/i.test(await page.locator("main").innerText()), "no 'lane' on Work on now");
+    await page.goto(`${BASE}/settings`);
+    assert(await page.locator("nav[aria-label='Settings sections']").isVisible(), "Settings keeps its tabs");
+    const phone = await ctx.browser().newContext({ viewport: { width: 400, height: 860 } });
+    await phone.addCookies([cookie]);
+    const pp = await phone.newPage();
+    await pp.goto(`${BASE}/work`);
+    await pp.getByTestId("home-tiles").waitFor();
+    assert(await pp.getByTestId("top-menu-row").isVisible(), "the top menu row at 400");
+    await pp.evaluate(() => window.scrollTo(0, 600));
+    await until(async () => (await pp.getByTestId("slim-bar").getAttribute("data-shown")) === "1", "the slim bar on the phone");
+    if (SHOTS) await pp.screenshot({ path: path.join(SHOTS, "phone-work-scrolled.png") });
+    await phone.close();
   });
 
   await step("Today's calendar on Home: Google Calendar events and the app's blocks (marked), in time order", async () => {
@@ -114,14 +302,15 @@ const until = async (fn, msg, tries = 40) => {
   });
 
   await step("Home rows: a block icon beside Done on every row with Done, and Blocked 9:00 under Meridian's date", async () => {
-    await openSection('[data-testid="home-section"]', "overdue");
-    const rows = page.locator('[data-testid="home-section"] [data-testid="next-action-done"]');
-    const icons = page.locator('[data-testid="home-section"] [data-testid="block-time"]');
-    assert((await rows.count()) > 5 && (await icons.count()) === (await rows.count()), `${await icons.count()} icons for ${await rows.count()} rows`);
+    await pickTile("home-tiles", "overdue");
     const meridian = homeRow("Meridian Industrial Coatings");
     assert((await meridian.getByTestId("blocked-note").innerText()) === "Blocked 9:00", "Meridian blocked note");
+    await pickTile("home-tiles", "today");
+    const rows = page.locator('[data-testid="home-list"] [data-testid="next-action-done"]');
+    const icons = page.locator('[data-testid="home-list"] [data-testid="block-time"]');
+    assert((await rows.count()) > 5 && (await icons.count()) === (await rows.count()), `${await icons.count()} icons for ${await rows.count()} rows`);
     // The icon column and the Done column sit at the same x on every row.
-    const xs = await page.locator('[data-testid="home-section"] [data-col="block"]').evaluateAll((els) => [...new Set(els.map((e) => Math.round(e.getBoundingClientRect().x)))]);
+    const xs = await page.locator('[data-testid="home-list"] [data-col="block"]').evaluateAll((els) => [...new Set(els.map((e) => Math.round(e.getBoundingClientRect().x)))]);
     assert(xs.length === 1, `block icons at ${xs}`);
     const task = homeRow("Check the data room for new files");
     assert((await task.getByTestId("lane-pill").innerText()) === "Task", "a dated record task has the Task pill");
@@ -132,8 +321,8 @@ const until = async (fn, msg, tries = 40) => {
 
   await step("Work through: steps one row at a time across every lane due today or earlier, with the progress bar", async () => {
     await page.goto(`${BASE}/work`);
-    const counts = await page.locator('[data-testid="home-section"][data-section="overdue"] [data-testid="section-count"], [data-testid="home-section"][data-section="today"] [data-testid="section-count"]').allInnerTexts();
-    const total = counts.reduce((s, c) => s + Number(c), 0);
+    await page.getByTestId("home-tiles").waitFor();
+    const total = (await tileCount("home-tiles", "overdue")) + (await tileCount("home-tiles", "today"));
     await page.getByTestId("work-through-open").click();
     const w = page.getByTestId("work-through");
     await w.waitFor();
@@ -192,7 +381,7 @@ const until = async (fn, msg, tries = 40) => {
     await page.getByTestId("todos-note").waitFor();
     // Untick in Done today: the copy goes away again.
     await page.reload();
-    await openSection('[data-testid="todos-section"]', "done");
+    await pickTile("todos-tiles", "done");
     await page.locator('[data-testid="todos-section"][data-section="done"]').getByTestId("personal-todo").filter({ hasText: "Read the broker listing emails" }).getByTestId("personal-todo-check").uncheck();
     await until(async () => (await one("select count(*)::int n from deal_todos where repeat_from = $1", [t.id])).n === 0, "unticking removes the copy");
     assert(!(await one("select done_at from deal_todos where id = $1", [t.id])).done_at, "the item is open again");
@@ -200,7 +389,7 @@ const until = async (fn, msg, tries = 40) => {
 
   await step("To-dos: Next 7 days has a Tomorrow line", async () => {
     await page.goto(`${BASE}/work/todos`);
-    await openSection('[data-testid="todos-section"]', "week");
+    await pickTile("todos-tiles", "week");
     const week = page.locator('[data-testid="todos-section"][data-section="week"]');
     await week.getByTestId("todos-tomorrow").waitFor();
     const text = await week.innerText();
@@ -289,7 +478,7 @@ const until = async (fn, msg, tries = 40) => {
     const line = todoLine("Send Mark Reed my questions on the CIM");
     assert((await line.getByTestId("record-pill").innerText()).includes("Summit Logistics Group"), "record pill on To-dos");
     await page.goto(`${BASE}/work`);
-    await openSection('[data-testid="home-section"]', "overdue");
+    await pickTile("home-tiles", "overdue");
     const row = homeRow("Send Mark Reed my questions on the CIM");
     if (process.env.DEBUG) {
       await page.screenshot({ path: "/tmp/claude-0/-home-claude/9e8793b9-af27-5d6f-8d92-05e4cf5adea2/scratchpad/push-c-build/explore/dbg-home.png", fullPage: true });
@@ -322,13 +511,14 @@ const until = async (fn, msg, tries = 40) => {
     await page.goto(`${BASE}/work/todos`);
     await todoLine("Ask Mark for the shipper contracts").waitFor();
     // Unticking on To-dos opens it again on the deal page too.
-    await openSection('[data-testid="todos-section"]', "done");
+    await pickTile("todos-tiles", "done");
     await page.locator('[data-testid="todos-section"][data-section="done"]').getByTestId("personal-todo").filter({ hasText: "Send Mark Reed my questions on the CIM" }).getByTestId("personal-todo-check").uncheck();
     await until(async () => !(await one("select done_at from deal_todos where id = $1", [t.id])).done_at, "unticked everywhere");
   });
 
   await step("Block time: the drawer shows the day, warns on an overlap, and adds a real event; the row shows Blocked", async () => {
     await page.goto(`${BASE}/work`);
+    await pickTile("home-tiles", "today");
     const row = homeRow("BrightPath Home Care");
     await row.getByTestId("block-time").click();
     const d = page.getByTestId("block-drawer");
@@ -354,6 +544,7 @@ const until = async (fn, msg, tries = 40) => {
     assert(tb && tb.row_key.startsWith("deal:") && tb.s === 1800, `kept: ${JSON.stringify(tb)}`);
     await d.getByTestId("block-close").click();
     await page.reload();
+    await pickTile("home-tiles", "today");
     await until(async () => (await homeRow("BrightPath Home Care").getByTestId("blocked-note").count()) === 1, "the row shows Blocked");
     assert((await homeRow("BrightPath Home Care").getByTestId("blocked-note").innerText()) === "Blocked 4:30", "Blocked 4:30");
     assert((await page.getByTestId("home-calendar").getByTestId("calendar-item").count()) === 5, "the tile shows the new block");
