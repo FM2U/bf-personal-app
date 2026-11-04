@@ -143,6 +143,33 @@ export async function getGmailThread(sb: SupabaseClient, ownerId: string, thread
   }
 }
 
+/** One event of a day from Google Calendar (push C): its id, title, and start and end as ISO instants (all-day events are left out). */
+export type CalendarEvent = { id: string; title: string; start: string; end: string };
+
+/**
+ * The events on the owner's primary calendar between two instants (Today's calendar on Home, "Already on" in Block
+ * time). Null when Google is not connected. Throws Google's error.
+ */
+export async function listCalendarEvents(sb: SupabaseClient, ownerId: string, timeMin: string, timeMax: string): Promise<CalendarEvent[] | null> {
+  const auth = await authed(sb, ownerId);
+  if (!auth) return null;
+  const calendar = google.calendar({ version: "v3", auth, ...apiOptions() });
+  const res = await calendar.events.list({ calendarId: "primary", timeMin, timeMax, singleEvents: true, orderBy: "startTime", maxResults: 100 });
+  return (res.data.items ?? [])
+    .filter((e) => e.status !== "cancelled" && !!e.start?.dateTime && !!e.end?.dateTime)
+    .map((e) => ({ id: String(e.id ?? ""), title: String(e.summary ?? "(No title)"), start: String(e.start!.dateTime), end: String(e.end!.dateTime) }));
+}
+
+/** Creates one event on the owner's primary calendar (Block time, push C). Returns its id, or null when Google is not connected. Throws Google's error. */
+export async function insertCalendarEvent(sb: SupabaseClient, ownerId: string, ev: { title: string; start: string; end: string; timeZone: string; description?: string | null }): Promise<string | null> {
+  const auth = await authed(sb, ownerId);
+  if (!auth) return null;
+  const calendar = google.calendar({ version: "v3", auth, ...apiOptions() });
+  const res = await calendar.events.insert({ calendarId: "primary", requestBody: { summary: ev.title, description: ev.description ?? undefined, start: { dateTime: ev.start, timeZone: ev.timeZone }, end: { dateTime: ev.end, timeZone: ev.timeZone } } });
+  if (!res.data.id) throw new Error("Google Calendar did not return an event id.");
+  return res.data.id;
+}
+
 /** Confirms the saved Google access still works. */
 export async function checkGoogle(sb: SupabaseClient, ownerId: string): Promise<{ ok: boolean; error?: string; skipped?: boolean }> {
   const conn = await getGoogleConnection(sb, ownerId);

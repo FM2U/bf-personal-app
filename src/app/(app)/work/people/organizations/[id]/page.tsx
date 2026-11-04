@@ -92,7 +92,7 @@ export default async function OrganizationPage({ params }: { params: Promise<{ i
           <>
           <OrgPeopleCard org={org} people={d.people} others={d.others} today={d.today} />
           <OrgNextActionCard org={org} today={d.today} />
-          <OrgTasksCard org={org} tasks={d.tasks} />
+          <OrgTasksCard org={org} tasks={d.tasks} today={d.today} />
           </>
         }
         right={

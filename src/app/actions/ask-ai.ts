@@ -267,9 +267,10 @@ export async function setNextActionFromAi(c: AskContext, text: string, opts?: { 
     revalidatePath("/", "layout");
     return { ok: true, where: "the next action" };
   }
-  const { data: rows } = await sb.from("todos").select("position").eq("owner_id", ctx.ownerId).is("done_at", null).limit(1000);
+  // Push C: a personal to-do is a row of deal_todos with no record.
+  const { data: rows } = await sb.from("deal_todos").select("position").eq("owner_id", ctx.ownerId).is("done_at", null).is("record_id", null).limit(1000);
   const position = nextPersonalTodoPosition(((rows ?? []) as Row[]).map((r) => ({ position: Number(r.position ?? 0) })));
-  const { error } = await sb.from("todos").insert({ owner_id: ctx.ownerId, text: line, due_on: ctx.today, position });
+  const { error } = await sb.from("deal_todos").insert({ owner_id: ctx.ownerId, text: line, due_on: ctx.today, position, record_type: null, record_id: null });
   if (error) return notSaved(error);
   revalidatePath("/", "layout");
   return { ok: true, where: "a to-do for today" };

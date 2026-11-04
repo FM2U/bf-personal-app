@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronUp, Mail, Phone } from "lucide-react";
-import { addDealNote, addTodo, advanceDeal, deleteTodo, makeTodoNextAction, markInterested, markLost, passDeal, saveFacts, saveFindings, saveListingLink, saveListingText, saveNextAction, setTodoDone, suggestQuestions, suggestTodos, type FactsInput, type FindingsInput } from "@/app/actions/work";
+import { addDealNote, advanceDeal, makeTodoNextAction, markInterested, markLost, passDeal, saveFacts, saveFindings, saveListingLink, saveListingText, saveNextAction, suggestQuestions, suggestTodos, type FactsInput, type FindingsInput } from "@/app/actions/work";
 import { ComposeEmailDialog } from "@/components/app/compose-email";
 import { useUnsavedWork } from "@/components/app/unsaved-changes";
 import type { ComposeSetup } from "@/lib/compose-email";
@@ -777,16 +777,15 @@ export function FindingsCard({ deal, compose, aiTools = true, listsReady = true,
 // ---------- Tasks (was Also to do) ----------
 
 /** Tasks on a deal: the shared card wired to the deal actions (add, done, delete, Make this the next action, Suggest). */
-export function TodosCard({ deal, todos }: { deal: DealRow; todos: DealTodo[] }) {
+export function TodosCard({ deal, todos, today }: { deal: DealRow; todos: DealTodo[]; today: string }) {
   return (
     <TasksCard
       windowTitle={`Tasks · ${deal.name}`}
       tasks={todos}
       open={deal.status === "open"}
+      record={{ kind: deal.screened ? "deal" : "listing", id: deal.id }}
+      today={today}
       actions={{
-        add: (text) => addTodo(deal.id, text),
-        setDone: (id, done) => setTodoDone(id, done),
-        remove: (id) => deleteTodo(id),
         makeNext: (id) => makeTodoNextAction(id),
         suggest: () => suggestTodos(deal.id),
       }}

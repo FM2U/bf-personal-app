@@ -4,7 +4,7 @@ import { useId, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Mail, Phone } from "lucide-react";
-import { addPersonNote, addPersonTask, archivePerson, completeFollowUp, deferFollowUp, deletePersonTask, logIncoming, makePersonTaskNext, reopenPerson, saveFollowUp, setPersonTaskDone, type PersonInput } from "@/app/actions/outreach";
+import { addPersonNote, archivePerson, completeFollowUp, deferFollowUp, logIncoming, makePersonTaskNext, reopenPerson, saveFollowUp, type PersonInput } from "@/app/actions/outreach";
 import { ComposeEmailDialog } from "@/components/app/compose-email";
 import { useUnsavedWork } from "@/components/app/unsaved-changes";
 import type { ComposeSetup } from "@/lib/compose-email";
@@ -240,16 +240,15 @@ export function NextFollowUpCard({ person, today }: { person: PersonRow; today: 
 
 // ---------- Tasks ----------
 
-export function PersonTasksCard({ person, tasks }: { person: PersonRow; tasks: DealTodo[] }) {
+export function PersonTasksCard({ person, tasks, today }: { person: PersonRow; tasks: DealTodo[]; today: string }) {
   return (
     <TasksCard
       windowTitle={`Tasks · ${person.name}`}
       tasks={tasks}
       open={!person.archived}
+      record={{ kind: "person", id: person.id }}
+      today={today}
       actions={{
-        add: (text) => addPersonTask(person.id, text),
-        setDone: (id, done) => setPersonTaskDone(id, done),
-        remove: (id) => deletePersonTask(id),
         makeNext: (id) => makePersonTaskNext(id),
       }}
       placeholder={`Something to do with ${person.name.split(" ")[0]}`}

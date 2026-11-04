@@ -2,29 +2,35 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { todayInTz } from "@/lib/calc/dates";
 import type { Ctx } from "@/lib/engine/helpers";
-import { homeTodos, todoSections, type PersonalTodo, type TodoSectionKey } from "@/lib/work/personal-todos";
+import type { LinkRecord } from "@/lib/work/link-picker";
+import { homeTodos, onTodoLists, todoSections, type PersonalTodo, type TodoSectionKey } from "@/lib/work/personal-todos";
+import { loadLinkRecords, TASK_SELECT, withRecords } from "@/lib/work/tasks-data";
 import type { Row } from "@/lib/types";
 
-/** The To-dos page (batch B, table todos): the open items and the ones done today, in their sections. */
-export type TodosData = { today: string; sections: Record<TodoSectionKey, PersonalTodo[]>; total: number };
+/**
+ * The To-dos page (batch B; push C): personal to-dos and dated record tasks (one table, deal_todos), open and done
+ * today, in their sections, plus every record the Link to picker can offer.
+ */
+export type TodosData = { today: string; sections: Record<TodoSectionKey, PersonalTodo[]>; total: number; records: LinkRecord[] };
 
-function toPersonalTodo(t: Row): PersonalTodo {
-  return { id: String(t.id), text: String(t.text ?? ""), dueOn: t.due_on ? String(t.due_on).slice(0, 10) : null, doneAt: t.done_at ? String(t.done_at) : null, position: Number(t.position ?? 0), createdAt: String(t.created_at ?? "") };
-}
-
-/** Home's Next actions (Edit batch C round 2): the open to-dos due today or earlier; none (not an error) before update 0022. */
+/** Home's Next actions and Work through: the open items due today or earlier (personal and record tasks); none on an error. */
 export async function loadHomeTodos(sb: SupabaseClient, ctx: Pick<Ctx, "ownerId" | "today">): Promise<PersonalTodo[]> {
-  const { data, error } = await sb.from("todos").select("id,text,due_on,done_at,position,created_at").eq("owner_id", ctx.ownerId).is("done_at", null).lte("due_on", ctx.today).limit(500);
+  const { data, error } = await sb.from("deal_todos").select(TASK_SELECT).eq("owner_id", ctx.ownerId).is("done_at", null).lte("due_on", ctx.today).limit(1000);
   if (error) return [];
-  return homeTodos(((data ?? []) as Row[]).map(toPersonalTodo), ctx.today);
+  return homeTodos(await withRecords(sb, ctx.ownerId, (data ?? []) as Row[]), ctx.today);
 }
 
 export async function loadTodos(sb: SupabaseClient, ctx: Ctx): Promise<TodosData> {
   // Open items, plus items done in the last two days (the owner's "today" is decided below).
   const since = new Date(Date.now() - 2 * 86400 * 1000).toISOString();
-  const { data, error } = await sb.from("todos").select("id,text,due_on,done_at,position,created_at").eq("owner_id", ctx.ownerId).or(`done_at.is.null,done_at.gte.${since}`).limit(1000);
+  const [{ data, error }, records] = await Promise.all([
+    sb.from("deal_todos").select(TASK_SELECT).eq("owner_id", ctx.ownerId).or(`done_at.is.null,done_at.gte.${since}`).limit(3000),
+    loadLinkRecords(sb, ctx.ownerId, ctx.today),
+  ]);
   if (error) throw new Error(error.message);
-  const todos = ((data ?? []) as Row[]).map(toPersonalTodo);
+  // Undated record tasks stay on their record; only personal to-dos and dated record tasks come here.
+  const rows = ((data ?? []) as Row[]).filter((r) => !r.record_id || r.due_on);
+  const todos = (await withRecords(sb, ctx.ownerId, rows)).filter(onTodoLists);
   const sections = todoSections(todos, ctx.today, (ts) => todayInTz(ctx.tz, new Date(ts)));
-  return { today: ctx.today, sections, total: sections.today.length + sections.week.length + sections.later.length };
+  return { today: ctx.today, sections, total: sections.today.length + sections.week.length + sections.later.length, records };
 }

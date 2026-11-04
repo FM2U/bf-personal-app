@@ -2,7 +2,7 @@
 
 import { useId, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { addProjectNote, addProjectTask, closeProject, deleteProjectTask, makeProjectTaskNext, reopenProject, saveProjectFacts, saveProjectGoal, saveProjectNextAction, setProjectTaskDone } from "@/app/actions/projects";
+import { addProjectNote, closeProject, makeProjectTaskNext, reopenProject, saveProjectFacts, saveProjectGoal, saveProjectNextAction } from "@/app/actions/projects";
 import { useUnsavedWork } from "@/components/app/unsaved-changes";
 import { date as fmtDate } from "@/lib/format";
 import { projectAsk } from "@/lib/work/ask-ai";
@@ -129,16 +129,15 @@ export function ProjectNextActionCard({ project, today }: { project: ProjectRow;
 
 // ---------- Tasks ----------
 
-export function ProjectTasksCard({ project, tasks }: { project: ProjectRow; tasks: DealTodo[] }) {
+export function ProjectTasksCard({ project, tasks, today }: { project: ProjectRow; tasks: DealTodo[]; today: string }) {
   return (
     <TasksCard
       windowTitle={`Tasks · ${project.name}`}
       tasks={tasks}
       open={project.status === "open"}
+      record={{ kind: "project", id: project.id }}
+      today={today}
       actions={{
-        add: (text) => addProjectTask(project.id, text),
-        setDone: (id, done) => setProjectTaskDone(id, done),
-        remove: (id) => deleteProjectTask(id),
         makeNext: (id) => makeProjectTaskNext(id),
       }}
       placeholder="Something to do on this project"

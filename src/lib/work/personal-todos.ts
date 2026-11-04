@@ -1,11 +1,27 @@
 /**
- * The personal To-dos page (batch B, approved 2026-10-31; table todos, database update 0022), pure and tested in
- * src/lib/work/personal-todos.test.ts: the sections Today, Next 7 days, Later, and Done today, the order inside each,
- * and the position of a new item. A to-do with no date sits under Today. Not tied to records.
+ * The To-dos page (batch B; push C, approved 2026-11-03), pure and tested in src/lib/work/personal-todos.test.ts and
+ * src/lib/work/tasks.test.ts: the sections Today (overdue and undated personal to-dos included), Next 7 days (with
+ * a Tomorrow line), Later, and Done today, the order inside each, and the position of a new item.
+ *
+ * Push C: a personal to-do and a task on a record are one kind of item (table deal_todos). A personal to-do has no
+ * record; a task on a record shows here and on Home only when it has a date (an undated record task stays on its
+ * record's Tasks card). Tasks on a closed record (passed, lost, archived) stay on the record only.
  */
-import { daysBetween } from "@/lib/calc/dates";
+import { daysBetween, addDaysISO } from "@/lib/calc/dates";
+import type { Repeat } from "@/lib/work/repeat";
+import type { TaskRecord } from "@/lib/work/task-records";
 
-export type PersonalTodo = { id: string; text: string; dueOn: string | null; doneAt: string | null; position: number; createdAt: string };
+export type PersonalTodo = {
+  id: string;
+  text: string;
+  dueOn: string | null;
+  doneAt: string | null;
+  position: number;
+  createdAt: string;
+  repeat: Repeat | null;
+  /** The record this item belongs to, or null for a personal to-do. */
+  record: TaskRecord | null;
+};
 
 export type TodoSectionKey = "today" | "week" | "later" | "done";
 
@@ -16,6 +32,12 @@ export const TODO_SECTIONS: readonly { key: TodoSectionKey; label: string }[] = 
   { key: "done", label: "Done today" },
 ];
 
+/** On To-dos and Home: personal to-dos, and record tasks with a date whose record is not closed. */
+export function onTodoLists(t: Pick<PersonalTodo, "record" | "dueOn">): boolean {
+  if (!t.record) return true;
+  return !!t.dueOn && !t.record.closed;
+}
+
 /** Today: due today, earlier, or no date. Next 7 days: due tomorrow to seven days on. Later: after that. */
 function todoSectionOf(t: Pick<PersonalTodo, "dueOn">, today: string): Exclude<TodoSectionKey, "done"> {
   if (!t.dueOn) return "today";
@@ -25,7 +47,7 @@ function todoSectionOf(t: Pick<PersonalTodo, "dueOn">, today: string): Exclude<T
 }
 
 /** Open items by due date (no date last), then position, then age; done items most recently done first. */
-function compareTodos(a: PersonalTodo, b: PersonalTodo): number {
+export function compareTodos(a: PersonalTodo, b: PersonalTodo): number {
   if (a.doneAt && b.doneAt) return a.doneAt < b.doneAt ? 1 : a.doneAt > b.doneAt ? -1 : 0;
   const da = a.dueOn ?? "9999-12-31";
   const db = b.dueOn ?? "9999-12-31";
@@ -35,11 +57,12 @@ function compareTodos(a: PersonalTodo, b: PersonalTodo): number {
 
 /**
  * The four sections. `doneLocalDate` turns a done_at timestamp into the owner's date; done items from earlier days
- * are left out (they stay in the table).
+ * are left out (they stay in the table). Items that do not belong on the lists (onTodoLists) are left out.
  */
 export function todoSections<T extends PersonalTodo>(todos: readonly T[], today: string, doneLocalDate: (ts: string) => string): Record<TodoSectionKey, T[]> {
   const out: Record<TodoSectionKey, T[]> = { today: [], week: [], later: [], done: [] };
   for (const t of todos) {
+    if (!onTodoLists(t)) continue;
     if (t.doneAt) {
       if (doneLocalDate(t.doneAt) === today) out.done.push(t);
       continue;
@@ -50,12 +73,18 @@ export function todoSections<T extends PersonalTodo>(todos: readonly T[], today:
   return out;
 }
 
+/** Inside Next 7 days: the items due tomorrow, then the rest of the week (approved 2026-11-02). */
+export function splitTomorrow<T extends Pick<PersonalTodo, "dueOn">>(week: readonly T[], today: string): { tomorrow: T[]; rest: T[] } {
+  const tm = addDaysISO(today, 1);
+  return { tomorrow: week.filter((t) => t.dueOn?.slice(0, 10) === tm), rest: week.filter((t) => t.dueOn?.slice(0, 10) !== tm) };
+}
+
 /**
- * The to-dos on Home's Next actions (Edit batch C round 2, approved 2026-11-02): open items due today or earlier, in
- * due order (the oldest first), then position. Items with no date or a later date stay on the To-dos page only.
+ * The items on Home's Next actions (Edit batch C round 2; push C adds dated record tasks): open items due today or
+ * earlier, in due order (the oldest first), then position. Items with no date or a later date stay on To-dos.
  */
 export function homeTodos<T extends PersonalTodo>(todos: readonly T[], today: string): T[] {
-  return todos.filter((t) => !t.doneAt && !!t.dueOn && t.dueOn.slice(0, 10) <= today).sort(compareTodos);
+  return todos.filter((t) => onTodoLists(t) && !t.doneAt && !!t.dueOn && t.dueOn.slice(0, 10) <= today).sort(compareTodos);
 }
 
 /** A new item goes after the last one. */

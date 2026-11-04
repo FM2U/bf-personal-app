@@ -220,26 +220,6 @@ export async function addOrgTask(id: string, text: string): Promise<{ ok: true }
   return { ok: true };
 }
 
-export async function setOrgTaskDone(taskId: string, isDone: boolean): Promise<{ ok: true } | Fail> {
-  const { sb, ctx } = await setup();
-  const task = await taskOf(sb, ctx, taskId);
-  if (isFail(task)) return task;
-  const { error } = await sb.from("deal_todos").update({ done_at: isDone ? new Date().toISOString() : null }).eq("id", task.id);
-  if (error) return notSaved(error);
-  done();
-  return { ok: true };
-}
-
-export async function deleteOrgTask(taskId: string): Promise<{ ok: true } | Fail> {
-  const { sb, ctx } = await setup();
-  const task = await taskOf(sb, ctx, taskId);
-  if (isFail(task)) return task;
-  const { error } = await sb.from("deal_todos").delete().eq("id", task.id);
-  if (error) return notSaved(error);
-  done();
-  return { ok: true };
-}
-
 /** "Make this the next action": the task becomes the firm's next action (due tomorrow unless a later date is set); the old one is kept as a task. */
 export async function makeOrgTaskNext(taskId: string): Promise<{ ok: true; nextAction: string } | Fail> {
   const { sb, ctx } = await setup();

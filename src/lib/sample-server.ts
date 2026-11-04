@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { SAMPLE_TABLES } from "@/lib/sample-data";
 
 /** Tables checked for real (not sample) records before sample data is loaded. */
-const REAL_RECORD_TABLES = ["contacts", "organizations", "pipeline_items", "communications", "projects", "todos"];
+const REAL_RECORD_TABLES = ["contacts", "organizations", "pipeline_items", "communications", "projects"];
 
 const countOf = async (q: PromiseLike<{ count: number | null }>) => (await q).count ?? 0;
 

@@ -35,6 +35,11 @@ import { StickySections } from "@/components/app/work/sticky-sections";
 import { ShowFilter } from "@/components/app/work/show-filter";
 import { Due, Figure, FilterRow, Line1, Line2, Name, Pill, PinnedBlock, ProgressMark, RowButton, RowButtons, RowLink, RowShell, SectionHeading, TargetBar, Thinking, What, WorkCard, type PillTone } from "@/components/app/work/ui";
 import { WaitingRow } from "@/components/app/work/waiting-row";
+import { BlockTimeProvider } from "@/components/app/work/block-time";
+import { CalendarTile } from "@/components/app/work/calendar-tile";
+import { WorkThrough, type WorkStep } from "@/components/app/work/work-through";
+import { recordPillText } from "@/lib/work/task-records";
+import { Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -49,6 +54,9 @@ import { cn } from "@/lib/utils";
  * with a next action shows with the deals; the Screen listings tile opens each listing's page.
  * Edit batch C: "Show: All" after the filter pills narrows Next actions and Waiting on someone to the ticked lanes
  * (the pill counts follow, remembered in this browser), and the AI order numbers sit in their own column.
+ * Push C: the solid "Work through" button opens the step-by-step window (work-through.tsx); every row with Done
+ * has the block icon (Block time, block-time.tsx) and "Blocked 2:00" under its date; dated record tasks join the
+ * to-dos with the Task pill and the gray record pill; Today's calendar sits under Waiting on someone.
  * Right third, stacked: Waiting on someone, Outreach, Rosara (the weekly focus, the next project action, the
  * counts), Job search (the next conversation, the next interview, the counts), Screen listings, Deals at a glance.
  */
@@ -58,7 +66,7 @@ const NOW_HEADER = "lg:min-h-[83px]";
 const HOME_ASK: AskContext = { page: "home", label: "Work on now" };
 const noSubscribe = () => () => {};
 
-type Row = { key: string; lane: Lane; section: LaneSectionKey; action: HomeAction; /** The filters read these. */ status: string; waitLevel: string; nextAction: string | null; nextActionDue: string | null; name: string; render: (reason: string | null) => React.ReactNode };
+type Row = { key: string; lane: Lane; section: LaneSectionKey; action: HomeAction; /** The filters read these. */ status: string; waitLevel: string; nextAction: string | null; nextActionDue: string | null; name: string; render: (reason: string | null) => React.ReactNode; /** Work through's view of the row (push C). */ step: WorkStep | null };
 
 export function HomeBoard({ header, data, composes, personComposes, askCompose }: { /** The title, the date, and the Work tabs (server-rendered). */ header: React.ReactNode; data: HomeData; /** The email setup per waiting deal (Follow up). */ composes: Record<string, ComposeSetup>; /** The email setup per person on the Outreach tile. */ personComposes: Record<string, ComposeSetup>; /** The email setup for "Open in email" in the Ask AI panel (a typed address). */ askCompose?: ComposeSetup | null }) {
   const router = useRouter();
@@ -113,27 +121,28 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
   // ---------- The rows of every lane ----------
   const allRows = useMemo<Row[]>(() => {
     const out: Row[] = [];
-    const push = (lane: Lane, id: string, action: HomeAction, extra: Pick<Row, "status" | "waitLevel" | "nextAction" | "nextActionDue" | "name">, render: Row["render"]) => {
+    const push = (lane: Lane, id: string, action: HomeAction, extra: Pick<Row, "status" | "waitLevel" | "nextAction" | "nextActionDue" | "name">, render: Row["render"], step: WorkStep | null = null) => {
       const section = laneSectionOf(action, today);
-      if (section) out.push({ key: actionKey(lane, id), lane, section, action, ...extra, render });
+      if (section) out.push({ key: actionKey(lane, id), lane, section, action, ...extra, render, step });
     };
     // Edit batch C round 3: a listing to screen with a next action (optional on a listing) shows with the deals.
     for (const d of [...deals, ...(data.listingActions ?? [])]) {
-      push("Deals", d.id, { key: actionKey("Deals", d.id), lane: "Deals", id: d.id, name: d.name, action: d.nextAction, due: d.nextActionDue, minutes: d.nextActionMinutes, meta: [d.stageName, d.whatItDoes, d.location].filter(Boolean).join(", ") }, { status: d.status, waitLevel: d.waitLevel, nextAction: d.nextAction, nextActionDue: d.nextActionDue, name: d.name }, (reason) => (d.nextAction ? <NextActionRow deal={d} today={today} reason={reason} /> : <NeedsActionRow deal={d} />));
+      push("Deals", d.id, { key: actionKey("Deals", d.id), lane: "Deals", id: d.id, name: d.name, action: d.nextAction, due: d.nextActionDue, minutes: d.nextActionMinutes, meta: [d.stageName, d.whatItDoes, d.location].filter(Boolean).join(", ") }, { status: d.status, waitLevel: d.waitLevel, nextAction: d.nextAction, nextActionDue: d.nextActionDue, name: d.name }, (reason) => (d.nextAction ? <NextActionRow deal={d} today={today} reason={reason} /> : <NeedsActionRow deal={d} />), d.nextAction ? { kind: "deal", key: actionKey("Deals", d.id), deal: d } : null);
     }
     for (const p of data.outreach.due) {
-      push("People", p.id, { key: actionKey("People", p.id), lane: "People", id: p.id, name: p.name, action: p.followUpFor ?? "Follow up", due: p.nextFollowUp, minutes: null, meta: orgRoleLine(p) }, { status: "open", waitLevel: "none", nextAction: p.followUpFor ?? "Follow up", nextActionDue: p.nextFollowUp, name: p.name }, (reason) => <OutreachActionRow person={p} today={today} reason={reason} />);
+      push("People", p.id, { key: actionKey("People", p.id), lane: "People", id: p.id, name: p.name, action: p.followUpFor ?? "Follow up", due: p.nextFollowUp, minutes: null, meta: orgRoleLine(p) }, { status: "open", waitLevel: "none", nextAction: p.followUpFor ?? "Follow up", nextActionDue: p.nextFollowUp, name: p.name }, (reason) => <OutreachActionRow person={p} today={today} reason={reason} />, { kind: "person", key: actionKey("People", p.id), person: p });
     }
     for (const pr of data.rosara.actions) {
-      push("Rosara", pr.id, { key: actionKey("Rosara", pr.id), lane: "Rosara", id: pr.id, name: pr.name, action: pr.nextAction, due: pr.nextActionDue, minutes: pr.nextActionMinutes, meta: pr.milestone ?? "" }, { status: "open", waitLevel: "none", nextAction: pr.nextAction, nextActionDue: pr.nextActionDue, name: pr.name }, (reason) => <ProjectActionRow project={pr} today={today} reason={reason} />);
+      push("Rosara", pr.id, { key: actionKey("Rosara", pr.id), lane: "Rosara", id: pr.id, name: pr.name, action: pr.nextAction, due: pr.nextActionDue, minutes: pr.nextActionMinutes, meta: pr.milestone ?? "" }, { status: "open", waitLevel: "none", nextAction: pr.nextAction, nextActionDue: pr.nextActionDue, name: pr.name }, (reason) => <ProjectActionRow project={pr} today={today} reason={reason} />, pr.nextAction ? { kind: "project", key: actionKey("Rosara", pr.id), project: pr } : null);
     }
     for (const i of [...data.pipelines.jobs, ...data.pipelines.consulting]) {
       const lane: Lane = i.kind === "job" ? "Job search" : "Consulting";
-      push(lane, i.id, { key: actionKey(lane, i.id), lane, id: i.id, name: i.name, action: i.nextAction, due: i.nextActionDue, minutes: i.nextActionMinutes, meta: [i.stageName, i.title].filter(Boolean).join(", ") }, { status: i.status, waitLevel: i.waitLevel, nextAction: i.nextAction, nextActionDue: i.nextActionDue, name: i.name }, (reason) => <ItemActionRow item={i} today={today} reason={reason} />);
+      push(lane, i.id, { key: actionKey(lane, i.id), lane, id: i.id, name: i.name, action: i.nextAction, due: i.nextActionDue, minutes: i.nextActionMinutes, meta: [i.stageName, i.title].filter(Boolean).join(", ") }, { status: i.status, waitLevel: i.waitLevel, nextAction: i.nextAction, nextActionDue: i.nextActionDue, name: i.name }, (reason) => <ItemActionRow item={i} today={today} reason={reason} />, i.nextAction ? { kind: "item", key: actionKey(lane, i.id), item: i } : null);
     }
-    // Edit batch C round 2: personal to-dos due today or earlier, with the To-do lane pill (no minutes).
+    // Edit batch C round 2: personal to-dos due today or earlier, with the To-do lane pill (no minutes). Push C: dated
+    // record tasks come with them, with the Task lane pill and the gray record pill.
     for (const t of data.todos) {
-      push("To-dos", t.id, { key: actionKey("To-dos", t.id), lane: "To-dos", id: t.id, name: t.text, action: t.text, due: t.dueOn, minutes: null, meta: "Personal to-do" }, { status: "open", waitLevel: "none", nextAction: t.text, nextActionDue: t.dueOn, name: t.text }, (reason) => <TodoActionRow todo={t} today={today} reason={reason} />);
+      push("To-dos", t.id, { key: actionKey("To-dos", t.id), lane: "To-dos", id: t.id, name: t.text, action: t.text, due: t.dueOn, minutes: null, meta: t.record ? recordPillText(t.record) : "Personal to-do" }, { status: "open", waitLevel: "none", nextAction: t.text, nextActionDue: t.dueOn, name: t.text }, (reason) => <TodoActionRow todo={t} today={today} reason={reason} />, { kind: "todo", key: actionKey("To-dos", t.id), todo: t });
     }
     return out;
   }, [deals, data.listingActions, data.outreach.due, data.rosara.actions, data.pipelines.jobs, data.pipelines.consulting, data.todos, today]);
@@ -199,6 +208,9 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
   const waitCount = waiting.reduce((s, w) => s + w.deals.length, 0);
   const aiRows = useMemo(() => (aiOrder ? applyAiOrder([...sectionsOf.overdue, ...sectionsOf.today], aiOrder.order) : []), [aiOrder, sectionsOf]);
   const byAi = order === "ai" && !!aiOrder;
+  // Work through (push C): every row due today or earlier, in the order Next actions shows them.
+  const [working, setWorking] = useState(false);
+  const steps = useMemo(() => (byAi ? aiRows : [...sectionsOf.overdue, ...sectionsOf.today]).map((r) => r.step).filter((x): x is WorkStep => !!x), [byAi, aiRows, sectionsOf]);
 
   /**
    * One row box; with a number (the AI order) the row sits beside a small purple badge in its own 54px column (the
@@ -219,7 +231,7 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
   );
 
   return (
-    <>
+    <BlockTimeProvider today={today} nowLocal={data.nowLocal} blockMinutes={data.blockMinutes} rowBlocks={data.rowBlocks} calendar={data.calendar}>
       <PinnedBlock testId="home-sticky">
         {header}
         <FilterRow prefix="home" filters={DEAL_FILTERS} active={filter} counts={counts} onPick={pick} query={query} onQuery={setQuery} placeholder="Find" collapse={{ allCollapsed: sections.allCollapsed, onClick: sections.toggleAll }} className="-mt-2" extra={<ShowFilter choice={show} counts={laneCounts} onChange={pickShow} />} />
@@ -233,6 +245,10 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
           sub={byAi ? "Every lane, in the AI's order; one reason under each row" : "Every lane, due today or earlier, soonest first"}
           actions={
             <>
+              <button type="button" onClick={() => setWorking(true)} disabled={!steps.length} className="mr-1 inline-flex h-[30px] items-center gap-1.5 rounded-[7px] border border-primary-solid bg-primary-solid px-3 text-[13px] font-medium whitespace-nowrap text-white hover:border-primary-solid-hover hover:bg-primary-solid-hover disabled:opacity-50" data-testid="work-through-open" title={steps.length ? `Step through the ${steps.length} due today or earlier, one at a time` : "Nothing is due today"}>
+                <Play className="h-3 w-3 fill-current" aria-hidden />
+                Work through
+              </button>
               <span className="text-[13px] text-muted-foreground">Order:</span>
               <div className="inline-flex rounded-full border border-border bg-slate-50 p-0.5" role="radiogroup" aria-label="Order" data-testid="home-order">
                 {(["soonest", "ai"] as OrderChoice[]).map((c) => (
@@ -334,6 +350,7 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
             )}
           </WorkCard>
 
+          <CalendarTile calendar={data.calendar} />
           <TargetsTodayTile tile={data.targets} />
           <OutreachTile outreach={data.outreach} today={today} logged={personLogged} onEmail={setPersonEmail} onCall={setPersonCall} />
           <RosaraTile rosara={data.rosara} today={today} />
@@ -388,7 +405,8 @@ export function HomeBoard({ header, data, composes, personComposes, askCompose }
           }}
         />
       ) : null}
-    </>
+      {working ? <WorkThrough steps={steps} today={today} onClose={() => setWorking(false)} /> : null}
+    </BlockTimeProvider>
   );
 }
 

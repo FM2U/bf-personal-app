@@ -4,7 +4,7 @@ import { useId, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Mail, Phone } from "lucide-react";
-import { addOrgNote, addOrgTask, addPersonToOrg, archiveOrganization, deleteOrgTask, makeOrgTaskNext, orgNextActionDone, orgNextActionLater, reopenOrganization, saveOrgNextAction, setOrgTaskDone } from "@/app/actions/organizations";
+import { addOrgNote, addPersonToOrg, archiveOrganization, makeOrgTaskNext, orgNextActionDone, orgNextActionLater, reopenOrganization, saveOrgNextAction } from "@/app/actions/organizations";
 import { ComposeEmailDialog } from "@/components/app/compose-email";
 import { useUnsavedWork } from "@/components/app/unsaved-changes";
 import type { ComposeSetup } from "@/lib/compose-email";
@@ -267,13 +267,15 @@ export function OrgNextActionCard({ org, today }: { org: OrgRow; today: string }
 
 // ---------- Tasks ----------
 
-export function OrgTasksCard({ org, tasks }: { org: OrgRow; tasks: DealTodo[] }) {
+export function OrgTasksCard({ org, tasks, today }: { org: OrgRow; tasks: DealTodo[]; today: string }) {
   return (
     <TasksCard
       windowTitle={`Tasks · ${org.name}`}
       tasks={tasks}
       open={!org.archived}
-      actions={{ add: (text) => addOrgTask(org.id, text), setDone: (id, done) => setOrgTaskDone(id, done), remove: (id) => deleteOrgTask(id), makeNext: (id) => makeOrgTaskNext(id) }}
+      record={{ kind: "organization", id: org.id }}
+      today={today}
+      actions={{ makeNext: (id) => makeOrgTaskNext(id) }}
       placeholder={`Something to do with ${org.name}`}
       emptyText="Nothing yet. Add what else needs doing with this organization; Make this the next action moves one into Next action."
       testId="org-tasks"

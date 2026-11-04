@@ -89,7 +89,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
           <>
           <GoalCard project={project} />
           <ProjectNextActionCard project={project} today={d.today} />
-          <ProjectTasksCard project={project} tasks={d.tasks} />
+          <ProjectTasksCard project={project} tasks={d.tasks} today={d.today} />
           </>
         }
         right={

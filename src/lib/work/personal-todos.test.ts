@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { homeTodos, nextPersonalTodoPosition, todoDueLabel, todoSections, type PersonalTodo } from "./personal-todos";
 
 const today = "2026-11-03";
-const t = (id: string, dueOn: string | null, doneAt: string | null = null, position = 1, createdAt = "2026-11-01T10:00:00Z"): PersonalTodo => ({ id, text: id, dueOn, doneAt, position, createdAt });
+const t = (id: string, dueOn: string | null, doneAt: string | null = null, position = 1, createdAt = "2026-11-01T10:00:00Z"): PersonalTodo => ({ id, text: id, dueOn, doneAt, position, createdAt, repeat: null, record: null });
 const local = (ts: string) => ts.slice(0, 10);
 const fmt = (d: string) => d.slice(5);
 

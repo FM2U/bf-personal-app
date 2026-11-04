@@ -4,13 +4,27 @@
  * when the current one is marked Done), and the position of a new item.
  */
 
-export type DealTodo = { id: string; text: string; position: number; doneAt: string | null; createdAt: string };
+import { parseRepeat, type Repeat } from "@/lib/work/repeat";
 
-/** Open items first by position then by age, done items after them (most recently done first). */
+/** Push C: a task can carry a due date and Repeat (dated tasks also show on To-dos and Home). */
+export type DealTodo = { id: string; text: string; position: number; doneAt: string | null; createdAt: string; dueOn?: string | null; repeat?: Repeat | null };
+
+/** The columns every Tasks card reads (push C adds the date and Repeat). */
+export const RECORD_TASK_COLUMNS = "id,deal_id,record_type,record_id,text,position,done_at,created_at,due_on,repeat";
+
+/** One task row as a Tasks card item. */
+export function toDealTodo(t: { [k: string]: unknown }): DealTodo {
+  return { id: String(t.id), text: String(t.text ?? ""), position: Number(t.position ?? 0), doneAt: t.done_at ? String(t.done_at) : null, createdAt: String(t.created_at ?? ""), dueOn: t.due_on ? String(t.due_on).slice(0, 10) : null, repeat: parseRepeat(t.repeat) };
+}
+
+/** Open items first by due date (no date last, push C), then position, then age; done items after them (most recently done first). */
 export function sortTodos<T extends DealTodo>(todos: readonly T[]): T[] {
   return [...todos].sort((a, b) => {
     if (!!a.doneAt !== !!b.doneAt) return a.doneAt ? 1 : -1;
     if (a.doneAt && b.doneAt) return a.doneAt < b.doneAt ? 1 : a.doneAt > b.doneAt ? -1 : 0;
+    const da = a.dueOn ?? "9999-12-31";
+    const db = b.dueOn ?? "9999-12-31";
+    if (da !== db) return da < db ? -1 : 1;
     return a.position - b.position || (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0);
   });
 }

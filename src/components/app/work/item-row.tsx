@@ -8,9 +8,11 @@ import { addDaysISO } from "@/lib/calc/dates";
 import { date as fmtDate } from "@/lib/format";
 import type { ItemRow } from "@/lib/work/pipelines-data";
 import { feeLabel, nextOpenStage } from "@/lib/work/pipelines";
+import { actionKey } from "@/lib/work/lanes";
 import { daysLabel, daysShort, dueLabel } from "@/lib/work/stages";
 import { ColumnAction, ColumnCard } from "@/components/app/work/deal-columns";
 import { shortName } from "@/components/app/work/deal-list-row";
+import { blockSlots } from "@/components/app/work/block-time";
 import { AiReason } from "@/components/app/work/project-row";
 import { ActionFigures, Confirm, LanePill, Line1, Line2, Line3, Name, Pill, ROW_COLS, RowButton, RowButtons, RowLink, RowShell, Stat, waitTone, What } from "@/components/app/work/ui";
 
@@ -117,12 +119,17 @@ function useItemAction(item: ItemRow, compact: boolean) {
       setState({ kind: "done", text: `Moved to ${fmtDate(r.due, "EEE MMM d")}.` });
       refresh();
     });
-  const nextStage = nextOpenStage(item.kind, item.stageName);
-  const asks = (item.actionIsDefault && !!nextStage) || !!item.topTodo;
+  const { asks, nextStage } = itemDoneAsks(item);
   return { pending, state, setState, finish, later, asks, nextStage };
 }
 
-function AskMove({ item, nextStage, pending, onYes, onNo, onTask }: { item: ItemRow; nextStage: string | null; pending: boolean; onYes: () => void; onNo: () => void; onTask: (id: string) => void }) {
+/** Whether Done asks first (the stage default with a next stage, or a top task to offer), and the next stage. */
+export function itemDoneAsks(item: ItemRow): { asks: boolean; nextStage: string | null } {
+  const nextStage = nextOpenStage(item.kind, item.stageName);
+  return { asks: (item.actionIsDefault && !!nextStage) || !!item.topTodo, nextStage };
+}
+
+export function AskMove({ item, nextStage, pending, onYes, onNo, onTask }: { item: ItemRow; nextStage: string | null; pending: boolean; onYes: () => void; onNo: () => void; onTask: (id: string) => void }) {
   const move = item.actionIsDefault && !!nextStage;
   return (
     <Confirm tone="blue" className="mt-2" testId="next-action-ask">
@@ -256,7 +263,7 @@ export function ItemActionRow({ item, today, reason }: { item: ItemRow; today: s
       open={itemHref(item)}
       openLabel={`Open ${item.name}`}
       right={
-        <ActionFigures due={due} minutes={item.nextActionMinutes}>
+        <ActionFigures due={due} minutes={item.nextActionMinutes} block={blockSlots({ rowKey: actionKey(lane, item.id), lane, name: item.name, action: item.nextAction, minutes: item.nextActionMinutes, recordType: "pipeline_items", recordId: item.id, href: itemHref(item) })}>
           <Buttons pending={pending} onDone={() => (asks ? setState({ kind: "ask" }) : finish(false))} onLater={() => setState(state.kind === "later" ? { kind: "idle" } : { kind: "later" })} />
         </ActionFigures>
       }

@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Mail, Phone } from "lucide-react";
-import { addItemNote, addItemTask, advanceItem, closeItem, deleteItemTask, makeItemTaskNext, reopenItem, saveConsultingFacts, saveFindOut, saveItemNextAction, saveOpportunityFacts, setItemTaskDone, type ConsultingFactsInput, type OpportunityFactsInput } from "@/app/actions/pipelines";
+import { addItemNote, advanceItem, closeItem, makeItemTaskNext, reopenItem, saveConsultingFacts, saveFindOut, saveItemNextAction, saveOpportunityFacts, type ConsultingFactsInput, type OpportunityFactsInput } from "@/app/actions/pipelines";
 import { ComposeEmailDialog } from "@/components/app/compose-email";
 import { useUnsavedWork } from "@/components/app/unsaved-changes";
 import type { ComposeSetup } from "@/lib/compose-email";
@@ -305,16 +305,15 @@ export function FindOutCard({ item }: { item: ItemRow }) {
 
 // ---------- Tasks ----------
 
-export function ItemTasksCard({ item, tasks }: { item: ItemRow; tasks: DealTodo[] }) {
+export function ItemTasksCard({ item, tasks, today }: { item: ItemRow; tasks: DealTodo[]; today: string }) {
   return (
     <TasksCard
       windowTitle={`Tasks · ${item.name}`}
       tasks={tasks}
       open={item.status === "open"}
+      record={{ kind: item.kind === "job" ? "job" : "consulting", id: item.id }}
+      today={today}
       actions={{
-        add: (text) => addItemTask(item.kind, item.id, text),
-        setDone: (id, done) => setItemTaskDone(item.kind, id, done),
-        remove: (id) => deleteItemTask(item.kind, id),
         makeNext: (id) => makeItemTaskNext(item.kind, id),
       }}
       placeholder={item.kind === "job" ? "Something else to do on this opportunity" : "Something else to do for this client"}

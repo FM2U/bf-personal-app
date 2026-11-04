@@ -8,6 +8,8 @@ import { addDaysISO } from "@/lib/calc/dates";
 import { date as fmtDate } from "@/lib/format";
 import { dueLabel } from "@/lib/work/stages";
 import type { DealRow } from "@/lib/work/data";
+import { actionKey } from "@/lib/work/lanes";
+import { blockSlots } from "@/components/app/work/block-time";
 import { AiReason } from "@/components/app/work/project-row";
 import { ActionFigures, Confirm, Line1, Line2, Name, ProgressMark, ROW_COLS, RowButton, RowButtons, RowShell, What } from "@/components/app/work/ui";
 
@@ -85,7 +87,7 @@ export function NextActionRow({ deal, today, compact = false, reason }: { deal: 
       open={`/work/deals/${deal.id}`}
       openLabel={`Open ${deal.name}`}
       right={
-        <ActionFigures due={due} minutes={deal.nextActionMinutes}>
+        <ActionFigures due={due} minutes={deal.nextActionMinutes} block={blockSlots({ rowKey: actionKey("Deals", deal.id), lane: deal.screened ? "Deal" : "Listing", name: deal.name, action: deal.nextAction, minutes: deal.nextActionMinutes, recordType: "pipeline_items", recordId: deal.id, href: `/work/deals/${deal.id}` })}>
           {buttons}
         </ActionFigures>
       }
@@ -112,7 +114,7 @@ export function NextActionRow({ deal, today, compact = false, reason }: { deal: 
  * The line after Done: "Move X to <next stage>? Yes / Next: <top to-do> / Not yet" when the action was the stage
  * default; "Done. Next: <top to-do> / No next action" when it was typed and the deal has to-dos.
  */
-function AskMove({ deal, pending, onYes, onNo, onTodo }: { deal: DealRow; pending: boolean; onYes: () => void; onNo: () => void; onTodo: (todoId: string) => void }) {
+export function AskMove({ deal, pending, onYes, onNo, onTodo }: { deal: DealRow; pending: boolean; onYes: () => void; onNo: () => void; onTodo: (todoId: string) => void }) {
   const move = deal.actionIsDefault && !!deal.nextStage;
   const todo = deal.topTodo;
   return (

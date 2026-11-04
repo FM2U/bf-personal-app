@@ -147,7 +147,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
           <>
           <FindingsCard deal={deal} compose={d.questionsCompose} aiTools={state.questionsTools} listsReady={listsReady} growthReady={growthReady} />
           <NextActionCard deal={deal} today={d.today} noActionHint={state.noActionHint} />
-          <TodosCard deal={deal} todos={d.todos} />
+          <TodosCard deal={deal} todos={d.todos} today={d.today} />
           </>
         }
         right={

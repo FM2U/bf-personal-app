@@ -9,7 +9,7 @@ import { orgKindLabel, parseOrgKind, type OrgKind } from "@/lib/work/people";
 import { CONTACT_COLUMNS, toPersonRow, type PersonRow } from "@/lib/work/outreach-data";
 import { daysWaiting, waitLevel, type WaitLevel } from "@/lib/work/stages";
 import { commKind, commTitle, type TimelineEvent } from "@/lib/work/timeline";
-import { sortTodos, type DealTodo } from "@/lib/work/todos";
+import { RECORD_TASK_COLUMNS, sortTodos, toDealTodo, type DealTodo } from "@/lib/work/todos";
 import type { Row } from "@/lib/types";
 
 /**
@@ -135,7 +135,7 @@ export async function loadOrgPage(sb: SupabaseClient, ctx: Ctx, id: string): Pro
     sb.from("contacts").select(CONTACT_COLUMNS).eq("owner_id", ctx.ownerId).eq("organization_id", id).order("name").limit(500),
     sb.from("contacts").select("id,name,organization_id,archived_at").eq("owner_id", ctx.ownerId).order("name").limit(5000),
     sb.from("organizations").select("id,name").eq("owner_id", ctx.ownerId).limit(5000),
-    sb.from("deal_todos").select("id,text,position,done_at,created_at").eq("owner_id", ctx.ownerId).eq("record_type", "organizations").eq("record_id", id).limit(500),
+    sb.from("deal_todos").select(RECORD_TASK_COLUMNS).eq("owner_id", ctx.ownerId).eq("record_type", "organizations").eq("record_id", id).limit(500),
     sb.from("notes").select("id,body,created_at").eq("record_type", "organizations").eq("record_id", id).order("created_at", { ascending: false }).limit(50),
     sb.from("pipelines").select("id,kind").eq("owner_id", ctx.ownerId),
   ]);
@@ -198,7 +198,7 @@ export async function loadOrgPage(sb: SupabaseClient, ctx: Ctx, id: string): Pro
     others: ((allPeople ?? []) as Row[]).filter((p) => !p.archived_at && String(p.organization_id ?? "") !== id).map((p) => ({ id: String(p.id), name: String(p.name), organization: p.organization_id ? nameOrg[String(p.organization_id)] ?? null : null })),
     deals,
     passed,
-    tasks: sortTodos(((taskRows ?? []) as Row[]).map((t) => ({ id: String(t.id), text: String(t.text ?? ""), position: Number(t.position ?? 0), doneAt: t.done_at ? String(t.done_at) : null, createdAt: String(t.created_at ?? "") }))),
+    tasks: sortTodos(((taskRows ?? []) as Row[]).map(toDealTodo)),
     timeline,
     compose: compose ? { ...compose } : null,
   };

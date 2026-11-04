@@ -10,7 +10,7 @@ import { CONSULTING_CLOSED, CONSULTING_STAGES, JOB_CLOSED, JOB_STAGES, findOutLi
 import { parseOpenQuestions } from "@/lib/work/questions";
 import { dayInStage, daysWaiting, waitLevel, type WaitLevel } from "@/lib/work/stages";
 import { commKind, commTitle, type TimelineEvent } from "@/lib/work/timeline";
-import { sortTodos, topTodo, type DealTodo } from "@/lib/work/todos";
+import { RECORD_TASK_COLUMNS, sortTodos, toDealTodo, topTodo, type DealTodo } from "@/lib/work/todos";
 import type { Row } from "@/lib/types";
 
 /**
@@ -70,12 +70,12 @@ export type ItemRow = {
 };
 
 const ITEM_COLUMNS = "id,name,company_name,status,stage_id,pipeline_id,primary_contact_id,source,next_action,next_action_due,next_action_minutes,what_it_does,location,listing_url,role_title,contact_name,fee,pay_range,open_questions,open_questions_json,waiting_on,waiting_since,created_at,stage_entered_at,notes";
-const TASK_COLUMNS = "id,record_type,record_id,deal_id,text,position,done_at,created_at";
+const TASK_COLUMNS = RECORD_TASK_COLUMNS;
 
 const num = (v: unknown) => (v === null || v === undefined || v === "" ? null : Number.isFinite(Number(v)) ? Number(v) : null);
 
 function toTask(t: Row): DealTodo {
-  return { id: String(t.id), text: String(t.text ?? ""), position: Number(t.position ?? 0), doneAt: t.done_at ? String(t.done_at) : null, createdAt: String(t.created_at ?? "") };
+  return toDealTodo(t);
 }
 
 function toItemRow(kind: ItemKind, i: Row, pipe: WorkPipeline, ctx: WorkCtx, contact: Row | undefined, details: Row | undefined, todos: readonly DealTodo[] = []): ItemRow {

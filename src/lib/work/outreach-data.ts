@@ -10,7 +10,7 @@ import { isValidEmail } from "@/lib/email-address";
 import { DEFAULT_OUTREACH_TARGET, normalizeRole, outreachSections, parsePurposes, roleLabel, workWeek, type PurposeKey } from "@/lib/work/outreach";
 import { commKind, commTitle, type TimelineEvent } from "@/lib/work/timeline";
 import { nextReportDay, partnerSettings, type ReportSectionKey } from "@/lib/accountability/partners";
-import { sortTodos, type DealTodo } from "@/lib/work/todos";
+import { RECORD_TASK_COLUMNS, sortTodos, toDealTodo, type DealTodo } from "@/lib/work/todos";
 import type { Row } from "@/lib/types";
 
 /**
@@ -196,10 +196,10 @@ type PersonPageData = {
   compose: ComposeSetup | null;
 };
 
-const TASK_COLUMNS = "id,deal_id,record_type,record_id,text,position,done_at,created_at";
+const TASK_COLUMNS = RECORD_TASK_COLUMNS;
 
 function toTask(t: Row): DealTodo {
-  return { id: String(t.id), text: String(t.text ?? ""), position: Number(t.position ?? 0), doneAt: t.done_at ? String(t.done_at) : null, createdAt: String(t.created_at ?? "") };
+  return toDealTodo(t);
 }
 
 /** The person page: the person, the timeline (notes, emails, calls; newest first), incoming replies, tasks, records, and the email setup. */

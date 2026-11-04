@@ -93,7 +93,7 @@ describe("the Outreach sample (batch B)", () => {
     expect(w.personalTodos).toHaveLength(0);
   });
 
-  it("has calls and emails on the timelines, three incoming replies waiting (two on Mark Reed), tasks on people, and five to-dos", () => {
+  it("has calls and emails on the timelines, three incoming replies waiting (two on Mark Reed), tasks on people, and seven to-dos", () => {
     const reed = b.contacts.find((c) => c.name === "Mark Reed")!;
     const incoming = b.communications.filter((c) => c.awaiting_log);
     expect(incoming).toHaveLength(3);
@@ -105,8 +105,16 @@ describe("the Outreach sample (batch B)", () => {
     // Every person has at least one logged email or call (a last contact).
     for (const p of people) expect(b.communications.some((c) => c.contact_id === p.id && !c.awaiting_log)).toBe(true);
     expect(b.todos.filter((t) => t.record_type === "contacts")).toHaveLength(3);
-    expect(b.todos.filter((t) => t.deal_id)).toHaveLength(5);
-    expect(b.personalTodos.map((t) => t.due_on)).toEqual(["2026-10-30", null, "2026-11-04", "2026-11-03", "2026-11-13"]);
+    expect(b.todos.filter((t) => t.deal_id)).toHaveLength(9);
+    expect(b.personalTodos.map((t) => t.due_on)).toEqual(["2026-10-30", null, "2026-11-04", "2026-10-31", "2026-11-13", "2026-10-30", "2026-11-02"]);
+    // Push C: two repeat, one is linked to a deal; record tasks carry dates and one repeats every week.
+    expect(b.personalTodos.filter((t) => t.repeat).map((t) => t.repeat)).toEqual(["monthly", "weekdays"]);
+    expect(b.personalTodos.filter((t) => t.record_type === "pipeline_items")).toHaveLength(1);
+    expect(b.todos.filter((t) => t.due_on).length).toBeGreaterThanOrEqual(8);
+    expect(b.todos.filter((t) => t.repeat === "weekly")).toHaveLength(2);
+    // Two blocks today, one on a deal's next action and one on a dated task.
+    expect(b.timeBlocks.map((x) => String(x.row_key).split(":")[0])).toEqual(["deal", "todo"]);
+    expect(b.timeBlocks.every((x) => String(x.starts_at) < String(x.ends_at))).toBe(true);
     expect(b.notes.filter((n) => n.record_type === "contacts")).toHaveLength(2);
   });
 });

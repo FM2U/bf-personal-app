@@ -391,30 +391,6 @@ export async function addPersonTask(id: string, text: string): Promise<{ ok: tru
   return { ok: true, taskId: String(data.id) };
 }
 
-export async function setPersonTaskDone(taskId: string, isDone: boolean): Promise<{ ok: true } | Fail> {
-  const s = await setup();
-  if (isFail(s)) return s;
-  const { sb, ctx } = s;
-  const task = await personTaskOf(sb, ctx, taskId);
-  if (isFail(task)) return task;
-  const { error } = await sb.from("deal_todos").update({ done_at: isDone ? new Date().toISOString() : null }).eq("id", task.id);
-  if (error) return notSaved(error);
-  done();
-  return { ok: true };
-}
-
-export async function deletePersonTask(taskId: string): Promise<{ ok: true } | Fail> {
-  const s = await setup();
-  if (isFail(s)) return s;
-  const { sb, ctx } = s;
-  const task = await personTaskOf(sb, ctx, taskId);
-  if (isFail(task)) return task;
-  const { error } = await sb.from("deal_todos").delete().eq("id", task.id);
-  if (error) return notSaved(error);
-  done();
-  return { ok: true };
-}
-
 /**
  * "Make this the next action" on a person: the task becomes what the next follow-up is for, due tomorrow when there
  * is no date yet or the date is past; the task leaves the list. What the follow-up was for before is kept as a task.

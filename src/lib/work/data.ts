@@ -17,7 +17,7 @@ import { parseFindingList } from "@/lib/work/deal-facts";
 import { DEFAULT_WAIT_THRESHOLD_DAYS, WORK_STAGES, dayInStage, daysWaiting, doneOutcome, nextStageName, stageIndex, waitLevel, type WaitLevel } from "@/lib/work/stages";
 import { commTitle, type TimelineEvent } from "@/lib/work/timeline";
 export type { TimelineEvent } from "@/lib/work/timeline";
-import { sortTodos, topTodo, type DealTodo } from "@/lib/work/todos";
+import { RECORD_TASK_COLUMNS, sortTodos, toDealTodo, topTodo, type DealTodo } from "@/lib/work/todos";
 import type { Row } from "@/lib/types";
 
 /**
@@ -163,10 +163,10 @@ async function readItems<T>(run: (columns: string) => PromiseLike<{ data: T; err
   return first;
 }
 
-const TODO_COLUMNS = "id,deal_id,text,position,done_at,created_at";
+const TODO_COLUMNS = RECORD_TASK_COLUMNS;
 
 function toTodo(t: Row): DealTodo {
-  return { id: String(t.id), text: String(t.text ?? ""), position: Number(t.position ?? 0), doneAt: t.done_at ? String(t.done_at) : null, createdAt: String(t.created_at ?? "") };
+  return toDealTodo(t);
 }
 
 type Loaded = { items: Row[]; financials: Record<string, Row>; contacts: Record<string, Row>; todos: Record<string, DealTodo[]> };

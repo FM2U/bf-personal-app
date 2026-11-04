@@ -21,6 +21,7 @@ import { reportFor, reportInnerHtml, reportSubject, type ReportData } from "@/li
 import { checkBuyBox, dealSourceTypeFor } from "@/lib/work/buy-box";
 import { weekdayShort } from "@/lib/work/outreach";
 import { STAGE_DEFAULTS } from "@/lib/work/stages";
+import { zonedToIso } from "@/lib/work/time-blocks";
 
 export type WorkSampleSetup = {
   pipelineId: string;
@@ -35,6 +36,8 @@ export type WorkSampleSetup = {
   batchC?: boolean;
   /** Database update 0026: the Personal network role is stored as personal_network (otherwise as former_colleague). */
   personalNetwork?: boolean;
+  /** The owner's time zone (push C: the sample blocks sit at local times); New York when not given. */
+  tz?: string;
 };
 
 type R = Record<string, unknown>;
@@ -51,9 +54,14 @@ export type WorkSample = {
   /** Small files to put in storage and record as documents (Dalton Services). */
   documents: { itemId: string; fileName: string; kind: string; mimeType: string; text: string }[];
   /** The Tasks items (deal_todos, database update 0021), inserted after the deals; batch B adds tasks on people (record_type contacts). */
-  todos: { id: string; deal_id?: string; record_type?: string; record_id?: string; text: string; position: number }[];
-  /** The personal To-dos (table todos, database update 0022): two due today, two in the next 7 days, one later. */
+  todos: { id: string; deal_id?: string; record_type?: string; record_id?: string; text: string; position: number; due_on?: string | null; repeat?: string | null }[];
+  /**
+   * The personal To-dos (batch B; push C: rows of deal_todos with no record, plus one to-do linked to a deal): today,
+   * the next 7 days (one tomorrow), later; two repeat.
+   */
   personalTodos: R[];
+  /** Push C: two blocks put on the calendar today (time_blocks; sample blocks have no Google event). */
+  timeBlocks: R[];
   /** The Rosara projects (batch B2). */
   projects: R[];
   /** Note dates to set after the insert (the insert stamps "now"): note id to days ago. */
@@ -196,12 +204,24 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
   ];
 
   // Also to do (database update 0021): other things to do on a deal, outside its one next action.
+  // Push C: some tasks have a date (they also show on To-dos and Home) and one repeats every week.
+  const dataRoom = newId();
   const todos: WorkSample["todos"] = [
-    { id: newId(), deal_id: dalton, text: "Ask Rachel for the customer list by revenue", position: 1 },
+    { id: newId(), deal_id: dalton, text: "Ask Rachel for the customer list by revenue", position: 1, due_on: ago(1) },
     { id: newId(), deal_id: dalton, text: "Read the maintenance contract template in the CIM", position: 2 },
     { id: newId(), deal_id: dalton, text: "Compare the asking multiple with the two HVAC deals passed on", position: 3 },
-    { id: newId(), deal_id: meridian, text: "Ask for the top 10 customers by year", position: 1 },
-    { id: newId(), deal_id: meridian, text: "Book 30 minutes with the partner before the model is final", position: 2 },
+    { id: newId(), deal_id: meridian, text: "Ask for the top 10 customers by year", position: 1, due_on: today },
+    { id: newId(), deal_id: meridian, text: "Book 30 minutes with the partner before the model is final", position: 2, due_on: ahead(4) },
+    { id: newId(), deal_id: summit, text: "Send Mark Reed my questions on the CIM", position: 1, due_on: ago(1) },
+    { id: dataRoom, deal_id: summit, text: "Check the data room for new files", position: 2, due_on: today, repeat: "weekly" },
+    { id: newId(), deal_id: summit, text: "Build the first-pass model from the CIM", position: 3, due_on: ahead(7) },
+    { id: newId(), deal_id: summit, text: "Look up the two largest customers online", position: 4 },
+  ];
+  // Push C: two blocks on today's calendar (Meridian's model in the morning, the Summit data room in the afternoon).
+  const tz = s.tz ?? "America/New_York";
+  const timeBlocks: R[] = [
+    { id: newId(), row_key: `deal:${meridian}`, record_type: "pipeline_items", record_id: meridian, title: "Meridian Industrial Coatings: Finish the 7-year model", starts_at: zonedToIso(today, "09:00", tz), ends_at: zonedToIso(today, "11:00", tz), google_event_id: null },
+    { id: newId(), row_key: `todo:${dataRoom}`, record_type: "deal_todos", record_id: dataRoom, title: "Check the data room for new files", starts_at: zonedToIso(today, "14:00", tz), ends_at: zonedToIso(today, "14:30", tz), google_event_id: null },
   ];
 
   // ---------- Outreach (batch B, database update 0022): the people of the approved mockup ----------
@@ -274,21 +294,24 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
     notes.push({ id: newId(), record_type: "contacts", record_id: c.reed, body: "Prefers a call over email; answers the phone before 9." });
     notes.push({ id: newId(), record_type: "contacts", record_id: p.lena, body: "Wants a 50/50 split with a 4-year vest; open to a 1-year cliff." });
     // Tasks on two people (the Tasks card on the person page).
-    todos.push({ id: newId(), record_type: "contacts", record_id: c.reed, text: "Send Mark my one-page buy box", position: 1 });
+    todos.push({ id: newId(), record_type: "contacts", record_id: c.reed, text: "Send Mark my one-page buy box", position: 1, due_on: today });
     todos.push({ id: newId(), record_type: "contacts", record_id: c.reed, text: "Ask Mark whether Summit's owner will take a call in November", position: 2 });
-    todos.push({ id: newId(), record_type: "contacts", record_id: p.lena, text: "Draft the equity split memo", position: 1 });
+    todos.push({ id: newId(), record_type: "contacts", record_id: p.lena, text: "Draft the equity split memo", position: 1, due_on: ahead(2) });
     // Push B: tasks and a note on the Transworld organization page.
     todos.push({ id: newId(), record_type: "organizations", record_id: org.transworld, text: "Send Transworld my one-page buy box", position: 1 });
-    todos.push({ id: newId(), record_type: "organizations", record_id: org.transworld, text: "Check their new listings page", position: 2 });
+    todos.push({ id: newId(), record_type: "organizations", record_id: org.transworld, text: "Check their new listings page", position: 2, due_on: ahead(1), repeat: "weekly" });
     todos.push({ id: newId(), record_type: "organizations", record_id: org.transworld, text: "Ask Rachel which owners in Chattanooga are near retirement", position: 3 });
     notes.push({ id: newId(), record_type: "organizations", record_id: org.transworld, body: "Two brokers here: Mark covers East Tennessee, Rachel covers Chattanooga. Rachel's CIMs are the best prepared." });
-    // Personal to-dos: Today (two, one without a date), Next 7 days (two), Later (one).
+    // Personal to-dos: Today (three, one without a date, one every weekday), Next 7 days (tomorrow, a monthly one, one
+    // linked to Meridian), Later (one). Push C: they are rows of deal_todos with no record (the linked one has its deal).
     personalTodos.push(
       { id: newId(), text: "Renew the Cyan Arc registered agent", due_on: today, position: 1 },
       { id: newId(), text: "Book the dentist", due_on: null, position: 2 },
-      { id: newId(), text: "Send the TimeSlips treasurer report", due_on: ahead(5), position: 3 },
-      { id: newId(), text: "Pick up the dry cleaning", due_on: ahead(4), position: 4 },
+      { id: newId(), text: "Send the TimeSlips treasurer report", due_on: ahead(5), position: 3, repeat: "monthly" },
+      { id: newId(), text: "Pick up the dry cleaning", due_on: ahead(1), position: 4 },
       { id: newId(), text: "Read the SBA 7(a) rule change", due_on: ahead(14), position: 5 },
+      { id: newId(), text: "Read the broker listing emails", due_on: today, position: 6, repeat: "weekdays" },
+      { id: newId(), text: "Draft the LOI template", due_on: ahead(3), position: 3, record_type: "pipeline_items", record_id: meridian, deal_id: meridian },
     );
 
     // ---------- Batch B2 (database update 0023): Rosara projects, Job search, Consulting ----------
@@ -452,7 +475,7 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
     }
   }
 
-  return { organizations, contacts, items, financials, communications, notes, stageDates, documents, todos, personalTodos, projects, consultingDetails, noteDates, noActionItems, partnerReports, endOfDay, workEvents };
+  return { organizations, contacts, items, financials, communications, notes, stageDates, documents, todos, personalTodos, timeBlocks, projects, consultingDetails, noteDates, noActionItems, partnerReports, endOfDay, workEvents };
 }
 
 /** The three sample sent reports (batch C): the email as sent, built the way End of day builds it, from fixed numbers. */

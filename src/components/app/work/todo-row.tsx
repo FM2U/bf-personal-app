@@ -3,27 +3,34 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { deferPersonalTodo, setPersonalTodoDone } from "@/app/actions/todos";
+import { deferTask, setTaskDone } from "@/app/actions/tasks";
 import { date as fmtDate } from "@/lib/format";
+import { actionKey } from "@/lib/work/lanes";
 import { todoDueLabel, type PersonalTodo } from "@/lib/work/personal-todos";
+import { recordHref } from "@/lib/work/task-records";
+import { blockSlots } from "@/components/app/work/block-time";
 import { AiReason } from "@/components/app/work/project-row";
-import { ActionFigures, Confirm, LanePill, Line1, Line2, ROW_COLS, RowButton, RowButtons, RowShell } from "@/components/app/work/ui";
+import { TaskChips } from "@/components/app/work/task-bits";
+import { ActionFigures, Confirm, LanePill, Line2, ROW_COLS, RowButton, RowButtons, RowShell } from "@/components/app/work/ui";
 
 /**
- * A personal to-do on Home's Next actions (Edit batch C round 2, approved 2026-11-02): the "To-do" lane pill and the
- * to-do's text, the due date in the due column (the minutes column stays empty), Done (checks it off; it shows under
- * Done today on the To-dos page) and Later (moves it to tomorrow). Only to-dos due today or earlier come here.
+ * A personal to-do or a dated record task on Home's Next actions (Edit batch C round 2; push C, approved 2026-11-03):
+ * the "To-do" lane pill (a personal to-do) or the "Task" lane pill (a task on a record) and the text; under it the
+ * gray record pill ("Deal · Summit Logistics Group ›", opens the record) and the Repeat chip, or "Personal to-do".
+ * At the right the due date, the block icon, Done (checks it off everywhere, on the record too; a repeating one adds
+ * the next) and Later (moves it to tomorrow). Only items due today or earlier come here.
  */
 export function TodoActionRow({ todo, today, reason }: { todo: PersonalTodo; today: string; /** The AI's one-line reason under the row (By the AI). */ reason?: string | null }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [result, setResult] = useState<{ tone: "blue" | "warn"; text: string } | null>(null);
   const due = todoDueLabel(todo.dueOn, today, (d) => fmtDate(d, "MMM d"));
-  const act = (fn: () => Promise<{ ok: true; due?: string } | { ok: false; error: string }>, text: (r: { due?: string }) => string) =>
+  const href = todo.record ? recordHref(todo.record) : "/work/todos";
+  const act = <R extends { ok: true } | { ok: false; error: string }>(fn: () => Promise<R>, text: (r: Extract<R, { ok: true }>) => string) =>
     start(async () => {
       const r = await fn();
-      if (!r.ok) return setResult({ tone: "warn", text: r.error });
-      setResult({ tone: "blue", text: text(r) });
+      if (r.ok === false) return setResult({ tone: "warn", text: (r as { error: string }).error });
+      setResult({ tone: "blue", text: text(r as Extract<R, { ok: true }>) });
       setTimeout(() => router.refresh(), 1200);
     });
   if (result) {
@@ -36,32 +43,34 @@ export function TodoActionRow({ todo, today, reason }: { todo: PersonalTodo; tod
       </RowShell>
     );
   }
+  const where = todo.record ? `It is checked off on ${todo.record.name} too.` : "It is under Done today on To-dos.";
   return (
     <RowShell
       testId="todo-action-row"
-      dataAttrs={{ "data-todo": todo.id }}
-      open="/work/todos"
-      openLabel="Open To-dos"
+      dataAttrs={{ "data-todo": todo.id, "data-record": todo.record ? `${todo.record.kind}:${todo.record.id}` : "" }}
+      open={href}
+      openLabel={todo.record ? `Open ${todo.record.name}` : "Open To-dos"}
       right={
-        <ActionFigures due={due.text ? { text: due.text, tone: due.tone } : null} minutes={null}>
+        <ActionFigures due={due.text ? { text: due.text, tone: due.tone } : null} minutes={null} block={blockSlots({ rowKey: actionKey("To-dos", todo.id), lane: todo.record ? "Task" : "To-do", name: todo.text, action: null, minutes: null, recordType: "deal_todos", recordId: todo.id, href })}>
           <RowButtons pair>
-            <RowButton tone="cobalt" disabled={pending} onClick={() => act(() => setPersonalTodoDone(todo.id, true), () => `Done: ${todo.text}. It is under Done today on To-dos.`)} className={ROW_COLS.button.cls} data-testid="next-action-done">
+            <RowButton tone="cobalt" disabled={pending} onClick={() => act(() => setTaskDone(todo.id, true), (r) => `Done: ${todo.text}. ${where}${r.next ? ` The next one is on ${fmtDate(r.next, "EEE MMM d")}.` : ""}`)} className={ROW_COLS.button.cls} data-testid="next-action-done">
               {pending ? "Saving" : "Done"}
             </RowButton>
-            <RowButton disabled={pending} onClick={() => act(() => deferPersonalTodo(todo.id), (r) => `Moved to ${r.due ? fmtDate(r.due, "EEE MMM d") : "tomorrow"}.`)} className={ROW_COLS.button.cls} data-testid="next-action-later">
+            <RowButton disabled={pending} onClick={() => act(() => deferTask(todo.id), (r) => `Moved to ${fmtDate(r.due, "EEE MMM d")}.`)} className={ROW_COLS.button.cls} data-testid="next-action-later">
               Later
             </RowButton>
           </RowButtons>
         </ActionFigures>
       }
     >
-      <Line1>
-        <LanePill lane="To-do" />
-        <Link href="/work/todos" className="hover:underline" data-testid="todo-link">
-          <span className="text-sm font-semibold text-slate-900">{todo.text}</span>
+      {/* The pill and the text share one line; a long text wraps under the pill instead of pushing it onto a line of its own. */}
+      <div className="min-w-0 text-sm leading-[22px]">
+        <LanePill lane={todo.record ? "Task" : "To-do"} className="mr-2.5 align-[1px]" />
+        <Link href={href} className="font-semibold text-slate-900 hover:underline" data-testid="todo-link">
+          {todo.text}
         </Link>
-      </Line1>
-      <Line2 className="text-muted-foreground">Personal to-do</Line2>
+      </div>
+      {todo.record || todo.repeat ? <TaskChips repeat={todo.repeat} record={todo.record} className="mt-1" /> : <Line2 className="text-muted-foreground">Personal to-do</Line2>}
       {reason ? <AiReason text={reason} /> : null}
     </RowShell>
   );

@@ -8,6 +8,8 @@ import { addDaysISO } from "@/lib/calc/dates";
 import { date as fmtDate } from "@/lib/format";
 import type { ProjectRow as ProjectRowData } from "@/lib/work/projects-data";
 import { dueLabel } from "@/lib/work/stages";
+import { actionKey } from "@/lib/work/lanes";
+import { blockSlots } from "@/components/app/work/block-time";
 import { ActionFigures, Confirm, Due, Figure, Figures, LanePill, Line1, Line2, Name, Pill, ROW_COLS, RowButton, RowButtons, RowLink, RowShell, What } from "@/components/app/work/ui";
 
 /**
@@ -40,7 +42,7 @@ function useProjectAction(project: ProjectRowData, compact: boolean) {
   return { pending, state, setState, finish, later };
 }
 
-function AskDone({ project, pending, onTask, onClear }: { project: ProjectRowData; pending: boolean; onTask: (id: string) => void; onClear: () => void }) {
+export function AskDone({ project, pending, onTask, onClear }: { project: ProjectRowData; pending: boolean; onTask: (id: string) => void; onClear: () => void }) {
   return (
     <Confirm tone="blue" className="mt-2" testId="next-action-ask">
       <span>Done. What is next on {project.name}?</span>
@@ -229,7 +231,7 @@ export function ProjectActionRow({ project, today, reason }: { project: ProjectR
       open={`/work/rosara/${project.id}`}
       openLabel={`Open ${project.name}`}
       right={
-        <ActionFigures due={due} minutes={project.nextActionMinutes}>
+        <ActionFigures due={due} minutes={project.nextActionMinutes} block={blockSlots({ rowKey: actionKey("Rosara", project.id), lane: "Rosara", name: project.name, action: project.nextAction, minutes: project.nextActionMinutes, recordType: "projects", recordId: project.id, href: `/work/rosara/${project.id}` })}>
           <Buttons pending={pending} onDone={() => (project.topTask ? setState({ kind: "ask" }) : finish())} onLater={() => setState(state.kind === "later" ? { kind: "idle" } : { kind: "later" })} />
         </ActionFigures>
       }

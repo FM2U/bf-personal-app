@@ -126,3 +126,10 @@ export const PROBE_0028 = "schema_has_0028";
 const DB_UPDATE_FILE_0029 = "supabase/UPDATE_0029_RUN_ONCE.sql";
 export const DB_UPDATE_NOTICE_0029 = `Database update needed: paste ${DB_UPDATE_FILE_0029} into the Supabase SQL Editor and run it. Until then, growth paths and financing are not kept.`;
 export const PROBE_0029 = "schema_has_0029";
+
+/**
+ * Push C (2026-11-03): one list of tasks and to-dos (deal_todos with due_on, repeat, and no record for a personal
+ * to-do; the old todos table moved into it), and Block time (time_blocks). Before UPDATE_PREVIEW_PUSH_C.sql runs, To-dos
+ * shows this notice and saving a task date, Repeat, a link, or a block says so.
+ */
+export const DB_UPDATE_NOTICE_PUSH_C = "Database update needed: paste supabase/UPDATE_PREVIEW_PUSH_C.sql into the Supabase SQL Editor and run it.";

@@ -102,3 +102,15 @@ export function scopesAfterConnect(granted: string | null | undefined, previous:
   const prev = scopeList(previous);
   return prev.length ? prev.join(" ") : null;
 }
+
+/** Push C: reading the day's events (Today's calendar on Home, "Already on" in Block time) needs a calendar scope. */
+export const CALENDAR_READ_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
+export const CALENDAR_EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+
+/** Today's calendar and Block time for the saved connection: allowed, reconnect needed, or not connected. */
+export function calendarPermission(conn: { status?: string | null; refresh_token_enc?: string | null; scopes?: string | null } | null | undefined): SendPermission {
+  if (!conn || conn.status === "disconnected" || !conn.refresh_token_enc) return "not_connected";
+  const list = scopeList(conn.scopes);
+  const full = list.includes("https://www.googleapis.com/auth/calendar");
+  return full || (list.includes(CALENDAR_READ_SCOPE) && list.includes(CALENDAR_EVENTS_SCOPE)) ? "allowed" : "reconnect";
+}

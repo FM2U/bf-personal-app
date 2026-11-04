@@ -105,7 +105,7 @@ export function WorkCard({ id, title, count, hint, sub, actions, children, class
             <span>{title}</span>
             {count ? <span className="tabular rounded-full bg-status-neutral-bg px-2 py-px text-[11px] font-semibold leading-4 text-status-neutral">{count}</span> : null}
           </h2>
-          {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : hint ? <span className="min-w-0 flex-1 text-right text-[13px] text-muted-foreground">{hint}</span> : null}
+          {actions ? <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">{actions}</div> : hint ? <span className="min-w-0 flex-1 text-right text-[13px] text-muted-foreground">{hint}</span> : null}
           {sub ? <div className="-mt-1 w-full text-[13px] text-muted-foreground">{sub}</div> : null}
         </div>
         {rule && !pinned ? <div className="mx-[22px] h-px bg-rule" /> : null}
@@ -370,17 +370,20 @@ export function Due({ text, tone, className, testId }: { text: string; tone: "to
 /**
  * The figure columns at the right of a next-action row (Home and the lane pages): the due date and the block minutes,
  * each a fixed-width column (ROW_COLS) with its text at the right, so the columns line up on every row. Then the
- * buttons (`children`).
+ * buttons (`children`). Push C: with `block` (Home), "Blocked 2:00" shows under the due date and the block icon
+ * (Block time) sits in its own column before the buttons.
  */
-export function ActionFigures({ due, minutes, children, testId = "next-action-due" }: { due: { text: string; tone: "today" | "over" | "later" | "none" } | null; minutes: number | null | undefined; children?: React.ReactNode; testId?: string }) {
+export function ActionFigures({ due, minutes, children, testId = "next-action-due", block }: { due: { text: string; tone: "today" | "over" | "later" | "none" } | null; minutes: number | null | undefined; children?: React.ReactNode; testId?: string; /** Push C: the "Blocked 2:00" line and the block icon (blockSlots in block-time.tsx). */ block?: { note: React.ReactNode; button: React.ReactNode } }) {
   return (
     <>
       <span className={cn("shrink-0 text-right", ROW_COLS.due.cls)} data-col="due">
         {due ? <Due text={due.text} tone={due.tone} testId={testId} /> : null}
+        {block?.note}
       </span>
       <span className={cn("tabular shrink-0 text-right text-xs text-slate-400", ROW_COLS.minutes.cls)} data-col="minutes" data-testid="next-action-minutes">
         {minutes ? `${minutes} min` : ""}
       </span>
+      {block?.button}
       {children}
     </>
   );
@@ -578,7 +581,7 @@ export function TargetBar({ count, target, pct, hint, className, testId = "outre
 }
 
 /** A lane pill on a Home row (People, Rosara, Job search, Consulting; deals have none): one soft blue for all four. */
-export function LanePill({ lane, className }: { lane: "People" | "Rosara" | "Job search" | "Consulting" | "To-do"; className?: string }) {
+export function LanePill({ lane, className }: { lane: "People" | "Rosara" | "Job search" | "Consulting" | "To-do" | "Task"; className?: string }) {
   return (
     <Pill tone="blue" className={className} testId="lane-pill">
       {lane === "People" ? "Contacts" : lane}

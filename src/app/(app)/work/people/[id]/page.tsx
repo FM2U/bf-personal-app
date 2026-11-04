@@ -113,7 +113,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
           <>
           {partner ? <PartnerReportsCard personId={person.id} email={person.email} info={partner} replyNote={replyNote} /> : <WhyInTouchCard person={person} />}
           <NextFollowUpCard person={person} today={d.today} />
-          <PersonTasksCard person={person} tasks={d.tasks} />
+          <PersonTasksCard person={person} tasks={d.tasks} today={d.today} />
           </>
         }
         right={

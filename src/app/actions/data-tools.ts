@@ -52,6 +52,7 @@ export async function loadSampleData(fd: FormData) {
       personalNetwork: true,
       jobs: jobs ? { pipelineId: jobs.id, stages: stagesOf(jobs) } : null,
       consulting: consulting ? { pipelineId: consulting.id, stages: stagesOf(consulting) } : null,
+      tz: ctx.tz,
     },
     () => randomUUID(),
     ctx.today,
@@ -63,7 +64,7 @@ export async function loadSampleData(fd: FormData) {
   await finishWorkSample(supabase, ownerId, ctx.today, work, stageIds);
   revalidatePath("/", "layout");
   const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
-  back(`Sample data loaded: ${total} records (${counts.pipeline_items ?? 0} listings, deals, opportunities and clients, ${counts.contacts ?? 0} people, ${counts.todos ?? 0} to-dos).`);
+  back(`Sample data loaded: ${total} records (${counts.pipeline_items ?? 0} listings, deals, opportunities and clients, ${counts.contacts ?? 0} people, ${counts.deal_todos ?? 0} to-dos).`);
 }
 
 /**

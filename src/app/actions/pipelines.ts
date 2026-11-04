@@ -363,30 +363,6 @@ export async function addItemTask(kind: ItemKind, id: string, text: string): Pro
   return { ok: true, taskId: String(data.id) };
 }
 
-export async function setItemTaskDone(kind: ItemKind, taskId: string, isDone: boolean): Promise<{ ok: true } | Fail> {
-  const s = await setup(kind);
-  if (isFail(s)) return s;
-  const { sb, ctx } = s;
-  const task = await itemTaskOf(sb, ctx, taskId);
-  if (isFail(task)) return task;
-  const { error } = await sb.from("deal_todos").update({ done_at: isDone ? new Date().toISOString() : null }).eq("id", task.id);
-  if (error) return notSaved(error);
-  done();
-  return { ok: true };
-}
-
-export async function deleteItemTask(kind: ItemKind, taskId: string): Promise<{ ok: true } | Fail> {
-  const s = await setup(kind);
-  if (isFail(s)) return s;
-  const { sb, ctx } = s;
-  const task = await itemTaskOf(sb, ctx, taskId);
-  if (isFail(task)) return task;
-  const { error } = await sb.from("deal_todos").delete().eq("id", task.id);
-  if (error) return notSaved(error);
-  done();
-  return { ok: true };
-}
-
 export async function makeItemTaskNext(kind: ItemKind, taskId: string): Promise<{ ok: true; nextAction: string; due: string; kept: string | null } | Fail> {
   const s = await setup(kind);
   if (isFail(s)) return s;

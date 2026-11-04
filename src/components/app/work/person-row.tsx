@@ -10,6 +10,8 @@ import { lastContactLabel, nextDateChoices, nextFollowUpLabel, orgRoleLine, purp
 import type { PersonRow as PersonRowData } from "@/lib/work/outreach-data";
 import { personHref } from "@/lib/work/people";
 import { dueLabel } from "@/lib/work/stages";
+import { actionKey } from "@/lib/work/lanes";
+import { blockSlots } from "@/components/app/work/block-time";
 import { AiReason } from "@/components/app/work/project-row";
 import { ActionFigures, Confirm, Figure, Figures, LanePill, Line1, Line2, Line3, Name, Pill, ROW_COLS, RowButton, RowButtons, RowShell, What } from "@/components/app/work/ui";
 
@@ -123,7 +125,7 @@ export function PersonRow({ person, today, onEmail, onCall, done: doneText, show
  * The line after Done on a person: "Done. Next follow-up with X:" with three date choices, a date box with Save,
  * No date, and the "What for" text. Shared by the Outreach row and the outreach row on Home.
  */
-function FollowUpDoneAsk({ person, today, pending, what, setWhat, onPick, onCancel }: { person: Pick<PersonRowData, "id" | "name">; today: string; pending: boolean; what: string; setWhat: (v: string) => void; onPick: (date: string | null) => void; onCancel: () => void }) {
+export function FollowUpDoneAsk({ person, today, pending, what, setWhat, onPick, onCancel }: { person: Pick<PersonRowData, "id" | "name">; today: string; pending: boolean; what: string; setWhat: (v: string) => void; onPick: (date: string | null) => void; onCancel: () => void }) {
   const [typed, setTyped] = useState("");
   const choices = nextDateChoices(today);
   return (
@@ -204,7 +206,7 @@ export function OutreachActionRow({ person, today, reason }: { person: PersonRow
       openLabel={`Open ${person.name}`}
       right={
         asking ? undefined : (
-          <ActionFigures due={{ text: next.tone === "over" ? overdueText(person.nextFollowUp!, today) : next.text, tone: next.tone }} minutes={null}>
+          <ActionFigures due={{ text: next.tone === "over" ? overdueText(person.nextFollowUp!, today) : next.text, tone: next.tone }} minutes={null} block={blockSlots({ rowKey: actionKey("People", person.id), lane: "Contacts", name: person.name, action: person.followUpFor ?? "Follow up", minutes: null, recordType: "contacts", recordId: person.id, href: personHref(person.id) })}>
             <RowButtons pair>
               <RowButton tone="cobalt" disabled={pending} onClick={() => setState(asking ? { kind: "idle" } : { kind: "ask" })} className={ROW_COLS.button.cls} data-testid="next-action-done">
                 Done

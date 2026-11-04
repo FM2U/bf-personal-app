@@ -5,7 +5,7 @@ import type { Ctx } from "@/lib/engine/helpers";
 import { date as fmtDate } from "@/lib/format";
 import { compareProjects, rosaraTile } from "@/lib/work/projects";
 import type { TimelineEvent } from "@/lib/work/timeline";
-import { openTodos, sortTodos, topTodo, type DealTodo } from "@/lib/work/todos";
+import { openTodos, RECORD_TASK_COLUMNS, sortTodos, toDealTodo, topTodo, type DealTodo } from "@/lib/work/todos";
 import type { Row } from "@/lib/types";
 
 /**
@@ -36,10 +36,10 @@ export type ProjectRow = {
 };
 
 const PROJECT_COLUMNS = "id,name,goal,milestone,status,closed_at,next_action,next_action_due,next_action_minutes,position,created_at";
-const TASK_COLUMNS = "id,record_type,record_id,text,position,done_at,created_at";
+const TASK_COLUMNS = RECORD_TASK_COLUMNS;
 
 function toTask(t: Row): DealTodo {
-  return { id: String(t.id), text: String(t.text ?? ""), position: Number(t.position ?? 0), doneAt: t.done_at ? String(t.done_at) : null, createdAt: String(t.created_at ?? "") };
+  return toDealTodo(t);
 }
 
 function toProjectRow(p: Row, tasks: readonly DealTodo[] = []): ProjectRow {

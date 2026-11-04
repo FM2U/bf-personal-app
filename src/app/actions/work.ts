@@ -307,31 +307,6 @@ async function todoOf(sb: SupabaseClient, ctx: Ctx, todoId: string): Promise<Row
   return (data as Row | null) ?? fail("This item was not found. It may have been deleted.");
 }
 
-/** The checkbox: done (now) or open again. */
-export async function setTodoDone(todoId: string, isDone: boolean): Promise<{ ok: true } | Fail> {
-  const s = await setup();
-  if (isFail(s)) return s;
-  const { sb, ctx } = s;
-  const todo = await todoOf(sb, ctx, todoId);
-  if (isFail(todo)) return todo;
-  const { error } = await sb.from("deal_todos").update({ done_at: isDone ? new Date().toISOString() : null }).eq("id", todo.id);
-  if (error) return notSaved(error);
-  done();
-  return { ok: true };
-}
-
-export async function deleteTodo(todoId: string): Promise<{ ok: true } | Fail> {
-  const s = await setup();
-  if (isFail(s)) return s;
-  const { sb, ctx } = s;
-  const todo = await todoOf(sb, ctx, todoId);
-  if (isFail(todo)) return todo;
-  const { error } = await sb.from("deal_todos").delete().eq("id", todo.id);
-  if (error) return notSaved(error);
-  done();
-  return { ok: true };
-}
-
 /**
  * "Make this the next action": the item's text becomes the deal's next action (due tomorrow) and the item leaves the
  * list. A next action that was there before is kept as a to-do at the top of the list, so nothing typed is lost.
