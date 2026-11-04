@@ -1,0 +1,405 @@
+// LOCAL TESTING ONLY. Click-through checks of push C (Work additions) against the local stand-ins: Work through, a
+// repeating to-do adds the next, the Link to picker (click, type, chips, keyboard), a linked to-do shows on the
+// record, a dated record task shows on To-dos and Home and checks off everywhere, Block time creates a Google event
+// in the stand-in and the row shows "Blocked", Today's calendar, and Remove sample data.
+// Needs a fresh local database (dev-tools/setup-local-db.sh) and the built app with the stand-ins (dev-tools/start-local.sh).
+// Usage: NODE_PATH=$(npm root -g) node dev-tools/check-push-c.cjs [baseUrl]   (SHOTS_DIR=<folder> saves screenshots)
+const { chromium } = require("playwright");
+const path = require("node:path");
+const fs = require("node:fs");
+const { cookie } = require("./session.cjs");
+const pg = require(path.join(__dirname, "..", "node_modules", "pg"));
+
+const BASE = process.argv[2] || "http://localhost:3000";
+const GOOGLE = process.env.GOOGLE_API_MOCK_URL || "http://localhost:54329";
+const SHOTS = process.env.SHOTS_DIR || null;
+const db = new pg.Client({ connectionString: process.env.DATABASE_URL || "postgres://postgres:postgres@127.0.0.1:5432/bf_dev" });
+const one = async (sql, args = []) => (await db.query(sql, args)).rows[0];
+const g = (p, body) => fetch(`${GOOGLE}${p}`, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}).then((r) => r.json());
+const ny = (d = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(d);
+const addDays = (iso, n) => {
+  const d = new Date(`${iso}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+const nextWeekday = (iso) => {
+  let d = addDays(iso, 1);
+  while ([0, 6].includes(new Date(`${d}T12:00:00Z`).getUTCDay())) d = addDays(d, 1);
+  return d;
+};
+
+let failed = 0;
+async function step(name, fn) {
+  try {
+    await fn();
+    console.log(`ok   ${name}`);
+  } catch (e) {
+    failed++;
+    console.log(`FAIL ${name}\n     ${String(e && e.message ? e.message : e).split("\n").slice(0, 4).join("\n     ")}`);
+  }
+}
+const assert = (c, msg) => {
+  if (!c) throw new Error(msg);
+};
+const shot = async (page, name, full = false) => {
+  if (!SHOTS) return;
+  fs.mkdirSync(SHOTS, { recursive: true });
+  await page.screenshot({ path: path.join(SHOTS, name), fullPage: full });
+};
+const until = async (fn, msg, tries = 40) => {
+  for (let i = 0; i < tries; i++) {
+    if (await fn()) return;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  throw new Error(msg);
+};
+
+(async () => {
+  await db.connect();
+  const browser = await chromium.launch({ env: { ...process.env, LD_PRELOAD: "", FAKETIME: "" } });
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  if (process.env.FAKETIME) await ctx.clock.setSystemTime(Date.now());
+  await ctx.addCookies([cookie]);
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await g("/__reset", {});
+  const today = ny();
+  // Opens a section (the open sections are remembered per day, so wait for the page to settle before reading).
+  const openSection = async (scope, key) => {
+    await page.waitForLoadState("networkidle");
+    await page.waitForTimeout(300);
+    const sec = page.locator(`${scope}[data-section="${key}"]`).first();
+    for (let i = 0; i < 3 && (await sec.getAttribute("data-collapsed")) === "1"; i++) {
+      await sec.getByTestId("section-heading").click();
+      await page.waitForTimeout(200);
+    }
+    assert((await sec.getAttribute("data-collapsed")) === "0", `the ${key} section opens`);
+  };
+  const homeRow = (text) => page.getByTestId("home-row").filter({ hasText: text }).first();
+  const todoLine = (text) => page.getByTestId("personal-todo").filter({ hasText: text }).first();
+
+  await step("Sample data is loaded (loads it when missing) and Google is connected through the stand-in", async () => {
+    if ((await one("select count(*)::int n from sample_records")).n === 0) {
+      await page.goto(`${BASE}/settings/data`);
+      const c = page.getByTestId("sample-confirm-real");
+      if (await c.count()) await c.check();
+      await page.getByTestId("sample-load").click();
+      await page.waitForSelector("text=Sample data loaded", { timeout: 60000 });
+    }
+    await page.goto(`${BASE}/api/google/connect`);
+    await page.waitForURL(/\/settings\?google=/);
+    const conn = await one("select scopes from google_connections");
+    assert(conn.scopes.includes("calendar.readonly") && conn.scopes.includes("calendar.events"), "the calendar permissions are saved");
+    const s = await one("select (select count(*)::int from deal_todos where record_id is null) personal, (select count(*)::int from deal_todos where repeat is not null) repeating, (select count(*)::int from time_blocks) blocks, (select count(*)::int from sample_records where table_name = 'time_blocks') tracked");
+    assert(s.personal >= 6 && s.repeating >= 3 && s.blocks === 2 && s.tracked === 2, `sample: ${JSON.stringify(s)}`);
+  });
+
+  await step("Today's calendar on Home: Google Calendar events and the app's blocks (marked), in time order", async () => {
+    await page.goto(`${BASE}/work`);
+    const tile = page.getByTestId("home-calendar");
+    await tile.waitFor();
+    const items = tile.getByTestId("calendar-item");
+    assert((await items.count()) === 4, `4 items, got ${await items.count()}`);
+    const kinds = await items.evaluateAll((els) => els.map((e) => e.getAttribute("data-kind")));
+    assert(JSON.stringify(kinds) === JSON.stringify(["block", "event", "block", "event"]), `kinds ${kinds}`);
+    const text = await tile.innerText();
+    assert(text.includes("Lunch with Dana Whitfield") && text.includes("Meridian Industrial Coatings: Finish the 7-year model") && text.includes("Blocked from Next actions"), "tile text");
+    assert(!text.includes("Office closed"), "all-day events are left out");
+    // The tile sits in the right column, beside Next actions, not stretched across.
+    const t = await tile.boundingBox();
+    const n = await page.getByTestId("now-actions").boundingBox();
+    assert(t.x > n.x + n.width && t.width < 420, `tile at ${t.x}, ${t.width} wide`);
+    await shot(page, "home-calendar.png");
+  });
+
+  await step("Home rows: a block icon beside Done on every row with Done, and Blocked 9:00 under Meridian's date", async () => {
+    await openSection('[data-testid="home-section"]', "overdue");
+    const rows = page.locator('[data-testid="home-section"] [data-testid="next-action-done"]');
+    const icons = page.locator('[data-testid="home-section"] [data-testid="block-time"]');
+    assert((await rows.count()) > 5 && (await icons.count()) === (await rows.count()), `${await icons.count()} icons for ${await rows.count()} rows`);
+    const meridian = homeRow("Meridian Industrial Coatings");
+    assert((await meridian.getByTestId("blocked-note").innerText()) === "Blocked 9:00", "Meridian blocked note");
+    // The icon column and the Done column sit at the same x on every row.
+    const xs = await page.locator('[data-testid="home-section"] [data-col="block"]').evaluateAll((els) => [...new Set(els.map((e) => Math.round(e.getBoundingClientRect().x)))]);
+    assert(xs.length === 1, `block icons at ${xs}`);
+    const task = homeRow("Check the data room for new files");
+    assert((await task.getByTestId("lane-pill").innerText()) === "Task", "a dated record task has the Task pill");
+    assert((await task.getByTestId("record-pill").innerText()).includes("Summit Logistics Group"), "and the gray record pill");
+    assert((await task.getByTestId("blocked-note").innerText()) === "Blocked 2:00", "the sample block on the task");
+    await shot(page, "home-rows.png");
+  });
+
+  await step("Work through: steps one row at a time across every lane due today or earlier, with the progress bar", async () => {
+    await page.goto(`${BASE}/work`);
+    const counts = await page.locator('[data-testid="home-section"][data-section="overdue"] [data-testid="section-count"], [data-testid="home-section"][data-section="today"] [data-testid="section-count"]').allInnerTexts();
+    const total = counts.reduce((s, c) => s + Number(c), 0);
+    await page.getByTestId("work-through-open").click();
+    const w = page.getByTestId("work-through");
+    await w.waitFor();
+    assert((await w.getByTestId("wt-count").innerText()) === `1 of ${total}`, `count ${await w.getByTestId("wt-count").innerText()} for ${total}`);
+    const box = await w.boundingBox();
+    assert(box.width > 820 && box.width <= 862, `window ${box.width} wide`);
+    assert((await w.getByTestId("wt-context").locator(".label-caps").count()) === 2, "two context lines");
+    await shot(page, "work-through.png");
+    const first = await w.getByTestId("wt-step").getAttribute("data-key");
+    await w.getByTestId("wt-skip").click();
+    assert((await w.getByTestId("wt-count").innerText()) === `2 of ${total}`, "Skip goes to the next");
+    assert(Number(await w.getByTestId("wt-progress").getAttribute("data-pct")) > 0, "the progress bar moves");
+    assert((await w.getByTestId("wt-step").getAttribute("data-key")) !== first, "a new row");
+    // Later on this step: tomorrow, saved like the row's Later.
+    const second = await w.getByTestId("wt-step").getAttribute("data-key");
+    await w.getByTestId("wt-later").click();
+    await w.getByTestId("wt-later-tomorrow").click();
+    await until(async () => (await w.getByTestId("wt-count").innerText()) === `3 of ${total}`, "Later moves on");
+    const [kind, id] = second.split(":");
+    if (process.env.DEBUG) console.log("     second step", second, await w.getByTestId("wt-count").innerText());
+    const table = { deal: "pipeline_items", job: "pipeline_items", consulting: "pipeline_items", project: "projects" }[kind];
+    if (table) assert(String((await one(`select next_action_due::text d from ${table} where id = $1`, [id])).d) === addDays(today, 1), "moved to tomorrow");
+    if (kind === "person") assert(String((await one("select follow_up_date::text d from contacts where id = $1", [id])).d) === addDays(today, 1), "follow-up moved to tomorrow");
+    if (kind === "todo") assert(String((await one("select due_on::text d from deal_todos where id = $1", [id])).d) === addDays(today, 1), "to-do moved to tomorrow");
+    // Edit on this step: the action changes in place.
+    await w.getByTestId("wt-edit").click();
+    const act = w.getByTestId("wt-edit-action");
+    await act.fill(`${await act.inputValue()} (edited)`);
+    await w.getByTestId("wt-edit-save").click();
+    await until(async () => (await w.getByTestId("wt-action").innerText()).includes("(edited)"), "the edit shows");
+    // Skip until Meridian's dated task, then Done checks it off.
+    const target = `todo:${(await one("select id from deal_todos where text = 'Ask for the top 10 customers by year'")).id}`;
+    for (let i = 0; i < total && (await w.getByTestId("wt-step").count()) && (await w.getByTestId("wt-step").getAttribute("data-key")) !== target; i++) await w.getByTestId("wt-skip").click();
+    const todoKey = await w.getByTestId("wt-step").getAttribute("data-key");
+    assert(todoKey === target, "the task step is reached");
+    assert((await w.getByTestId("wt-lane").innerText()) === "Task", "a record task steps with the Task pill");
+    await shot(page, "work-through-task.png");
+    await w.getByTestId("wt-done").click();
+    await until(async () => !!(await one("select done_at from deal_todos where id = $1", [todoKey.split(":")[1]])).done_at, "Done checks the to-do off");
+    while (await w.getByTestId("wt-skip").count()) await w.getByTestId("wt-skip").click();
+    await w.getByTestId("wt-finished").waitFor();
+    assert((await w.getByTestId("wt-finished").innerText()).includes(`All ${total} gone through: 1 done, 1 moved`), await w.getByTestId("wt-finished").innerText());
+    await w.getByTestId("wt-close").click();
+    await page.getByTestId("work-through").waitFor({ state: "detached" });
+  });
+
+  await step("A repeating to-do: checking it off adds the next one (from its date); unticking removes the copy", async () => {
+    await page.goto(`${BASE}/work/todos`);
+    const line = todoLine("Read the broker listing emails");
+    assert((await line.getByTestId("repeat-chip").innerText()).includes("Every weekday"), "the Repeat chip");
+    const t = await one("select id, due_on::text due from deal_todos where text = 'Read the broker listing emails' and done_at is null");
+    await line.getByTestId("personal-todo-check").check();
+    await until(async () => (await one("select count(*)::int n from deal_todos where repeat_from = $1", [t.id])).n === 1, "the next one is added");
+    const copy = await one("select due_on::text due, repeat, done_at from deal_todos where repeat_from = $1", [t.id]);
+    assert(copy.due === nextWeekday(t.due) && copy.repeat === "weekdays" && !copy.done_at, `copy ${JSON.stringify(copy)} from ${t.due}`);
+    await page.getByTestId("todos-note").waitFor();
+    // Untick in Done today: the copy goes away again.
+    await page.reload();
+    await openSection('[data-testid="todos-section"]', "done");
+    await page.locator('[data-testid="todos-section"][data-section="done"]').getByTestId("personal-todo").filter({ hasText: "Read the broker listing emails" }).getByTestId("personal-todo-check").uncheck();
+    await until(async () => (await one("select count(*)::int n from deal_todos where repeat_from = $1", [t.id])).n === 0, "unticking removes the copy");
+    assert(!(await one("select done_at from deal_todos where id = $1", [t.id])).done_at, "the item is open again");
+  });
+
+  await step("To-dos: Next 7 days has a Tomorrow line", async () => {
+    await page.goto(`${BASE}/work/todos`);
+    await openSection('[data-testid="todos-section"]', "week");
+    const week = page.locator('[data-testid="todos-section"][data-section="week"]');
+    await week.getByTestId("todos-tomorrow").waitFor();
+    const text = await week.innerText();
+    assert(text.indexOf("TOMORROW") < text.indexOf("Pick up the dry cleaning") && text.indexOf("Pick up the dry cleaning") < text.indexOf("REST OF THE WEEK"), "tomorrow's items sit under the Tomorrow line");
+    await shot(page, "todos-week.png", true);
+  });
+
+  await step("The Link to picker: click (today's records), type (matches by type with a status), chips, keyboard", async () => {
+    await page.goto(`${BASE}/work/todos`);
+    const input = page.getByTestId("add-link-input");
+    await input.click();
+    const list = page.getByTestId("add-link-list");
+    await list.waitFor();
+    const groups = await list.getByTestId("add-link-group").evaluateAll((els) => els.map((e) => e.getAttribute("data-group")));
+    assert(groups.length >= 2 && groups[0] === "Deals", `today's groups ${groups}`);
+    assert((await list.innerText()).includes("Today's records"), "the hint");
+    await input.pressSequentially("summ");
+    const opt = list.getByTestId("add-link-option").filter({ hasText: "Summit Logistics Group" });
+    assert((await opt.innerText()).includes("CIM review"), "the status at the right");
+    await list.locator('[data-chip="People"]').click();
+    await list.getByTestId("add-link-all-types").waitFor();
+    assert((await list.getByTestId("add-link-empty").innerText()).includes("No match in People"), "no match in the type");
+    await list.getByTestId("add-link-all-types").click();
+    await opt.waitFor();
+    await input.fill("");
+    await input.pressSequentially("passed");
+    assert((await list.getByTestId("add-link-option").count()) === 0, "a status word does not bring back closed records");
+    await input.fill("");
+    await input.pressSequentially("lakeside");
+    assert((await list.innerText()).includes("Lakeside Car Wash"), "a closed record shows when its name is typed");
+    await input.fill("");
+    await input.pressSequentially("summ");
+    await input.press("ArrowDown");
+    await input.press("ArrowUp");
+    await input.press("Enter");
+    await page.getByTestId("link-chip").waitFor();
+    assert((await page.getByTestId("link-chip").innerText()).includes("Summit Logistics Group"), "the chip");
+    await page.getByTestId("link-chip-remove").click();
+    await input.click();
+    await list.waitFor();
+    await input.press("Escape");
+    await list.waitFor({ state: "detached" });
+    await input.pressSequentially("summit");
+    await input.press("Enter");
+    await page.getByTestId("link-chip").waitFor();
+    await page.getByTestId("personal-todo-input").fill("Call the Summit owner about the shippers");
+    await page.getByTestId("personal-todo-due").fill(addDays(today, 2));
+    await page.getByTestId("personal-todo-add").click();
+    await until(async () => !!(await one("select id from deal_todos where text = 'Call the Summit owner about the shippers'")), "added");
+    const r = await one("select record_type, d.record_id, p.name from deal_todos d join pipeline_items p on p.id = d.record_id where d.text = 'Call the Summit owner about the shippers'");
+    assert(r.record_type === "pipeline_items" && r.name === "Summit Logistics Group", JSON.stringify(r));
+  });
+
+  await step("A linked to-do is one of the record's tasks: it shows on the deal page; the edit box links and unlinks", async () => {
+    const summit = await one("select id from pipeline_items where name = 'Summit Logistics Group'");
+    await page.goto(`${BASE}/work/deals/${summit.id}`);
+    const card = page.getByTestId("deal-todos");
+    await card.getByText("Call the Summit owner about the shippers").waitFor();
+    assert((await card.innerText()).includes("Tasks with a date also show on To-dos and Home"), "the muted note");
+    await shot(page, "deal-tasks.png");
+    // On To-dos: link a personal to-do to Mark Reed, then unlink it.
+    await page.goto(`${BASE}/work/todos`);
+    await todoLine("Renew the Cyan Arc registered agent").getByTestId("personal-todo-text").click();
+    const box = page.getByTestId("todo-edit-box");
+    await box.waitFor();
+    await box.getByTestId("edit-link-input").pressSequentially("mark re");
+    await box.getByTestId("edit-link-input").press("Enter");
+    await box.getByTestId("link-chip").waitFor();
+    await shot(page, "todo-edit-box.png", true);
+    await box.getByTestId("todo-edit-save").click();
+    await until(async () => (await one("select record_type from deal_todos where text = 'Renew the Cyan Arc registered agent'")).record_type === "contacts", "linked to the person");
+    const mark = await one("select id from contacts where name = 'Mark Reed'");
+    await page.goto(`${BASE}/work/people/${mark.id}`);
+    await page.getByTestId("person-tasks").getByText("Renew the Cyan Arc registered agent").waitFor();
+    await page.goto(`${BASE}/work/todos`);
+    assert((await todoLine("Renew the Cyan Arc registered agent").getByTestId("record-pill").innerText()).includes("Mark Reed"), "the gray record pill on To-dos");
+    await todoLine("Renew the Cyan Arc registered agent").getByTestId("personal-todo-text").click();
+    await page.getByTestId("todo-edit-box").getByTestId("link-chip-remove").click();
+    await page.getByTestId("todo-edit-save").click();
+    await until(async () => (await one("select record_id from deal_todos where text = 'Renew the Cyan Arc registered agent'")).record_id === null, "unlinked: a personal to-do again");
+  });
+
+  await step("A dated record task shows on To-dos and Home with the record pill and checks off everywhere", async () => {
+    const t = await one("select d.id, d.due_on::text due from deal_todos d where d.text = 'Send Mark Reed my questions on the CIM'");
+    await page.goto(`${BASE}/work/todos`);
+    const line = todoLine("Send Mark Reed my questions on the CIM");
+    assert((await line.getByTestId("record-pill").innerText()).includes("Summit Logistics Group"), "record pill on To-dos");
+    await page.goto(`${BASE}/work`);
+    await openSection('[data-testid="home-section"]', "overdue");
+    const row = homeRow("Send Mark Reed my questions on the CIM");
+    if (process.env.DEBUG) {
+      await page.screenshot({ path: "/tmp/claude-0/-home-claude/9e8793b9-af27-5d6f-8d92-05e4cf5adea2/scratchpad/push-c-build/explore/dbg-home.png", fullPage: true });
+      console.log(JSON.stringify(await one("select due_on::text, done_at from deal_todos where text = 'Send Mark Reed my questions on the CIM'")));
+    }
+    assert((await row.getByTestId("lane-pill").innerText()) === "Task", "Task pill on Home");
+    await row.getByTestId("next-action-done").click();
+    await until(async () => !!(await one("select done_at from deal_todos where id = $1", [t.id])).done_at, "Done on Home checks it off");
+    const summit = await one("select id from pipeline_items where name = 'Summit Logistics Group'");
+    await page.goto(`${BASE}/work/deals/${summit.id}`);
+    const item = page.getByTestId("deal-todos").getByTestId("todo-item").filter({ hasText: "Send Mark Reed my questions on the CIM" });
+    assert((await item.getAttribute("data-done")) === "1" && (await item.getByTestId("todo-check").isChecked()), "checked on the deal page");
+    // On the deal page: the edit box gives an undated task a date and Repeat; it then shows on To-dos.
+    const undated = page.getByTestId("deal-todos").getByTestId("todo-item").filter({ hasText: "Look up the two largest customers online" });
+    await undated.getByTestId("todo-text").click();
+    const box = page.getByTestId("task-edit-box");
+    await box.getByTestId("task-edit-due").fill(addDays(today, 3));
+    await box.getByTestId("task-edit-repeat").selectOption("weekly");
+    await shot(page, "deal-task-edit.png");
+    await box.getByTestId("task-edit-save").click();
+    await until(async () => (await one("select repeat from deal_todos where text = 'Look up the two largest customers online'")).repeat === "weekly", "saved");
+    await undated.getByTestId("due-chip").waitFor();
+    assert((await undated.getByTestId("repeat-chip").innerText()).includes("Every week"), "the Repeat chip on the second line");
+    // + Add with a date.
+    await page.getByTestId("deal-todos").getByTestId("todo-add").click();
+    await page.getByTestId("todo-input").fill("Ask Mark for the shipper contracts");
+    await page.getByTestId("todo-input-due").fill(today);
+    await page.getByTestId("todo-save").click();
+    await until(async () => !!(await one("select id from deal_todos where text = 'Ask Mark for the shipper contracts' and due_on = $1", [today])), "added with a date");
+    await page.goto(`${BASE}/work/todos`);
+    await todoLine("Ask Mark for the shipper contracts").waitFor();
+    // Unticking on To-dos opens it again on the deal page too.
+    await openSection('[data-testid="todos-section"]', "done");
+    await page.locator('[data-testid="todos-section"][data-section="done"]').getByTestId("personal-todo").filter({ hasText: "Send Mark Reed my questions on the CIM" }).getByTestId("personal-todo-check").uncheck();
+    await until(async () => !(await one("select done_at from deal_todos where id = $1", [t.id])).done_at, "unticked everywhere");
+  });
+
+  await step("Block time: the drawer shows the day, warns on an overlap, and adds a real event; the row shows Blocked", async () => {
+    await page.goto(`${BASE}/work`);
+    const row = homeRow("BrightPath Home Care");
+    await row.getByTestId("block-time").click();
+    const d = page.getByTestId("block-drawer");
+    await d.waitFor();
+    const box = await d.boundingBox();
+    assert(box.x > 900 && box.width <= 482, `a side drawer (${box.x}, ${box.width})`);
+    assert((await d.getByTestId("block-day-item").count()) === 4, "Already on lists the day");
+    assert((await d.locator('[data-testid="block-length"][aria-checked="true"]').getAttribute("data-minutes")) === "10", "the length starts at the row's minutes");
+    await d.getByTestId("block-start").selectOption("12:30");
+    await d.getByTestId("block-overlap").waitFor();
+    assert((await d.getByTestId("block-overlap").innerText()).includes("Lunch with Dana Whitfield"), "the amber line names the event");
+    await shot(page, "block-drawer.png");
+    await d.getByTestId("block-start").selectOption("16:30");
+    await d.locator('[data-testid="block-length"][data-minutes="30"]').click();
+    assert((await d.getByTestId("block-overlap").count()) === 0, "no overlap at 4:30");
+    await d.getByTestId("block-add").click();
+    await d.getByTestId("block-result").waitFor();
+    assert((await d.getByTestId("block-result").innerText()).includes("Added to Google Calendar"), await d.getByTestId("block-result").innerText());
+    const events = await g("/__events");
+    const ev = events.find((e) => e.summary.startsWith("BrightPath Home Care"));
+    assert(ev && ev.description.includes("/work/deals/") && ev.timeZone === "America/New_York", `the stand-in got the event ${JSON.stringify(events)}`);
+    const tb = await one("select row_key, google_event_id, extract(epoch from ends_at - starts_at)::int s from time_blocks where google_event_id = $1", [ev.id]);
+    assert(tb && tb.row_key.startsWith("deal:") && tb.s === 1800, `kept: ${JSON.stringify(tb)}`);
+    await d.getByTestId("block-close").click();
+    await page.reload();
+    await until(async () => (await homeRow("BrightPath Home Care").getByTestId("blocked-note").count()) === 1, "the row shows Blocked");
+    assert((await homeRow("BrightPath Home Care").getByTestId("blocked-note").innerText()) === "Blocked 4:30", "Blocked 4:30");
+    assert((await page.getByTestId("home-calendar").getByTestId("calendar-item").count()) === 5, "the tile shows the new block");
+  });
+
+  await step("Without the calendar permission the tile shows a plain note, never an error; the blocks still show", async () => {
+    const before = await one("select scopes from google_connections");
+    await db.query("update google_connections set scopes = $1", [before.scopes.split(" ").filter((s) => !s.includes("calendar")).join(" ")]);
+    await page.goto(`${BASE}/work`);
+    const tile = page.getByTestId("home-calendar");
+    assert((await tile.getByTestId("calendar-note").innerText()).includes("Reconnect Google to see your calendar"), "the note");
+    assert((await tile.getByTestId("calendar-item").count()) === 3, "the app's three blocks still show");
+    await db.query("update google_connections set scopes = $1", [before.scopes]);
+    await g("/__mode", { calendarError: 403 });
+    await page.reload();
+    assert((await page.getByTestId("home-calendar").getByTestId("calendar-note").innerText()).includes("Reconnect Google"), "a refused call reads as reconnect");
+    await g("/__mode", { calendarError: null });
+  });
+
+  await step("Remove sample data removes every block, task, to-do and repeating copy it added; real to-dos stay", async () => {
+    await page.goto(`${BASE}/work/todos`);
+    await page.getByTestId("personal-todo-input").fill("A real to-do of mine");
+    await page.getByTestId("personal-todo-add").click();
+    await until(async () => !!(await one("select id from deal_todos where text = 'A real to-do of mine'")), "added");
+    // A repeating copy of a sample to-do, made by checking it off.
+    await todoLine("Read the broker listing emails").getByTestId("personal-todo-check").check();
+    await until(async () => (await one("select count(*)::int n from deal_todos where repeat_from is not null")).n >= 1, "copy made");
+    await page.goto(`${BASE}/settings/data`);
+    page.once("dialog", (d) => d.accept());
+    await page.getByTestId("sample-remove").click();
+    await page.waitForTimeout(500);
+    const confirm = page.getByRole("button", { name: /Remove/ }).last();
+    if (await confirm.isVisible().catch(() => false)) await confirm.click().catch(() => {});
+    for (let i = 0; i < 40 && (await one("select count(*)::int n from sample_records")).n; i++) await page.waitForTimeout(500);
+    const left = await one("select (select count(*)::int from sample_records) s, (select count(*)::int from time_blocks) b, (select string_agg(text, ',') from deal_todos) t");
+    assert(left.s === 0 && left.b === 0 && left.t === "A real to-do of mine", JSON.stringify(left));
+    await page.goto(`${BASE}/work`);
+    await page.getByTestId("home-calendar").waitFor();
+  });
+
+  if (errors.length) {
+    failed++;
+    console.log(`FAIL page errors: ${errors.slice(0, 3).join(" | ")}`);
+  }
+  await browser.close();
+  await db.end();
+  console.log(failed ? `${failed} failed` : "all passed");
+  process.exit(failed ? 1 : 0);
+})();

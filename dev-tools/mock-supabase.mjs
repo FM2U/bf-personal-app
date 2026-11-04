@@ -384,6 +384,9 @@ server.listen(PORT, () => console.log(`Mock Supabase listening on http://localho
 // before push B). GET /gmail/v1/users/me/threads/<id> returns the thread of an email "sent" here (the sent message,
 // labeled SENT, from owner@example.com) plus any reply queued with POST /__reply {"to": "jake.morgan@example.com"} or
 // {"threadId": "..."}, optional "text", "from", "minutesAfter" (default 3); an unknown thread is a 404.
+// Push C (Today's calendar, Block time): GET /calendar/v3/calendars/primary/events lists two sample events on
+// weekdays (12:30 lunch, 15:30 call) plus the events created here; {"calendarEvents": false} leaves the sample events
+// out; {"calendarError": 403} makes every calendar call fail like a connection without the calendar permission.
 const GOOGLE_PORT = Number(process.env.MOCK_GOOGLE_PORT || 54329);
 const BASE_SCOPES = ["openid", "email", "https://www.googleapis.com/auth/gmail.compose", "https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/calendar.readonly"];
 const SEND = "https://www.googleapis.com/auth/gmail.send";
@@ -554,13 +557,33 @@ const google = http.createServer(async (req, res) => {
       });
     }
     if (p.startsWith("/calendar/v3/calendars/primary/events")) {
+      if (gmode.calendarError) return send(res, Number(gmode.calendarError), { error: { code: Number(gmode.calendarError), message: "Request had insufficient authentication scopes." } });
       if (req.method === "POST") {
         const body = JSON.parse((await readRaw(req)) || "{}");
         const id = `mock-event-${++gEvents}`;
-        gEventList.push({ id, summary: body.summary, start: body.start?.dateTime ?? null, end: body.end?.dateTime ?? null });
+        gEventList.push({ id, summary: body.summary, description: body.description ?? null, start: body.start?.dateTime ?? null, end: body.end?.dateTime ?? null, timeZone: body.start?.timeZone ?? null });
         return send(res, 200, { id });
       }
-      return send(res, 200, { items: [] });
+      // Push C: the day's events. timeMin is the owner's local midnight, so the two sample events sit at 12:30 and
+      // 15:30 local time on weekdays; the events created here (blocks) are listed when they fall in the range.
+      const min = Date.parse(url.searchParams.get("timeMin") || "");
+      const max = Date.parse(url.searchParams.get("timeMax") || "");
+      const items = [];
+      if (Number.isFinite(min) && Number.isFinite(max)) {
+        const dow = new Date(min + 12 * 3600e3).getUTCDay();
+        if (gmode.calendarEvents !== false && dow >= 1 && dow <= 5) {
+          const at = (h, m) => new Date(min + (h * 60 + m) * 60e3).toISOString();
+          items.push({ id: `sample-lunch-${min}`, status: "confirmed", summary: "Lunch with Dana Whitfield", start: { dateTime: at(12, 30) }, end: { dateTime: at(13, 0) } });
+          items.push({ id: `sample-call-${min}`, status: "confirmed", summary: "Call with Greg Thornton, Sullivan Wickley", start: { dateTime: at(15, 30) }, end: { dateTime: at(16, 0) } });
+          items.push({ id: `sample-allday-${min}`, status: "confirmed", summary: "Office closed (all day)", start: { date: "2026-01-01" }, end: { date: "2026-01-02" } });
+        }
+        for (const e of gEventList) {
+          const t = Date.parse(e.start || "");
+          if (t >= min && t < max) items.push({ id: e.id, status: "confirmed", summary: e.summary, start: { dateTime: e.start }, end: { dateTime: e.end } });
+        }
+      }
+      items.sort((a, b) => String(a.start.dateTime || "").localeCompare(String(b.start.dateTime || "")));
+      return send(res, 200, { items });
     }
     if (p.startsWith("/calendar/v3/users/me/calendarList")) return send(res, 200, { items: [] });
     return send(res, 404, { error: { code: 404, message: `Not in the Google mock: ${req.method} ${p}` } });
