@@ -7,6 +7,7 @@
 -- The old database (the first Supabase project) is not touched by this file.
 -- Built from the 29 old updates with the old modules cut out (see docs in the project: 2026-11-02 build plan).
 -- Push B (2026-11-03) is included: People and Organizations, partner report days and sections, Gmail replies.
+-- Push C (2026-11-03) is included: one list of tasks and to-dos with dates and Repeat, and Block time.
 
 -- Stops here, changing nothing, if this database already has the app's tables (for example the old project).
 do $$
@@ -133,11 +134,16 @@ begin
     new.record_type := 'pipeline_items';
     new.record_id := new.deal_id;
   end if;
-  if new.record_type = 'pipeline_items' and new.deal_id is null then
-    new.deal_id := new.record_id;
-  end if;
+  -- A personal to-do (push C) has no record, so no type and no deal.
   if new.record_id is null then
-    raise exception 'A task needs a record';
+    new.record_type := null;
+  elsif new.record_type is null then
+    raise exception 'A task linked to a record needs the record type';
+  end if;
+  if new.record_type = 'pipeline_items' then
+    new.deal_id := new.record_id;
+  else
+    new.deal_id := null;
   end if;
   return new;
 end;
@@ -196,7 +202,7 @@ declare
   v_counts jsonb := '{}'::jsonb;
   v_n int;
   allowed text[] := array[
-    'targets', 'record_links', 'notes', 'todos', 'projects', 'deal_todos', 'organizations', 'contacts',
+    'targets', 'record_links', 'notes', 'time_blocks', 'projects', 'deal_todos', 'organizations', 'contacts',
     'communications', 'pipeline_items', 'deal_financials', 'consulting_details', 'work_events', 'end_of_day', 'partner_reports'];
 begin
   if v_owner is null or not public.is_owner(v_owner) or not exists (select 1 from public.owner_profile where owner_id = v_owner) then
@@ -460,7 +466,7 @@ declare
   v_n int;
   t text;
   delete_order text[] := array[
-    'end_of_day', 'work_events', 'partner_reports', 'todos', 'deal_todos', 'projects', 'notes', 'record_links',
+    'end_of_day', 'work_events', 'partner_reports', 'time_blocks', 'deal_todos', 'projects', 'notes', 'record_links',
     'communications', 'consulting_details', 'deal_financials', 'pipeline_items', 'contacts', 'organizations'];
 begin
   if v_owner is null or not public.is_owner(v_owner) or not exists (select 1 from public.owner_profile where owner_id = v_owner) then
@@ -488,7 +494,16 @@ begin
   delete from partner_reports where owner_id = v_owner and contact_id = any (v_ids);
   get diagnostics v_n = row_count; v_counts := v_counts || jsonb_build_object('partner_reports', v_n);
   delete from stage_history where owner_id = v_owner and item_id = any (v_ids);
-  delete from deal_todos where owner_id = v_owner and (record_id = any (v_ids) or deal_id = any (v_ids));
+  -- The tasks of sample records, the sample to-dos, and every repeating copy made from them.
+  with recursive gone as (
+    select d.id from deal_todos d where d.owner_id = v_owner and (d.record_id = any (v_ids) or d.deal_id = any (v_ids) or d.id = any (v_ids))
+    union
+    select d.id from deal_todos d join gone g on d.repeat_from = g.id
+  )
+  select coalesce(array_agg(id), '{}'::uuid[]) || v_ids into v_ids from gone;
+  delete from time_blocks where owner_id = v_owner and record_id = any (v_ids);
+  get diagnostics v_n = row_count; v_counts := v_counts || jsonb_build_object('time_blocks', v_n);
+  delete from deal_todos where owner_id = v_owner and (record_id = any (v_ids) or deal_id = any (v_ids) or id = any (v_ids));
   get diagnostics v_n = row_count; v_counts := v_counts || jsonb_build_object('deal_todos', v_n);
 
   foreach t in array delete_order loop
@@ -817,9 +832,14 @@ CREATE TABLE public.deal_todos (
     "position" integer DEFAULT 0 NOT NULL,
     done_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    record_type text DEFAULT 'pipeline_items'::text NOT NULL,
+    record_type text,
     record_id uuid,
-    CONSTRAINT deal_todos_record_type_check CHECK ((record_type = ANY (ARRAY['pipeline_items'::text, 'contacts'::text, 'projects'::text, 'organizations'::text])))
+    due_on date,
+    repeat text,
+    repeat_from uuid,
+    CONSTRAINT deal_todos_record_pair_check CHECK (((record_type IS NULL) = (record_id IS NULL))),
+    CONSTRAINT deal_todos_record_type_check CHECK ((record_type = ANY (ARRAY['pipeline_items'::text, 'contacts'::text, 'projects'::text, 'organizations'::text]))),
+    CONSTRAINT deal_todos_repeat_check CHECK (((repeat IS NULL) OR (repeat = ANY (ARRAY['daily'::text, 'weekdays'::text, 'weekly'::text, 'monthly'::text]))))
 );
 
 
@@ -971,6 +991,8 @@ CREATE TABLE public.owner_profile (
     email_signature_text text,
     email_signature_enabled boolean,
     email_signature_updated_at timestamp with time zone,
+    default_block_minutes integer DEFAULT 60 NOT NULL,
+    CONSTRAINT owner_profile_default_block_minutes_check CHECK (((default_block_minutes >= 5) AND (default_block_minutes <= 480))),
     CONSTRAINT owner_profile_evening_hour_check CHECK (((evening_hour >= 0) AND (evening_hour <= 23))),
     CONSTRAINT owner_profile_morning_hour_check CHECK (((morning_hour >= 0) AND (morning_hour <= 23))),
     CONSTRAINT owner_profile_weekly_review_weekday_check CHECK (((weekly_review_weekday >= 0) AND (weekly_review_weekday <= 6)))
@@ -1269,18 +1291,21 @@ CREATE TABLE public.targets (
 
 
 --
--- Name: todos; Type: TABLE; Schema: public; Owner: -
+-- Name: time_blocks; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.todos (
+CREATE TABLE public.time_blocks (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     owner_id uuid DEFAULT auth.uid() NOT NULL,
-    text text NOT NULL,
-    due_on date,
-    done_at timestamp with time zone,
-    "position" integer DEFAULT 0 NOT NULL,
+    row_key text NOT NULL,
+    record_type text,
+    record_id uuid,
+    title text NOT NULL,
+    starts_at timestamp with time zone NOT NULL,
+    ends_at timestamp with time zone NOT NULL,
+    google_event_id text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    CONSTRAINT time_blocks_ends_after_start CHECK ((ends_at > starts_at))
 );
 
 
@@ -1617,11 +1642,11 @@ ALTER TABLE ONLY public.targets
 
 
 --
--- Name: todos todos_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: time_blocks time_blocks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.todos
-    ADD CONSTRAINT todos_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.time_blocks
+    ADD CONSTRAINT time_blocks_pkey PRIMARY KEY (id);
 
 
 --
@@ -1724,10 +1749,24 @@ CREATE INDEX deal_todos_deal_idx ON public.deal_todos USING btree (deal_id, "pos
 
 
 --
+-- Name: deal_todos_due_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX deal_todos_due_idx ON public.deal_todos USING btree (owner_id, due_on) WHERE (done_at IS NULL);
+
+
+--
 -- Name: deal_todos_record_idx; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX deal_todos_record_idx ON public.deal_todos USING btree (record_type, record_id, "position");
+
+
+--
+-- Name: deal_todos_repeat_from_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX deal_todos_repeat_from_idx ON public.deal_todos USING btree (repeat_from) WHERE (repeat_from IS NOT NULL);
 
 
 --
@@ -1843,10 +1882,17 @@ CREATE INDEX target_entries_target_date_idx ON public.target_entries USING btree
 
 
 --
--- Name: todos_owner_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: time_blocks_owner_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX todos_owner_idx ON public.todos USING btree (owner_id, due_on, "position");
+CREATE INDEX time_blocks_owner_idx ON public.time_blocks USING btree (owner_id, starts_at);
+
+
+--
+-- Name: time_blocks_record_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX time_blocks_record_idx ON public.time_blocks USING btree (record_id) WHERE (record_id IS NOT NULL);
 
 
 --
@@ -2039,10 +2085,10 @@ CREATE TRIGGER log_change AFTER INSERT OR DELETE OR UPDATE ON public.targets FOR
 
 
 --
--- Name: todos log_change; Type: TRIGGER; Schema: public; Owner: -
+-- Name: time_blocks log_change; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER log_change AFTER INSERT OR DELETE OR UPDATE ON public.todos FOR EACH ROW EXECUTE FUNCTION public.log_change();
+CREATE TRIGGER log_change AFTER INSERT OR DELETE OR UPDATE ON public.time_blocks FOR EACH ROW EXECUTE FUNCTION public.log_change();
 
 
 --
@@ -2349,6 +2395,14 @@ ALTER TABLE ONLY public.deal_todos
 
 
 --
+-- Name: deal_todos deal_todos_repeat_from_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.deal_todos
+    ADD CONSTRAINT deal_todos_repeat_from_fkey FOREIGN KEY (repeat_from) REFERENCES public.deal_todos(id) ON DELETE SET NULL;
+
+
+--
 -- Name: documents documents_owner_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2629,11 +2683,11 @@ ALTER TABLE ONLY public.targets
 
 
 --
--- Name: todos todos_owner_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: time_blocks time_blocks_owner_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.todos
-    ADD CONSTRAINT todos_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+ALTER TABLE ONLY public.time_blocks
+    ADD CONSTRAINT time_blocks_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES auth.users(id) ON DELETE CASCADE;
 
 
 --
@@ -2918,10 +2972,10 @@ CREATE POLICY owner_only ON public.targets TO authenticated USING (public.is_own
 
 
 --
--- Name: todos owner_only; Type: POLICY; Schema: public; Owner: -
+-- Name: time_blocks owner_only; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY owner_only ON public.todos TO authenticated USING (public.is_owner(owner_id)) WITH CHECK (public.is_owner(owner_id));
+CREATE POLICY owner_only ON public.time_blocks TO authenticated USING (public.is_owner(owner_id)) WITH CHECK (public.is_owner(owner_id));
 
 
 --
@@ -3010,10 +3064,10 @@ ALTER TABLE public.target_misses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.targets ENABLE ROW LEVEL SECURITY;
 
 --
--- Name: todos; Type: ROW SECURITY; Schema: public; Owner: -
+-- Name: time_blocks; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
-ALTER TABLE public.todos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.time_blocks ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: work_events; Type: ROW SECURITY; Schema: public; Owner: -
@@ -3401,11 +3455,11 @@ GRANT ALL ON TABLE public.targets TO service_role;
 
 
 --
--- Name: TABLE todos; Type: ACL; Schema: public; Owner: -
+-- Name: TABLE time_blocks; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT ALL ON TABLE public.todos TO authenticated;
-GRANT ALL ON TABLE public.todos TO service_role;
+GRANT ALL ON TABLE public.time_blocks TO authenticated;
+GRANT ALL ON TABLE public.time_blocks TO service_role;
 
 
 --
