@@ -57,8 +57,13 @@ export async function loadSampleData(fd: FormData) {
     () => randomUUID(),
     ctx.today,
   );
+  // A day that already has your own End of day (for example a test report you sent) keeps it: the sample skips that
+  // day instead of failing on the one-day-one-record rule.
+  const { data: ownDays } = await supabase.from("end_of_day").select("day").eq("owner_id", ownerId);
+  const taken = new Set((ownDays ?? []).map((d) => String(d.day)));
+  const toInsert = taken.size ? batches.map((bt) => (bt.table === "end_of_day" ? { ...bt, rows: bt.rows.filter((r) => !taken.has(String((r as Row).day))) } : bt)) : batches;
   const batchId = randomUUID();
-  const { error } = await supabase.rpc("insert_record_batch", { p_batches: batches, p_actor: "owner", p_sample_batch: batchId });
+  const { error } = await supabase.rpc("insert_record_batch", { p_batches: toInsert, p_actor: "owner", p_sample_batch: batchId });
   if (error) back(`Sample data was not loaded (nothing was saved): ${error.message}`);
   const stageIds = Object.fromEntries([deals!, jobs, consulting].filter(Boolean).flatMap((p) => p!.stages.map((st) => [st.name, st.id])));
   await finishWorkSample(supabase, ownerId, ctx.today, work, stageIds);
