@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeChips, applyFilters, clearGroup, filterSummary, optionCount, optionCounts, parseTicks, showLabel, tickedCount, ticksToParam, toggleTick, type FilterGroup } from "./filters";
+import { activeChips, applyFilters, clearGroup, filterButtonLabel, filterSummary, optionCount, optionCounts, parseTicks, showLabel, tickedCount, ticksToParam, toggleTick, type FilterGroup } from "./filters";
 
 type Row = { name: string; color: string; size: string };
 const rows: Row[] = [
@@ -66,5 +66,24 @@ describe("Filter window logic", () => {
     expect(parseTicks("color:red,blue;size:s")).toEqual(t);
     expect(parseTicks("color:red,<x>;bad key:s;size:xl", groups)).toEqual({ color: ["red"] });
     expect(parseTicks(null)).toEqual({});
+  });
+});
+
+describe("the Filter button label (2026-11-04)", () => {
+  const g: FilterGroup<unknown>[] = [
+    { key: "area", title: "Area", options: ["Deals", "Contacts", "Rosara", "Job search"].map((l) => ({ value: l.toLowerCase(), label: l })), test: () => true },
+  ];
+  it("says All with nothing ticked, names one or two choices, and counts the rest", () => {
+    expect(filterButtonLabel("Area", g, {})).toBe("Area: All");
+    expect(filterButtonLabel("Area", g, { area: ["rosara"] })).toBe("Area: Rosara");
+    expect(filterButtonLabel("Area", g, { area: ["rosara", "deals"] })).toBe("Area: Deals, Rosara");
+    expect(filterButtonLabel("Area", g, { area: ["rosara", "deals", "contacts", "job search"] })).toBe("Area: Deals, Contacts +2");
+  });
+  it("runs across groups in the window's order", () => {
+    const two: FilterGroup<unknown>[] = [
+      { key: "role", title: "Role", options: [{ value: "broker", label: "Broker" }], test: () => true },
+      { key: "proj", title: "Project", options: [{ value: "rosara", label: "Rosara" }, { value: "none", label: "None" }], test: () => true },
+    ];
+    expect(filterButtonLabel("Filter", two, { proj: ["rosara", "none"], role: ["broker"] })).toBe("Filter: Broker, Rosara +1");
   });
 });

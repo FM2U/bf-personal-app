@@ -91,6 +91,16 @@ export function filterSummary<T>(groups: readonly FilterGroup<T>[], ticks: Ticks
   return parts.length ? `Showing ${noun} ${who}: ${parts.join(" · ")}` : `Showing all ${noun}`;
 }
 
+/**
+ * The label of a Filter button that opens the small dropdown (2026-11-04): what is on, in the window's order. "Area:
+ * All", "Area: Deals, Rosara", and past two choices "Area: Deals, Rosara +2".
+ */
+export function filterButtonLabel<T>(prefix: string, groups: readonly FilterGroup<T>[], ticks: Ticks): string {
+  const labels = groups.flatMap((g) => g.options.filter((o) => (ticks[g.key] ?? []).includes(o.value)).map((o) => o.label));
+  if (!labels.length) return `${prefix}: All`;
+  return `${prefix}: ${labels.slice(0, 2).join(", ")}${labels.length > 2 ? ` +${labels.length - 2}` : ""}`;
+}
+
 /** "Show 1 person", "Show 12 people", "Show 4 organizations". */
 export function showLabel(n: number, one: string, many: string): string {
   return `Show ${n} ${n === 1 ? one : many}`;

@@ -1,21 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { aiOrderToday } from "@/app/actions/ask-ai";
 import { resetWaiting } from "@/app/actions/work";
 import { ComposeEmailDialog } from "@/components/app/compose-email";
-import { FilterWindow } from "@/components/app/filter-window";
+import { FilterMenuButton, FilterPopover } from "@/components/app/filter-popover";
 import type { ComposeSetup } from "@/lib/compose-email";
 import { readRaw } from "@/lib/disclosure";
-import { optionCounts, parseTicks, ticksToParam, toggleTick, type FilterGroup, type Ticks } from "@/lib/filters";
+import { filterButtonLabel, optionCounts, parseTicks, ticksToParam, toggleTick, type FilterGroup, type Ticks } from "@/lib/filters";
 import { date as fmtDate } from "@/lib/format";
 import type { AskContext } from "@/lib/work/ask-ai";
 import type { DealRow, ListingTile, WorkNowData } from "@/lib/work/data";
 import { waitSections } from "@/lib/work/home";
 import type { HomeData } from "@/lib/work/home-data";
-import { actionKey, applyAiOrder, AREA_STORAGE_KEY, AREAS, areaOf, areaSummary, compareActions, laneSectionOf, matchesActionSearch, ORDER_STORAGE_KEY, orderedAtLabel, orderToStore, parseOrderChoice, type AiOrder, type AreaKey, type HomeAction, type Lane, type LaneSectionKey, type OrderChoice } from "@/lib/work/lanes";
+import { actionKey, applyAiOrder, AREA_STORAGE_KEY, AREAS, areaOf, compareActions, laneSectionOf, matchesActionSearch, ORDER_STORAGE_KEY, orderedAtLabel, orderToStore, parseOrderChoice, type AiOrder, type AreaKey, type HomeAction, type Lane, type LaneSectionKey, type OrderChoice } from "@/lib/work/lanes";
 import { compareNames } from "@/lib/work/names";
 import { contactKindLabel, orgRoleLine, overdueLabel } from "@/lib/work/outreach";
 import type { PersonRow as PersonRowData } from "@/lib/work/outreach-data";
@@ -35,7 +35,7 @@ import { TodoActionRow } from "@/components/app/work/todo-row";
 import { StickySections } from "@/components/app/work/sticky-sections";
 import { SlimBar, SlimTools } from "@/components/app/work/slim-bar";
 import { StatusTiles, TileChips } from "@/components/app/work/status-tiles";
-import { FilterButton, FindBox, TitleRow } from "@/components/app/work/title-row";
+import { FindBox, TitleRow } from "@/components/app/work/title-row";
 import { BAND_CLS, Due, Figure, Line1, Line2, ListBand, Name, Pill, ProgressMark, RowButton, RowButtons, RowLink, RowShell, SectionHeading, TargetBar, Thinking, What, WorkCard, type PillTone } from "@/components/app/work/ui";
 import { WaitingRow } from "@/components/app/work/waiting-row";
 import { BlockTimeProvider } from "@/components/app/work/block-time";
@@ -49,22 +49,25 @@ import { cn } from "@/lib/utils";
  * Work on now (Home; the bento of mockup v6, approved 2026-10-31, with the header of 2026-11-04). The title row: the
  * title, the date, Find, Filter, Ask AI. Then three tiles that work like tabs over the Next actions column (Overdue,
  * Due today, Needs a next action; src/lib/work/tiles.ts): exactly one is selected and the card under them shows only
- * its list under one pinned band. The Filter window has one column, Area (Deals, Contacts, Rosara, Job search,
- * Consulting, To-dos, Tasks); it narrows Next actions and its tile numbers, and is remembered in this browser.
- * Next actions merges every area (a deal row has no pill; the others carry an area pill). "Order: Soonest first | By
+ * its list under one pinned band. The Filter has one column, Area (Deals, Contacts, Rosara, Job search, Consulting,
+ * To-dos, Tasks); it narrows Next actions and its tile numbers, and is remembered in this browser.
+ * The Filter button says what is on ("Area: All", "Area: Deals, Rosara +2") and opens a small box under it; a tick
+ * applies at once. Next actions merges every area (a deal row has no pill; the others carry an area pill). "Order: Soonest first | By
  * the AI": By the AI asks the AI once a day for the order (cached; "Order again" asks again), shows the full ranked list
  * of all three kinds with one purple reason under each row, and leaves no tile selected; a tile click goes back to
  * Soonest first. Each new day starts on Soonest first. Push C: the solid "Work through" button opens the step-by-step
  * window (work-through.tsx); every row with Done has the block icon (block-time.tsx) and "Blocked 2:00" under its date.
  * Right third, level with the tiles: Waiting on someone (never filtered; its two groups start closed and the card
  * scrolls on its own), Today's calendar, Targets today, Contacts, Rosara, Job search, Screen listings, Deals at a
- * glance. On desktop the two columns scroll inside; under 1024px (or in a short window) the page scrolls and the slim
- * pinned bar slides in.
+ * glance. In a desktop window at least 720px tall the two columns scroll inside; under 1024px or in a shorter window
+ * the page scrolls, and the slim pinned bar slides in once the title row and the tiles are gone.
  */
 const HOME_ASK: AskContext = { page: "home", label: "Work on now" };
 const noSubscribe = () => () => {};
 const PANEL_ID = "now-actions-panel";
 const FIND_ID = "home-find";
+/** A desktop window tall enough for the cards to scroll on their own (the desk variant in globals.css); otherwise the page scrolls. */
+const DESK = "(min-width: 1024px) and (min-height: 720px)";
 
 type Row = { key: string; lane: Lane; area: AreaKey; section: LaneSectionKey; action: HomeAction; render: (reason: string | null) => React.ReactNode; /** Work through's view of the row (push C). */ step: WorkStep | null };
 
@@ -83,7 +86,8 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
   const [followedUp, setFollowedUp] = useState<Record<string, boolean>>({});
   /** The deal whose Follow up editor is open (held here, so the editor survives the row moving after the send). */
   const [followUp, setFollowUp] = useState<DealRow | null>(null);
-  const [filterOpen, setFilterOpen] = useState(false);
+  /** The button the small Filter box hangs under (the title row's or the slim bar's), or null while it is closed. */
+  const [filterAnchor, setFilterAnchor] = useState<HTMLElement | null>(null);
   const { deals, today, threshold } = data;
 
   // ---------- The AI order: By the AI is remembered for the rest of the day it was picked (read once, without an effect) ----------
@@ -108,7 +112,7 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
   };
   const listRef = useRef<HTMLElement>(null);
   const toListTop = () => {
-    if (listRef.current && window.matchMedia("(min-width: 1024px)").matches) listRef.current.scrollTop = 0;
+    if (listRef.current && window.matchMedia(DESK).matches) listRef.current.scrollTop = 0;
   };
   const pickOrder = (c: OrderChoice) => {
     if (c === order) return;
@@ -221,8 +225,9 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
 
   // The Filter window: the count beside each area is how many next actions would show (with Find).
   const filterCounts = optionCounts(allRows.filter(found), AREA_GROUP, ticks);
-  const showN = rows.filter(found).length;
-  const filterSlot = { count: ticked.length, open: () => setFilterOpen(true) };
+  const toggleFilter = (el: HTMLElement) => setFilterAnchor((a) => (a === el ? null : el));
+  const closeFilter = useCallback(() => setFilterAnchor(null), []);
+  const filterLabel = filterButtonLabel("Area", AREA_GROUP, ticks);
 
   /**
    * One row box; with a number (the AI order) the row sits beside a small purple badge in its own 54px column (the
@@ -254,7 +259,7 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
 
   return (
     <BlockTimeProvider today={today} nowLocal={data.nowLocal} blockMinutes={data.blockMinutes} rowBlocks={data.rowBlocks} calendar={data.calendar}>
-      <SlimBar title="Work on now" chips={<TileChips tiles={tiles} selected={selected} onPick={pickTile} label="Next actions" idPrefix="home-chip" panelId={PANEL_ID} />} tools={<SlimTools findId={FIND_ID} filterCount={filterSlot.count} onFilter={filterSlot.open} />} />
+      <SlimBar title="Work on now" chips={<TileChips tiles={tiles} selected={selected} onPick={pickTile} label="Next actions" idPrefix="home-chip" panelId={PANEL_ID} />} tools={<SlimTools findId={FIND_ID} filterCount={ticked.length} onFilter={toggleFilter} filterOpen={!!filterAnchor} />} />
       <header className="pb-5" data-testid="home-header">
         <TitleRow
           title="Work on now"
@@ -262,28 +267,16 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
           tools={
             <>
               <FindBox id={FIND_ID} value={query} onChange={setQuery} testId="home-search" />
-              <FilterButton ticked={filterSlot.count} onOpen={filterSlot.open} />
+              <FilterMenuButton label={filterLabel} ticked={ticked.length} open={!!filterAnchor} onOpen={toggleFilter} />
             </>
           }
           askAi={askAi}
         />
         {tabs}
       </header>
-      <FilterWindow
-        open={filterOpen}
-        onOpenChange={setFilterOpen}
-        groups={AREA_GROUP}
-        ticks={ticks}
-        counts={filterCounts}
-        onToggle={(g, v) => setTicks(toggleTick(ticks, g, v))}
-        onClearGroup={() => setTicks({})}
-        onClearAll={() => setTicks({})}
-        summary={areaSummary(ticked)}
-        show={`Show ${showN} next action${showN === 1 ? "" : "s"}`}
-        sub="Tick one or more areas. The number beside each is how many next actions you would see. Waiting on someone is not filtered."
-      />
+      <FilterPopover anchor={filterAnchor} onClose={closeFilter} groups={AREA_GROUP} ticks={ticks} counts={filterCounts} onToggle={(g, v) => setTicks(toggleTick(ticks, g, v))} onClear={() => setTicks({})} note="Waiting on someone is not filtered." />
 
-      <div ref={bentoRef} className="grid grid-cols-1 items-start gap-[18px] lg:-mb-[72px] lg:h-[calc(100vh-var(--bento-top,104px)-24px)] lg:min-h-[460px] lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] lg:items-stretch" data-testid="home-bento">
+      <div ref={bentoRef} className="grid grid-cols-1 items-start gap-[18px] lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] desk:-mb-[72px] desk:h-[calc(100vh-var(--bento-top,104px)-24px)] desk:min-h-[460px] desk:items-stretch" data-testid="home-bento">
         <div className="flex min-h-0 min-w-0 flex-col gap-6" data-testid="home-left">
           <StatusTiles tiles={tiles} selected={selected} onPick={pickTile} label="Next actions" idPrefix="home-tile" panelId={PANEL_ID} testId="home-tiles" />
           <WorkCard
@@ -316,9 +309,10 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
             testId="now-actions"
             pinned
             scroll
-            className="lg:min-h-0 lg:flex-1 lg:overscroll-contain"
+            pinAt="desk"
+            className="desk:min-h-0 desk:flex-1 desk:overscroll-contain"
           >
-            <StickySections under="card" className="px-[22px] pb-3">
+            <StickySections under="card" media={DESK} className="px-[22px] pb-3">
               {order === "ai" ? (
                 <>
                   <div className={cn(BAND_CLS, "cursor-default flex-wrap justify-between gap-x-3 gap-y-1 text-violet")} data-testid="ai-order-heading">
@@ -371,7 +365,7 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
           </WorkCard>
         </div>
 
-        <div className="flex min-w-0 flex-col gap-[18px] lg:h-full lg:overflow-y-auto lg:overscroll-contain lg:pb-0.5" data-testid="home-right">
+        <div className="flex min-w-0 flex-col gap-[18px] desk:h-full desk:overflow-y-auto desk:overscroll-contain desk:pb-0.5" data-testid="home-right">
           <WorkCard id="now-wait" title="Waiting on someone" count={waitCount} sub={`Amber at ${threshold} days, red at ${threshold * 2}`} testId="now-wait" pinned headerClassName="sticky top-0 z-[2]" className="max-h-[340px] shrink-0 overflow-y-auto overscroll-contain">
             {waitCount ? (
               <StickySections under="card" always className="px-[22px] pb-3">
@@ -498,7 +492,7 @@ function NeedsActionRow({ deal }: { deal: DealRow }) {
 /** The People tile (batch B; Outreach renamed in push B): the weekly counter with its bar, up to three people due today with Email and Log a call, the link, and the overdue count. */
 function OutreachTile({ outreach, today, logged, onEmail, onCall }: { outreach: WorkNowData["outreach"]; today: string; logged: Record<string, string>; onEmail: (p: PersonRowData) => void; onCall: (p: PersonRowData) => void }) {
   return (
-    <WorkCard title="Contacts" hint={`${outreach.due.length} due`} testId="home-outreach" pinned>
+    <WorkCard title="Contacts" hint={`${outreach.due.length} due`} testId="home-outreach" pinned pinAt="desk">
       <TargetBar count={outreach.counter.count} target={outreach.counter.target} pct={outreach.counter.pct} className="py-2.5" testId="home-outreach-counter" />
       <div className="px-[22px] pb-1">
         <SectionHeading name="Due for follow-up today" count={outreach.dueToday.length} collapsed={false} className="mt-0" />
@@ -558,7 +552,7 @@ function OutreachTile({ outreach, today, logged, onEmail, onCall }: { outreach: 
 function TargetsTodayTile({ tile }: { tile: HomeData["targets"] }) {
   const eodTone: PillTone = tile.eod.state === "sent" ? "green" : tile.eod.state === "skipped" ? "gray" : "amber";
   return (
-    <WorkCard title="Targets today" hint={tile.available ? (tile.lines.length ? "Counted from the app" : "No targets yet") : "Update needed"} testId="home-targets" pinned>
+    <WorkCard title="Targets today" hint={tile.available ? (tile.lines.length ? "Counted from the app" : "No targets yet") : "Update needed"} testId="home-targets" pinned pinAt="desk">
       {!tile.available ? (
         <p className="px-[22px] py-3 text-[13px] text-muted-foreground" data-testid="home-targets-notice">
           {tile.notice ?? "Targets are not available yet."}
@@ -623,7 +617,7 @@ function RosaraTile({ rosara, today }: { rosara: HomeData["rosara"]; today: stri
   const next: ProjectRow | null = rosara.next;
   const due = next?.nextActionDue ? dueLabel(next.nextActionDue, today, (d) => fmtDate(d, "MMM d")) : null;
   return (
-    <WorkCard title="Rosara" hint={rosara.open ? `${rosara.open} open` : "No projects"} testId="home-rosara" pinned>
+    <WorkCard title="Rosara" hint={rosara.open ? `${rosara.open} open` : "No projects"} testId="home-rosara" pinned pinAt="desk">
       <div className="flex flex-col pt-1">
         <TileBlock label="This week" testId="home-rosara-focus">
           {rosara.focus || <span className="not-italic text-slate-400">No weekly focus set. Set it on Rosara.</span>}
@@ -684,7 +678,7 @@ function JobSearchTile({ pipelines, today }: { pipelines: HomeData["pipelines"];
     );
   };
   return (
-    <WorkCard title="Job search" hint={t.open ? `${t.open} open` : "None open"} testId="home-jobs" pinned>
+    <WorkCard title="Job search" hint={t.open ? `${t.open} open` : "None open"} testId="home-jobs" pinned pinAt="desk">
       <div className="flex flex-col pt-1">
         <TileBlock label="Next conversation" testId="jobs-row">
           {line(t.nextConversation, "Nothing at Conversation yet.")}

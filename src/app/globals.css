@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+/*
+ * desk: a desktop window tall enough for Work on now's cards to scroll inside (2026-11-04). In a shorter window the
+ * page scrolls instead, as on the phone, so the slim pinned bar can take over once the header is gone.
+ */
+@custom-variant desk (@media (min-width: 1024px) and (min-height: 720px));
+
 /* Light mode only. Colors follow the shadcn/ui variable names. */
 /*
  * Palette (light mode only; the color system approved 2026-11-01, Edit batch B). Every color is a token here;
@@ -428,7 +434,8 @@ select:not([multiple]):not([size]) {
 
 /*
  * The slim pinned bar (2026-11-04, src/components/app/work/slim-bar.tsx): fixed at the top under the iPhone notch,
- * beside the left menu from 1024px. It slides in after about 40px of scroll in 180ms; no slide with reduced motion.
+ * beside the left menu from 1024px. It slides in (180ms) once the whole full header has scrolled off; no slide with
+ * reduced motion.
  */
 .slim-bar {
   position: fixed;
@@ -462,4 +469,29 @@ select:not([multiple]):not([size]) {
   .slim-bar[data-shown="1"] {
     transition: none;
   }
+}
+
+/* Record pages: the page's buttons while they sit in the slim bar (2026-11-04); too wide: icons only. */
+.slim-docked {
+  position: fixed;
+  z-index: 26;
+  white-space: nowrap;
+}
+.slim-docked:not(.slim-docked-stacked) :is(.flex-wrap, .flex) {
+  flex-wrap: nowrap;
+}
+/* On their own line (a phone with several buttons): every button in one wrapping row, left to right. */
+.slim-docked-stacked > div,
+.slim-docked-stacked > div > .flex-wrap {
+  display: contents;
+}
+.slim-docked-icons :is(button, a):has(> svg) {
+  font-size: 0;
+  gap: 0;
+  width: 36px;
+  padding-inline: 0;
+  justify-content: center;
+}
+.slim-docked-icons :is(button, a):has(> svg) > svg {
+  margin: 0 !important;
 }

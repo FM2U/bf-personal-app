@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actionKey, aiOrderPrompt, applyAiOrder, AREAS, areaOf, areaSummary, laneSectionOf, matchesActionSearch, mergeLanes, orderedAtLabel, orderToStore, parseOrderChoice, validateAiOrderReply, type HomeAction } from "./lanes";
+import { actionKey, aiOrderPrompt, applyAiOrder, AREAS, areaOf, areaSummary, TODO_AREAS, todoAreaOf, laneSectionOf, matchesActionSearch, mergeLanes, orderedAtLabel, orderToStore, parseOrderChoice, validateAiOrderReply, type HomeAction } from "./lanes";
 
 const today = "2026-11-03";
 const a = (lane: HomeAction["lane"], id: string, over: Partial<HomeAction> = {}): HomeAction => ({ key: actionKey(lane, id), lane, id, name: id, action: "Do it", due: today, minutes: null, meta: "", ...over });
@@ -107,6 +107,14 @@ describe("the Area filter on Work on now (2026-11-04)", () => {
     expect(areaOf("Job search")).toBe("job-search");
     expect(areaOf("To-dos")).toBe("todos");
     expect(areaOf("To-dos", true)).toBe("tasks");
+  });
+  it("on To-dos: a personal to-do is To-dos, a record task counts by its record's area, and there is no Tasks choice", () => {
+    expect(todoAreaOf(null)).toBe("todos");
+    expect(todoAreaOf({ kind: "listing" })).toBe("deals");
+    expect(todoAreaOf({ kind: "organization" })).toBe("contacts");
+    expect(todoAreaOf({ kind: "project" })).toBe("rosara");
+    expect(todoAreaOf({ kind: "job" })).toBe("job-search");
+    expect(TODO_AREAS.map((x) => x.label)).toEqual(["Deals", "Contacts", "Rosara", "Job search", "Consulting", "To-dos"]);
   });
   it("sums up the ticks in plain words", () => {
     expect(areaSummary([])).toBe("Showing every area");

@@ -1,14 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Mail } from "lucide-react";
 import { ComposeEmailDialog } from "@/components/app/compose-email";
+import { FilterMenuButton, FilterPopover } from "@/components/app/filter-popover";
 import { FilterChips, FilterWindow, type FilterView } from "@/components/app/filter-window";
 import { StickySections } from "@/components/app/work/sticky-sections";
 import type { ComposeSetup } from "@/lib/compose-email";
-import { activeChips, applyFilters, clearGroup, filterSummary, optionCounts, showLabel, tickedCount, ticksToParam, toggleTick, type FilterGroup, type Ticks } from "@/lib/filters";
+import { activeChips, applyFilters, clearGroup, filterButtonLabel, filterSummary, optionCounts, showLabel, tickedCount, ticksToParam, toggleTick, type FilterGroup, type Ticks } from "@/lib/filters";
 import { date as fmtDate } from "@/lib/format";
 import { lastContactLabel, matchesPersonSearch, OUTREACH_SECTIONS, outreachSections, type OutreachSectionKey } from "@/lib/work/outreach";
 import type { OutreachData, PersonRow as PersonRowData } from "@/lib/work/outreach-data";
@@ -28,7 +29,9 @@ import { Figure, Figures, Line1, Line2, ListBand, Name, Pill, Quiet, ROW_COLS, R
  * Contacts (push B, 2026-11-03; Outreach renamed People, then Contacts in the Push B edits; the header of 2026-11-04):
  * the title row with Add a person (or Add an organization) and Ask AI; under it the view choice as the page's main
  * control (Follow-ups, People, Organizations, each with the number of rows it shows) with Find and the Filter button
- * at the right; the ticked choices as chips; the top menu row under 1024px. Each view keeps its own ticks (in the
+ * at the right; the top menu row under 1024px. Follow-ups: the Filter button says what is on ("Filter: Broker, Rosara
+ * +1") and opens a small box under it (Role, Project; a tick applies at once). People and Organizations: the large
+ * Filter window and the ticked choices as chips. Each view keeps its own ticks (in the
  * address, so a reload keeps them); the Filter window has the groups of the view.
  *  - Follow-ups: five tiles that work like tabs (Overdue, Due today, Next 7 days, Later, No date;
  *    src/lib/work/tiles.ts), then one card: the weekly counter and the selected tile's list under its pinned band;
@@ -70,6 +73,9 @@ export function PeopleBoard({ view: viewAtStart, data, orgs, adding, saved, tick
   }
   const [ticks, setTicks] = useState<PeopleTicks>(ticksAtStart);
   const [filterOpen, setFilterOpen] = useState(false);
+  /** Follow-ups: the button the small Filter box hangs under, or null while it is closed. */
+  const [filterAnchor, setFilterAnchor] = useState<HTMLElement | null>(null);
+  const closeFilter = useCallback(() => setFilterAnchor(null), []);
   const [query, setQuery] = useState("");
   const [email, setEmail] = useState<{ key: string; setup: ComposeSetup } | null>(null);
   const [call, setCall] = useState<LogCallTarget | null>(null);
@@ -109,6 +115,7 @@ export function PeopleBoard({ view: viewAtStart, data, orgs, adding, saved, tick
   const pickView = (v: PeopleView) => {
     if (v === view) return;
     setView(v);
+    setFilterAnchor(null);
     router.replace(viewUrl(v, ticks), { scroll: false });
   };
   const setViewTicks = (v: PeopleView, t: Ticks) => {
@@ -131,6 +138,9 @@ export function PeopleBoard({ view: viewAtStart, data, orgs, adding, saved, tick
   const summary = filterSummary(g, t, noun, view === "orgs" ? "that are" : "who are");
   const show = view === "orgs" ? showLabel(shownCount, "organization", "organizations") : showLabel(shownCount, "person", "people");
   const ticked = tickedCount(g, t);
+  // Follow-ups has two groups: the small Filter box under the button. People and Organizations: the large window.
+  const small = view === "follow";
+  const openFilter = (el: HTMLElement) => (small ? setFilterAnchor((a) => (a === el ? null : el)) : setFilterOpen(true));
 
   const onEmailPerson = (p: PersonRowData) => data.composes[p.id] && setEmail({ key: p.id, setup: data.composes[p.id] });
   const onCallPerson = (p: PersonRowData) => {
@@ -153,21 +163,23 @@ export function PeopleBoard({ view: viewAtStart, data, orgs, adding, saved, tick
         title="Contacts"
         seg={<ViewSelector views={views} active={view} onPick={pickView} compact testId="slim-view" />}
         chips={view === "follow" ? <TileChips tiles={tiles} selected={selected} onPick={pickTile} label="Follow-ups" idPrefix="follow-chip" panelId={PANEL_ID} /> : null}
-        tools={<SlimTools findId={FIND_ID} filterCount={ticked} onFilter={() => setFilterOpen(true)} />}
+        tools={<SlimTools findId={FIND_ID} filterCount={ticked} onFilter={openFilter} filterOpen={small ? !!filterAnchor : filterOpen} />}
       />
-      <header className="pb-5" data-testid="people-header">
+      {/* Without tiles (People, Organizations) the full header ends here: the slim bar shows once it is gone. */}
+      <header className="pb-5" data-testid="people-header" data-header-end={view === "follow" ? undefined : ""}>
         <TitleRow title="Contacts" add={addButton} askAi={askAi} />
         <div className="mt-3.5 flex flex-wrap items-center gap-x-3 gap-y-2.5" data-testid="people-filter-row">
           <ViewSelector views={views} active={view} onPick={pickView} />
           <div className="ml-auto flex items-center gap-2.5 max-[700px]:ml-0 max-[700px]:basis-full">
             <FindBox id={FIND_ID} value={query} onChange={setQuery} placeholder={placeholder} testId="filter-search" />
-            <FilterButton ticked={ticked} onOpen={() => setFilterOpen(true)} />
+            {small ? <FilterMenuButton label={filterButtonLabel("Filter", g, t)} ticked={ticked} open={!!filterAnchor} onOpen={openFilter} /> : <FilterButton ticked={ticked} onOpen={() => setFilterOpen(true)} />}
           </div>
         </div>
-        <FilterChips chips={activeChips(g, t)} onRemove={(group, value) => setViewTicks(view, toggleTick(t, group, value))} onClear={() => setViewTicks(view, {})} />
+        {small ? null : <FilterChips chips={activeChips(g, t)} onRemove={(group, value) => setViewTicks(view, toggleTick(t, group, value))} onClear={() => setViewTicks(view, {})} />}
         {tabs}
       </header>
-      <FilterWindow open={filterOpen} onOpenChange={setFilterOpen} groups={g} ticks={t} counts={counts} onToggle={(group, value) => setViewTicks(view, toggleTick(t, group, value))} onClearGroup={(group) => setViewTicks(view, clearGroup(t, group))} onClearAll={() => setViewTicks(view, {})} summary={summary} show={show} />
+      <FilterPopover anchor={small ? filterAnchor : null} onClose={closeFilter} groups={g} ticks={t} counts={counts} onToggle={(group, value) => setViewTicks(view, toggleTick(t, group, value))} onClear={() => setViewTicks(view, {})} />
+      <FilterWindow open={filterOpen && !small} onOpenChange={setFilterOpen} groups={g} ticks={t} counts={counts} onToggle={(group, value) => setViewTicks(view, toggleTick(t, group, value))} onClearGroup={(group) => setViewTicks(view, clearGroup(t, group))} onClearAll={() => setViewTicks(view, {})} summary={summary} show={show} />
       <div className="flex flex-col gap-[18px]">
         {saved ? (
           <p className="rounded-md bg-status-met-bg px-3 py-2 text-[13px] text-status-met" role="status" data-testid="person-saved">
@@ -181,7 +193,7 @@ export function PeopleBoard({ view: viewAtStart, data, orgs, adding, saved, tick
 
         {view === "follow" ? (
           <>
-            <StatusTiles tiles={tiles} selected={selected} onPick={pickTile} label="Follow-ups" idPrefix="follow-tile" panelId={PANEL_ID} testId="follow-tiles" className="mb-1.5" />
+            <StatusTiles tiles={tiles} selected={selected} onPick={pickTile} label="Follow-ups" idPrefix="follow-tile" panelId={PANEL_ID} testId="follow-tiles" className="mb-1.5" headerEnd />
             <section id={PANEL_ID} role="tabpanel" aria-labelledby={`follow-tile-${selected}`} className={CARD} data-testid="outreach-card">
               <TargetBar count={data.counter.count} target={data.counter.target} pct={data.counter.pct} hint="Counted from emails sent and calls logged, Mon to Fri" className="py-3.5" />
               {!followBase.length ? (

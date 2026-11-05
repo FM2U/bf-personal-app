@@ -3,7 +3,7 @@ import { progressSegments, type WaitLevel } from "@/lib/work/stages";
 import { FIGURE_GAP_CLS, FIGURE_LABEL_CLS, figureValueClass, isEmptyValue, type FigureTone } from "@/lib/work/figure-style";
 import { cn } from "@/lib/utils";
 import { OpenRow } from "@/components/app/work/open-row";
-import { SlimBar } from "@/components/app/work/slim-bar";
+import { DockingActions, SlimBar } from "@/components/app/work/slim-bar";
 
 /**
  * The building blocks of the Work screens (approved mockup 2026-10-30, mockup v6 2026-10-31; the color system of Edit
@@ -88,7 +88,7 @@ export const ROW_COLS = {
  */
 export function PinnedBlock({ children, testId }: { children: React.ReactNode; testId?: string }) {
   return (
-    <div className="z-10 mb-4 border-b border-border bg-background pb-3 lg:sticky lg:top-0 lg:-mt-6 lg:pt-6" data-testid={testId} data-pinned="page">
+    <div className="z-10 mb-4 border-b border-border bg-background pb-3 lg:sticky lg:top-0 lg:-mt-6 lg:pt-6" data-testid={testId} data-pinned="page" data-header-end>
       {children}
     </div>
   );
@@ -96,11 +96,13 @@ export function PinnedBlock({ children, testId }: { children: React.ReactNode; t
 
 /** A card header that stays at the top while the card scrolls (desktop): solid white, a hairline across the full width. */
 export const PINNED_CARD_HEADER = "bg-white border-b border-rule lg:sticky lg:top-0 lg:z-[2]";
+/** The same on Work on now, whose cards scroll on their own only in a desktop window tall enough (the desk variant). */
+const PINNED_CARD_HEADER_DESK = "bg-white border-b border-rule desk:sticky desk:top-0 desk:z-[2]";
 
-export function WorkCard({ id, ref, role, labelledBy, title, count, hint, sub, actions, children, className, testId, rule = true, pinned = false, scroll = false, bodyClassName, headerClassName }: { ref?: React.Ref<HTMLElement>; /** "tabpanel" under status tiles, with the selected tile's id in labelledBy. */ role?: string; labelledBy?: string; id?: string; title: React.ReactNode; count?: number | null; hint?: React.ReactNode; /** A quiet line under the title (for narrow cards, where a hint at the right would wrap). */ sub?: React.ReactNode; actions?: React.ReactNode; children: React.ReactNode; className?: string; testId?: string; /** False: no rule under the title (a closed card ends at its title row). */ rule?: boolean; /** The title row stays at the top while the content under it scrolls (desktop): solid white with the hairline across the full width. */ pinned?: boolean; /** The card scrolls on its own (desktop); give it a height through className. */ scroll?: boolean; bodyClassName?: string; /** Extra classes on the title row (a minimum height so cards side by side line up). */ headerClassName?: string }) {
+export function WorkCard({ id, ref, role, labelledBy, pinAt = "lg", title, count, hint, sub, actions, children, className, testId, rule = true, pinned = false, scroll = false, bodyClassName, headerClassName }: { ref?: React.Ref<HTMLElement>; /** "tabpanel" under status tiles, with the selected tile's id in labelledBy. */ role?: string; labelledBy?: string; /** From which width the title row pins and the card scrolls on its own: "desk" on Work on now (a desktop window tall enough). */ pinAt?: "lg" | "desk"; id?: string; title: React.ReactNode; count?: number | null; hint?: React.ReactNode; /** A quiet line under the title (for narrow cards, where a hint at the right would wrap). */ sub?: React.ReactNode; actions?: React.ReactNode; children: React.ReactNode; className?: string; testId?: string; /** False: no rule under the title (a closed card ends at its title row). */ rule?: boolean; /** The title row stays at the top while the content under it scrolls (desktop): solid white with the hairline across the full width. */ pinned?: boolean; /** The card scrolls on its own (desktop); give it a height through className. */ scroll?: boolean; bodyClassName?: string; /** Extra classes on the title row (a minimum height so cards side by side line up). */ headerClassName?: string }) {
   return (
-    <section id={id} ref={ref} role={role} aria-labelledby={labelledBy} className={cn("flex min-w-0 flex-col rounded-xl border border-border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]", scroll && "lg:overflow-y-auto", className)} data-testid={testId}>
-      <div className={cn("rounded-t-xl bg-white", pinned && rule && PINNED_CARD_HEADER, headerClassName)} data-pinned={pinned && rule ? "card" : undefined}>
+    <section id={id} ref={ref} role={role} aria-labelledby={labelledBy} className={cn("flex min-w-0 flex-col rounded-xl border border-border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]", scroll && (pinAt === "desk" ? "desk:overflow-y-auto" : "lg:overflow-y-auto"), className)} data-testid={testId}>
+      <div className={cn("rounded-t-xl bg-white", pinned && rule && (pinAt === "desk" ? PINNED_CARD_HEADER_DESK : PINNED_CARD_HEADER), headerClassName)} data-pinned={pinned && rule ? "card" : undefined}>
         <div className={cn("flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-[22px] pt-4", rule ? "pb-3" : "pb-4")}>
           <h2 className="flex items-center gap-2 text-[15px] font-semibold tracking-[-0.01em] whitespace-nowrap text-heading">
             <span>{title}</span>
@@ -551,21 +553,22 @@ export function AiButton({ busy, children, className, disabled, tone = "outline"
 
 /**
  * The page title row: the title on the left, the date or buttons on the right. `slim` (2026-11-04): the slim pinned
- * bar with the small title that slides in after about 40px of scroll; "narrow" (the default) only under 1024px, where
- * nothing else stays pinned; "always" at every width (record pages); false when the page draws its own (Work on now,
- * Contacts, To-dos).
+ * bar with the small title that slides in once the full header has scrolled off; "narrow" (the default) only under
+ * 1024px, where nothing else stays pinned; "always" at every width (record pages, where the buttons at the right move
+ * into the bar while it shows); false when the page draws its own (Work on now, Contacts, To-dos).
  */
 export function WorkHeader({ title, right, crumb, under, slim = "narrow" }: { title: React.ReactNode; right?: React.ReactNode; crumb?: React.ReactNode; /** A quiet line under the title ("Listed as 00 ..."). */ under?: React.ReactNode; slim?: "narrow" | "always" | false }) {
+  const docking = slim === "always" && !!right;
   return (
     <div className="mb-1.5">
-      {slim ? <SlimBar title={title} mode={slim} /> : null}
+      {slim && !docking ? <SlimBar title={title} mode={slim} /> : null}
       {crumb ? <div className="mb-1.5 text-[13px] text-muted-foreground">{crumb}</div> : null}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-slate-900">{title}</h1>
           {under ? <div className="mt-0.5 text-[13px] text-muted-foreground">{under}</div> : null}
         </div>
-        {right ? <div className="flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground">{right}</div> : null}
+        {docking ? <DockingActions title={title}>{right}</DockingActions> : right ? <div className="flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground">{right}</div> : null}
       </div>
     </div>
   );

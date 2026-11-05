@@ -107,6 +107,33 @@ export function areaOf(lane: Lane, onRecord = false): AreaKey {
   return ({ Deals: "deals", People: "contacts", Rosara: "rosara", "Job search": "job-search", Consulting: "consulting" } as const)[lane];
 }
 
+/**
+ * The Area filter on To-dos (2026-11-04): the same areas without Tasks, since a task on a record counts by its record's
+ * area there (a deal or listing is Deals, a person or organization Contacts, a project Rosara, a job Job search, a
+ * consulting item Consulting) and a personal to-do with no record is To-dos.
+ */
+export const TODO_AREAS = AREAS.filter((a) => a.value !== "tasks");
+
+export function todoAreaOf(record: { kind: string } | null): AreaKey {
+  if (!record) return "todos";
+  switch (record.kind) {
+    case "person":
+    case "organization":
+      return "contacts";
+    case "project":
+      return "rosara";
+    case "job":
+      return "job-search";
+    case "consulting":
+      return "consulting";
+    default:
+      return "deals";
+  }
+}
+
+/** The ticked areas on To-dos are remembered in this browser under this key. */
+export const TODO_AREA_STORAGE_KEY = "work-todos-areas";
+
 /** "Showing: Deals or Contacts", or "Showing every area". */
 export function areaSummary(ticked: readonly string[]): string {
   const labels = AREAS.filter((a) => ticked.includes(a.value)).map((a) => a.label);

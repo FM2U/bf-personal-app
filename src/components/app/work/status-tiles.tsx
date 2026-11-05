@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
  * (and select them), Home and End go to the first and last. `selected` null: no tile selected (By the AI).
  * TileChips is the same list as one row of chips for the slim pinned bar.
  */
-type TilesProps<K extends string> = { tiles: readonly Tile<K>[]; selected: K | null; onPick: (k: K) => void; label: string; idPrefix: string; panelId?: string; testId?: string; className?: string };
+type TilesProps<K extends string> = { tiles: readonly Tile<K>[]; selected: K | null; onPick: (k: K) => void; label: string; idPrefix: string; panelId?: string; testId?: string; className?: string; /** The bottom of the page's full header: the slim bar shows once it is gone. */ headerEnd?: boolean };
 
 function useTabKeys<K extends string>(tiles: readonly Tile<K>[], onPick: (k: K) => void, idPrefix: string) {
   const ref = useRef<HTMLDivElement>(null);
@@ -25,14 +25,14 @@ function useTabKeys<K extends string>(tiles: readonly Tile<K>[], onPick: (k: K) 
     if (to < 0) return;
     e.preventDefault();
     onPick(keys[to]);
-    requestAnimationFrame(() => document.getElementById(`${idPrefix}-${keys[to]}`)?.focus());
+    document.getElementById(`${idPrefix}-${keys[to]}`)?.focus();
   };
   return { ref, onKeyDown };
 }
 
 const dot = (red?: boolean) => <span className={cn("mt-[3px] h-2 w-2 shrink-0 rounded-full", red ? "bg-[#ef4444]" : "bg-electric")} aria-hidden data-dot={red ? "red" : "blue"} />;
 
-export function StatusTiles<K extends string>({ tiles, selected, onPick, label, idPrefix, panelId, testId = "status-tiles", className }: TilesProps<K>) {
+export function StatusTiles<K extends string>({ tiles, selected, onPick, label, idPrefix, panelId, testId = "status-tiles", className, headerEnd = true }: TilesProps<K>) {
   const { ref, onKeyDown } = useTabKeys(tiles, onPick, idPrefix);
   const n = tiles.length;
   return (
@@ -49,6 +49,7 @@ export function StatusTiles<K extends string>({ tiles, selected, onPick, label, 
         className,
       )}
       data-testid={testId}
+      data-header-end={headerEnd ? "" : undefined}
     >
       {tiles.map((t, i) => {
         const on = selected === t.key;

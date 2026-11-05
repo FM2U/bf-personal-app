@@ -100,6 +100,33 @@ const until = async (fn, msg, tries = 40) => {
   const selectedKeys = (tiles) => page.getByTestId(tiles).locator('[aria-selected="true"]').evaluateAll((els) => els.map((e) => e.getAttribute("data-key")));
   const firstWithItems = (keys, counts) => keys[counts.findIndex((n) => n > 0)] ?? keys[0];
 
+  /**
+   * One header at a time: scrolls down a few pixels at a time; while any part of a tile is still below the bar's
+   * bottom edge the bar is hidden; once every tile is above it the bar shows; back at the top it leaves.
+   */
+  const oneHeaderAtATime = async (p, tilesId) => {
+    const bar = p.getByTestId("slim-bar");
+    assert((await bar.getAttribute("data-shown")) === "0", "no slim bar at rest");
+    const barH = await bar.evaluate((e) => e.offsetHeight);
+    const tilesBottom = async () => (await p.getByTestId(tilesId).boundingBox()).y + (await p.getByTestId(tilesId).boundingBox()).height;
+    const start = await tilesBottom();
+    let seen = false;
+    for (let y = 0; y <= start + 40; y += 8) {
+      await p.evaluate((v) => window.scrollTo(0, v), y);
+      await p.waitForTimeout(40);
+      const bottom = await tilesBottom();
+      const shown = (await bar.getAttribute("data-shown")) === "1";
+      if (bottom > barH + 0.5) assert(!shown, `the bar shows while a tile is on screen (tiles end at ${bottom}, bar ${barH})`);
+      if (shown) seen = true;
+    }
+    await until(async () => (await bar.getAttribute("data-shown")) === "1", "the slim bar slides in once the header is gone");
+    assert(seen, "the bar showed");
+    await p.evaluate(() => window.scrollTo(0, 0));
+    await until(async () => (await bar.getAttribute("data-shown")) === "0", "the slim bar leaves when the header comes back");
+    await p.evaluate((v) => window.scrollTo(0, v), start + 40);
+    await until(async () => (await bar.getAttribute("data-shown")) === "1", "and comes back");
+  };
+
   await step("Work on now: three tiles work like tabs; the first tile with items is selected; one list at a time, no collapsing", async () => {
     await page.goto(`${BASE}/work`);
     await page.getByTestId("home-tiles").waitFor();
@@ -132,43 +159,66 @@ const until = async (fn, msg, tries = 40) => {
     await shot(page, "home-tiles.png");
   });
 
-  await step("Filter by Area: only the Area column; the ticks change the tile numbers; Waiting on someone is not filtered", async () => {
+  await step("Filter by Area: a small box under the button; a tick applies at once and the label says what is on; Waiting on someone is not filtered", async () => {
     await page.goto(`${BASE}/work`);
     await page.getByTestId("home-tiles").waitFor();
     const before = await tileCounts("home-tiles");
     const waitBefore = await page.getByTestId("now-wait").innerText();
     await pickTile("home-tiles", "needs");
-    await page.getByTestId("filter-open").click();
-    const w = page.getByTestId("filter-window");
-    await w.waitFor();
-    const groups = await w.getByTestId("filter-group").evaluateAll((els) => els.map((e) => e.getAttribute("data-group")));
-    const opts = await w.getByTestId("filter-option").evaluateAll((els) => els.map((e) => e.innerText.split("\n")[0].trim()));
+    const btn = page.getByTestId("filter-open");
+    assert((await btn.getAttribute("data-label")) === "Area: All", `label ${await btn.getAttribute("data-label")}`);
+    await btn.click();
+    const pop = page.getByTestId("filter-popover");
+    await pop.waitFor();
+    assert((await page.getByTestId("filter-window").count()) === 0 && (await page.getByTestId("filter-show").count()) === 0, "no centered window, no Show button");
+    const bb = await btn.boundingBox();
+    const pb = await pop.boundingBox();
+    assert(pb.y >= bb.y + bb.height && pb.y <= bb.y + bb.height + 12 && Math.abs(pb.x + pb.width - (bb.x + bb.width)) <= 2, `hangs under the button (${JSON.stringify(pb)} vs ${JSON.stringify(bb)})`);
+    assert(await page.evaluate(() => !!document.activeElement?.closest("[data-testid=filter-popover]")), "the cursor moves into the box");
+    const groups = await pop.getByTestId("filter-group").evaluateAll((els) => els.map((e) => e.getAttribute("data-group")));
+    const opts = await pop.getByTestId("filter-option").evaluateAll((els) => els.map((e) => e.innerText.split("\n")[0].trim()));
     assert(JSON.stringify(groups) === '["area"]', `groups ${groups}`);
     assert(JSON.stringify(opts) === JSON.stringify(["Deals", "Contacts", "Rosara", "Job search", "Consulting", "To-dos", "Tasks"]), `areas ${opts}`);
-    assert((await w.innerText()).includes("Waiting on someone is not filtered"), "the window says Waiting is not filtered");
-    const contactsN = Number(await w.locator('[data-testid="filter-option"][data-value="contacts"]').getAttribute("data-count"));
-    await page.locator("#fo-area-contacts").check();
-    assert((await page.getByTestId("filter-show").innerText()) === `Show ${contactsN} next action${contactsN === 1 ? "" : "s"}`, await page.getByTestId("filter-show").innerText());
+    assert((await pop.innerText()).includes("Waiting on someone is not filtered"), "the box says Waiting is not filtered");
+    const contactsN = Number(await pop.locator('[data-testid="filter-option"][data-value="contacts"]').getAttribute("data-count"));
+    await page.locator("#fp-area-contacts").check();
+    // Applied at once, with the box still open.
+    await until(async () => (await tileCounts("home-tiles")).reduce((a, b) => a + b, 0) === contactsN, "the tile numbers change at once");
+    assert(await pop.isVisible(), "the box stays open while ticking");
+    assert((await btn.getAttribute("data-label")) === "Area: Contacts", `label ${await btn.getAttribute("data-label")}`);
+    await page.locator("#fp-area-deals").check();
+    await page.locator("#fp-area-rosara").check();
+    assert((await btn.getAttribute("data-label")) === "Area: Deals, Contacts +1", `label ${await btn.getAttribute("data-label")}`);
     await shot(page, "home-filter-area.png");
-    await page.getByTestId("filter-show").click();
-    await w.waitFor({ state: "detached" });
-    assert((await page.getByTestId("filter-open").innerText()).includes("Filter · 1"), "Filter · 1");
+    await page.locator("#fp-area-deals").uncheck();
+    await page.locator("#fp-area-rosara").uncheck();
+    // Escape closes and puts the cursor back on the button.
+    await page.keyboard.press("Escape");
+    await pop.waitFor({ state: "detached" });
+    assert(await page.evaluate(() => document.activeElement?.getAttribute("data-testid") === "filter-open"), "Escape returns to the button");
     const after = await tileCounts("home-tiles");
-    assert(after.reduce((a, b) => a + b, 0) === contactsN && after[2] === 0 && JSON.stringify(after) !== JSON.stringify(before), `tile numbers ${after} (were ${before})`);
+    assert(after[2] === 0 && JSON.stringify(after) !== JSON.stringify(before), `tile numbers ${after} (were ${before})`);
     // Needs a next action dropped to 0, so the first tile with items is selected.
     assert(JSON.stringify(await selectedKeys("home-tiles")) === JSON.stringify([firstWithItems(["overdue", "today", "needs"], after)]), `selected ${await selectedKeys("home-tiles")}`);
     const areas = await page.locator('[data-testid="home-list"] [data-testid="home-row"]').evaluateAll((els) => [...new Set(els.map((e) => e.getAttribute("data-area")))]);
     assert(JSON.stringify(areas) === '["contacts"]', `areas shown ${areas}`);
     assert((await page.getByTestId("now-wait").innerText()) === waitBefore, "Waiting on someone did not change");
-    // Remembered in this browser; Clear all puts every area back.
+    assert((await page.getByTestId("filter-chips").count()) === 0, "no chip row");
+    // Remembered in this browser; a click elsewhere closes the box; Clear puts every area back.
     await page.reload();
-    assert(JSON.stringify(await tileCounts("home-tiles")) === JSON.stringify(after), "the ticks are remembered");
+    await until(async () => JSON.stringify(await tileCounts("home-tiles")) === JSON.stringify(after), "the ticks are remembered");
     await page.getByTestId("filter-open").click();
-    await page.getByTestId("filter-clear-all").click();
-    await page.getByTestId("filter-show").click();
-    assert(JSON.stringify(await tileCounts("home-tiles")) === JSON.stringify(before), "Clear all");
+    await pop.waitFor();
+    await page.mouse.click(700, 860);
+    await pop.waitFor({ state: "detached" });
+    await page.getByTestId("filter-open").click();
+    await page.getByTestId("filter-clear").click();
+    await until(async () => JSON.stringify(await tileCounts("home-tiles")) === JSON.stringify(before), "Clear");
+    assert((await page.getByTestId("filter-open").getAttribute("data-label")) === "Area: All", "back to Area: All");
+    await page.keyboard.press("Escape");
   });
 
+  await page.evaluate(() => window.localStorage.removeItem("work-home-areas")).catch(() => {});
   await step("By the AI: no tile selected, the full ranked list of all three kinds; a tile click goes back to Soonest first; a new day starts on Soonest first", async () => {
     await page.goto(`${BASE}/work`);
     await page.getByTestId("home-tiles").waitFor();
@@ -211,28 +261,49 @@ const until = async (fn, msg, tries = 40) => {
     const vb = await page.getByTestId("people-view").boundingBox();
     const tb = await page.getByTestId("title-row").boundingBox();
     assert(vb.y > tb.y + tb.height - 1 && vb.height >= 40, `the view choice sits under the title (${vb.y}, ${vb.height} tall)`);
-    await page.getByTestId("filter-open").click();
-    let groups = await page.getByTestId("filter-group").evaluateAll((els) => els.map((e) => e.getAttribute("data-group")));
+    // Follow-ups: the small box with Role and Project; a tick applies at once and the label says it.
+    const fbtn = page.getByTestId("filter-open");
+    assert((await fbtn.getAttribute("data-label")) === "Filter: All", `label ${await fbtn.getAttribute("data-label")}`);
+    await fbtn.click();
+    const pop = page.getByTestId("filter-popover");
+    await pop.waitFor();
+    let groups = await pop.getByTestId("filter-group").evaluateAll((els) => els.map((e) => e.getAttribute("data-group")));
     assert(JSON.stringify(groups) === '["role","proj"]', `Follow-ups groups ${groups}`);
+    const brokerN = Number(await pop.locator('[data-testid="filter-option"][data-value="broker"]').getAttribute("data-count"));
+    await page.locator("#fp-role-broker").check();
+    await until(async () => (await tileCounts("follow-tiles")).reduce((a, b) => a + b, 0) === brokerN, "the follow-up tiles follow the tick at once");
+    await page.locator("#fp-proj-rosara").check();
+    await page.locator("#fp-proj-off_market_deals").check();
+    assert((await fbtn.getAttribute("data-label")) === "Filter: Broker, Off-market deals +1", `label ${await fbtn.getAttribute("data-label")}`);
+    assert((await page.getByTestId("filter-chips").count()) === 0, "no chip row on Follow-ups");
+    await page.getByTestId("filter-clear").click();
+    assert(JSON.stringify(await tileCounts("follow-tiles")) === JSON.stringify(counts), "Clear");
     await page.keyboard.press("Escape");
+    await pop.waitFor({ state: "detached" });
+    // People: the large centered window stays (four groups), with its chips.
     await page.getByTestId("people-view-people").click();
     await page.getByTestId("everyone-card").waitFor();
     assert((await page.getByTestId("follow-tiles").count()) === 0, "no tiles on People");
     await page.getByTestId("filter-open").click();
-    groups = await page.getByTestId("filter-group").evaluateAll((els) => els.map((e) => e.getAttribute("data-group")));
+    await page.getByTestId("filter-window").waitFor();
+    groups = await page.getByTestId("filter-window").getByTestId("filter-group").evaluateAll((els) => els.map((e) => e.getAttribute("data-group")));
     assert(JSON.stringify(groups) === '["role","lc","fu","org"]', `People groups ${groups}`);
-    await page.keyboard.press("Escape");
+    await page.locator("#fo-role-broker").check();
+    await page.getByTestId("filter-show").click();
+    await page.getByTestId("filter-chips").waitFor();
+    await page.getByTestId("filter-chips-clear").click();
     await page.getByTestId("people-view-orgs").click();
     await page.getByTestId("orgs-card").waitFor();
     assert((await page.getByTestId("follow-tiles").count()) === 0, "no tiles on Organizations");
     await page.getByTestId("people-view-follow").click();
     await page.getByTestId("follow-tiles").waitFor();
-    // The slim pinned bar: hidden at rest, in after about 40px of scroll, with the compact view choice, the chips, Find and Filter.
+    // The slim pinned bar: hidden while any tile is on screen, in once the whole header is gone, with the compact view
+    // choice, the chips, Find and Filter.
     await pickTile("follow-tiles", keys[counts.indexOf(Math.max(...counts))]);
     const bar = page.getByTestId("slim-bar");
-    assert((await bar.getAttribute("data-shown")) === "0", "no slim bar at rest");
-    await page.evaluate(() => window.scrollTo(0, 120));
-    await until(async () => (await bar.getAttribute("data-shown")) === "1", "the slim bar slides in");
+    // A shorter window, so the list is long enough to scroll the whole header away.
+    await page.setViewportSize({ width: 1440, height: 560 });
+    await oneHeaderAtATime(page, "follow-tiles");
     assert((await bar.getByTestId("slim-chip").count()) === 5 && (await bar.getByTestId("slim-view").count()) === 1 && (await bar.getByTestId("slim-find").count()) === 1 && (await bar.getByTestId("slim-filter").count()) === 1, "chips, view choice, Find and Filter");
     const bb = await bar.boundingBox();
     assert(bb.height < 80, `slim bar ${bb.height}px tall`);
@@ -242,6 +313,7 @@ const until = async (fn, msg, tries = 40) => {
     await until(async () => JSON.stringify(await selectedKeys("follow-tiles")) === JSON.stringify([other]), "a chip picks the tile");
     await page.evaluate(() => window.scrollTo(0, 0));
     await until(async () => (await bar.getAttribute("data-shown")) === "0", "the slim bar leaves at the top");
+    await page.setViewportSize({ width: 1440, height: 900 });
   });
 
   await step("To-dos: four tiles (Done today's dot blue) and the intro line; one list at a time", async () => {
@@ -257,6 +329,28 @@ const until = async (fn, msg, tries = 40) => {
     await pickTile("todos-tiles", "later");
     assert((await page.getByTestId("todos-section").getAttribute("data-section")) === "later" && (await page.getByTestId("personal-todo").count()) === counts[2], "the Later list");
     assert((await page.getByTestId("collapse-all").count()) === 0, "no Collapse all");
+    // The Area filter: a personal to-do is To-dos, a record task counts by its record's area; applies at once.
+    await pickTile("todos-tiles", "today");
+    const btn = page.getByTestId("filter-open");
+    assert((await btn.getAttribute("data-label")) === "Area: All", "Area: All");
+    await btn.click();
+    const pop = page.getByTestId("filter-popover");
+    await pop.waitFor();
+    const opts = await pop.getByTestId("filter-option").evaluateAll((els) => els.map((e) => e.innerText.split("\n")[0].trim()));
+    assert(JSON.stringify(opts) === JSON.stringify(["Deals", "Contacts", "Rosara", "Job search", "Consulting", "To-dos"]), `areas ${opts}`);
+    const dealsN = Number(await pop.locator('[data-testid="filter-option"][data-value="deals"]').getAttribute("data-count"));
+    await page.locator("#fp-area-deals").check();
+    await until(async () => (await tileCounts("todos-tiles")).reduce((a, b) => a + b, 0) === dealsN, "the tile numbers follow at once");
+    assert((await btn.getAttribute("data-label")) === "Area: Deals", "Area: Deals");
+    const pills = await page.getByTestId("personal-todo").evaluateAll((els) => els.map((e) => e.getAttribute("data-record")));
+    assert(pills.length > 0 && pills.every((r) => r.startsWith("listing:") || r.startsWith("deal:")), `only deal tasks ${pills}`);
+    await page.locator("#fp-area-deals").uncheck();
+    await page.locator("#fp-area-todos").check();
+    const personal = await page.getByTestId("personal-todo").evaluateAll((els) => els.map((e) => e.getAttribute("data-record")));
+    assert(personal.every((r) => r === ""), `only personal to-dos ${personal}`);
+    await page.getByTestId("filter-clear").click();
+    await page.keyboard.press("Escape");
+    assert(JSON.stringify(await tileCounts("todos-tiles")) === JSON.stringify(counts), "Clear");
   });
 
   await step("No top menu row at 1440 (the left menu has the pages and badges); the row shows at 400; Settings keeps its tabs; no 'lane' in the text", async () => {
@@ -277,10 +371,57 @@ const until = async (fn, msg, tries = 40) => {
     await pp.goto(`${BASE}/work`);
     await pp.getByTestId("home-tiles").waitFor();
     assert(await pp.getByTestId("top-menu-row").isVisible(), "the top menu row at 400");
-    await pp.evaluate(() => window.scrollTo(0, 600));
-    await until(async () => (await pp.getByTestId("slim-bar").getAttribute("data-shown")) === "1", "the slim bar on the phone");
+    await oneHeaderAtATime(pp, "home-tiles");
     if (SHOTS) await pp.screenshot({ path: path.join(SHOTS, "phone-work-scrolled.png") });
     await phone.close();
+  });
+
+  await step("Work on now in a short desktop window (1440 x 700): the page scrolls and the slim bar shows only once the title row and tiles are gone", async () => {
+    const short = await ctx.browser().newContext({ viewport: { width: 1440, height: 700 } });
+    await short.addCookies([cookie]);
+    const sp = await short.newPage();
+    await sp.goto(`${BASE}/work`);
+    await sp.getByTestId("home-tiles").waitFor();
+    await sp.waitForLoadState("networkidle");
+    await oneHeaderAtATime(sp, "home-tiles");
+    // The slim bar's filter icon opens the same small box under the icon.
+    await sp.getByTestId("slim-filter").click();
+    const pop = sp.getByTestId("filter-popover");
+    await pop.waitFor();
+    const ib = await sp.getByTestId("slim-filter").boundingBox();
+    const pb = await pop.boundingBox();
+    assert(pb.y >= ib.y + ib.height && Math.abs(pb.x + pb.width - (ib.x + ib.width)) <= 2, "the box hangs under the slim bar's icon");
+    await sp.keyboard.press("Escape");
+    await short.close();
+  });
+
+  await step("Record page: the slim bar shows once the header is gone, with the page's Email and Log a call", async () => {
+    const mark = await one("select id from contacts where name = 'Mark Reed'");
+    await page.goto(`${BASE}/work/people/${mark.id}`);
+    await page.getByTestId("record-pinned").waitFor();
+    await page.waitForLoadState("networkidle");
+    const bar = page.getByTestId("slim-bar");
+    assert((await bar.getAttribute("data-shown")) === "0", "no slim bar at rest");
+    const hb = await page.getByTestId("record-pinned").boundingBox();
+    const barH = await bar.evaluate((e) => e.offsetHeight);
+    await page.evaluate((v) => window.scrollTo(0, v), hb.y + hb.height - barH - 10);
+    await page.waitForTimeout(150);
+    assert((await bar.getAttribute("data-shown")) === "0", "hidden while the header strip is still on screen");
+    await page.evaluate((v) => window.scrollTo(0, v), hb.y + hb.height - barH + 5);
+    await until(async () => (await bar.getAttribute("data-shown")) === "1", "the slim bar slides in");
+    await page.waitForTimeout(300);
+    const b = await bar.boundingBox();
+    for (const id of ["person-page-email", "person-page-log-call", "ask-ai"]) {
+      const x = await page.getByTestId("record-actions").getByTestId(id).boundingBox();
+      assert(x && x.y >= b.y && x.y + x.height <= b.y + b.height && x.x > b.x + 100, `${id} sits in the slim bar (${JSON.stringify(x)} in ${JSON.stringify(b)})`);
+    }
+    assert((await page.getByTestId("person-page-email").count()) === 1, "one Email button, not a copy");
+    await shot(page, "record-slim-bar.png");
+    await page.getByTestId("person-page-log-call").click();
+    await page.getByRole("dialog").first().waitFor();
+    await page.keyboard.press("Escape");
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await until(async () => (await page.getByTestId("record-actions").getAttribute("data-docked")) === "0", "the buttons go back to the title row");
   });
 
   await step("Today's calendar on Home: Google Calendar events and the app's blocks (marked), in time order", async () => {
