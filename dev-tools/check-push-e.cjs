@@ -1,3 +1,6 @@
+// LOCAL TESTING ONLY. Push E2 (2026-11-05): the waits are rows of the waits table now (several per deal or person);
+// the queries below read it, the group heading is "< 5 days", and Waiting on on the person and deal pages is the waits
+// list ("+ Add" and ×). The push E2 items have their own checks in dev-tools/check-push-e2.cjs.
 // LOCAL TESTING ONLY. Click-through checks of push E against the local stand-ins: the Waiting on someone card with
 // deals and people and the third group "No reply yet" (an email the app sent shows after N days and not before, a
 // reply makes it go, Dismiss, Add to Waiting on a deal and on a person, the card counts, Show all), a person waited on
@@ -124,8 +127,8 @@ const until = async (fn, msg, tries = 60) => {
     await page.goto(`${BASE}/api/google/connect`);
     await page.waitForURL(/\/settings\?google=/);
     const s = await one(`select
-      (select waiting_on from contacts where name = 'Priya Natarajan') priya,
-      (select c.subject from pipeline_items i join communications c on c.id = i.waiting_comm_id where i.name = 'Pinecrest Landscaping') pine,
+      (select w.text from waits w join contacts p on p.id = w.contact_id where p.name = 'Priya Natarajan') priya,
+      (select c.subject from waits w join pipeline_items i on i.id = w.pipeline_item_id join communications c on c.id = w.comm_id where i.name = 'Pinecrest Landscaping') pine,
       (select count(*)::int from communications where gmail_thread_id like 'sample-thread-e%') threaded,
       (select count(*)::int from sample_records where table_name = 'communications' and record_id in (select id from communications where gmail_thread_id like 'sample-thread-e%')) tracked`);
     assert(s.priya && s.pine === "Pinecrest LOI" && s.threaded === 4 && s.tracked === 4, JSON.stringify(s));
@@ -166,11 +169,12 @@ const until = async (fn, msg, tries = 60) => {
     const sections = await card().locator('[data-testid="home-section"]').evaluateAll((els) => els.map((e) => [e.dataset.section, e.dataset.collapsed]));
     assert(JSON.stringify(sections) === JSON.stringify([["wait-over", "1"], ["wait-under", "1"], ["wait-no-reply", "1"]]), JSON.stringify(sections));
     const heads = await card().locator('[data-testid="home-section"] [data-testid="section-heading"]').allInnerTexts();
-    assert(/5\+ days/i.test(heads[0]) && /Less than 5 days/i.test(heads[1]) && /No reply yet/i.test(heads[2]), `${heads}`);
+    assert(/5\+ days/i.test(heads[0]) && /< 5 days/i.test(heads[1]) && /No reply yet/i.test(heads[2]), `${heads}`);
+    // Push E2: the card counts rows (a deal or person with two waits is one row).
     const expected = await one(`select
       (select count(*)::int from pipeline_items i join pipelines p on p.id = i.pipeline_id join pipeline_stages s on s.id = i.stage_id
-        where p.kind = 'acquisition' and i.screened and i.status = 'open' and s.outcome = 'open' and coalesce(btrim(i.waiting_on), '') <> '') deals,
-      (select count(*)::int from contacts where archived_at is null and coalesce(btrim(waiting_on), '') <> '') people`);
+        where p.kind = 'acquisition' and i.screened and i.status = 'open' and s.outcome = 'open' and exists (select 1 from waits w where w.pipeline_item_id = i.id)) deals,
+      (select count(*)::int from contacts c where archived_at is null and exists (select 1 from waits w where w.contact_id = c.id)) people`);
     assert((await cardCount()) === expected.deals + expected.people && expected.people === 1, `card ${await cardCount()} vs ${JSON.stringify(expected)}`);
     assert((await groupCount("over")) + (await groupCount("under")) === expected.deals + expected.people, "the day groups hold every wait");
     assert((await groupCount("no-reply")) === 2, `no reply ${await groupCount("no-reply")}`);
@@ -181,7 +185,7 @@ const until = async (fn, msg, tries = 60) => {
     assert((await priya.getByTestId("lane-pill").innerText()) === "Contacts", "the Contacts pill");
     assert((await priya.getByTestId("waiting-days").innerText()) === "6 days" && (await priya.getByTestId("waiting-days").getAttribute("data-tone")) === "amber", "six days, amber");
     assert((await priya.innerText()).includes("Intros to the two owners who asked about exit loans · Truist"), await priya.innerText());
-    assert((await priya.getByTestId("waiting-since").innerText()) === `Since ${short(addDays(today, -6))} · Lender`, await priya.getByTestId("waiting-since").innerText());
+    assert((await priya.getByTestId("waiting-since").innerText()) === `Since ${short(addDays(today, -6))}` && (await priya.getByTestId("waiting-context").innerText()) === "Lender", await priya.innerText());
     assert(await priya.getByTestId("follow-up-button").isVisible(), "Follow up");
     // The Replied row: the green pill with the reply's day and Clear in place of Follow up.
     const pine = waitRow("Pinecrest Landscaping");
@@ -281,8 +285,8 @@ const until = async (fn, msg, tries = 60) => {
     await openGroup("no-reply");
     await noReplyRow("Oakline CIM").getByTestId("no-reply-add").click();
     await until(async () => (await noReplyRow("Oakline CIM").count()) === 0, "the No reply row goes");
-    const d = await one("select i.waiting_on, i.waiting_since::text since, c.subject from pipeline_items i join communications c on c.id = i.waiting_comm_id where i.name = 'Oakline Dental Lab'");
-    assert(d && d.waiting_on === "A reply to: Oakline CIM" && d.since === addDays(today, -2) && d.subject === "Oakline CIM", JSON.stringify(d));
+    const d = await one("select w.text, w.since::text since, c.subject from waits w join pipeline_items i on i.id = w.pipeline_item_id join communications c on c.id = w.comm_id where i.name = 'Oakline Dental Lab'");
+    assert(d && d.text === "A reply to: Oakline CIM" && d.since === addDays(today, -2) && d.subject === "Oakline CIM", JSON.stringify(d));
     await openHome();
     await openAll();
     const row = waitRow("Oakline Dental Lab");
@@ -300,8 +304,8 @@ const until = async (fn, msg, tries = 60) => {
     await openGroup("no-reply");
     await noReplyRow("COO search update").getByTestId("no-reply-add").click();
     await until(async () => (await noReplyRow("COO search update").count()) === 0, "the No reply row goes");
-    const p = await one("select waiting_on, waiting_since::text since, waiting_comm_id from contacts where name = 'Nina Reyes'");
-    assert(p.waiting_on === "A reply to: COO search update" && p.since === addDays(today, -3) && p.waiting_comm_id === nina.id, JSON.stringify(p));
+    const p = await one("select w.text, w.since::text since, w.comm_id from waits w join contacts c on c.id = w.contact_id where c.name = 'Nina Reyes'");
+    assert(p.text === "A reply to: COO search update" && p.since === addDays(today, -3) && p.comm_id === nina.id, JSON.stringify(p));
     await openHome();
     await openAll();
     const row = waitRow("Nina Reyes");
@@ -315,20 +319,20 @@ const until = async (fn, msg, tries = 60) => {
     await openAll();
     const row = waitRow("Nina Reyes");
     assert((await row.getByTestId("waiting-replied").innerText()) === `Replied ${short(today)}`, await row.innerText());
-    assert((await one("select waiting_on from contacts where name = 'Nina Reyes'")).waiting_on, "still waiting until Clear");
+    assert((await one("select count(*)::int n from waits w join contacts c on c.id = w.contact_id where c.name = 'Nina Reyes'")).n === 1, "still waiting until Clear");
     const countBefore = await cardCount();
     await row.getByTestId("waiting-clear").click();
     await until(async () => (await waitRow("Nina Reyes").count()) === 0, "the row goes");
-    const p = await one("select waiting_on, waiting_since, waiting_comm_id from contacts where name = 'Nina Reyes'");
-    assert(!p.waiting_on && !p.waiting_since && !p.waiting_comm_id, JSON.stringify(p));
+    const p = await one("select count(*)::int n from waits w join contacts c on c.id = w.contact_id where c.name = 'Nina Reyes'");
+    assert(p.n === 0, JSON.stringify(p));
     await openHome();
     assert((await cardCount()) === countBefore - 1, "the count drops");
     // The sample's Replied deal clears the same way.
     await openAll();
     await waitRow("Pinecrest Landscaping").getByTestId("waiting-clear").click();
     await until(async () => (await waitRow("Pinecrest Landscaping").count()) === 0, "Pinecrest goes");
-    const d = await one("select waiting_on, waiting_comm_id from pipeline_items where name = 'Pinecrest Landscaping'");
-    assert(!d.waiting_on && !d.waiting_comm_id, JSON.stringify(d));
+    const d = await one("select count(*)::int n from waits w join pipeline_items i on i.id = w.pipeline_item_id where i.name = 'Pinecrest Landscaping'");
+    assert(d.n === 0, JSON.stringify(d));
   });
 
   await step("Follow up on a person: the editor opens to that person; sending restarts the wait today and moves it to the follow-up email", async () => {
@@ -347,54 +351,56 @@ const until = async (fn, msg, tries = 60) => {
     await dlg.getByTestId("send-success").waitFor({ timeout: 20000 });
     await page.getByTestId("compose-close").click();
     await row.getByTestId("follow-up-sent").waitFor();
-    await until(async () => (await one("select waiting_since::text s from contacts where name = 'Priya Natarajan'")).s === today, "the wait starts again today");
-    const p = await one("select c.subject, c.gmail_thread_id from contacts p join communications c on c.id = p.waiting_comm_id where p.name = 'Priya Natarajan'");
+    await until(async () => (await one("select w.since::text s from waits w join contacts p on p.id = w.contact_id where p.name = 'Priya Natarajan'")).s === today, "the wait starts again today");
+    const p = await one("select c.subject, c.gmail_thread_id from waits w join contacts p on p.id = w.contact_id join communications c on c.id = w.follow_up_comm_id where p.name = 'Priya Natarajan'");
     assert(p && p.subject === "Following up" && p.gmail_thread_id, JSON.stringify(p));
   });
 
-  await step("The person page: Waiting on and Since on the Next follow-up card, saved like a deal's; the person shows on the card", async () => {
+  await step("The person page: the waits list on the Next follow-up card (push E2: + Add and ×); the person shows on the card", async () => {
     const priya = await one("select id from contacts where name = 'Priya Natarajan'");
     await page.goto(`${BASE}/work/people/${priya.id}`);
     const cardEl = page.getByTestId("person-next-follow-up");
     await cardEl.waitFor();
-    assert((await page.getByTestId("fu-waiting").inputValue()) === "Intros to the two owners who asked about exit loans", "Waiting on");
-    assert((await page.getByTestId("fu-since").inputValue()) === today, "Since");
-    // Labels line up in one column.
-    const xs = await page.getByTestId("follow-up-form").locator(":scope > label").evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().left)));
+    const line = cardEl.getByTestId("wait-line");
+    assert((await line.count()) === 1 && (await line.getByTestId("wait-text").innerText()) === "Intros to the two owners who asked about exit loans", "the wait");
+    assert((await line.getByTestId("wait-since").innerText()) === `Since ${short(today)}`, await line.getByTestId("wait-since").innerText());
+    // The labels line up in one column.
+    const xs = await page.getByTestId("follow-up-form").locator(":scope > label, :scope > [data-testid=waits-label]").evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().left)));
     assert(new Set(xs).size === 1, `labels at ${xs}`);
     await shot("person-next-follow-up-waiting-1440.png", cardEl);
     const kevin = await one("select id from contacts where name = $1", ["Kevin O'Brien"]);
     await page.goto(`${BASE}/work/people/${kevin.id}`);
-    await page.getByTestId("fu-waiting").fill("His reference letter");
-    await page.getByTestId("fu-since").fill(addDays(today, -4));
-    await page.getByTestId("fu-save").click();
-    await until(async () => (await one("select waiting_on, waiting_since::text s from contacts where id = $1", [kevin.id])).s === addDays(today, -4), "saved");
+    await page.getByTestId("wait-add").click();
+    await page.getByTestId("wait-add-text").fill("His reference letter");
+    await page.getByTestId("wait-add-since").fill(addDays(today, -4));
+    await page.getByTestId("wait-add-save").click();
+    await until(async () => (await one("select since::text s from waits where contact_id = $1", [kevin.id]))?.s === addDays(today, -4), "saved");
     await openHome();
     await openAll();
     assert((await waitRow("Kevin O'Brien").getByTestId("waiting-days").innerText()) === "4 days", "Kevin on the card");
-    // Emptied by hand: off the card.
+    // Removed with ×: off the card.
     await page.goto(`${BASE}/work/people/${kevin.id}`);
-    await page.getByTestId("fu-waiting").fill("");
-    await page.getByTestId("fu-save").click();
-    await until(async () => !(await one("select waiting_on from contacts where id = $1", [kevin.id])).waiting_on, "emptied");
+    await page.getByTestId("wait-remove").click();
+    await until(async () => (await one("select count(*)::int n from waits where contact_id = $1", [kevin.id])).n === 0, "removed");
   });
 
-  await step("Waiting on changed by hand on a deal whose wait came from an email forgets the email, and the email does not come back to No reply yet", async () => {
-    const oak = await one("select id, waiting_comm_id from pipeline_items where name = 'Oakline Dental Lab'");
+  await step("Removing a wait that came from an email (× on the deal page) forgets the email, and it does not come back to No reply yet", async () => {
+    const oak = await one("select id from pipeline_items where name = 'Oakline Dental Lab'");
+    const w = await one("select id, comm_id from waits where pipeline_item_id = $1 and comm_id is not null", [oak.id]);
     await page.goto(`${BASE}/work/deals/${oak.id}`);
-    await page.getByTestId("na-waiting").fill("The CIM");
-    await page.getByTestId("na-save").click();
-    await until(async () => (await one("select waiting_on from pipeline_items where id = $1", [oak.id])).waiting_on === "The CIM", "saved");
-    const after = await one("select i.waiting_comm_id, c.no_reply_dismissed_at from pipeline_items i, communications c where i.id = $1 and c.id = $2", [oak.id, oak.waiting_comm_id]);
-    assert(!after.waiting_comm_id && after.no_reply_dismissed_at, JSON.stringify(after));
+    await page.locator(`[data-testid=wait-line][data-wait="${w.id}"]`).getByTestId("wait-remove").click();
+    await until(async () => (await one("select count(*)::int n from waits where id = $1", [w.id])).n === 0, "removed");
+    const after = await one("select no_reply_dismissed_at from communications where id = $1", [w.comm_id]);
+    assert(after.no_reply_dismissed_at, JSON.stringify(after));
+    assert((await one("select count(*)::int n from waits where pipeline_item_id = $1", [oak.id])).n === 1, "the typed wait stays");
     await openHome();
     await openGroup("no-reply");
     assert((await noReplyRow("Oakline CIM").count()) === 0, "not back");
   });
 
   await step("Long lists: a group shows 8 rows, then Show all (N) opens a centered window with all of them", async () => {
-    const ids = (await all("select id from contacts where archived_at is null and waiting_on is null order by name limit 9")).map((r) => r.id);
-    await db.query("update contacts set waiting_on = 'A test wait', waiting_since = $2 where id = any($1)", [ids, addDays(today, -1)]);
+    const ids = (await all("select id from contacts c where archived_at is null and not exists (select 1 from waits w where w.contact_id = c.id) order by name limit 9")).map((r) => r.id);
+    await db.query("insert into waits (owner_id, contact_id, text, since) select owner_id, id, 'A test wait', $2 from contacts where id = any($1)", [ids, addDays(today, -1)]);
     await openHome();
     await openGroup("under");
     const n = await groupCount("under");
@@ -411,11 +417,11 @@ const until = async (fn, msg, tries = 60) => {
     assert((await win.getByTestId("waiting-row").count()) === n, "all in the window");
     await page.keyboard.press("Escape");
     await win.waitFor({ state: "hidden" });
-    await db.query("update contacts set waiting_on = null, waiting_since = null where id = any($1)", [ids]);
+    await db.query("delete from waits where contact_id = any($1)", [ids]);
   });
 
   await step("Elsewhere: Reports and End of day 'Waiting on brokers' and the Deals summary count deals only", async () => {
-    await db.query("update contacts set waiting_since = $1 where name = 'Priya Natarajan'", [addDays(today, -9)]);
+    await db.query("update waits set since = $1 where contact_id = (select id from contacts where name = 'Priya Natarajan')", [addDays(today, -9)]);
     await page.goto(`${BASE}/work/reports`);
     await page.getByTestId("report-waits").waitFor();
     assert(!(await page.getByTestId("report-waits").innerText()).includes("Priya"), "no people on Reports");
@@ -434,9 +440,8 @@ const until = async (fn, msg, tries = 60) => {
     for (let i = 0; i < 40 && (await one("select count(*)::int n from sample_records")).n; i++) await page.waitForTimeout(500);
     const left = await one(`select (select count(*)::int from sample_records) s,
       (select count(*)::int from communications where gmail_thread_id like 'sample-thread-e%') threads,
-      (select count(*)::int from contacts where waiting_on is not null) people,
-      (select count(*)::int from pipeline_items where waiting_on is not null or waiting_comm_id is not null) deals`);
-    assert(left.s === 0 && left.threads === 0 && left.people === 0 && left.deals === 0, JSON.stringify(left));
+      (select count(*)::int from waits) waits`);
+    assert(left.s === 0 && left.threads === 0 && left.waits === 0, JSON.stringify(left));
     await openHome();
     assert((await page.getByTestId("now-wait-empty").count()) === 1, "the card is empty");
   });

@@ -511,7 +511,7 @@ const until = async (fn, msg, tries = 60) => {
     const waitText = await page.getByTestId("now-wait").innerText();
     assert(waitText.includes("Items waiting on external parties"), "the waiting subtitle");
     const waitHeads = await page.locator("[data-testid=now-wait] [data-testid=home-section] [data-testid=section-heading]").allInnerTexts();
-    assert(/6\+ days/i.test(waitHeads[0] ?? "") && /Less than 6 days/i.test(waitHeads[1] ?? ""), `the waiting groups follow: ${waitHeads}`);
+    assert(/6\+ days/i.test(waitHeads[0] ?? "") && /< 6 days/i.test(waitHeads[1] ?? ""), `the waiting groups follow: ${waitHeads}`);
     await page.goto(`${BASE}/work/reports`);
     assert((await page.getByTestId("report-waits").innerText()).includes("Day count turns amber at 6+ days, red at 12+"), "the Reports waiting hint follows");
     await page.goto(`${BASE}/work/targets`);
