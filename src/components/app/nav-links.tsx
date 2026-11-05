@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { ACCOUNTABILITY_TABS, MAIN_NAV, mainFor, moduleFor, WORK_TABS, workTabFor } from "@/lib/nav";
 import { cn } from "@/lib/utils";
 import { ModuleIcon } from "@/components/app/module-icon";
+import { useWorkTabOverride } from "@/components/app/work-tab-override";
 
 /** A small count next to a menu or tab label (listings to screen; amber for people due on People, Follow-ups). */
 function CountBadge({ n, className, testId, tone = "gray" }: { n: number | null | undefined; className?: string; testId?: string; tone?: "gray" | "amber" }) {
@@ -15,12 +16,12 @@ function CountBadge({ n, className, testId, tone = "gray" }: { n: number | null 
   );
 }
 
-/** The End of day badge (batch C): "5:30" (amber) until the day is closed, then "Sent" (green) or "Skipped" (gray). */
-export type EodBadge = "5:30" | "Sent" | "Skipped" | null;
+/** The End of day badge (batch C): the End of day time ("5:30", amber; push D: from Settings) until the day is closed, then "Sent" (green) or "Skipped" (gray). */
+export type EodBadge = string | null;
 function EodBadgeChip({ badge, testId }: { badge: EodBadge | undefined; testId?: string }) {
   if (!badge) return null;
   return (
-    <span className={cn("tabular rounded-full px-2 py-px text-[11px] font-semibold leading-4", badge === "5:30" ? "bg-status-soon-bg text-status-soon" : badge === "Sent" ? "bg-status-met-bg text-status-met" : "bg-status-neutral-bg text-status-neutral")} data-testid={testId} data-badge={badge}>
+    <span className={cn("tabular rounded-full px-2 py-px text-[11px] font-semibold leading-4", badge === "Sent" ? "bg-status-met-bg text-status-met" : badge === "Skipped" ? "bg-status-neutral-bg text-status-neutral" : "bg-status-soon-bg text-status-soon")} data-testid={testId} data-badge={badge}>
       {badge}
     </span>
   );
@@ -40,7 +41,8 @@ function tabBadge(href: string, toScreen: number | null | undefined, outreachDue
 export function SidebarLinks({ toScreen, outreachDue, eodBadge }: { toScreen?: number | null; outreachDue?: number | null; eodBadge?: EodBadge }) {
   const path = usePathname();
   const active = mainFor(path).key;
-  const tab = workTabFor(path);
+  const override = useWorkTabOverride();
+  const tab = override ? (WORK_TABS.find((t) => t.href === override) ?? workTabFor(path)) : workTabFor(path);
   const accTab = ACCOUNTABILITY_TABS.find((t) => path === t.href || path.startsWith(`${t.href}/`)) ?? null;
   return (
     <nav className="flex flex-col gap-0.5" aria-label="Main menu">
@@ -127,7 +129,8 @@ export function AccountabilityTabs({ eodBadge, tight = false }: { eodBadge?: Eod
 /** The Work tabs (Home, Screen listings with the count, Deals, Contacts with the due count, Rosara, Job search, Consulting, To-dos), in the module tab style (under 1024px). */
 export function WorkTabs({ toScreen, outreachDue, tight = false, className }: { toScreen?: number | null; outreachDue?: number | null; /** No space or line under the tabs (a pinned block with no filter row draws the hairline itself). */ tight?: boolean; className?: string }) {
   const path = usePathname();
-  const tab = workTabFor(path);
+  const override = useWorkTabOverride();
+  const tab = override ? (WORK_TABS.find((t) => t.href === override) ?? workTabFor(path)) : workTabFor(path);
   return (
     <div className={cn(TOP_ROW, tight ? "mb-0" : "mb-6 border-b border-border", className)} data-testid="top-menu-row">
       <nav className="flex min-w-max gap-1" aria-label="Work sections">

@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { savePartnerReports } from "@/app/actions/accountability";
 import { REPORT_SECTIONS, REPORT_WEEKDAYS, daysLabel } from "@/lib/accountability/partners";
 import { date as fmtDate } from "@/lib/format";
+import { eodLong } from "@/lib/work/settings";
 import type { PartnerInfo } from "@/lib/work/outreach-data";
 import { WorkCard } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
@@ -59,7 +60,7 @@ export function PartnerReportsCard({ personId, email, info, replyNote }: { perso
           })}
         </div>
         <span className="mt-1.5 text-[12.5px] text-muted-foreground" data-testid="partner-days-line">
-          {days.length ? `Gets it ${daysLabel(days)} at 5:30 pm.` : "Gets no report until a day is chosen."}
+          {days.length ? `Gets it ${daysLabel(days)} at ${eodLong(info.eodTime)}.` : "Gets no report until a day is chosen."}
         </span>
         <span className="label-caps mt-5 mb-1" id="partner-sections-label">
           Sections

@@ -15,7 +15,7 @@ import { FINDING_LINE_MAX, FINDING_LIST_MAX, listingTextBlock, NO_FALSE_GAPS_RUL
 type AskPage = "home" | "listings" | "deals" | "deal" | "outreach" | "person" | "rosara" | "project" | "jobs" | "opportunity" | "consulting" | "consulting_item" | "todos" | "targets" | "end_of_day" | "reports";
 
 /** The fields a star can fill. */
-type AskFieldKey = "key_finding" | "next_action" | "email_subject" | "email_body" | "project_note" | "task_text" | "weekly_focus" | "find_out" | "tomorrow_line" | "eod_reason";
+type AskFieldKey = "key_finding" | "next_action" | "email_subject" | "email_body" | "project_note" | "task_text" | "weekly_focus" | "find_out" | "tomorrow_line" | "eod_reason" | "weekly_review";
 
 export type AskField = { key: AskFieldKey; label: string; /** What is in the field now (the AI improves it when set). */ current?: string | null; /** Extra lines the field's owner adds (the email's recipient, the record's name). */ extra?: string | null };
 
@@ -271,6 +271,7 @@ export function fieldPrompt(c: PageContext, field: AskField): string {
     find_out: "one question to find out before the next conversation about this opportunity (at most 20 words)",
     tomorrow_line: "the one line about the next working day for the end-of-day report: what matters most first, from the next actions due and the open waits, in Bram's own voice (at most 30 words, no greeting)",
     eod_reason: "the one-line reason a missed commitment gets in the end-of-day report: what took the time, from what the day shows, and what carries to the next working day (at most 25 words, first person, no apology)",
+    weekly_review: "the answer to one question of the Friday weekly review (the field label names the question) for the report to the accountability partners: from the week's figures, targets, and deals on the page, first person, one or two plain sentences (at most 35 words)",
   };
   return [
     "TASK: field_draft",

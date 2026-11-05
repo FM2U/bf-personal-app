@@ -55,7 +55,8 @@ describe("the AI instructions: the spot part per action", () => {
   it("keeps the other records' prompts and adds the general rules line only", () => {
     for (const p of [answerPrompt(other, "What next?", false), nextStepsPrompt(other), fieldPrompt(other, { key: "project_note", label: "Note" })]) {
       expect(p).toContain(GENERAL_RULES_LINE);
-      expect(p.split(SPEC_WRITING).length).toBe(2);
+      // Push D: the writing rules are in the system prompt only, so the prompt itself does not repeat them.
+      expect(p).not.toContain(SPEC_WRITING);
       expect(p).not.toContain(SPEC_BASE_1);
     }
   });

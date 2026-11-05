@@ -61,7 +61,12 @@ export async function loadSampleData(fd: FormData) {
   // day instead of failing on the one-day-one-record rule.
   const { data: ownDays } = await supabase.from("end_of_day").select("day").eq("owner_id", ownerId);
   const taken = new Set((ownDays ?? []).map((d) => String(d.day)));
-  const toInsert = taken.size ? batches.map((bt) => (bt.table === "end_of_day" ? { ...bt, rows: bt.rows.filter((r) => !taken.has(String((r as Row).day))) } : bt)) : batches;
+  // Push D: the same for a month that already has your own monthly review.
+  const { data: ownMonths } = await supabase.from("monthly_reviews").select("month").eq("owner_id", ownerId);
+  const takenMonths = new Set((ownMonths ?? []).map((d) => String(d.month).slice(0, 10)));
+  const toInsert = batches
+    .map((bt) => (bt.table === "end_of_day" && taken.size ? { ...bt, rows: bt.rows.filter((r) => !taken.has(String((r as Row).day))) } : bt))
+    .map((bt) => (bt.table === "monthly_reviews" && takenMonths.size ? { ...bt, rows: bt.rows.filter((r) => !takenMonths.has(String((r as Row).month))) } : bt));
   const batchId = randomUUID();
   const { error } = await supabase.rpc("insert_record_batch", { p_batches: toInsert, p_actor: "owner", p_sample_batch: batchId });
   if (error) back(`Sample data was not loaded (nothing was saved): ${error.message}`);

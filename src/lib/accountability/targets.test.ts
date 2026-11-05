@@ -99,6 +99,9 @@ describe("judging: weekday versus weekly, the status mark", () => {
     expect(owedReasons(fri, { t1: "Deal work took the block", t3: " " }).map((j) => j.name)).toEqual(["Network outreach"]);
     expect(statusItems(2, "", "open", null).map((i) => `${i.label} ${i.word ?? "-"} ${i.tone}`)).toEqual(["Reasons 2 left left", "Tomorrow's line empty left", "Approve and send - off"]);
     expect(statusItems(0, "Monday: the model", "sent", "5:41 pm").map((i) => `${i.word}`)).toEqual(["done", "done", "sent 5:41 pm"]);
+    // Push D: Fridays add the Weekly review, "2 of 3" until all three answers are written.
+    expect(statusItems(0, "", "open", null, 2).map((i) => `${i.label} ${i.word ?? "-"} ${i.tone}`)).toEqual(["Reasons done done", "Weekly review 2 of 3 left", "Tomorrow's line empty left", "Approve and send - off"]);
+    expect(statusItems(0, "x", "open", null, 3)[1]).toMatchObject({ key: "review", word: "done", tone: "done" });
     expect(noReasonText(2, "Jake")).toBe('2 commitments have no reason yet. Jake sees "(reason still to give)".');
     expect(noReasonText(1, "Jake")).toMatch(/^1 commitment has no reason yet/);
   });

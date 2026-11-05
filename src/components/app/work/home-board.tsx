@@ -35,12 +35,15 @@ import { SlimBar, SlimTools } from "@/components/app/work/slim-bar";
 import { StatusTiles, TileChips } from "@/components/app/work/status-tiles";
 import { AreaChip, AreaSelector, type AreaOption } from "@/components/app/work/area-selector";
 import { FindBox, TitleRow } from "@/components/app/work/title-row";
-import { BAND_CLS, Due, Figure, Line1, Line2, ListBand, Name, Pill, ProgressMark, RowButton, RowButtons, RowLink, RowShell, SectionHeading, TargetBar, Thinking, What, WorkCard, type PillTone } from "@/components/app/work/ui";
+import { ActionFigures, BAND_CLS, Due, Figure, Line1, Line2, ListBand, Name, Pill, ProgressMark, RowButton, RowButtons, RowLink, RowShell, SectionHeading, TargetBar, Thinking, What, WorkCard, type PillTone } from "@/components/app/work/ui";
 import { WaitingRow } from "@/components/app/work/waiting-row";
+import { OpenRow } from "@/components/app/work/open-row";
 import { BlockTimeProvider } from "@/components/app/work/block-time";
 import { CalendarTile } from "@/components/app/work/calendar-tile";
 import { WorkThrough, type WorkStep } from "@/components/app/work/work-through";
 import { recordPillText } from "@/lib/work/task-records";
+import { blockSlots } from "@/components/app/work/block-time";
+import type { MonthlyDue } from "@/lib/accountability/monthly-data";
 import { Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -60,6 +63,11 @@ import { cn } from "@/lib/utils";
  * scrolls on its own), Today's calendar, Targets today, Contacts, Rosara, Job search, Screen listings, Deals at a
  * glance. In a desktop window at least 720px tall the two columns scroll inside; under 1024px or in a shorter window
  * the page scrolls, and the slim pinned bar slides in once the title row and the tiles are gone.
+ *
+ * Push D (approved 2026-11-04): from the first workday of a month until it is finished, the row "Monthly review:
+ * October" leads Due today (Open goes to the review page; the block icon blocks time for it). It belongs to no single
+ * area, so it shows under All only and counts in Due today's and All's numbers; it stays out of By the AI's ranking
+ * and Work through (it is a page to open, not a Done).
  */
 const HOME_ASK: AskContext = { page: "home", label: "Work on now" };
 const noSubscribe = () => () => {};
@@ -165,7 +173,11 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
     by.needs.sort((a, b) => compareNames(a.action.name, b.action.name));
     return by;
   }, [rows]);
-  const tiles: Tile<LaneSectionKey>[] = TILE_KEYS.map((k) => ({ key: k, label: TILE_LABEL[k], count: sectionsOf[k].length, red: k === "overdue" }));
+  // Push D: the Monthly review row, under All only (it belongs to no single area), first in Due today.
+  const review = data.monthlyReview;
+  const reviewShown = !!review && !area && matchesActionSearch({ name: `Monthly review: ${review.name}`, meta: "review export targets" }, query);
+  const reviewCount = review && !area ? 1 : 0;
+  const tiles: Tile<LaneSectionKey>[] = TILE_KEYS.map((k) => ({ key: k, label: TILE_LABEL[k], count: sectionsOf[k].length + (k === "today" ? reviewCount : 0), red: k === "overdue" }));
   const found = (r: Row) => matchesActionSearch(r.action, query);
 
   // ---------- The tiles ----------
@@ -187,19 +199,19 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
     }
     // An area that leaves the selected tile at 0 selects the first tile with items.
     const nextRows = allRows.filter((r) => !a || r.area === a);
-    const nextTiles = TILE_KEYS.map((k) => ({ key: k, count: nextRows.filter((r) => r.section === k).length }));
+    const nextTiles = TILE_KEYS.map((k) => ({ key: k, count: nextRows.filter((r) => r.section === k).length + (k === "today" && review && !a ? 1 : 0) }));
     if (selected) setChosenTile(tileAfterFilter(selected, nextTiles));
     toListTop();
   };
   // The choices with their numbers (every next action in that area, as the tiles count them).
-  const areaOptions: AreaOption<AreaKey>[] = [{ value: null, label: "All", count: allRows.length }, ...AREAS.map((x) => ({ value: x.value, label: x.label, count: allRows.filter((r) => r.area === x.value).length }))];
+  const areaOptions: AreaOption<AreaKey>[] = [{ value: null, label: "All", count: allRows.length + (review ? 1 : 0) }, ...AREAS.map((x) => ({ value: x.value, label: x.label, count: allRows.filter((r) => r.area === x.value).length }))];
 
   // ---------- Waiting on someone: never filtered ----------
   const waiting = useMemo(() => waitSections(deals, threshold).map((w) => ({ ...w, deals: [...w.deals].sort((a, b) => b.waitDays - a.waitDays || compareNames(a.name, b.name)) })), [deals, threshold]);
   const waitCount = waiting.reduce((s, w) => s + w.deals.length, 0);
   const [waitOpen, setWaitOpen] = useState<Record<string, boolean>>({});
 
-  const shownCount = rows.filter(found).length;
+  const shownCount = rows.filter(found).length + (reviewShown ? 1 : 0);
   const aiRows = useMemo(() => (aiOrder ? applyAiOrder([...sectionsOf.overdue, ...sectionsOf.today, ...sectionsOf.needs], aiOrder.order) : []), [aiOrder, sectionsOf]);
   const byAi = order === "ai" && !!aiOrder;
   // Work through (push C): every row due today or earlier, in the order Next actions shows them.
@@ -339,8 +351,9 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
                     </p>
                   ) : null}
                   {byAi ? (
-                    aiList.length ? (
+                    aiList.length || reviewShown ? (
                       <div className="-mx-[22px] flex flex-col" data-testid="ai-order-rows">
+                        {reviewShown && review ? <MonthlyReviewRow review={review} today={today} /> : null}
                         {aiList.map((r, n) => rowBox(r, n + 1))}
                       </div>
                     ) : (
@@ -350,9 +363,10 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
                 </>
               ) : selected ? (
                 <div data-testid="home-list" data-section={selected}>
-                  <ListBand name={TILE_LABEL[selected]} count={list.length} urgent={selected === "overdue"} testId="home-band" />
-                  {list.length ? (
+                  <ListBand name={TILE_LABEL[selected]} count={list.length + (selected === "today" && reviewShown ? 1 : 0)} urgent={selected === "overdue"} testId="home-band" />
+                  {list.length || (selected === "today" && reviewShown) ? (
                     <div className="-mx-[22px] flex flex-col" data-testid="section-body">
+                      {selected === "today" && reviewShown && review ? <MonthlyReviewRow review={review} today={today} /> : null}
                       {list.map((r) => rowBox(r))}
                     </div>
                   ) : (
@@ -453,6 +467,47 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
   );
 }
 
+/**
+ * The Monthly review row (push D, approved mockup V.home "This month"): the gray Review pill, "Monthly review:
+ * October", the line under it, "Today" on the first workday (then "Since Nov 2"), 15 min, the block icon, and Open.
+ * A click on the row opens the review too.
+ */
+function MonthlyReviewRow({ review, today }: { review: MonthlyDue; today: string }) {
+  const href = `/work/reports/monthly/${review.slug}?from=home`;
+  const due = review.opensOn === today ? { text: "Today", tone: "today" as const } : { text: `Since ${fmtDate(review.opensOn, "MMM d")}`, tone: "today" as const };
+  return (
+    <div className="border-t border-slate-100 first:border-t-0" data-testid="home-row" data-lane="review" data-area="all" data-key={`review:${review.slug}`} data-section="today">
+      <RowShell
+        testId="monthly-review-home-row"
+        dataAttrs={{ "data-month": review.slug }}
+        open={href}
+        openLabel={`Open the monthly review of ${review.name}`}
+        right={
+          <ActionFigures due={due} minutes={15} block={blockSlots({ rowKey: `review:${review.slug}`, lane: "Review", name: `Monthly review: ${review.name}`, action: `See how ${review.name} went, set ${review.nextName}'s targets, download the export`, minutes: 15, recordType: null, recordId: null, href: "/work/reports?view=monthly" })}>
+            <RowButtons pair>
+              <RowLink href={href} tone="cobalt" className="w-full" data-testid="monthly-review-open">
+                Open
+              </RowLink>
+            </RowButtons>
+          </ActionFigures>
+        }
+      >
+        <Line1>
+          <Pill tone="gray" testId="lane-pill">
+            Review
+          </Pill>
+          <Link href={href} className="hover:underline">
+            <Name>Monthly review: {review.name}</Name>
+          </Link>
+        </Line1>
+        <Line2>
+          See how {review.name} went, set {review.nextName}&apos;s targets and commitments, download the export
+        </Line2>
+      </RowShell>
+    </div>
+  );
+}
+
 /** A deal with no next action: the stage default as a hint and a link to set one on the deal page. */
 function NeedsActionRow({ deal }: { deal: DealRow }) {
   const def = deal.stageName && (STAGE_DEFAULTS as Record<string, { hint: string }>)[deal.stageName as WorkStageName]?.hint;
@@ -498,7 +553,8 @@ function OutreachTile({ outreach, today, logged, onEmail, onCall }: { outreach: 
       </div>
       <div className="flex flex-col">
         {outreach.dueToday.map((p) => (
-          <div key={p.id} className="flex flex-col gap-1.5 border-t border-slate-100 px-[22px] py-[9px]" data-testid="home-outreach-row" data-person={p.id}>
+          // Push D (fix): a click anywhere on the row (outside Email, Log a call, and the name link) opens the person page.
+          <OpenRow key={p.id} href={personHref(p.id)} label={`Open ${p.name}`} className="flex flex-col gap-1.5 border-t border-slate-100 px-[22px] py-[9px]" testId="home-outreach-row" dataAttrs={{ "data-person": p.id }}>
             <Line1>
               <Link href={personHref(p.id)} className="hover:underline">
                 <Name>{p.name}</Name>
@@ -525,7 +581,7 @@ function OutreachTile({ outreach, today, logged, onEmail, onCall }: { outreach: 
                 </RowButton>
               </div>
             </div>
-          </div>
+          </OpenRow>
         ))}
         {!outreach.dueToday.length ? <p className="border-t border-slate-100 px-[22px] py-3 text-[13px] text-muted-foreground">Nobody is due today.</p> : null}
       </div>

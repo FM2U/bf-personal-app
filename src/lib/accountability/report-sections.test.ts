@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeNotInTop, activityLine, buildSections, cleanChoices, hasChoices, includesLine, parseEdited, pickTop, sentSections, type ReportData, type ReportDeal } from "./report-sections";
+import { activeNotInTop, activityLine, buildSections, cleanChoices, cleanReview, hasChoices, includesLine, parseEdited, pickTop, reviewAnswered, sentSections, type ReportData, type ReportDeal } from "./report-sections";
 import { reportDeals } from "./report-deals";
 
 const deal = (id: string, position: number, lastActivity: string, activity: string[] = [], stage = `Stage ${position}`): ReportDeal => ({ id, name: `Deal ${id}`, stage, position, lastActivity, status: "Nothing waiting", next: `Next for ${id}, Nov 9`, activity });
@@ -168,5 +168,33 @@ describe("the report's deals from the rows", () => {
   });
   it("lists what happened in the period, oldest first", () => {
     expect(out[0].activity).toEqual(["done: ask Rachel for the CIM", "moved to Broker call", "Rachel Kim emailed: CIM received", "note: Read the first half"]);
+  });
+});
+
+describe("Weekly review (push D)", () => {
+  const friday: ReportData = { ...base, withWeek: true, period: "this week", week: { label: "The week, Nov 2 to 6", tiles: [] }, review: { well: "Screened 27 listings.", slipped: "One broker short.", focus: "" } };
+  it("shows only on Friday, after The week and before Monday's line", () => {
+    expect(buildSections(base).some((s) => s.key === "review")).toBe(false);
+    const keys = buildSections(friday).map((s) => s.key);
+    expect(keys.indexOf("review")).toBe(keys.indexOf("tomorrow") - 1);
+    expect(keys.indexOf("review")).toBeGreaterThan(keys.indexOf("week"));
+  });
+  it("one line per answer; an empty answer reads (still to write)", () => {
+    const s = sec(friday, "review");
+    expect(s.title).toBe("Weekly review");
+    expect(s.text).toBe("- Went well: Screened 27 listings.\n- Slipped: One broker short.\n- Next week: (still to write)");
+    expect(s.choices?.map((c) => c.label)).toEqual(["What went well this week", "What slipped", "Next week's focus"]);
+  });
+  it("Change hides an answer, include leaves the section out, and a partner who unticked it does not get it", () => {
+    expect(sec({ ...friday, choices: { hidden: { review: ["slipped"] } } }, "review").text).toBe("- Went well: Screened 27 listings.\n- Next week: (still to write)");
+    expect(sentSections({ ...friday, choices: { include: { review: false } } }).some((s) => s.key === "review")).toBe(false);
+    expect(sentSections({ ...friday, sections: ["targets", "tomorrow"] }).some((s) => s.key === "review")).toBe(false);
+    expect(sentSections({ ...friday, sections: ["targets", "review", "tomorrow"] }).some((s) => s.key === "review")).toBe(true);
+  });
+  it("cleans the answers and counts them", () => {
+    expect(cleanReview({ well: "  a ", slipped: 3, other: "x" })).toEqual({ well: "a", slipped: "3", focus: "" });
+    expect(reviewAnswered({ well: "a", slipped: "", focus: "c" })).toBe(2);
+    expect(reviewAnswered(null)).toBe(0);
+    expect(cleanChoices({ include: { review: false } })).toEqual({ include: { review: false } });
   });
 });

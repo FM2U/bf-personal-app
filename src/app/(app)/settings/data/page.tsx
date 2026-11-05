@@ -21,6 +21,9 @@ const SAMPLE_LABELS: Record<string, string> = {
   projects: "Rosara projects",
   work_events: "Done marks",
   end_of_day: "End of day days",
+  deal_todos: "Tasks and to-dos",
+  time_blocks: "Calendar blocks",
+  monthly_reviews: "Monthly reviews",
 };
 
 /** Settings, Sample data: load realistic sample records to test the app, and remove them again. */

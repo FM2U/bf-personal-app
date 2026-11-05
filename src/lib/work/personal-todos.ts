@@ -19,6 +19,8 @@ export type PersonalTodo = {
   position: number;
   createdAt: string;
   repeat: Repeat | null;
+  /** Push D: the Repeat end date, or null for no end. */
+  repeatUntil?: string | null;
   /** The record this item belongs to, or null for a personal to-do. */
   record: TaskRecord | null;
 };

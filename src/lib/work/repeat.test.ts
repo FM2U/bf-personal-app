@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nextRepeatDate, parseRepeat, repeatLabel, REPEAT_CHOICES } from "./repeat";
+import { cleanRepeatUntil, nextCopyDate, nextRepeatDate, parseRepeat, repeatDoneLine, repeatLabel, REPEAT_CHOICES, untilLabel } from "./repeat";
 
 const today = "2026-11-03"; // a Tuesday
 
@@ -46,5 +46,56 @@ describe("Repeat: the date of the next copy (push C)", () => {
     expect(parseRepeat("weekdays")).toBe("weekdays");
     expect(parseRepeat("yearly")).toBeNull();
     expect(parseRepeat("")).toBeNull();
+  });
+});
+
+describe("Repeat: an end date (push D)", () => {
+  it("adds the next copy while its date is on or before the end date", () => {
+    expect(nextCopyDate("2026-11-03", "weekly", today, "2026-11-10")).toBe("2026-11-10");
+    expect(nextCopyDate("2026-11-03", "weekly", today, "2026-11-30")).toBe("2026-11-10");
+    expect(nextCopyDate("2026-11-03", "daily", today, "2026-11-04")).toBe("2026-11-04");
+  });
+
+  it("adds no copy once the next date is after the end date", () => {
+    expect(nextCopyDate("2026-11-03", "weekly", today, "2026-11-09")).toBeNull();
+    expect(nextCopyDate("2026-11-03", "daily", today, "2026-11-03")).toBeNull();
+    expect(nextCopyDate("2026-11-06", "weekdays", "2026-11-06", "2026-11-08")).toBeNull();
+    expect(nextCopyDate("2026-11-06", "weekdays", "2026-11-06", "2026-11-09")).toBe("2026-11-09");
+    expect(nextCopyDate("2026-11-03", "monthly", today, "2026-11-30")).toBeNull();
+  });
+
+  it("an end date already past adds nothing, even for an overdue item", () => {
+    expect(nextCopyDate("2026-10-20", "weekly", today, "2026-10-31")).toBeNull();
+  });
+
+  it("a blank end date repeats with no end", () => {
+    expect(nextCopyDate("2026-11-03", "weekly", today, null)).toBe("2026-11-10");
+    expect(nextCopyDate("2026-11-03", "monthly", today, "")).toBe("2026-12-03");
+    expect(nextCopyDate(null, "daily", today)).toBe("2026-11-04");
+  });
+
+  it("the chip shows the end date", () => {
+    expect(repeatLabel("weekdays", "2026-12-19", today)).toBe("Every weekday, until Dec 19");
+    expect(repeatLabel("weekly", "2027-01-08", today)).toBe("Every week, until Jan 8, 2027");
+    expect(repeatLabel("weekly", null, today)).toBe("Every week");
+    expect(repeatLabel(null, "2026-12-19", today)).toBe("Does not repeat");
+    expect(untilLabel("2026-12-19")).toBe("Dec 19");
+  });
+
+  it("keeps an end date only on a repeating item, and only a real date", () => {
+    expect(cleanRepeatUntil("weekly", "2026-12-19")).toBe("2026-12-19");
+    expect(cleanRepeatUntil(null, "2026-12-19")).toBeNull();
+    expect(cleanRepeatUntil("weekly", "")).toBeNull();
+    expect(cleanRepeatUntil("weekly", "next week")).toBeNull();
+    expect(cleanRepeatUntil("weekly", undefined)).toBeNull();
+  });
+});
+
+describe("Repeat: the line after Done (push D)", () => {
+  const fmt = (d: string) => `<${d}>`;
+  it("names the next copy, or says the series ended", () => {
+    expect(repeatDoneLine({ next: "2026-11-10" }, fmt)).toBe(" The next one is on <2026-11-10>.");
+    expect(repeatDoneLine({ next: null, ended: "2026-11-09" }, fmt)).toBe(" That was the last one; it repeated until Nov 9.");
+    expect(repeatDoneLine({ next: null }, fmt)).toBe("");
   });
 });

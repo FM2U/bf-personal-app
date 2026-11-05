@@ -7,8 +7,8 @@ import type { Row } from "@/lib/types";
 export const EXPORT_TABLES = [
   "owner_profile", "inputs", "organizations", "contacts", "communications", "notes", "documents", "record_links",
   "pipelines", "pipeline_stages", "stage_tasks", "pipeline_items", "stage_history", "deal_financials", "consulting_details", "deal_todos",
-  "tasks", "projects", "work_events", "time_blocks",
-  "targets", "target_entries", "target_misses", "end_of_day", "partner_reports",
+  "projects", "work_events", "time_blocks",
+  "targets", "target_entries", "target_misses", "end_of_day", "partner_reports", "monthly_reviews",
   "ai_usage", "change_log",
 ];
 

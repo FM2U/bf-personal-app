@@ -7,11 +7,11 @@ vi.mock("@/lib/env", () => ({
 
 /** The scripted replies of the fake API, one per call, and every request it received. */
 const replies: { text: string; stop: string }[] = [];
-const requests: { max_tokens: number; messages: { role: string; content: string }[] }[] = [];
+const requests: { max_tokens: number; system?: string; messages: { role: string; content: string }[] }[] = [];
 vi.mock("@anthropic-ai/sdk", () => ({
   default: class {
     messages = {
-      create: async (req: { max_tokens: number; messages: { role: string; content: string }[] }) => {
+      create: async (req: { max_tokens: number; system?: string; messages: { role: string; content: string }[] }) => {
         requests.push(req);
         const r = replies.shift();
         if (!r) throw new Error("no scripted reply left");
@@ -22,6 +22,8 @@ vi.mock("@anthropic-ai/sdk", () => ({
 }));
 
 import { AI_REPLY_CUT_OFF, AIInvalidReply, callForJson } from "./claude";
+import { buyerInstructions, GENERAL_RULES_LINE, WRITING_RULES } from "./instructions";
+import { defaultBuyBoxSettings } from "@/lib/work/buy-box";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /** A stand-in for the database: no spending this month, no cap setting, and inserts that succeed. */
@@ -85,5 +87,24 @@ describe("callForJson and replies cut off by the length limit (Edit batch B roun
     expect(requests[1].max_tokens).toBe(600);
     expect(requests[1].messages).toHaveLength(3);
     expect(requests[1].messages[2].content).toContain("no steps list");
+  });
+});
+
+describe("the writing rules are sent once per click (push D fix)", () => {
+  beforeEach(() => {
+    replies.length = 0;
+    requests.length = 0;
+  });
+  const once = (r: (typeof requests)[number]) => [r.system ?? "", ...r.messages.map((m) => m.content)].join("\n").split(WRITING_RULES).length - 1;
+  it("a deal click and another page's click each carry them once, in the system prompt", async () => {
+    for (const prompt of [`TASK: next_steps\n${buyerInstructions({ buyBox: defaultBuyBoxSettings(), stage: "after_cim", financing: null }, "next_steps")}`, `TASK: next_steps\n${GENERAL_RULES_LINE}`]) {
+      replies.push({ text: '{"steps": ["Email the broker"]}', stop: "end_turn" });
+      await callForJson<string[]>({ sb, ownerId: "owner", purpose: "ask_next_steps", prompt, maxTokens: 600, shape: "items", validate });
+    }
+    expect(requests).toHaveLength(2);
+    for (const r of requests) {
+      expect(once(r)).toBe(1);
+      expect(r.system).toContain(WRITING_RULES);
+    }
   });
 });

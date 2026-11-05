@@ -6,14 +6,14 @@ import { addTask, deleteTask, editTask, setTaskDone } from "@/app/actions/tasks"
 import { useUnsavedWork } from "@/components/app/unsaved-changes";
 import { date as fmtDate } from "@/lib/format";
 import type { AskContext } from "@/lib/work/ask-ai";
-import type { Repeat } from "@/lib/work/repeat";
+import { repeatDoneLine, type Repeat } from "@/lib/work/repeat";
 import type { RecordKind } from "@/lib/work/task-records";
 import { sortTodos, todosLabel, type DealTodo } from "@/lib/work/todos";
 import { AiCardStar, AiFieldStar } from "@/components/app/work/ask-ai";
 import { rememberOpened } from "@/components/app/work/link-picker";
 import { rowClickOpens } from "@/components/app/work/open-row";
 import { TaskChips } from "@/components/app/work/task-bits";
-import { RepeatSelect } from "@/components/app/work/todos-board";
+import { EndsInput, RepeatSelect } from "@/components/app/work/todos-board";
 import { AiButton, RowButton, WorkCard } from "@/components/app/work/ui";
 import { ShowAll } from "@/components/app/work/show-all";
 import { cn } from "@/lib/utils";
@@ -35,6 +35,9 @@ type Result = { ok: true } | { ok: false; error: string; /** The AI's reply (fir
  * To-dos and on Home's Next actions; checking it off anywhere checks it off here (one item, table deal_todos), and a
  * repeating one adds the next. A to-do linked to this record from To-dos is one of these tasks. Opening the page
  * notes the record as opened today (the Link to picker offers it first).
+ *
+ * Push D (approved 2026-11-04): Add has Repeat too, and beside Repeat (here and in the edit box) an optional Ends date,
+ * shown only while the task repeats; after that date checking it off adds no new copy.
  */
 export function TasksCard({ tasks, open, record, today, actions, placeholder, emptyText, testId = "deal-todos", ai, windowTitle = "Tasks" }: {
   /** The title of the Show all window ("Tasks · Transworld Business Advisors"). */
@@ -59,6 +62,8 @@ export function TasksCard({ tasks, open, record, today, actions, placeholder, em
   const router = useRouter();
   const [text, setText] = useState("");
   const [due, setDue] = useState("");
+  const [repeat, setRepeat] = useState<Repeat | "">("");
+  const [until, setUntil] = useState("");
   const [adding, setAdding] = useState(false);
   const [focused, setFocused] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
@@ -96,10 +101,12 @@ export function TasksCard({ tasks, open, record, today, actions, placeholder, em
   const add = () => {
     if (!text.trim()) return;
     act(
-      () => addTask({ text, due: due || null, link: record }),
+      () => addTask({ text, due: due || null, repeat, until: repeat ? until || null : null, link: record }),
       () => {
         setText("");
         setDue("");
+        setRepeat("");
+        setUntil("");
         setAdding(false);
       },
     );
@@ -154,7 +161,7 @@ export function TasksCard({ tasks, open, record, today, actions, placeholder, em
                     act(
                       () => setTaskDone(t.id, on),
                       (r) => {
-                        if (on && r.next) setNote({ tone: "ok", text: `Done. The next one is on ${fmtDate(r.next, "EEE MMM d")}.` });
+                        if (on && (r.next || r.ended)) setNote({ tone: "ok", text: `Done.${repeatDoneLine(r, (d) => fmtDate(d, "EEE MMM d"))}` });
                       },
                     );
                   }}
@@ -167,7 +174,7 @@ export function TasksCard({ tasks, open, record, today, actions, placeholder, em
                   <button type="button" onClick={() => open && !t.doneAt && !inWindow && setEditing(t.id)} className={cn("max-w-full rounded text-left text-sm text-slate-800 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none", t.doneAt && "cursor-default text-slate-400 line-through")} title={open && !t.doneAt ? "Click to edit" : undefined} data-testid="todo-text">
                     {t.text}
                   </button>
-                  <TaskChips dueOn={t.doneAt ? null : t.dueOn} today={today} repeat={t.repeat} done={!!t.doneAt} />
+                  <TaskChips dueOn={t.doneAt ? null : t.dueOn} today={today} repeat={t.repeat} repeatUntil={t.repeatUntil} done={!!t.doneAt} />
                 </div>
                 {!t.doneAt && open ? (
                   <button type="button" onClick={() => act(() => actions.makeNext(t.id), (r) => setNote({ tone: "ok", text: `Next action set: ${r.nextAction ?? t.text}, due tomorrow.` }))} disabled={pending} className="col-start-2 justify-self-start pt-px text-xs font-medium whitespace-nowrap text-primary-strong hover:underline sm:col-start-auto sm:justify-self-end" data-testid="todo-make-next">
@@ -180,7 +187,7 @@ export function TasksCard({ tasks, open, record, today, actions, placeholder, em
                   ×
                 </button>
               </div>
-              {editing === t.id && !inWindow ? <TaskEditBox task={t} pending={pending} onCancel={() => setEditing(null)} onSave={(v) => act(() => editTask(t.id, v), () => setEditing(null))} /> : null}
+              {editing === t.id && !inWindow ? <TaskEditBox task={t} today={today} pending={pending} onCancel={() => setEditing(null)} onSave={(v) => act(() => editTask(t.id, v), () => setEditing(null))} /> : null}
             </div>
           )}
         />
@@ -220,11 +227,17 @@ export function TasksCard({ tasks, open, record, today, actions, placeholder, em
                 setAdding(false);
                 setText("");
                 setDue("");
+                setRepeat("");
+                setUntil("");
               }}
               className="justify-self-start text-xs text-muted-foreground hover:underline"
             >
               Cancel
             </button>
+            <div className={"grid grid-cols-1 gap-2 sm:col-span-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"} data-testid="todo-add-repeat-row">
+              <RepeatSelect value={repeat} onChange={setRepeat} testId="todo-input-repeat" />
+              {repeat ? <EndsInput value={until} onChange={setUntil} min={due || today} inline testId="todo-input-until" /> : <span className="hidden sm:block" />}
+            </div>
           </div>
         ) : null}
         {list.length || adding ? (
@@ -256,14 +269,15 @@ export function TasksCard({ tasks, open, record, today, actions, placeholder, em
   );
 }
 
-/** The edit box under a record task (approved 2026-11-03): the text, then Due date and Repeat; Save and Cancel. */
-function TaskEditBox({ task, pending, onSave, onCancel }: { task: DealTodo; pending: boolean; onSave: (v: { text: string; due: string | null; repeat: Repeat | "" }) => void; onCancel: () => void }) {
+/** The edit box under a record task (approved 2026-11-03): the text, then Due date, Repeat, and Ends (push D, while it repeats); Save and Cancel. */
+function TaskEditBox({ task, today, pending, onSave, onCancel }: { task: DealTodo; today: string; pending: boolean; onSave: (v: { text: string; due: string | null; repeat: Repeat | ""; until: string | null }) => void; onCancel: () => void }) {
   const [text, setText] = useState(task.text);
   const [due, setDue] = useState(task.dueOn ?? "");
   const [repeat, setRepeat] = useState<Repeat | "">(task.repeat ?? "");
-  const dirty = text !== task.text || due !== (task.dueOn ?? "") || repeat !== (task.repeat ?? "");
+  const [until, setUntil] = useState(task.repeatUntil ?? "");
+  const dirty = text !== task.text || due !== (task.dueOn ?? "") || repeat !== (task.repeat ?? "") || (repeat ? until : "") !== (task.repeatUntil ?? "");
   useUnsavedWork(dirty, "Your changes to this task are not saved yet.");
-  const save = () => onSave({ text, due: due || null, repeat });
+  const save = () => onSave({ text, due: due || null, repeat, until: repeat ? until || null : null });
   return (
     <div
       className="mb-2.5 ml-[26px] rounded-[10px] border border-border bg-slate-50 px-4 pt-3 pb-3.5"
@@ -289,7 +303,7 @@ function TaskEditBox({ task, pending, onSave, onCancel }: { task: DealTodo; pend
         className={INPUT}
         data-testid="task-edit-text"
       />
-      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className={cn("mt-3 grid grid-cols-1 gap-3", repeat ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
         <div className="min-w-0">
           <label className={LABEL} htmlFor={`tk-due-${task.id}`}>
             Due date
@@ -302,6 +316,14 @@ function TaskEditBox({ task, pending, onSave, onCancel }: { task: DealTodo; pend
           </label>
           <RepeatSelect id={`tk-rep-${task.id}`} value={repeat} onChange={setRepeat} testId="task-edit-repeat" />
         </div>
+        {repeat ? (
+          <div className="min-w-0">
+            <label className={cn(LABEL, "whitespace-nowrap")} htmlFor={`tk-until-${task.id}`}>
+              Ends <span className="font-normal text-slate-400">(optional)</span>
+            </label>
+            <EndsInput id={`tk-until-${task.id}`} value={until} onChange={setUntil} min={due || today} testId="task-edit-until" />
+          </div>
+        ) : null}
       </div>
       <div className="mt-3 flex items-center gap-2">
         <RowButton tone="primary" disabled={pending || !text.trim()} onClick={save} className="h-8 px-3.5 text-[13px]" data-testid="task-edit-save">

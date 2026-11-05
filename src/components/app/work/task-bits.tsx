@@ -31,11 +31,12 @@ export function RecordPill({ record, className, link = true }: { record: TaskRec
   );
 }
 
-export function RepeatChip({ repeat, className }: { repeat: Repeat; className?: string }) {
+/** "Every week", or with an end date (push D) "Every weekday, until Dec 19". */
+export function RepeatChip({ repeat, until, today, className }: { repeat: Repeat; until?: string | null; today?: string | null; className?: string }) {
   return (
-    <span className={cn(CHIP, "border-border bg-white text-slate-700", className)} data-testid="repeat-chip">
+    <span className={cn(CHIP, "border-border bg-white text-slate-700", className)} data-testid="repeat-chip" data-until={until ?? ""}>
       <RepeatIcon className="h-3 w-3 shrink-0 text-slate-500" aria-hidden />
-      {repeatLabel(repeat)}
+      {repeatLabel(repeat, until, today)}
     </span>
   );
 }
@@ -53,12 +54,12 @@ export function DueChip({ dueOn, today, className }: { dueOn: string; today: str
 }
 
 /** The chips line under a task's text: the date (record cards), Repeat, and the record (To-dos, Home). */
-export function TaskChips({ dueOn, today, repeat, record, done = false, className }: { dueOn?: string | null; today?: string; repeat?: Repeat | null; record?: TaskRecord | null; done?: boolean; className?: string }) {
+export function TaskChips({ dueOn, today, repeat, repeatUntil, record, done = false, className }: { dueOn?: string | null; today?: string; repeat?: Repeat | null; /** The Repeat end date (push D). */ repeatUntil?: string | null; record?: TaskRecord | null; done?: boolean; className?: string }) {
   if (!dueOn && !repeat && !record) return null;
   return (
     <div className={cn("mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5", done && "opacity-60", className)} data-testid="task-chips">
       {dueOn && today ? <DueChip dueOn={dueOn} today={today} /> : null}
-      {repeat ? <RepeatChip repeat={repeat} /> : null}
+      {repeat ? <RepeatChip repeat={repeat} until={repeatUntil} today={today} /> : null}
       {record ? <RecordPill record={record} /> : null}
     </div>
   );

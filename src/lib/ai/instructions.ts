@@ -3,7 +3,8 @@
  * docs/2026-11-02-ai-instructions.md), pure and tested in src/lib/ai/instructions.test.ts. They are built fresh on
  * every click from three parts, and the AI sees only what applies to that click:
  *   1. the shared base: who the buyer is, the buy box (filled from Settings, Buy box) and that it is a preference, how
- *      to judge a business and that a clear path to growth is required, the general rules, and the writing rules;
+ *      to judge a business and that a clear path to growth is required, and the general rules (the writing rules are
+ *      in the system prompt of every call, sent once per click);
  *   2. the stage line, chosen from the deal's state (screening, after the CIM, diligence), and from Model onward the
  *      deal's financing line (AI instructions revision 1; revision 2 added Partner presentation and Closed);
  *   3. the spot part: what this click writes (the Key finding, questions, tasks, the next action, an answer, a field).
@@ -23,8 +24,9 @@ const BASE_JUDGE =
   "Judge the business on, in this order of weight: how revenue repeats; customer concentration; owner dependence and whether the team runs it; margins and their trend; where growth comes from and whether it lasts; how customers are won and what that costs; competition and switching costs; market tailwinds and headwinds (demand trends, regulation, reimbursement, technology); capital needs; price versus earnings; fit with the buy box and its paths to growth.";
 
 /**
- * Revision 2 (verbatim): the writing rules. They follow the general rules of the shared base and the general rules line
- * of the other records, and lead the system prompt of every AI call (src/lib/ai/claude.ts), so every AI output follows them.
+ * Revision 2 (verbatim): the writing rules. They are in the system prompt of every AI call (src/lib/ai/claude.ts), so
+ * every AI output follows them. Push D (fix): they are sent once per click, so the shared base and the general rules
+ * line no longer repeat them in the prompt itself.
  */
 export const WRITING_RULES =
   "Writing rules: No metaphors, no jargon, no colloquialisms. Use literal words that say exactly what is meant. Standard business terms are allowed (moat, runway, tailwind, headwind, churn, recurring revenue, add-backs, working capital, SDE, EBITDA, multiple, customer concentration, owner dependence) only when the specific fact is named next to the term. When judging something, say for whom it is good or bad (buyer or seller) and compared with what. Never call a price strong, cheap, fair or high unless the facts give a basis. No em-dashes.";
@@ -33,8 +35,8 @@ export const WRITING_RULES =
 const BASE_RULES =
   "Use only the facts and listing text below. Do not count marketing claims as strengths without a figure behind them. Only say information is missing when it is absent from the facts and the listing text; name the field and who to ask.";
 
-/** The rules records which are not deals take (facts only, no false gaps), then the writing rules (revision 2). */
-export const GENERAL_RULES_LINE = `Use only the facts on the page below. Only say information is missing when it is absent from the page; name the field and who to ask.\n\n${WRITING_RULES}`;
+/** The rules records which are not deals take (facts only, no false gaps); the writing rules are in the system prompt. */
+export const GENERAL_RULES_LINE = "Use only the facts on the page below. Only say information is missing when it is absent from the page; name the field and who to ask.";
 
 /** Revision 1 (verbatim): the buy box is a preference. Follows the buy box line. */
 export const BASE_BUY_BOX_PREFERENCE = "The buy box is a preference, not a hard rule; say plainly when a business outside it is still worth pursuing.";
@@ -61,9 +63,9 @@ export function buyBoxLine(b: BuyBoxSettings): string {
   return `Buy box: ${parts.join(", ")}.`.replace(/\.\.$/, ".");
 }
 
-/** The shared base: who the buyer is; the buy box and that it is a preference; how to judge and that growth is required; the rules; the writing rules. */
+/** The shared base: who the buyer is; the buy box and that it is a preference; how to judge and that growth is required; the rules (the writing rules are in the system prompt, push D). */
 function baseInstructions(b: BuyBoxSettings): string {
-  return [BASE_BUYER, `${buyBoxLine(b)} ${BASE_BUY_BOX_PREFERENCE}`, `${BASE_JUDGE} ${BASE_GROWTH}`, BASE_RULES, WRITING_RULES].join("\n\n");
+  return [BASE_BUYER, `${buyBoxLine(b)} ${BASE_BUY_BOX_PREFERENCE}`, `${BASE_JUDGE} ${BASE_GROWTH}`, BASE_RULES].join("\n\n");
 }
 
 // ---------- The stage line ----------

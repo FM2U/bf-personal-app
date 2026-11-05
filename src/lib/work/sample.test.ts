@@ -106,9 +106,11 @@ describe("the Outreach sample (batch B)", () => {
     for (const p of people) expect(b.communications.some((c) => c.contact_id === p.id && !c.awaiting_log)).toBe(true);
     expect(b.todos.filter((t) => t.record_type === "contacts")).toHaveLength(3);
     expect(b.todos.filter((t) => t.deal_id)).toHaveLength(9);
-    expect(b.personalTodos.map((t) => t.due_on)).toEqual(["2026-10-30", null, "2026-11-04", "2026-10-31", "2026-11-13", "2026-10-30", "2026-11-02"]);
+    expect(b.personalTodos.map((t) => t.due_on)).toEqual(["2026-10-30", null, "2026-11-04", "2026-10-31", "2026-11-13", "2026-10-30", "2026-11-01", "2026-11-02"]);
+    // Push D: one repeating to-do has an end date (weekly, three weeks out).
+    expect(b.personalTodos.filter((t) => t.repeat_until).map((t) => [t.text, t.repeat, t.repeat_until])).toEqual([["Post the job search update in the alumni group", "weekly", "2026-11-20"]]);
     // Push C: two repeat, one is linked to a deal; record tasks carry dates and one repeats every week.
-    expect(b.personalTodos.filter((t) => t.repeat).map((t) => t.repeat)).toEqual(["monthly", "weekdays"]);
+    expect(b.personalTodos.filter((t) => t.repeat).map((t) => t.repeat)).toEqual(["monthly", "weekdays", "weekly"]);
     expect(b.personalTodos.filter((t) => t.record_type === "pipeline_items")).toHaveLength(1);
     expect(b.todos.filter((t) => t.due_on).length).toBeGreaterThanOrEqual(8);
     expect(b.todos.filter((t) => t.repeat === "weekly")).toHaveLength(2);
@@ -166,8 +168,8 @@ describe("the batch C sample (Jake, End of day rows, work events)", () => {
   it("has Jake (weekdays) and Sarah (Fridays) as partners, the sent reports with their threads, one skipped day, and replies", () => {
     const partners = c.contacts.filter((p) => p.outreach_role === "accountability_partner");
     expect(partners.map((p) => [p.name, p.report_days, p.report_sections])).toEqual([
-      ["Jake Morgan", [1, 2, 3, 4, 5], ["today", "targets", "top", "active", "waiting", "jobs", "week", "tomorrow"]],
-      ["Sarah Klein", [5], ["targets", "week", "tomorrow"]],
+      ["Jake Morgan", [1, 2, 3, 4, 5], ["today", "targets", "top", "active", "waiting", "jobs", "week", "review", "tomorrow"]],
+      ["Sarah Klein", [5], ["targets", "week", "review", "tomorrow"]],
     ]);
     const [jake, sarah] = partners;
     // Four weekdays before Fri Oct 30 (none a Friday), plus the Friday before them (Oct 23), sent to both partners.
@@ -188,6 +190,17 @@ describe("the batch C sample (Jake, End of day rows, work events)", () => {
     const sent = c.endOfDay.filter((r) => r.status === "sent");
     expect(sent.every((r) => String(r.report_html).includes("Hello Jake,") && String(r.report_html).includes("Thank you,<br>Bram") && c.partnerReports.some((p) => p.id === r.report_id))).toBe(true);
     expect(sent.every((r) => !/#(c9a227|b8860b|d4a017|daa520|caa53d)/i.test(String(r.report_html)))).toBe(true);
+    // Push D: the past Friday has its Weekly review answers, and the Friday copies show them.
+    const friday = c.endOfDay.find((r) => r.day === "2026-10-23")!;
+    expect(Object.keys(friday.weekly_review as object)).toEqual(["well", "slipped", "focus"]);
+    expect(sarahHtml).toContain("Weekly review");
+    expect(c.endOfDay.filter((r) => r.weekly_review)).toHaveLength(1);
+  });
+
+  it("push D: a finished monthly review for the month before last and one still to do for last month", () => {
+    expect(c.monthlyReviews.map((r) => [r.month, !!r.finished_at, !!r.exported_at])).toEqual([["2026-08-01", true, true], ["2026-09-01", false, false]]);
+    expect((c.monthlyReviews[0].results as unknown[]).length).toBe(6);
+    expect((c.monthlyReviews[0].next_targets as unknown[]).length).toBe(6);
   });
 
   it("puts details, tasks, and a note on Transworld, and the consulting clients get their role", () => {

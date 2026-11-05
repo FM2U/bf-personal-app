@@ -74,6 +74,8 @@ export type WorkSample = {
   partnerReports: R[];
   /** Batch C: the End of day rows (three sent, one skipped on the last weekday before today). */
   endOfDay: R[];
+  /** Push D: two monthly reviews (the month before last finished, last month still to do). */
+  monthlyReviews: R[];
   /** Batch C: follow-ups and next actions done, the Rosara focus done, over the last weeks. */
   workEvents: R[];
 };
@@ -311,6 +313,8 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
       { id: newId(), text: "Pick up the dry cleaning", due_on: ahead(1), position: 4 },
       { id: newId(), text: "Read the SBA 7(a) rule change", due_on: ahead(14), position: 5 },
       { id: newId(), text: "Read the broker listing emails", due_on: today, position: 6, repeat: "weekdays" },
+      // Push D: a repeating to-do with an end date (Ends): weekly for three more weeks.
+      { id: newId(), text: "Post the job search update in the alumni group", due_on: ahead(2), position: 7, repeat: "weekly", repeat_until: ahead(21) },
       { id: newId(), text: "Draft the LOI template", due_on: ahead(3), position: 3, record_type: "pipeline_items", record_id: meridian, deal_id: meridian },
     );
 
@@ -396,6 +400,7 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
   const partnerReports: R[] = [];
   const endOfDay: R[] = [];
   const workEvents: R[] = [];
+  const monthlyReviews: R[] = [];
   if (s.batchC) {
     // Edit batch C (item 6): this week reads like a real week. Monday is `k` days ago.
     const dow = new Date(`${today}T12:00:00Z`).getUTCDay();
@@ -405,10 +410,10 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
     addOutreachTouches({ k, today, contacts, communications, newId });
     const jake = newId();
     // The accountability partner is a person with the role Accountability partner (final app, 2026-11-02).
-    contacts.push({ id: jake, name: "Jake Morgan", email: "jake.morgan@example.com", phone: "(404) 555-0131", title: "Friend, since college", outreach_role: "accountability_partner", report_days: [1, 2, 3, 4, 5], report_sections: ["today", "targets", "top", "active", "waiting", "jobs", "week", "tomorrow"], notes: "Gets the End of day report by email, weekdays at 5:30." });
+    contacts.push({ id: jake, name: "Jake Morgan", email: "jake.morgan@example.com", phone: "(404) 555-0131", title: "Friend, since college", outreach_role: "accountability_partner", report_days: [1, 2, 3, 4, 5], report_sections: ["today", "targets", "top", "active", "waiting", "jobs", "week", "review", "tomorrow"], notes: "Gets the End of day report by email, weekdays at 5:30." });
     // Push B: a second partner with other days and sections (Fridays: targets, the week, Monday's line).
     const sarah = newId();
-    contacts.push({ id: sarah, name: "Sarah Klein", email: "sarah.klein@example.com", phone: "(404) 555-0188", title: "Former colleague", outreach_role: "accountability_partner", report_days: [5], report_sections: ["targets", "week", "tomorrow"], notes: "Gets the Friday report: targets, the week, and Monday's line." });
+    contacts.push({ id: sarah, name: "Sarah Klein", email: "sarah.klein@example.com", phone: "(404) 555-0188", title: "Former colleague", outreach_role: "accountability_partner", report_days: [5], report_sections: ["targets", "week", "review", "tomorrow"], notes: "Gets the Friday report: targets, the week, the Weekly review, and Monday's line." });
     // The last four weekdays before today (newest first): d1 skipped, d2 to d4 sent.
     const weekdays: string[] = [];
     for (let i = 1; weekdays.length < 4 && i < 14; i++) if (isWeekday(ago(i))) weekdays.push(ago(i));
@@ -440,11 +445,11 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
     const friReport = own ? (fri === d2 ? r2 : fri === d3 ? r3 : r4) : newId();
     const sarahReport = newId();
     const friData = buildFridayReport(fri);
-    const jakeCopy = reportFor(friData, { name: "Jake Morgan", first: "Jake", sections: ["today", "targets", "top", "active", "waiting", "jobs", "week", "tomorrow"] });
-    const sarahCopy = reportFor(friData, { name: "Sarah Klein", first: "Sarah", sections: ["targets", "week", "tomorrow"] });
+    const jakeCopy = reportFor(friData, { name: "Jake Morgan", first: "Jake", sections: ["today", "targets", "top", "active", "waiting", "jobs", "week", "review", "tomorrow"] });
+    const sarahCopy = reportFor(friData, { name: "Sarah Klein", first: "Sarah", sections: ["targets", "week", "review", "tomorrow"] });
     if (!own) {
       partnerReports.push({ id: friReport, contact_id: jake, period_start: fri, period_end: fri, status: "finalized", snapshot: { end_of_day: true, day: fri, sample: true, html: reportInnerHtml(jakeCopy), subject: reportSubject(jakeCopy) }, summary: "Listings screened 6 of 5 · outreach 11 of 10 · 3 deals moved this week", summary_source: "owner", finalized_at: at(fri, 17, 34), delivered_via: ["gmail_sent"], report_kind: "end_of_day", sent_at: at(fri, 17, 34), reviewed_at: at(fri, 18, 10), gmail_thread_id: "sample-thread-4" });
-      endOfDay.push({ id: newId(), day: fri, status: "sent", reasons: {}, tomorrow_line: friData.tomorrow.text, sent_at: at(fri, 17, 35), report_id: friReport, report_subject: reportSubject(jakeCopy), report_html: reportInnerHtml(jakeCopy), report_edited: false, judged: [] });
+      endOfDay.push({ id: newId(), day: fri, status: "sent", reasons: {}, tomorrow_line: friData.tomorrow.text, sent_at: at(fri, 17, 35), report_id: friReport, report_subject: reportSubject(jakeCopy), report_html: reportInnerHtml(jakeCopy), report_edited: false, judged: [], weekly_review: friData.review });
       reply("sample-reply-2", jake, friReport, at(fri, 20, 15), `Re: ${reportSubject(jakeCopy)}`, "Nice week. Keep the broker calls going.", "sample-thread-4");
     }
     partnerReports.push({ id: sarahReport, contact_id: sarah, period_start: fri, period_end: fri, status: "finalized", snapshot: { end_of_day: true, day: fri, sample: true, html: reportInnerHtml(sarahCopy), subject: reportSubject(sarahCopy) }, summary: "Targets, the week, and Monday's line", summary_source: "owner", finalized_at: at(fri, 17, 39), delivered_via: ["gmail_sent"], report_kind: "end_of_day", sent_at: at(fri, 17, 39), gmail_thread_id: "sample-thread-5" });
@@ -459,6 +464,19 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
       { id: newId(), day: d3, status: "sent", reasons: {}, tomorrow_line: c.tomorrow3, sent_at: at(d3, 17, 35), report_id: r3, report_subject: c.subject3, report_html: c.html3, report_edited: false, judged: c.judged3 },
       { id: newId(), day: d4, status: "sent", reasons: { "sample-listings": "Two broker calls on Summit ran long; 1 listing carries to tomorrow." }, tomorrow_line: c.tomorrow4, sent_at: at(d4, 17, 33), report_id: r4, report_subject: c.subject4, report_html: c.html4, report_edited: false, judged: c.judged4 },
     );
+    // Push D: the Weekly review answers on the past Friday's row (also when that Friday is one of the three days above).
+    for (const r of endOfDay) if (r.day === fri && !r.weekly_review) r.weekly_review = friData.review;
+    // Push D: two monthly reviews: the month before last finished (with the export), last month still to do.
+    const reviewMonth = `${today.slice(0, 7)}-01`;
+    const lastMonth = monthBefore(reviewMonth);
+    const monthBeforeLast = monthBefore(lastMonth);
+    let firstWorkday = lastMonth;
+    while (!isWeekday(firstWorkday)) firstWorkday = addDaysISO(firstWorkday, 1);
+    monthlyReviews.push(
+      { id: newId(), month: monthBeforeLast, results: SAMPLE_MONTH_RESULTS, next_targets: SAMPLE_NEXT_TARGETS, exported_at: at(firstWorkday, 9, 40), finished_at: at(firstWorkday, 9, 55) },
+      { id: newId(), month: lastMonth, results: [], next_targets: [] },
+    );
+
     // Work events over the last eight weeks: follow-ups done (a few late), next actions done, the Rosara focus done most weeks.
     // Push B edits: a next action done on a deal points at the deal, so the report's Active today names it.
     const itemIdByName = (n: string) => (items.find((x) => x.company_name === n || x.name === n)?.id as string | undefined) ?? null;
@@ -475,7 +493,7 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
     }
   }
 
-  return { organizations, contacts, items, financials, communications, notes, stageDates, documents, todos, personalTodos, timeBlocks, projects, consultingDetails, noteDates, noActionItems, partnerReports, endOfDay, workEvents };
+  return { organizations, contacts, items, financials, communications, notes, stageDates, documents, todos, personalTodos, timeBlocks, projects, consultingDetails, noteDates, noActionItems, partnerReports, endOfDay, workEvents, monthlyReviews };
 }
 
 /** The three sample sent reports (batch C): the email as sent, built the way End of day builds it, from fixed numbers. */
@@ -578,9 +596,28 @@ function buildFridayReport(day: string): ReportData {
     jobs: SAMPLE_TOP_JOBS,
     period: "this week",
     week: { label: "The week", tiles: [{ label: "Deals moved", value: "3", note: "", status: "neutral", pct: null }, { label: "Listings screened", value: "27", small: "of 25", note: "", status: "met", pct: 100 }, { label: "Network outreach", value: "11", small: "of 10", note: "", status: "met", pct: 100 }] },
+    review: { well: "Screened 27 listings and hit outreach for the first time in three weeks. The Meridian model is finished.", slipped: "One broker short on Brokers contacted. Summit still has no seller call date.", focus: "The Meridian partner deck, and a yes or no on Summit by Wednesday." },
     tomorrow: { label: "Monday", text: "Meridian partner deck and the Summit decision." },
   };
 }
+
+/** The first day of the month before (YYYY-MM-01). */
+function monthBefore(month: string): string {
+  const y = Number(month.slice(0, 4));
+  const m = Number(month.slice(5, 7));
+  return m === 1 ? `${y - 1}-12-01` : `${y}-${String(m - 1).padStart(2, "0")}-01`;
+}
+
+/** Push D: how the sample's finished month went, as kept on its review (src/lib/accountability/monthly.ts). */
+const SAMPLE_MONTH_RESULTS = [
+  { targetId: "sample-listings", name: "Listings screened", cadence: "day", number: 5, commitment: true, unit: "count", weeks: 4, weeksMet: 2, average: "4.1 a day" },
+  { targetId: "sample-brokers", name: "Brokers contacted", cadence: "week", number: 5, commitment: false, unit: "count", weeks: 4, weeksMet: 3, average: "4.8 a week" },
+  { targetId: "sample-outreach", name: "Network outreach", cadence: "week", number: 10, commitment: true, unit: "count", weeks: 4, weeksMet: 2, average: "8.0 a week" },
+  { targetId: "sample-followups", name: "Follow-ups done on time", cadence: "week", number: 100, commitment: false, unit: "percent", weeks: 4, weeksMet: 4, average: "100%" },
+  { targetId: "sample-moved", name: "Deals moved a stage", cadence: "week", number: 2, commitment: false, unit: "count", weeks: 4, weeksMet: 3, average: "2.3 a week" },
+  { targetId: "sample-focus", name: "Rosara focus done", cadence: "week", number: 1, commitment: false, unit: "yesno", weeks: 4, weeksMet: 1, average: "0.3 a week" },
+];
+const SAMPLE_NEXT_TARGETS = SAMPLE_MONTH_RESULTS.map((r) => ({ targetId: r.targetId, name: r.name, cadence: r.cadence, number: r.number, commitment: r.commitment, unit: r.unit, before: r.number }));
 
 /** The deals and opportunities the sample's sent reports name (the live End of day reads the real ones). */
 const SAMPLE_TOP_DEALS: ReportData["deals"] = [

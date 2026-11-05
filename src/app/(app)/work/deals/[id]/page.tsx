@@ -2,7 +2,8 @@ import Link from "next/link";
 import { requireOwner } from "@/lib/auth";
 import { date as fmtDate } from "@/lib/format";
 import { loadDealPage } from "@/lib/work/data";
-import { listedAs } from "@/lib/work/names";
+import { displayName, listedAs } from "@/lib/work/names";
+import { WorkTabOverride } from "@/components/app/work-tab-override";
 import { buyBoxTone, checkBuyBox } from "@/lib/work/buy-box";
 import { dealPageState, headerFigures } from "@/lib/work/record-page";
 import { daysLabel } from "@/lib/work/stages";
@@ -18,7 +19,16 @@ import { DocumentsCard } from "@/components/app/work/documents-card";
 import { EmptyState } from "@/components/app/page-header";
 import { Button } from "@/components/ui/button";
 
-export const metadata = { title: "Deal" };
+/** The browser tab (push D): "Listing: <name>" on a listing still to screen, "Deal" otherwise. */
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return { title: "Deal" };
+  const { supabase, ownerId } = await requireOwner();
+  const { data } = await supabase.from("pipeline_items").select("name,company_name,screened,status").eq("owner_id", ownerId).eq("id", id).maybeSingle();
+  const r = data as { name?: string | null; company_name?: string | null; screened?: boolean | null; status?: string | null } | null;
+  if (!r || r.screened !== false) return { title: "Deal" };
+  return { title: `Listing: ${displayName({ name: String(r.name ?? ""), companyName: r.company_name ?? null })}` };
+}
 
 /**
  * The deal page (/work/deals/[id]) under the record-page rule (batch B, approved 2026-10-31): breadcrumb, the name
@@ -88,6 +98,8 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
   return (
     <WorkShell testId="work-deal">
       <span hidden data-testid="deal-page-state" data-state={state.kind} />
+      {/* A listing belongs to Screen listings in the menu (push D). */}
+      {isListing ? <WorkTabOverride href="/work/listings" /> : null}
       <RecordHeader
         title={deal.name}
         under={listing ? <span data-testid="deal-listed-as">Listed as {listing}</span> : null}

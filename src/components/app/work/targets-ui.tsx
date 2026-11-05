@@ -127,14 +127,14 @@ export function TargetPill({ text, className }: { text: string; className?: stri
 }
 
 /** The Commitment switch: a 32px track with a white knob, cobalt when on, the label in cobalt and bold when on. */
-export function Switch({ on, onChange, label, disabled, testId, className }: { on: boolean; onChange: (on: boolean) => void; label: string; disabled?: boolean; testId?: string; className?: string }) {
+export function Switch({ on, onChange, label, disabled, testId, className, hideLabel = false }: { on: boolean; onChange: (on: boolean) => void; label: string; disabled?: boolean; testId?: string; className?: string; /** The label is read out but not shown (a table column already names it; push D). */ hideLabel?: boolean }) {
   return (
     <label className={cn("inline-flex cursor-pointer items-center gap-2 text-[12.5px] whitespace-nowrap select-none", on ? "font-semibold text-primary-strong" : "text-muted-foreground", disabled && "cursor-default opacity-60", className)}>
       <input type="checkbox" role="switch" aria-checked={on} checked={on} disabled={disabled} onChange={(e) => onChange(e.target.checked)} className="peer sr-only" data-testid={testId} />
       <span className={cn("relative inline-block h-[18px] w-8 shrink-0 rounded-full transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2", on ? "bg-primary" : "bg-input")} aria-hidden>
         <span className={cn("absolute top-0.5 left-0.5 h-3.5 w-3.5 rounded-full bg-white shadow-[0_1px_2px_rgba(15,23,42,0.2)] transition-[left]", on && "left-4")} />
       </span>
-      {label}
+      {hideLabel ? <span className="sr-only">{label}</span> : label}
     </label>
   );
 }

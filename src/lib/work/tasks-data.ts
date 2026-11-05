@@ -14,7 +14,8 @@ import type { Row } from "@/lib/types";
  * no record is a personal to-do. This module reads the rows with their record (name, kind, closed) for To-dos, Home
  * and Work through, and lists every record the Link to picker can offer.
  */
-export const TASK_SELECT = "id,text,due_on,done_at,position,created_at,repeat,record_type,record_id,deal_id";
+/** Every column ("*"): push D adds the Repeat end date, and a page keeps working before the database update adds it. */
+export const TASK_SELECT = "*";
 
 const recordKey = (type: unknown, id: unknown) => `${String(type)}:${String(id)}`;
 
@@ -51,6 +52,7 @@ export function toPersonalTodo(t: Row, records: ReadonlyMap<string, TaskRecord>)
     position: Number(t.position ?? 0),
     createdAt: String(t.created_at ?? ""),
     repeat: parseRepeat(t.repeat),
+    repeatUntil: parseRepeat(t.repeat) && t.repeat_until ? String(t.repeat_until).slice(0, 10) : null,
     record: t.record_id ? (records.get(recordKey(t.record_type, t.record_id)) ?? null) : null,
   };
 }

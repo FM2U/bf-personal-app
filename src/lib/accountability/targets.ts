@@ -459,17 +459,22 @@ export function noReasonText(n: number, partnerFirst: string): string {
 export type EodState = "open" | "sent" | "skipped";
 
 /** The status line's three items with their state words. */
-export function statusItems(owed: number, tomorrow: string, state: EodState, sentAt: string | null): { key: "reasons" | "tomorrow" | "send"; label: string; word: string | null; tone: "left" | "done" | "off" }[] {
+/**
+ * The "Before you send" line on End of day: Reasons, (Fridays, push D) Weekly review with "2 of 3" until all three are
+ * written, Tomorrow's line, Approve and send. `reviewAnswered` is null on other days.
+ */
+export function statusItems(owed: number, tomorrow: string, state: EodState, sentAt: string | null, reviewAnswered: number | null = null): { key: "reasons" | "review" | "tomorrow" | "send"; label: string; word: string | null; tone: "left" | "done" | "off" }[] {
   return [
     { key: "reasons", label: "Reasons", word: owed ? `${owed} left` : "done", tone: owed ? "left" : "done" },
+    ...(reviewAnswered === null ? [] : [{ key: "review" as const, label: "Weekly review", word: reviewAnswered >= 3 ? "done" : `${reviewAnswered} of 3`, tone: (reviewAnswered >= 3 ? "done" : "left") as "done" | "left" }]),
     { key: "tomorrow", label: "Tomorrow's line", word: tomorrow.trim() ? "done" : "empty", tone: tomorrow.trim() ? "done" : "left" },
     { key: "send", label: "Approve and send", word: state === "sent" ? `sent ${sentAt ?? ""}`.trim() : state === "skipped" ? "skipped" : null, tone: state === "sent" ? "done" : "off" },
   ];
 }
 
 /** The End of day line on the Home tile. */
-export function tileEodLine(owed: number, tomorrow: string, state: EodState, skipReason: string | null, friday: boolean): string {
-  if (state === "sent") return `Approved by you. Next report ${friday ? "Monday" : "tomorrow"} at ${END_OF_DAY_TIME}.`;
+export function tileEodLine(owed: number, tomorrow: string, state: EodState, skipReason: string | null, friday: boolean, time: string = END_OF_DAY_TIME): string {
+  if (state === "sent") return `Approved by you. Next report ${friday ? "Monday" : "tomorrow"} at ${time}.`;
   if (state === "skipped") return `Skipped${skipReason ? `: ${skipReason}` : ""}. Any reason still owed is asked ${friday ? "Monday" : "tomorrow"}.`;
   if (owed) return `Reasons (${owed} left), then approve and send`;
   if (!tomorrow.trim()) return "Tomorrow's line is empty; then approve and send";
@@ -486,11 +491,11 @@ export function tomorrowLabel(day: string): "Tomorrow" | "Monday" {
 }
 
 /** The tile line under a target on Home: "Commitment · 2 to go before 5:30", "judged tonight, it is Friday". */
-export function tileTargetLine(t: Target, value: number, today: string): string {
+export function tileTargetLine(t: Target, value: number, today: string, time: string = END_OF_DAY_TIME): string {
   const parts: string[] = [];
   if (t.commitment) parts.push("Commitment");
   if (isMet(t, value)) parts.push("met");
-  else if (t.cadence === "day") parts.push(`${t.number - value} to go before ${END_OF_DAY_TIME}`);
+  else if (t.cadence === "day") parts.push(`${t.number - value} to go before ${time}`);
   else if (weekdayShort(today) === "Fri") parts.push("judged tonight, it is Friday");
   else parts.push(`${t.number - value} to go this week`);
   return parts.join(" · ");

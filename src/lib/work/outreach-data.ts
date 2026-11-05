@@ -11,6 +11,7 @@ import { DEFAULT_OUTREACH_TARGET, normalizeRole, outreachSections, parsePurposes
 import { commKind, commTitle, type TimelineEvent } from "@/lib/work/timeline";
 import { nextReportDay, partnerSettings, type ReportSectionKey } from "@/lib/accountability/partners";
 import { RECORD_TASK_COLUMNS, sortTodos, toDealTodo, type DealTodo } from "@/lib/work/todos";
+import { DEFAULT_EOD_TIME, parseTime } from "@/lib/work/settings";
 import type { Row } from "@/lib/types";
 
 /**
@@ -180,7 +181,7 @@ export type IncomingReply = { id: string; date: string; subject: string; excerpt
 export type PersonRecordLink = { id: string; name: string; href: string; kind: string };
 
 /** The Reports card and figures of an accountability partner's page (push B). */
-export type PartnerInfo = { days: number[]; sections: ReportSectionKey[]; sent: number; replies: number; lastSentOn: string | null; lastReplyOn: string | null; nextReport: string | null; todayOpen: boolean };
+export type PartnerInfo = { days: number[]; sections: ReportSectionKey[]; sent: number; replies: number; lastSentOn: string | null; lastReplyOn: string | null; nextReport: string | null; todayOpen: boolean; /** Push D: the End of day time ("17:30", Settings, Work settings). */ eodTime: string };
 
 type PersonPageData = {
   available: boolean;
@@ -277,7 +278,7 @@ export async function loadPersonPage(sb: SupabaseClient, ctx: Ctx, id: string): 
   if (isPartner) {
     const s = partnerSettings(c);
     const replyDates = reportEvents.filter((e) => e.kind === "reply").map((e) => e.when).sort();
-    const { data: eod } = await sb.from("end_of_day").select("status").eq("owner_id", ctx.ownerId).eq("day", ctx.today).maybeSingle();
+    const [{ data: eod }, { data: eodTimeRow }] = await Promise.all([sb.from("end_of_day").select("status").eq("owner_id", ctx.ownerId).eq("day", ctx.today).maybeSingle(), sb.from("inputs").select("value_text").eq("owner_id", ctx.ownerId).eq("key", "end_of_day_time").maybeSingle()]);
     const todayClosed = !!eod && (eod as Row).status !== "open";
     const lastSent = reports.find((r) => r.sent_at)?.sent_at as string | undefined;
     partner = {
@@ -289,6 +290,7 @@ export async function loadPersonPage(sb: SupabaseClient, ctx: Ctx, id: string): 
       lastReplyOn: replyDates.length ? todayInTz(ctx.tz, new Date(replyDates[replyDates.length - 1])) : null,
       nextReport: nextReportDay(s.days, ctx.today, todayClosed),
       todayOpen: !todayClosed,
+      eodTime: parseTime((eodTimeRow as Row | null)?.value_text) ?? DEFAULT_EOD_TIME,
     };
   }
   return { ...base, partner, person, timeline, incoming, tasks: sortTodos(((taskRows ?? []) as Row[]).map(toTask)), records, compose: compose ? { ...compose, title: `Email ${person.name}` } : null };

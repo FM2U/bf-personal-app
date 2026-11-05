@@ -7,6 +7,7 @@ import { loadRosaraHome, type RosaraHome } from "@/lib/work/projects-data";
 import { loadHomeTodos } from "@/lib/work/personal-todos-data";
 import type { PersonalTodo } from "@/lib/work/personal-todos";
 import { loadTargetsTile, type TargetsTile } from "@/lib/accountability/data";
+import { loadMonthlyDue, type MonthlyDue } from "@/lib/accountability/monthly-data";
 import { loadDayCalendar, loadRowBlocks, type DayCalendar } from "@/lib/work/calendar-data";
 import { DEFAULT_BLOCK_MINUTES } from "@/lib/work/time-blocks";
 import type { Row } from "@/lib/types";
@@ -33,6 +34,8 @@ export type HomeData = WorkNowData & {
   blockMinutes: number;
   /** The owner's time zone and the local time now ("HH:MM"), for Block time's first start. */
   nowLocal: string;
+  /** Push D: the monthly review due (from the first workday of the month until it is finished), or null. */
+  monthlyReview: MonthlyDue | null;
 };
 
 /** The AI's order for a day, from the cache, or null. */
@@ -66,11 +69,12 @@ export async function loadHome(sb: SupabaseClient, ownerId: string): Promise<Hom
     rowBlocks: {},
     blockMinutes: DEFAULT_BLOCK_MINUTES,
     nowLocal: "09:00",
+    monthlyReview: null,
   };
   if (!now.available) return empty;
   const ctx = await loadWorkCtx(sb, ownerId);
-  const [rosara, pipelines, aiOrder, targets, todos, calendar, rowBlocks, blockMinutes] = await Promise.all([loadRosaraHome(sb, ctx), loadPipelinesHome(sb, ctx), loadAiOrder(sb, ownerId, ctx.today), loadTargetsTile(sb, ctx), loadHomeTodos(sb, ctx), loadDayCalendar(sb, ownerId, ctx.tz, ctx.today), loadRowBlocks(sb, ownerId, ctx.tz, ctx.today), loadBlockMinutes(sb, ownerId)]);
+  const [rosara, pipelines, aiOrder, targets, todos, calendar, rowBlocks, blockMinutes, monthlyReview] = await Promise.all([loadRosaraHome(sb, ctx), loadPipelinesHome(sb, ctx), loadAiOrder(sb, ownerId, ctx.today), loadTargetsTile(sb, ctx), loadHomeTodos(sb, ctx), loadDayCalendar(sb, ownerId, ctx.tz, ctx.today), loadRowBlocks(sb, ownerId, ctx.tz, ctx.today), loadBlockMinutes(sb, ownerId), loadMonthlyDue(sb, ctx)]);
   const hourLocal = Number(new Intl.DateTimeFormat("en-US", { timeZone: ctx.tz, hour: "numeric", hour12: false }).format(new Date())) || 0;
   const nowLocal = new Intl.DateTimeFormat("en-GB", { timeZone: ctx.tz, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date());
-  return { ...empty, rosara, pipelines, aiOrder, hourLocal: hourLocal % 24, targets, todos, calendar, rowBlocks, blockMinutes, nowLocal };
+  return { ...empty, rosara, pipelines, aiOrder, hourLocal: hourLocal % 24, targets, todos, calendar, rowBlocks, blockMinutes, nowLocal, monthlyReview };
 }

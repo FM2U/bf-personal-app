@@ -6,14 +6,37 @@
  * is exactly what the window shows.
  *
  * Sections, in order: Today (tiles), Targets, Top 3 deals, Active today (Friday: Active this week), Waiting on
- * brokers, Job search, The week (Fridays, tiles), Tomorrow (or Monday). A list section is parent lines with child
+ * brokers, Job search, The week (Fridays, tiles), Weekly review (Fridays, push D: the three answers), Tomorrow (or
+ * Monday). A list section is parent lines with child
  * lines under them ("Waiting on brokers over 5 days" over "Summit Logistics Group: 11 days, Mark Reed").
  */
 import type { ReportTile } from "@/lib/accountability/targets";
 import type { TileStatus } from "@/lib/calc/partner-report";
 
-export type SectionKey = "today" | "targets" | "top" | "active" | "waiting" | "jobs" | "week" | "tomorrow";
-export const SECTION_ORDER: SectionKey[] = ["today", "targets", "top", "active", "waiting", "jobs", "week", "tomorrow"];
+export type SectionKey = "today" | "targets" | "top" | "active" | "waiting" | "jobs" | "week" | "review" | "tomorrow";
+export const SECTION_ORDER: SectionKey[] = ["today", "targets", "top", "active", "waiting", "jobs", "week", "review", "tomorrow"];
+
+/** The Weekly review answers (push D): typed on Friday's End of day; empty strings while not written. */
+export type WeeklyReview = { well: string; slipped: string; focus: string };
+
+/** The three questions, in order, with the short lead each answer has in the report. */
+export const REVIEW_QUESTIONS: readonly { key: keyof WeeklyReview; question: string; lead: string }[] = [
+  { key: "well", question: "What went well this week", lead: "Went well" },
+  { key: "slipped", question: "What slipped", lead: "Slipped" },
+  { key: "focus", question: "Next week's focus", lead: "Next week" },
+];
+
+/** The answers as saved (unknown keys out, text trimmed and cut at 600 characters). */
+export function cleanReview(v: unknown): WeeklyReview {
+  const o = (v && typeof v === "object" && !Array.isArray(v) ? v : {}) as Record<string, unknown>;
+  const t = (x: unknown) => String(x ?? "").replace(/\r\n/g, "\n").trim().slice(0, 600);
+  return { well: t(o.well), slipped: t(o.slipped), focus: t(o.focus) };
+}
+
+/** How many of the three are written: "2 of 3". */
+export function reviewAnswered(r: WeeklyReview | null | undefined): number {
+  return r ? REVIEW_QUESTIONS.filter((q) => r[q.key].trim()).length : 0;
+}
 
 /** An open deal or job opportunity as the report shows it. */
 export type ReportDeal = {
@@ -59,6 +82,8 @@ export type ReportData = {
   /** "today" on a daily report, "this week" on Friday's. */
   period: "today" | "this week";
   week: { label: string; tiles: ReportTile[] } | null;
+  /** Fridays (push D): the Weekly review answers; null on other days. */
+  review?: WeeklyReview | null;
   tomorrow: { label: "Tomorrow" | "Monday"; text: string | null };
   /** The sections this partner gets as a standing choice (their page). Null or missing: every section. */
   sections?: readonly string[] | null;
@@ -156,6 +181,7 @@ const TARGET_GROUPS: { key: ReportTarget["group"]; title: string; tone?: Block["
 ];
 
 const STILL_TO_GIVE = "(still to give)";
+const STILL_TO_WRITE = "(still to write)";
 
 function targetSub(t: { commitment: boolean; asks: boolean; reason: string | null }): Line[] {
   if (!t.commitment) return [];
@@ -172,6 +198,7 @@ const titles = (d: ReportData): Record<SectionKey, string> => ({
   waiting: "Waiting on brokers",
   jobs: "Job search",
   week: d.week?.label ?? "The week",
+  review: "Weekly review",
   tomorrow: d.tomorrow.label,
 });
 
@@ -290,6 +317,16 @@ export function buildSections(d: ReportData): BuiltSection[] {
     const h = hid("week");
     const tiles = d.week.tiles.filter((t) => !h.has(t.label));
     push({ key: "week", kind: "tiles", tiles, blocks: [], line: null, text: tilesText(tiles), choices: d.week.tiles.map((t) => ({ id: t.label, label: t.label, on: !h.has(t.label) })), pick: null, emptyAfterChange: !tiles.length, quiet: null });
+  }
+
+  // Weekly review (Fridays, push D): the three answers, one line each; Change hides one, Edit rewrites them.
+  if (d.review) {
+    const h = hid("review");
+    const r = d.review;
+    const lines = REVIEW_QUESTIONS.map((q) => ({ id: q.key, line: r[q.key].trim() ? { lead: q.lead, text: r[q.key].trim() } : { lead: q.lead, text: "", todo: STILL_TO_WRITE } }));
+    const shown = lines.filter((x) => !h.has(x.id));
+    const blocks: Block[] = shown.length ? [{ items: shown }] : [];
+    push({ key: "review", kind: "list", tiles: [], blocks, line: null, text: blocksText(blocks), choices: REVIEW_QUESTIONS.map((q) => ({ id: q.key, label: q.question, on: !h.has(q.key) })), pick: null, emptyAfterChange: !shown.length, quiet: null });
   }
 
   // Tomorrow (or Monday): the line; Edit only.

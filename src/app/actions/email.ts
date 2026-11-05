@@ -1,6 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { dealFactLines, dealFactsFromRow } from "@/lib/work/deal-facts";
+import { parseOpenQuestions } from "@/lib/work/questions";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireOwner } from "@/lib/auth";
 import type { MimeAttachment } from "@/lib/gmail-mime";
@@ -234,6 +236,9 @@ type WriteResult = { ok: true; subject: string; body: string } | { ok: false; er
 /**
  * "Write with AI": the owner types one line ("ask about off-market deals"); the AI drafts the subject and message
  * in Bram's voice (the shared message format rule), using the contact and the record for context. Nothing is sent.
+ * Push D (fix): from a deal or a listing, the context carries the deal's facts (the same fact lines every deal AI
+ * action reads: money, asking price and multiple, location, broker, key finding, open questions), so the email can
+ * name them.
  */
 export async function writeEmailWithAI(input: ComposeInput & { instruction: string }): Promise<WriteResult> {
   const { supabase, ownerId } = await requireOwner();
@@ -241,17 +246,23 @@ export async function writeEmailWithAI(input: ComposeInput & { instruction: stri
   if (!instruction) return { ok: false, error: "Type one line about what the email should say, then press Write with AI." };
   const { contact, pipelineItem, pipeline, organizationId } = await composeRecords(supabase, input);
   const orgId = organizationId ?? (contact?.organization_id as string | null) ?? (pipelineItem?.organization_id as string | null) ?? null;
-  const [{ data: org }, { data: comms }, { data: stage }] = await Promise.all([
+  const isDeal = pipeline?.kind === "acquisition" && !!pipelineItem;
+  const [{ data: org }, { data: comms }, { data: stage }, { data: fullItem }, { data: fin }] = await Promise.all([
     orgId ? supabase.from("organizations").select("name,kind").eq("id", orgId).maybeSingle() : Promise.resolve({ data: null }),
     contact ? supabase.from("communications").select("occurred_at,method,direction,subject,summary").eq("contact_id", contact.id).order("occurred_at", { ascending: false }).limit(5) : Promise.resolve({ data: [] }),
     pipelineItem?.stage_id ? supabase.from("pipeline_stages").select("name").eq("id", pipelineItem.stage_id).maybeSingle() : Promise.resolve({ data: null }),
+    isDeal ? supabase.from("pipeline_items").select("*").eq("id", pipelineItem!.id).maybeSingle() : Promise.resolve({ data: null }),
+    isDeal ? supabase.from("deal_financials").select("revenue,ebitda,sde,asking_price").eq("item_id", pipelineItem!.id).maybeSingle() : Promise.resolve({ data: null }),
   ]);
+  const item = fullItem as Row | null;
+  const dealFacts = item ? dealFactLines(dealFactsFromRow(item, (fin as Row | null) ?? null, (stage as Row | null)?.name ?? null, parseOpenQuestions(item.open_questions_json, (item.open_questions as string | null) ?? null))) : null;
   const to = String(input.to ?? "").trim();
   const context = {
     to,
     recipient: contact ? { name: contact.name, title: contact.title, roles: contact.roles, notes: contact.notes, deal_source: !!contact.is_deal_source, consulting_lead: !!contact.is_consulting_lead } : null,
     organization: (org as Row | null)?.name ?? null,
     pipeline_item: pipelineItem ? { name: pipelineItem.name, pipeline: pipeline?.name ?? null, kind: pipeline?.kind ?? null, stage: (stage as Row | null)?.name ?? null, notes: pipelineItem.notes ?? null } : null,
+    deal_facts: dealFacts,
     recent_communications: ((comms ?? []) as Row[]).map((m) => ({ date: String(m.occurred_at).slice(0, 10), method: m.method, direction: m.direction, subject: m.subject, summary: m.summary })),
   };
   const greetName = contact ? String(contact.name ?? "").split(/\s+/)[0] : "";
@@ -264,7 +275,7 @@ export async function writeEmailWithAI(input: ComposeInput & { instruction: stri
       messages: [
         {
           role: "user",
-          content: `TASK: compose_email\nDraft an email from Bram. What Bram wants the email to do: "${instruction}".\nKeep it short (under 150 words). Start with a greeting${greetName ? ` using the first name ${greetName}` : ""}. Use 2 to 4 short "- " bullets when the email lists questions, items, or next steps; otherwise short paragraphs. End with one clear ask and "Thanks," or "Best," then "Bram". Use only facts from the context below; do not invent numbers, dates, or past conversations. Return only JSON: {"subject": "short subject line", "body": "message text"}.\nContext (JSON): ${JSON.stringify(context).slice(0, 6000)}`,
+          content: `TASK: compose_email\nDraft an email from Bram. What Bram wants the email to do: "${instruction}".\nKeep it short (under 150 words). Start with a greeting${greetName ? ` using the first name ${greetName}` : ""}. Use 2 to 4 short "- " bullets when the email lists questions, items, or next steps; otherwise short paragraphs. End with one clear ask and "Thanks," or "Best," then "Bram". Use only facts from the context below (deal_facts holds the deal's figures and findings when the email is about a deal); do not invent numbers, dates, or past conversations. Return only JSON: {"subject": "short subject line", "body": "message text"}.\nContext (JSON): ${JSON.stringify(context).slice(0, 9000)}`,
         },
       ],
       maxTokens: 700,

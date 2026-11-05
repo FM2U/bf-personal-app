@@ -16,7 +16,7 @@ import type { PersonRow } from "@/lib/work/outreach-data";
 import type { PersonalTodo } from "@/lib/work/personal-todos";
 import type { ItemRow } from "@/lib/work/pipelines-data";
 import type { ProjectRow } from "@/lib/work/projects-data";
-import { repeatLabel } from "@/lib/work/repeat";
+import { repeatDoneLine, repeatLabel } from "@/lib/work/repeat";
 import { dueLabel } from "@/lib/work/stages";
 import { recordHref, recordPillText } from "@/lib/work/task-records";
 import { useBlockTime } from "@/components/app/work/block-time";
@@ -67,7 +67,7 @@ function viewOf(s: WorkStep, today: string): View {
     }
     case "todo": {
       const t = s.todo;
-      return { lane: t.record ? "Task" : "To-do", name: t.text, meta: t.record ? recordPillText(t.record) : "Personal to-do", action: "", due: t.dueOn, minutes: null, href: t.record ? recordHref(t.record) : "/work/todos", stage: null, ctx: [["Linked to", t.record ? recordPillText(t.record) : "No record"], ["Repeat", repeatLabel(t.repeat)]] };
+      return { lane: t.record ? "Task" : "To-do", name: t.text, meta: t.record ? recordPillText(t.record) : "Personal to-do", action: "", due: t.dueOn, minutes: null, href: t.record ? recordHref(t.record) : "/work/todos", stage: null, ctx: [["Linked to", t.record ? recordPillText(t.record) : "No record"], ["Repeat", repeatLabel(t.repeat, t.repeatUntil)]] };
     }
   }
 }
@@ -142,7 +142,7 @@ export function WorkThrough({ steps, today, onClose }: { steps: WorkStep[]; toda
       if (itemDoneAsks(step.item).asks) return setMode("ask");
       return run(() => completeItemAction(step.item.kind, step.item.id, false), () => go(`Done: ${v.action}.`, "done"));
     }
-    return run(() => setTaskDone(step.todo.id, true), (r) => go(`Done: ${step.todo.text}.${r.next ? ` The next one is on ${fmtDate(r.next, "EEE MMM d")}.` : ""}`, "done"));
+    return run(() => setTaskDone(step.todo.id, true), (r) => go(`Done: ${step.todo.text}.${repeatDoneLine(r, (d) => fmtDate(d, "EEE MMM d"))}`, "done"));
   };
   const askPanel = () => {
     if (!step) return null;

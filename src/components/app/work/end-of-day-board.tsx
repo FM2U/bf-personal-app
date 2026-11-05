@@ -4,13 +4,13 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Eye } from "lucide-react";
-import { approveAndSend, saveReasons, saveTomorrow, skipToday, putShortReport } from "@/app/actions/accountability";
+import { approveAndSend, saveReasons, saveTomorrow, saveWeeklyReview, skipToday, putShortReport } from "@/app/actions/accountability";
 import type { ReasonDraft } from "@/lib/accountability/ask-ai";
 import type { EndOfDayPage } from "@/lib/accountability/data";
 import { dueLine, sendLabel } from "@/lib/accountability/partners";
-import { includesLine } from "@/lib/accountability/report-sections";
+import { includesLine, REVIEW_QUESTIONS, reviewAnswered, type WeeklyReview } from "@/lib/accountability/report-sections";
 import { ReportWindow } from "@/components/app/work/report-window";
-import { END_OF_DAY_TIME, judgedMark, MARK_WORD, owedReasons, statusItems, todayStrip, type DayNumbers, type Judged, type TodayPart } from "@/lib/accountability/targets";
+import { judgedMark, MARK_WORD, owedReasons, statusItems, todayStrip, type DayNumbers, type Judged, type TodayPart } from "@/lib/accountability/targets";
 import type { AskContext } from "@/lib/work/ask-ai";
 import { AccountabilityTabs, type EodBadge } from "@/components/app/nav-links";
 import { AiCardStar, AiFieldStar, AskAiPill, type EodExtras } from "@/components/app/work/ask-ai";
@@ -30,6 +30,10 @@ import { cn } from "@/lib/utils";
  * then "What matters tomorrow". View report opens the report window (src/components/app/work/report-window.tsx) with
  * the email exactly as it will be sent and the include box, Change, and Edit on each section. Approve and send works
  * from the card or the window, with the same check for missing reasons.
+ *
+ * Push D (approved 2026-11-04): on Fridays a Weekly review card under Targets asks three questions (What went well
+ * this week, What slipped, Next week's focus); each answer saves when the box loses focus, goes into Friday's report
+ * as the Weekly review section (include, Change, Edit like every section), and the status line counts them (2 of 3).
  */
 const INPUT = "h-9 w-full min-w-0 rounded-[7px] border border-input bg-white px-2.5 text-[13px] text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:bg-slate-50 disabled:text-slate-500";
 const FIG = "w-[82px]";
@@ -54,6 +58,7 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
   const toNames = (list: typeof copies) => andNames(list.map((c) => c.partner.first));
   const [reasons, setReasons] = useState<Record<string, string>>(data.reasons);
   const [tomorrow, setTomorrow] = useState(data.tomorrow);
+  const [review, setReview] = useState<WeeklyReview>({ well: data.review?.well ?? "", slipped: data.review?.slipped ?? "", focus: data.review?.focus ?? "" });
   const [state, setState] = useState<{ status: EndOfDayPage["state"]; sentTime: string | null; skipReason: string | null }>({ status: data.state, sentTime: data.sentTime, skipReason: data.skipReason });
   const [windowOpen, setWindowOpen] = useState<false | "view" | "edit">(false);
   const [resetKey, setResetKey] = useState(0);
@@ -79,11 +84,11 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
   const owedLeft = owedReasons(judged, reasons).length + (owedPrev ? owedPrev.items.filter((j) => !String(reasons[owedKey(j)] ?? "").trim()).length : 0);
   const met = judged.filter((j) => j.judged && j.met).length;
   const judgedCount = judged.filter((j) => j.judged).length;
-  const badge: EodBadge = state.status === "sent" ? "Sent" : state.status === "skipped" ? "Skipped" : "5:30";
-  const items = statusItems(owedLeft, tomorrow, state.status, state.sentTime);
+  const badge: EodBadge = state.status === "sent" ? "Sent" : state.status === "skipped" ? "Skipped" : data.eodTime.short;
+  const items = statusItems(owedLeft, tomorrow, state.status, state.sentTime, data.review ? reviewAnswered(review) : null);
   const page: AskContext = { page: "end_of_day", label: `End of day, ${data.dateLabel}` };
   // What is still missing before sending: the reasons and the tomorrow line.
-  const needs = [owedLeft ? `${owedLeft} ${owedLeft === 1 ? "reason" : "reasons"} still needed` : null, !tomorrow.trim() ? `${data.tomorrowLabel === "Monday" ? "Monday's" : "Tomorrow's"} line still empty` : null].filter((x): x is string => !!x);
+  const needs = [owedLeft ? `${owedLeft} ${owedLeft === 1 ? "reason" : "reasons"} still needed` : null, data.review && reviewAnswered(review) < 3 ? `Weekly review ${reviewAnswered(review)} of 3` : null, !tomorrow.trim() ? `${data.tomorrowLabel === "Monday" ? "Monday's" : "Tomorrow's"} line still empty` : null].filter((x): x is string => !!x);
   const reportTitle = copies.length > 1 ? `Reports to ${toNames(copies)}` : partner ? `Report to ${first}` : "Report";
   const kind = data.friday ? "Daily and week report" : "Daily report";
   const due = copies.some((c) => c.sentAt) && unsent.length ? `Sent to ${toNames(copies.filter((c) => c.sentAt))}; ${toNames(unsent)} still to send` : dueLine(data.partners, day);
@@ -128,6 +133,13 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
     setTomorrow(text);
     saveLine(text);
   };
+  const saveAnswer = (patch: Partial<WeeklyReview>) =>
+    start(async () => {
+      setError(null);
+      const r = await saveWeeklyReview(day, patch);
+      if (!r.ok) return setError(r.error);
+      router.refresh();
+    });
   const applyShort = async () => {
     const r = await putShortReport(day, sel);
     if (!r.ok) {
@@ -179,7 +191,7 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
   };
   const extras: EodExtras = { day, tomorrow, closed: closed ? (state.status as "sent" | "skipped") : null, onUseReasons: useDrafts, onUseTomorrow: useLine, onUseShort: applyShort };
   const n = data.numbers;
-  const cardIds = { reasons: "eod-targets", tomorrow: "eod-tomorrow", send: "report-card" };
+  const cardIds = { reasons: "eod-targets", review: "eod-review", tomorrow: "eod-tomorrow", send: "report-card" };
   const checkBox = check ? (
     <Confirm tone="warn" testId="send-check">
       <span>{check}</span>
@@ -213,7 +225,7 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
           right={
             <>
               <span data-testid="eod-date">
-                {data.dateLabel} · report at {END_OF_DAY_TIME} pm
+                {data.dateLabel} · report at {data.eodTime.long}
               </span>
               <AskAiPill context={page} extras={extras} />
             </>
@@ -345,6 +357,54 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
               Only commitments ask for a reason; the reason goes into the report as written.
             </p>
           </WorkCard>
+
+          {data.review ? (
+            <WorkCard id="eod-review" title="Weekly review" sub="Fridays. Goes into Friday's report." actions={<span className="tabular rounded-full bg-status-neutral-bg px-2 py-px text-[11px] font-semibold leading-4 text-status-neutral" data-testid="eod-review-count">{reviewAnswered(review)} of 3 written</span>} testId="eod-review">
+              <div className="flex flex-col gap-3.5 px-[22px] pt-3 pb-4">
+                {REVIEW_QUESTIONS.map((q) => {
+                  const value = review[q.key];
+                  const fieldId = `eod-review-${q.key}`;
+                  return (
+                    <div key={q.key} className="min-w-0" data-testid="eod-review-field" data-key={q.key}>
+                      <label htmlFor={fieldId} className="mb-1 block text-[12.5px] font-medium text-slate-700">
+                        {q.question}
+                      </label>
+                      <div className="relative">
+                        <textarea
+                          id={fieldId}
+                          rows={2}
+                          value={value}
+                          onChange={(e) => setReview((r) => ({ ...r, [q.key]: e.target.value }))}
+                          onFocus={() => setFocused(fieldId)}
+                          onBlur={(e) => {
+                            setFocused(null);
+                            if (e.target.value.trim() !== (data.review?.[q.key] ?? "").trim()) saveAnswer({ [q.key]: e.target.value });
+                          }}
+                          placeholder={q.key === "focus" ? "One or two lines" : "One or two lines, from the week"}
+                          disabled={closed}
+                          className="block w-full resize-y rounded-[7px] border border-input bg-white px-3 py-2 pr-10 text-sm leading-[1.5] text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:bg-slate-50 disabled:text-slate-600"
+                          data-testid="eod-review-input"
+                        />
+                        {!closed ? (
+                          <AiFieldStar
+                            context={{ ...page, card: "Weekly review" }}
+                            field={{ key: "weekly_review", label: q.question, current: value }}
+                            visible={!value.trim() || focused === fieldId}
+                            onUse={(t) => {
+                              setReview((r) => ({ ...r, [q.key]: t }));
+                              saveAnswer({ [q.key]: t });
+                            }}
+                            className="top-5 translate-y-0"
+                          />
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
+                <p className="text-[12.5px] text-muted-foreground">Each answer saves when you leave the box. Partners who get the Weekly review section see it in Friday&apos;s report; an empty answer goes out as &ldquo;(still to write)&rdquo;.</p>
+              </div>
+            </WorkCard>
+          ) : null}
         </div>
 
         <div className="flex min-w-0 flex-col gap-4" data-testid="eod-right">
@@ -454,7 +514,7 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
         sel={copy?.partner.id ?? null}
         onSel={setSel}
         title={reportTitle}
-        sub={`${kind} · ${data.dateLabel} · ${state.status === "sent" ? `sent at ${state.sentTime}` : state.status === "skipped" ? "not sent today" : `as it will be sent at ${END_OF_DAY_TIME} pm`}`}
+        sub={`${kind} · ${data.dateLabel} · ${state.status === "sent" ? `sent at ${state.sentTime}` : state.status === "skipped" ? "not sent today" : `as it will be sent at ${data.eodTime.long}`}`}
         startEditing={windowOpen === "edit"}
         resetKey={resetKey}
         footerNote={checkBox ?? (state.status === "open" && needs.length ? `${needs.join(" · ")}. Gaps go out as "(still to give)".` : state.status === "open" ? due : state.status === "sent" ? `Sent to ${toNames(copies)} at ${state.sentTime}.` : "Skipped today. Nothing is sent.")}

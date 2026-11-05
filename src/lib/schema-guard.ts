@@ -133,3 +133,10 @@ export const PROBE_0029 = "schema_has_0029";
  * shows this notice and saving a task date, Repeat, a link, or a block says so.
  */
 export const DB_UPDATE_NOTICE_PUSH_C = "Database update needed: paste supabase/UPDATE_PREVIEW_PUSH_C.sql into the Supabase SQL Editor and run it.";
+
+/**
+ * Push D (2026-11-04): the Repeat end date (deal_todos.repeat_until), the Weekly review answers
+ * (end_of_day.weekly_review), and monthly reviews (monthly_reviews). Before UPDATE_PREVIEW_PUSH_D.sql runs, saving any
+ * of them says so; every page keeps working.
+ */
+export const DB_UPDATE_NOTICE_PUSH_D = "Database update needed: paste supabase/UPDATE_PREVIEW_PUSH_D.sql into the Supabase SQL Editor and run it.";

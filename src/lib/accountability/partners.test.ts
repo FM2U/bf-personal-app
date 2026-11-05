@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ALL_SECTIONS, cleanPartnerSettings, daysLabel, dueLine, firstName, isoWeekday, partnerSettings, partnersDueOn, sendLabel } from "./partners";
+import { ALL_SECTIONS, cleanPartnerSettings, daysLabel, dueLine, firstName, isoWeekday, partnerSettings, partnersDueOn, REPORT_SECTIONS, sendLabel } from "./partners";
 import { reportFor, reportInnerHtml, reportText, type ReportData } from "./report-email";
 
 // 2026-11-02 is a Monday, 2026-11-06 a Friday, 2026-11-07 a Saturday.
@@ -36,9 +36,10 @@ describe("which partners are due on a weekday", () => {
 
 describe("a partner's sections", () => {
   it("keeps the known sections in the report's order; unknown keys stay out of the checklist", () => {
-    expect(jake.sections).toEqual(["today", "targets", "waiting", "week", "tomorrow"]);
+    // Push D: the Weekly review is on unless it was unticked, so a partner saved before it gets it.
+    expect(jake.sections).toEqual(["today", "targets", "waiting", "week", "review", "tomorrow"]);
     // "Deals moved" from before the push B edits reads as Active today.
-    expect(partnerSettings({ report_days: [1], report_sections: ["today", "moved"] }).sections).toEqual(["today", "active"]);
+    expect(partnerSettings({ report_days: [1], report_sections: ["today", "moved"] }).sections).toEqual(["today", "active", "review"]);
     expect(sarah.days).toEqual([5]);
   });
   it("a partner never set up gets every weekday and every section", () => {
@@ -46,10 +47,17 @@ describe("a partner's sections", () => {
     expect(partnerSettings({})).toEqual({ days: [1, 2, 3, 4, 5], sections: ALL_SECTIONS });
   });
   it("no days is kept as no days once sections are saved", () => {
-    expect(partnerSettings({ report_days: [], report_sections: ["targets"] })).toEqual({ days: [], sections: ["targets"] });
+    expect(partnerSettings({ report_days: [], report_sections: ["targets", "review_off"] })).toEqual({ days: [], sections: ["targets"] });
   });
   it("Save: weekdays in order, at least one section, unknown saved keys kept", () => {
-    expect(cleanPartnerSettings({ days: [5, 1, 1, 6], sections: ["week", "today", "nope"] }, ["today", "review"])).toEqual({ ok: true, days: [1, 5], sections: ["today", "week", "review"] });
+    expect(cleanPartnerSettings({ days: [5, 1, 1, 6], sections: ["week", "today", "nope"] }, ["today", "later_section"])).toEqual({ ok: true, days: [1, 5], sections: ["today", "week", "review_off", "later_section"] });
+  });
+  it("Weekly review (push D): on by default, off only when unticked, and ticking it again clears the mark", () => {
+    expect(partnerSettings({ report_days: [5], report_sections: ["targets"] }).sections).toEqual(["targets", "review"]);
+    expect(partnerSettings({ report_days: [5], report_sections: ["targets", "review_off"] }).sections).toEqual(["targets"]);
+    expect(cleanPartnerSettings({ days: [5], sections: ["targets"] }, ["targets"])).toEqual({ ok: true, days: [5], sections: ["targets", "review_off"] });
+    expect(cleanPartnerSettings({ days: [5], sections: ["targets", "review"] }, ["targets", "review_off"])).toEqual({ ok: true, days: [5], sections: ["targets", "review"] });
+    expect(REPORT_SECTIONS.map((x) => x.key)).toContain("review");
     expect(cleanPartnerSettings({ days: [1], sections: [] }, [])).toEqual({ ok: false, error: "Tick at least one section." });
   });
   it("first name", () => {

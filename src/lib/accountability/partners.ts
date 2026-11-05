@@ -17,6 +17,7 @@ export const REPORT_SECTIONS = [
   { key: "waiting", label: "Deals waiting on brokers", hint: "Waiting longer than the amber mark" },
   { key: "jobs", label: "Job search", hint: "The top 3 opportunities and the ones worked on" },
   { key: "week", label: "The week", hint: "Fridays: the week's figures" },
+  { key: "review", label: "Weekly review", hint: "Fridays: what went well, what slipped, next week's focus" },
   { key: "tomorrow", label: "Tomorrow's line", hint: null },
 ] as const;
 export type ReportSectionKey = (typeof REPORT_SECTIONS)[number]["key"];
@@ -43,23 +44,32 @@ const isSection = (v: unknown): v is ReportSectionKey => ALL_SECTIONS.includes(v
 /**
  * The days and sections saved on a partner. Never set (both empty, a partner added before push B or just given the
  * role): every weekday, every section. Saving always keeps at least one section, so both empty means never set.
- * Unknown section keys (a section added later, such as the weekly review answers) are kept out of the checklist.
+ * Unknown section keys are kept out of the checklist. Push D: the Weekly review is on unless it was unticked (saved
+ * as REVIEW_OFF), so a partner saved before it existed gets it on Fridays.
  */
 export function partnerSettings(row: { report_days?: unknown; report_sections?: unknown }): PartnerReportSettings {
   const days = Array.isArray(row.report_days) ? [...new Set(row.report_days.map(Number).filter((n) => WEEKDAY_NUMBERS.includes(n)))].sort() : [];
-  const sections = Array.isArray(row.report_sections) ? ALL_SECTIONS.filter((k) => readSections(row.report_sections as unknown[]).includes(k)) : [];
+  const raw = Array.isArray(row.report_sections) ? readSections(row.report_sections as unknown[]) : [];
+  const reviewOn = raw.length > 0 && !raw.includes(REVIEW_OFF);
+  const sections = ALL_SECTIONS.filter((k) => raw.includes(k) || (k === "review" && reviewOn));
   const rawEmpty = (!Array.isArray(row.report_days) || !row.report_days.length) && (!Array.isArray(row.report_sections) || !row.report_sections.length);
   if (rawEmpty) return { days: [...WEEKDAY_NUMBERS], sections: [...ALL_SECTIONS] };
   return { days, sections };
 }
 
-/** What Save on the Reports card stores: the weekdays in order; the ticked sections, plus any saved key this version does not know. */
+/** Saved in report_sections when the Weekly review is unticked (push D): it is on by default, so the choice is kept. */
+export const REVIEW_OFF = "review_off";
+
+/**
+ * What Save on the Reports card stores: the weekdays in order; the ticked sections (REVIEW_OFF when the Weekly review
+ * is not ticked), plus any saved key this version does not know.
+ */
 export function cleanPartnerSettings(input: { days: unknown; sections: unknown }, savedSections: unknown): { ok: true; days: number[]; sections: string[] } | { ok: false; error: string } {
   const days = Array.isArray(input.days) ? [...new Set(input.days.map(Number).filter((n) => WEEKDAY_NUMBERS.includes(n)))].sort() : [];
   const sections = Array.isArray(input.sections) ? ALL_SECTIONS.filter((k) => (input.sections as unknown[]).includes(k)) : [];
   if (!sections.length) return { ok: false, error: "Tick at least one section." };
-  const kept = Array.isArray(savedSections) ? savedSections.map(String).filter((k) => !isSection(k) && !RENAMED_SECTIONS[k]) : [];
-  return { ok: true, days, sections: [...sections, ...kept] };
+  const kept = Array.isArray(savedSections) ? savedSections.map(String).filter((k) => !isSection(k) && !RENAMED_SECTIONS[k] && k !== REVIEW_OFF) : [];
+  return { ok: true, days, sections: [...sections, ...(sections.includes("review") ? [] : [REVIEW_OFF]), ...kept] };
 }
 
 /** The ISO weekday of a date (YYYY-MM-DD): 1 is Monday, 7 is Sunday. */

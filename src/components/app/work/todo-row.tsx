@@ -7,6 +7,7 @@ import { deferTask, setTaskDone } from "@/app/actions/tasks";
 import { date as fmtDate } from "@/lib/format";
 import { actionKey } from "@/lib/work/lanes";
 import { todoDueLabel, type PersonalTodo } from "@/lib/work/personal-todos";
+import { repeatDoneLine } from "@/lib/work/repeat";
 import { recordHref } from "@/lib/work/task-records";
 import { blockSlots } from "@/components/app/work/block-time";
 import { AiReason } from "@/components/app/work/project-row";
@@ -53,7 +54,7 @@ export function TodoActionRow({ todo, today, reason }: { todo: PersonalTodo; tod
       right={
         <ActionFigures due={due.text ? { text: due.text, tone: due.tone } : null} minutes={null} block={blockSlots({ rowKey: actionKey("To-dos", todo.id), lane: todo.record ? "Task" : "To-do", name: todo.text, action: null, minutes: null, recordType: "deal_todos", recordId: todo.id, href })}>
           <RowButtons pair>
-            <RowButton tone="cobalt" disabled={pending} onClick={() => act(() => setTaskDone(todo.id, true), (r) => `Done: ${todo.text}. ${where}${r.next ? ` The next one is on ${fmtDate(r.next, "EEE MMM d")}.` : ""}`)} className={ROW_COLS.button.cls} data-testid="next-action-done">
+            <RowButton tone="cobalt" disabled={pending} onClick={() => act(() => setTaskDone(todo.id, true), (r) => `Done: ${todo.text}. ${where}${repeatDoneLine(r, (d) => fmtDate(d, "EEE MMM d"))}`)} className={ROW_COLS.button.cls} data-testid="next-action-done">
               {pending ? "Saving" : "Done"}
             </RowButton>
             <RowButton disabled={pending} onClick={() => act(() => deferTask(todo.id), (r) => `Moved to ${fmtDate(r.due, "EEE MMM d")}.`)} className={ROW_COLS.button.cls} data-testid="next-action-later">
@@ -70,7 +71,7 @@ export function TodoActionRow({ todo, today, reason }: { todo: PersonalTodo; tod
           {todo.text}
         </Link>
       </div>
-      {todo.record || todo.repeat ? <TaskChips repeat={todo.repeat} record={todo.record} className="mt-1" /> : <Line2 className="text-muted-foreground">Personal to-do</Line2>}
+      {todo.record || todo.repeat ? <TaskChips repeat={todo.repeat} repeatUntil={todo.repeatUntil} today={today} record={todo.record} className="mt-1" /> : <Line2 className="text-muted-foreground">Personal to-do</Line2>}
       {reason ? <AiReason text={reason} /> : null}
     </RowShell>
   );

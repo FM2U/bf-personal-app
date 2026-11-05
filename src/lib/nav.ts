@@ -36,17 +36,6 @@ export const WORK_TABS: NavTab[] = [
   { href: "/work/todos", label: "To-dos" },
 ];
 
-/** The Settings pages (rebuilt as one page in push D). */
-const SETTINGS_TABS: NavTab[] = [
-  { href: "/settings", label: "Connections" },
-  { href: "/settings/email", label: "Email signature" },
-  { href: "/settings/ai", label: "AI" },
-  { href: "/settings/buy-box", label: "Buy box" },
-  { href: "/settings/export", label: "Export" },
-  { href: "/settings/data", label: "Sample data" },
-  { href: "/settings/profile", label: "Profile and security" },
-];
-
 /** The main menu item a path belongs to (for the active state in the menu). */
 export function mainFor(path: string): NavModule {
   if (isAccountabilityPath(path)) return MAIN_NAV[1];
@@ -60,8 +49,7 @@ export function workTabFor(path: string): NavTab | null {
   return [...WORK_TABS].sort((a, b) => b.href.length - a.href.length).find((t) => path === t.href || path.startsWith(`${t.href}/`)) ?? WORK_TABS[0];
 }
 
-/** The module a path belongs to, with its sub-tabs (only Settings has sub-tabs as a module). */
+/** The module a path belongs to. Push D: Settings is one page, so no module has sub-tabs now. */
 export function moduleFor(path: string): NavModule {
-  if (path.startsWith("/settings")) return { ...MAIN_NAV[2], tabs: SETTINGS_TABS };
   return mainFor(path);
 }

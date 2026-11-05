@@ -7,6 +7,7 @@ import { syncRepliesQuietly } from "@/lib/replies-sync";
 import { isValidEmail } from "@/lib/email-address";
 import { loadCtx } from "@/lib/engine/helpers";
 import { loadEodBadge, loadReportsPage } from "@/lib/accountability/data";
+import { loadMonthlyList } from "@/lib/accountability/monthly-data";
 import { parsePeriodKey } from "@/lib/accountability/periods";
 import { AccountabilityTabs } from "@/components/app/nav-links";
 import { AskAiPill } from "@/components/app/work/ask-ai";
@@ -20,7 +21,7 @@ export const metadata = { title: "Reports" };
  * Reports (batch C, approved 2026-10-31): the pinned title, Ask AI, the Accountability tabs, and the segmented choice
  * "The week | Sent reports" with the period pills and Find; then the six figure tiles and the four cards, or the sent
  * reports by week (src/components/app/work/reports-board.tsx). ?period=last, w2, w3, w4, or month opens that period
- * (the Past weeks line on Targets links here, Edit batch C item 7).
+ * (the Past weeks line on Targets links here, Edit batch C item 7). Push D: ?view=monthly opens Monthly reviews.
  */
 export default async function ReportsPage({ searchParams }: { searchParams: Promise<{ view?: string; period?: string; day?: string; partner?: string }> }) {
   const { supabase, ownerId } = await requireOwner();
@@ -29,7 +30,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
   const ctx = await loadCtx(supabase, ownerId);
   // Push B: opening Reports looks for new replies (at most once every few minutes).
   await syncRepliesQuietly(supabase, ownerId);
-  const [badge, d, gmail, conn] = await Promise.all([loadEodBadge(supabase, ownerId, ctx.today), notice ? null : loadReportsPage(supabase, ctx), loadGmailSetup(supabase, ownerId), getGoogleConnection(supabase, ownerId)]);
+  const [badge, d, gmail, conn, monthly] = await Promise.all([loadEodBadge(supabase, ownerId, ctx.today), notice ? null : loadReportsPage(supabase, ctx), loadGmailSetup(supabase, ownerId), getGoogleConnection(supabase, ownerId), loadMonthlyList(supabase, ctx)]);
   const replyNote = isGoogleConfigured() && replyPermission(conn) === "reconnect" ? RECONNECT_FOR_REPLIES : null;
   // Reply under a reply: the email box to that partner (only people with an address).
   const composes: Record<string, ComposeSetup> = {};
@@ -65,7 +66,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
   }
   return (
     <WorkShell testId="work-reports">
-      <ReportsBoard data={d} title={title} tabs={<AccountabilityTabs eodBadge={badge} tight />} view={sp.view === "sent" || sp.day ? "sent" : "week"} period={parsePeriodKey(sp.period)} openDay={sp.day ?? null} partnerAtStart={sp.partner ?? null} composes={composes} replyNote={replyNote} />
+      <ReportsBoard data={d} title={title} tabs={<AccountabilityTabs eodBadge={badge} tight />} view={sp.view === "monthly" ? "monthly" : sp.view === "sent" || sp.day ? "sent" : "week"} monthly={monthly.items} period={parsePeriodKey(sp.period)} openDay={sp.day ?? null} partnerAtStart={sp.partner ?? null} composes={composes} replyNote={replyNote} />
     </WorkShell>
   );
 }

@@ -10,7 +10,7 @@ import { areaToStore, parseAreaChoice, TODO_AREA_STORAGE_KEY, TODO_AREAS, todoAr
 import type { LinkRecord } from "@/lib/work/link-picker";
 import { splitTomorrow, TODO_SECTIONS, todoDueLabel, type PersonalTodo, type TodoSectionKey } from "@/lib/work/personal-todos";
 import type { TodosData } from "@/lib/work/personal-todos-data";
-import { REPEAT_CHOICES, type Repeat } from "@/lib/work/repeat";
+import { REPEAT_CHOICES, repeatDoneLine, type Repeat } from "@/lib/work/repeat";
 import type { TaskRecord } from "@/lib/work/task-records";
 import { selectedTile, tileAfterFilter, type Tile } from "@/lib/work/tiles";
 import { SlimBar } from "@/components/app/work/slim-bar";
@@ -34,7 +34,7 @@ import { cn } from "@/lib/utils";
  * repeating one adds the next. A click on a row (outside the checkbox, the pill and the x) opens the full-width edit
  * box: the text, the due date, Repeat, and Link to (the shared picker; linking puts the item on that record's Tasks
  * card, unlinking makes it personal again). After about 40px of scroll the slim pinned bar slides in with the tiles
- * as chips.
+ * as chips. Push D (approved 2026-11-04): beside Repeat, an optional Ends date (shown only when the item repeats).
  */
 const PANEL_ID = "todos-panel";
 const noSubscribe = () => () => {};
@@ -54,6 +54,7 @@ export function TodosBoard({ data, askAi, tabs }: { data: TodosData; askAi: Reac
   const [text, setText] = useState("");
   const [due, setDue] = useState("");
   const [repeat, setRepeat] = useState<Repeat | "">("");
+  const [until, setUntil] = useState("");
   const [link, setLink] = useState<LinkRecord | null>(null);
   const [pending, start] = useTransition();
   const [note, setNote] = useState<{ tone: "ok" | "warn"; text: string } | null>(null);
@@ -107,11 +108,12 @@ export function TodosBoard({ data, askAi, tabs }: { data: TodosData; askAi: Reac
   const add = () => {
     if (!text.trim()) return;
     act(
-      () => addTask({ text, due, repeat, link: toLink(link) }),
+      () => addTask({ text, due, repeat, until: repeat ? until || null : null, link: toLink(link) }),
       () => {
         setText("");
         setDue("");
         setRepeat("");
+        setUntil("");
         setLink(null);
       },
     );
@@ -121,7 +123,7 @@ export function TodosBoard({ data, askAi, tabs }: { data: TodosData; askAi: Reac
     act(
       () => setTaskDone(t.id, on),
       (r) => {
-        if (on && r.next) setNote({ tone: "ok", text: `Done. The next one is on ${fmtDate(r.next, "EEE MMM d")}.` });
+        if (on && (r.next || r.ended)) setNote({ tone: "ok", text: `Done.${repeatDoneLine(r, (d) => fmtDate(d, "EEE MMM d"))}` });
       },
     );
   };
@@ -215,8 +217,9 @@ export function TodosBoard({ data, askAi, tabs }: { data: TodosData; askAi: Reac
               Add
             </RowButton>
           </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[190px_minmax(0,1fr)]">
+          <div className={cn("grid grid-cols-1 gap-2", repeat ? "sm:grid-cols-[190px_190px_minmax(0,1fr)]" : "sm:grid-cols-[190px_minmax(0,1fr)]")}>
             <RepeatSelect value={repeat} onChange={setRepeat} testId="personal-todo-repeat" />
+            {repeat ? <EndsInput value={until} onChange={setUntil} min={due || today} inline testId="personal-todo-until" /> : null}
             <LinkPicker records={records} value={link} onChange={setLink} today={today} placeholder="Link to a record (optional): click to pick, or type" testId="add-link" />
           </div>
           <p className="text-[12.5px] text-muted-foreground">A to-do linked to a record also shows on that record&apos;s Tasks card. Checking off a repeating one adds the next.</p>
@@ -234,6 +237,21 @@ function SubLine({ label, testId }: { label: string; testId: string }) {
   );
 }
 
+/**
+ * Ends (push D): the optional end date of a repeating item, shown only while Repeat is not "Does not repeat". Blank
+ * repeats with no end. `inline` (the Add rows) puts the word Ends inside the box, since those rows have no labels.
+ */
+export function EndsInput({ value, onChange, min, testId, id, inline = false }: { value: string; onChange: (v: string) => void; min?: string; testId: string; id?: string; inline?: boolean }) {
+  const input = <input id={id} type="date" value={value} min={min} onChange={(e) => onChange(e.target.value)} className={inline ? "h-full min-w-0 flex-1 bg-transparent text-sm text-slate-900 focus-visible:outline-none" : cn(INPUT, "w-full")} aria-label="Ends (optional; blank repeats with no end)" title="Blank repeats with no end" data-testid={testId} />;
+  if (!inline) return input;
+  return (
+    <label className={cn(INPUT, "flex w-full cursor-text items-center gap-2 focus-within:ring-2 focus-within:ring-ring")}>
+      <span className="shrink-0 text-[13px] text-slate-500">Ends</span>
+      {input}
+    </label>
+  );
+}
+
 export function RepeatSelect({ value, onChange, testId, id }: { value: Repeat | ""; onChange: (v: Repeat | "") => void; testId: string; id?: string }) {
   return (
     <select id={id} value={value} onChange={(e) => onChange(e.target.value as Repeat | "")} className={cn(INPUT, "w-full pr-7")} aria-label="Repeat" data-testid={testId}>
@@ -246,7 +264,7 @@ export function RepeatSelect({ value, onChange, testId, id }: { value: Repeat | 
   );
 }
 
-function TodoLine({ todo, today, section, records, checked, pending, editing, onOpenEdit, onCloseEdit, onCheck, onSave, onDelete }: { todo: PersonalTodo; today: string; section: TodoSectionKey; records: readonly LinkRecord[]; checked: boolean; pending: boolean; editing: boolean; onOpenEdit: () => void; onCloseEdit: () => void; onCheck: (on: boolean) => void; onSave: (v: { text: string; due: string | null; repeat: Repeat | ""; link: TaskLink }) => void; onDelete: () => void }) {
+function TodoLine({ todo, today, section, records, checked, pending, editing, onOpenEdit, onCloseEdit, onCheck, onSave, onDelete }: { todo: PersonalTodo; today: string; section: TodoSectionKey; records: readonly LinkRecord[]; checked: boolean; pending: boolean; editing: boolean; onOpenEdit: () => void; onCloseEdit: () => void; onCheck: (on: boolean) => void; onSave: (v: { text: string; due: string | null; repeat: Repeat | ""; until: string | null; link: TaskLink }) => void; onDelete: () => void }) {
   const due = todoDueLabel(todo.dueOn, today, (d) => fmtDate(d, "MMM d"));
   const clickable = !todo.doneAt && !editing;
   return (
@@ -263,7 +281,7 @@ function TodoLine({ todo, today, section, records, checked, pending, editing, on
           <button type="button" onClick={() => !todo.doneAt && onOpenEdit()} className={cn("max-w-full rounded text-left text-sm text-slate-800 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none", todo.doneAt && "cursor-default text-slate-400 line-through")} title={todo.doneAt ? undefined : "Click to edit"} data-testid="personal-todo-text">
             {todo.text}
           </button>
-          <TaskChips repeat={todo.repeat} record={todo.record} done={!!todo.doneAt} />
+          <TaskChips repeat={todo.repeat} repeatUntil={todo.repeatUntil} today={today} record={todo.record} done={!!todo.doneAt} />
         </div>
         <span className="min-w-[64px] pt-px text-right">{due.text ? <Due text={due.text} tone={todo.doneAt ? "none" : due.tone} testId="personal-todo-due-label" /> : null}</span>
         <button type="button" onClick={onDelete} disabled={pending} className="h-6 w-6 shrink-0 rounded text-slate-300 hover:bg-slate-100 hover:text-slate-600" aria-label={`Delete: ${todo.text}`} title="Delete" data-testid="personal-todo-delete">
@@ -275,15 +293,16 @@ function TodoLine({ todo, today, section, records, checked, pending, editing, on
   );
 }
 
-/** The full-width edit box under a to-do (approved 2026-11-03): the text, then Due date, Repeat, Link to; Save and Cancel. */
-function TodoEditBox({ todo, today, records, pending, onSave, onCancel }: { todo: PersonalTodo; today: string; records: readonly LinkRecord[]; pending: boolean; onSave: (v: { text: string; due: string | null; repeat: Repeat | ""; link: TaskLink }) => void; onCancel: () => void }) {
+/** The full-width edit box under a to-do (approved 2026-11-03): the text, then Due date, Repeat, Ends (push D, while it repeats), Link to; Save and Cancel. */
+function TodoEditBox({ todo, today, records, pending, onSave, onCancel }: { todo: PersonalTodo; today: string; records: readonly LinkRecord[]; pending: boolean; onSave: (v: { text: string; due: string | null; repeat: Repeat | ""; until: string | null; link: TaskLink }) => void; onCancel: () => void }) {
   const [text, setText] = useState(todo.text);
   const [due, setDue] = useState(todo.dueOn ?? "");
   const [repeat, setRepeat] = useState<Repeat | "">(todo.repeat ?? "");
+  const [until, setUntil] = useState(todo.repeatUntil ?? "");
   const [link, setLink] = useState<LinkRecord | null>(linkOf(todo.record, records));
-  const dirty = text !== todo.text || due !== (todo.dueOn ?? "") || repeat !== (todo.repeat ?? "") || (link?.id ?? null) !== (todo.record?.id ?? null);
+  const dirty = text !== todo.text || due !== (todo.dueOn ?? "") || repeat !== (todo.repeat ?? "") || (repeat ? until : "") !== (todo.repeatUntil ?? "") || (link?.id ?? null) !== (todo.record?.id ?? null);
   useUnsavedWork(dirty, "Your changes to this to-do are not saved yet.");
-  const save = () => onSave({ text, due: due || null, repeat, link: toLink(link) });
+  const save = () => onSave({ text, due: due || null, repeat, until: repeat ? until || null : null, link: toLink(link) });
   return (
     <div
       className="rounded-[10px] border border-border bg-slate-50 px-4 pt-3 pb-3.5"
@@ -309,7 +328,7 @@ function TodoEditBox({ todo, today, records, pending, onSave, onCancel }: { todo
         className={cn(INPUT, "w-full")}
         data-testid="personal-todo-edit"
       />
-      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,0.9fr)_minmax(0,1.3fr)]">
+      <div className={cn("mt-3 grid grid-cols-1 gap-3", repeat ? "sm:grid-cols-[minmax(0,0.8fr)_minmax(0,0.9fr)_minmax(0,0.8fr)_minmax(0,1.3fr)]" : "sm:grid-cols-[minmax(0,0.8fr)_minmax(0,0.9fr)_minmax(0,1.3fr)]")}>
         <div className="min-w-0">
           <label className={LABEL} htmlFor={`te-due-${todo.id}`}>
             Due date
@@ -322,6 +341,14 @@ function TodoEditBox({ todo, today, records, pending, onSave, onCancel }: { todo
           </label>
           <RepeatSelect id={`te-rep-${todo.id}`} value={repeat} onChange={setRepeat} testId="todo-edit-repeat" />
         </div>
+        {repeat ? (
+          <div className="min-w-0">
+            <label className={cn(LABEL, "whitespace-nowrap")} htmlFor={`te-until-${todo.id}`}>
+              Ends <span className="font-normal text-slate-400">(optional)</span>
+            </label>
+            <EndsInput id={`te-until-${todo.id}`} value={until} onChange={setUntil} min={due || today} testId="todo-edit-until" />
+          </div>
+        ) : null}
         <div className="min-w-0">
           <label className={LABEL} htmlFor={`te-link-${todo.id}`}>
             Link to <span className="font-normal text-slate-400">(optional)</span>

@@ -7,6 +7,7 @@ import { taskFromReply } from "@/app/actions/accountability";
 import { ComposeEmailDialog } from "@/components/app/compose-email";
 import type { ComposeSetup } from "@/lib/compose-email";
 import type { PeriodKey, PeriodView, ReportsPage, SentReply, SentRow, WeekTile } from "@/lib/accountability/data";
+import type { MonthlyListItem } from "@/lib/accountability/monthly-data";
 import { pastWeekPeriodKey, periodPills } from "@/lib/accountability/periods";
 import { shortTargetName } from "@/lib/accountability/targets";
 import { date as fmtDate } from "@/lib/format";
@@ -27,6 +28,8 @@ import { cn } from "@/lib/utils";
  * Targets, under "The week": the met count, the week, and each miss on its own line (red dot, target, figure); a
  * tile opens that week (its pill shows while it is open). Most missed sits on the Past weeks heading.
  * Edit batch C round 2 (item 6): The week in four groups with one short heading each (WeekView); Sent reports unchanged.
+ * Push D (approved 2026-11-04): a third view, Monthly reviews: one row per month (To do or Finished); a row opens the
+ * review page, read only once finished.
  */
 const STORAGE_KEY = "work-reports-sent-sections";
 const FIG = "w-[82px]";
@@ -41,10 +44,12 @@ function sentPill(r: SentRow): { text: string; tone: "blue" | "green" | "gray" }
 }
 
 type SentFilter = "all" | "replies" | `p:${string}`;
+type View = "week" | "sent" | "monthly";
+const VIEW_LABEL: Record<View, string> = { week: "The week", sent: "Sent reports", monthly: "Monthly reviews" };
 
-export function ReportsBoard({ data, title, tabs, view: viewAtStart, period: periodAtStart, openDay, partnerAtStart, composes, replyNote }: { data: ReportsPage; title: React.ReactNode; tabs: React.ReactNode; view: "week" | "sent"; period: PeriodKey; /** ?day=YYYY-MM-DD opens that day's sent report (a partner's timeline links here). */ openDay?: string | null; /** ?partner=<id> narrows Sent reports to one partner (a partner's page links here). */ partnerAtStart?: string | null; /** The email box per partner, for Reply under a reply. */ composes: Record<string, ComposeSetup>; /** "Reconnect Google to see replies", when the read permission is missing. */ replyNote: string | null }) {
+export function ReportsBoard({ data, title, tabs, view: viewAtStart, period: periodAtStart, openDay, partnerAtStart, composes, replyNote, monthly }: { data: ReportsPage; title: React.ReactNode; tabs: React.ReactNode; view: View; /** Push D: the months under Monthly reviews. */ monthly: MonthlyListItem[]; period: PeriodKey; /** ?day=YYYY-MM-DD opens that day's sent report (a partner's timeline links here). */ openDay?: string | null; /** ?partner=<id> narrows Sent reports to one partner (a partner's page links here). */ partnerAtStart?: string | null; /** The email box per partner, for Reply under a reply. */ composes: Record<string, ComposeSetup>; /** "Reconnect Google to see replies", when the read permission is missing. */ replyNote: string | null }) {
   const router = useRouter();
-  const [view, setView] = useState<"week" | "sent">(viewAtStart);
+  const [view, setView] = useState<View>(viewAtStart);
   const [period, setPeriod] = useState<PeriodKey>(periodAtStart);
   const [query, setQuery] = useState("");
   const allRows = useMemo(() => data.sent.flatMap((s) => s.rows), [data.sent]);
@@ -63,9 +68,9 @@ export function ReportsBoard({ data, title, tabs, view: viewAtStart, period: per
   const sentFilters: { key: SentFilter; label: string; n: number | null }[] = [{ key: "all", label: "All", n: null }, { key: "replies", label: "With replies", n: allRows.filter((r) => r.replies.length).length }, ...recipients.map((x) => ({ key: `p:${x.id}` as SentFilter, label: x.name, n: null }))];
   const states = useMemo(() => data.sent.map((s) => ({ name: s.label, count: s.rows.length, hasMatch: s.rows.some(matches), defaultOpen: !s.collapsed })), [data.sent, q, sentFilter]); // eslint-disable-line react-hooks/exhaustive-deps
   const ui = useSections(STORAGE_KEY, states, !!q || sentFilter !== "all");
-  const pick = (v: "week" | "sent") => {
+  const pick = (v: View) => {
     setView(v);
-    router.replace(v === "sent" ? "/work/reports?view=sent" : period === "this" ? "/work/reports" : `/work/reports?period=${period}`, { scroll: false });
+    router.replace(v !== "week" ? `/work/reports?view=${v}` : period === "this" ? "/work/reports" : `/work/reports?period=${period}`, { scroll: false });
   };
   /** A period pill or a Past weeks tile: the period shows, and the address keeps it (a reload or a link opens it again). */
   const pickPeriod = (k: PeriodKey, toTop = false) => {
@@ -80,13 +85,13 @@ export function ReportsBoard({ data, title, tabs, view: viewAtStart, period: per
         {tabs}
         <div className="mt-2.5 flex flex-wrap items-center gap-2" data-testid="reports-filters">
           <span className="inline-flex overflow-hidden rounded-full border border-border bg-white" role="group" aria-label="View" data-testid="reports-view">
-            {(["week", "sent"] as const).map((v, i) => (
+            {(["week", "sent", "monthly"] as const).map((v, i) => (
               <button key={v} type="button" onClick={() => pick(v)} aria-pressed={view === v} className={cn("px-3 py-1 text-[12.5px] font-medium whitespace-nowrap", i ? "border-l border-border" : "", view === v ? "bg-primary-soft text-primary-strong" : "text-slate-600 hover:bg-slate-50")} data-testid={`reports-view-${v}`}>
-                {v === "week" ? "The week" : "Sent reports"}
+                {VIEW_LABEL[v]}
               </button>
             ))}
           </span>
-          <span className="mx-0.5 hidden h-5 w-px bg-border sm:block" aria-hidden />
+          {view !== "monthly" ? <span className="mx-0.5 hidden h-5 w-px bg-border sm:block" aria-hidden /> : null}
           {view === "sent"
             ? sentFilters.map((f) => (
                 <button key={f.key} type="button" onClick={() => setSentFilter(f.key)} aria-pressed={sentFilter === f.key} className={cn("inline-flex items-center rounded-full border px-3 py-1 text-[12.5px] font-medium whitespace-nowrap", sentFilter === f.key ? "border-primary-border bg-primary-soft text-primary-strong" : "border-border bg-white text-slate-600 hover:bg-slate-50")} data-testid={`sent-filter-${f.key.replace(/^p:/, "partner-")}`}>
@@ -100,6 +105,7 @@ export function ReportsBoard({ data, title, tabs, view: viewAtStart, period: per
               {per.label}
             </button>
           ))}
+          {view !== "monthly" ? (
           <input
             type="search"
             value={query}
@@ -112,11 +118,14 @@ export function ReportsBoard({ data, title, tabs, view: viewAtStart, period: per
             className="h-[30px] w-full rounded-[7px] border border-input bg-white px-2.5 text-[13px] text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:ml-auto sm:w-[200px]"
             data-testid="reports-search"
           />
+          ) : null}
           {view === "sent" ? <CollapseAllButton allCollapsed={ui.allCollapsed} onClick={ui.toggleAll} /> : null}
         </div>
       </PinnedBlock>
 
-      {view === "week" ? (
+      {view === "monthly" ? (
+        <MonthlyList items={monthly} />
+      ) : view === "week" ? (
         <WeekView p={p} first={first} past={data.past} mostMissed={data.mostMissed} active={period} onOpen={(k) => pickPeriod(k, true)} />
       ) : (
         <WorkCard title="Sent reports" hint={replyNote ? undefined : "By email · a sent report never changes · replies from Gmail"} actions={replyNote ? <span className="text-[12.5px] text-status-soon" data-testid="replies-reconnect">{replyNote} <Link href="/settings" className="font-medium underline">Open Settings</Link></span> : undefined} testId="sent-reports-card">
@@ -178,6 +187,40 @@ export function ReportsBoard({ data, title, tabs, view: viewAtStart, period: per
 
       {open ? <SentReportDrawer key={open.id} row={open} composes={composes} onClose={() => setOpen(null)} /> : null}
     </>
+  );
+}
+
+/**
+ * Monthly reviews (push D, approved mockup V.reports): one row per month, newest first, with its line ("Not finished
+ * yet · also on Work on now", "Finished Nov 4 · read only") and its pill (To do, Finished, Not finished). A row opens
+ * the review page. Half the page wide at desktop width, like the mockup.
+ */
+function MonthlyList({ items }: { items: MonthlyListItem[] }) {
+  const router = useRouter();
+  return (
+    <div className="w-full min-[1000px]:max-w-[760px]">
+      <WorkCard title="Monthly reviews" hint="One per month, opened on its first workday" testId="monthly-reviews-card">
+        <div className="flex flex-col pt-1 pb-2">
+          {items.length ? (
+            items.map((m) => (
+              <button key={m.month} type="button" onClick={() => router.push(`/work/reports/monthly/${m.slug}`)} className="row-hover grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-6 border-t border-slate-100 px-[22px] py-[12px] text-left first:border-t-0" data-testid="monthly-review-row" data-month={m.slug} data-finished={m.finished ? "1" : "0"}>
+                <div className="min-w-0">
+                  <Name>{m.label}</Name>
+                  <Line2 className="text-muted-foreground">{m.line}</Line2>
+                </div>
+                <Pill tone={m.finished ? "green" : m.current ? "amber" : "gray"} className="min-w-[96px] justify-center" testId="monthly-review-pill">
+                  {m.finished ? "Finished" : m.current ? "To do" : "Not finished"}
+                </Pill>
+              </button>
+            ))
+          ) : (
+            <p className="px-[22px] py-3 text-[13px] text-muted-foreground" data-testid="monthly-reviews-empty">
+              No monthly review yet. The first one opens on the first workday of next month.
+            </p>
+          )}
+        </div>
+      </WorkCard>
+    </div>
   );
 }
 

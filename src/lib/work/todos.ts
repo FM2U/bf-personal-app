@@ -7,14 +7,14 @@
 import { parseRepeat, type Repeat } from "@/lib/work/repeat";
 
 /** Push C: a task can carry a due date and Repeat (dated tasks also show on To-dos and Home). */
-export type DealTodo = { id: string; text: string; position: number; doneAt: string | null; createdAt: string; dueOn?: string | null; repeat?: Repeat | null };
+export type DealTodo = { id: string; text: string; position: number; doneAt: string | null; createdAt: string; dueOn?: string | null; repeat?: Repeat | null; /** Push D: the Repeat end date (blank: no end). */ repeatUntil?: string | null };
 
-/** The columns every Tasks card reads (push C adds the date and Repeat). */
-export const RECORD_TASK_COLUMNS = "id,deal_id,record_type,record_id,text,position,done_at,created_at,due_on,repeat";
+/** The columns every Tasks card reads: all of them (push C adds the date and Repeat, push D the Repeat end date; "*" keeps a page working before a database update adds a column). */
+export const RECORD_TASK_COLUMNS = "*";
 
 /** One task row as a Tasks card item. */
 export function toDealTodo(t: { [k: string]: unknown }): DealTodo {
-  return { id: String(t.id), text: String(t.text ?? ""), position: Number(t.position ?? 0), doneAt: t.done_at ? String(t.done_at) : null, createdAt: String(t.created_at ?? ""), dueOn: t.due_on ? String(t.due_on).slice(0, 10) : null, repeat: parseRepeat(t.repeat) };
+  return { id: String(t.id), text: String(t.text ?? ""), position: Number(t.position ?? 0), doneAt: t.done_at ? String(t.done_at) : null, createdAt: String(t.created_at ?? ""), dueOn: t.due_on ? String(t.due_on).slice(0, 10) : null, repeat: parseRepeat(t.repeat), repeatUntil: parseRepeat(t.repeat) && t.repeat_until ? String(t.repeat_until).slice(0, 10) : null };
 }
 
 /** Open items first by due date (no date last, push C), then position, then age; done items after them (most recently done first). */

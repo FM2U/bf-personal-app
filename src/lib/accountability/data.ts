@@ -9,7 +9,7 @@ import { weekdayShort } from "@/lib/work/outreach";
 import { daysWaiting } from "@/lib/work/stages";
 import { buildFacts } from "@/lib/accountability/facts";
 import { pillOf, reportFor, reportInnerHtml, targetGroup, targetLine, type ReportData } from "@/lib/accountability/report-email";
-import { cleanChoices, hasChoices, type ReportChoices } from "@/lib/accountability/report-sections";
+import { cleanChoices, cleanReview, hasChoices, reviewAnswered, type ReportChoices, type WeeklyReview } from "@/lib/accountability/report-sections";
 import { brokerPerson, reportDeals, type DealRows } from "@/lib/accountability/report-deals";
 import { firstName, partnerSettings, partnersDueOn, type ReportSectionKey } from "@/lib/accountability/partners";
 import { PAST_WEEKS, pastWeekPeriodKey, type PeriodKey } from "@/lib/accountability/periods";
@@ -19,6 +19,7 @@ import {
   targetView, tileEodLine, tileTargetLine, tileTargets, todayTiles, tomorrowLabel, reportTiles, weekNumbers, weekTiles, workWeekOf,
   type Cadence, type DayNumbers, type EodState, type Facts, type Judged, type Target, type TargetView, type WeekNumbers, type WeekTile,
 } from "@/lib/accountability/targets";
+import { DEFAULT_EOD_TIME, eodLong, eodShort, parseTime } from "@/lib/work/settings";
 import type { Row } from "@/lib/types";
 
 /**
@@ -149,7 +150,7 @@ export async function loadSentCopies(sb: SupabaseClient, ownerId: string, day: s
   });
 }
 
-type EodRow = { id: string | null; day: string; status: EodState; reasons: Record<string, string>; tomorrow: string; skipReason: string | null; sentAt: string | null; reportId: string | null; reportSubject: string | null; reportHtml: string | null; reportEdited: boolean; /** Push B edits: each partner's choices for today's copy (include, Change, Edit), by contact id. */ reportEdits: Record<string, ReportChoices>; judged: Judged[] };
+type EodRow = { id: string | null; day: string; status: EodState; reasons: Record<string, string>; tomorrow: string; skipReason: string | null; sentAt: string | null; reportId: string | null; reportSubject: string | null; reportHtml: string | null; reportEdited: boolean; /** Push B edits: each partner's choices for today's copy (include, Change, Edit), by contact id. */ reportEdits: Record<string, ReportChoices>; judged: Judged[]; /** Push D: the Weekly review answers (Fridays). */ weeklyReview: WeeklyReview };
 
 export async function loadEodRow(sb: SupabaseClient, ownerId: string, day: string): Promise<EodRow> {
   const { data } = await sb.from("end_of_day").select("*").eq("owner_id", ownerId).eq("day", day).maybeSingle();
@@ -170,6 +171,7 @@ export async function loadEodRow(sb: SupabaseClient, ownerId: string, day: strin
     // An edit saved before the push B edits (a whole email as HTML) is not a choice; the copy is built again.
     reportEdits: r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? Object.fromEntries(Object.entries(r.report_edits as Record<string, unknown>).filter(([, v]) => v && typeof v === "object" && !Array.isArray(v)).map(([k, v]) => [k, cleanChoices(v)])) : {},
     judged: Array.isArray(r?.judged) ? (r!.judged as Judged[]) : [],
+    weeklyReview: cleanReview(r?.weekly_review),
   };
 }
 
@@ -239,17 +241,21 @@ export type EndOfDayPage = {
   reportEdited: boolean;
   /** Targets met this week (the tile and the status). */
   metThisWeek: { met: number; total: number };
+  /** Fridays (push D): the Weekly review answers and how many are written; null on other days. */
+  review: (WeeklyReview & { answered: number }) | null;
+  /** The End of day time (Settings, Work settings): "5:30" and "5:30 pm". */
+  eodTime: { short: string; long: string };
 };
 
 /** The End of day data for a day (today by default). */
 export async function loadEndOfDay(sb: SupabaseClient, ctx: Ctx, day = ctx.today): Promise<EndOfDayPage> {
   const wctx = await loadWorkCtx(sb, ctx.ownerId);
   const [targets, bundle, row, partners, owed, sent] = await Promise.all([loadTargets(sb, ctx.ownerId), loadFacts(sb, wctx, factsSince(day)), loadEodRow(sb, ctx.ownerId, day), loadPartners(sb, ctx.ownerId), loadOwedFromSkipped(sb, ctx.ownerId, day), loadSentCopies(sb, ctx.ownerId, day)]);
-  return buildEndOfDay({ targets, bundle, row, partners, sent, owed, day, tz: ctx.tz, threshold: wctx.threshold });
+  return buildEndOfDay({ targets, bundle, row, partners, sent, owed, day, tz: ctx.tz, threshold: wctx.threshold, eodTime: wctx.eodTime });
 }
 
 /** Builds the End of day page from loaded rows (shared with the send action, which judges the same way). */
-export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: EodRow; partners: Partner[]; sent: SentCopy[]; owed: { day: string; items: Judged[]; reasons: Record<string, string> } | null; day: string; tz: string; threshold: number }): EndOfDayPage {
+export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: EodRow; partners: Partner[]; sent: SentCopy[]; owed: { day: string; items: Judged[]; reasons: Record<string, string> } | null; day: string; tz: string; threshold: number; eodTime?: string }): EndOfDayPage {
   const { targets, bundle, row, partners, day } = i;
   const friday = weekdayShort(day) === "Fri";
   const weekday = !["Sat", "Sun"].includes(weekdayShort(day));
@@ -286,6 +292,7 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
     jobs,
     period: friday ? "this week" : "today",
     week: friday ? { label: `The week, ${fmtDate(week.start, "MMM d")} to ${fmtDate(week.end, "d")}`, tiles: weekTiles(thisWeek, lastWeek) } : null,
+    review: friday ? row.weeklyReview : null,
     tomorrow: { label: tl, text: row.tomorrow.trim() || null },
   };
   const met = metThisWeek(targets, bundle.facts, day, bundle.skippedDays);
@@ -330,6 +337,8 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
     reportHtml: first ? first.html : row.reportHtml && row.status !== "open" ? row.reportHtml : reportInnerHtml(report),
     reportEdited: first ? first.edited : row.reportEdited,
     metThisWeek: { met: met.met, total: met.total },
+    review: friday ? { ...row.weeklyReview, answered: reviewAnswered(row.weeklyReview) } : null,
+    eodTime: { short: eodShort(i.eodTime), long: eodLong(i.eodTime) },
   };
 }
 
@@ -615,7 +624,7 @@ export async function loadTargetsTile(sb: SupabaseClient, ctx: Ctx): Promise<Tar
   const lines = tileTargets(targets).map((t) => {
     const p = t.cadence === "day" ? { start: ctx.today, end: ctx.today } : week;
     const v = countIn(t.key, bundle.facts, p.start, p.end).value;
-    return { id: t.id, name: t.name, sub: tileTargetLine(t, v, ctx.today), figure: figure(t, v), label: t.cadence === "day" ? "Today" : "This week", tone: (v >= t.number ? "met" : t.cadence === "week" && friday && !v ? "missed" : "plain") as "plain" | "met" | "missed" };
+    return { id: t.id, name: t.name, sub: tileTargetLine(t, v, ctx.today, eodShort(wctx.eodTime)), figure: figure(t, v), label: t.cadence === "day" ? "Today" : "This week", tone: (v >= t.number ? "met" : t.cadence === "week" && friday && !v ? "missed" : "plain") as "plain" | "met" | "missed" };
   });
   const met = metThisWeek(targets, bundle.facts, ctx.today, bundle.skippedDays);
   return {
@@ -624,16 +633,22 @@ export async function loadTargetsTile(sb: SupabaseClient, ctx: Ctx): Promise<Tar
     today: ctx.today,
     lines,
     met: { met: met.met, total: met.total, names: listNames(met.names, 2) || "none yet" },
-    eod: { state: row.status, badge: row.status === "sent" ? "Sent" : row.status === "skipped" ? "Skipped" : "5:30", line: tileEodLine(owed, row.tomorrow, row.status, row.skipReason, friday) },
+    eod: { state: row.status, badge: row.status === "sent" ? "Sent" : row.status === "skipped" ? "Skipped" : eodShort(wctx.eodTime), line: tileEodLine(owed, row.tomorrow, row.status, row.skipReason, friday, eodShort(wctx.eodTime)) },
   };
 }
 
 /** The End of day badge for the menu: "5:30" until the day is closed, then "Sent" or "Skipped". */
-export async function loadEodBadge(sb: SupabaseClient, ownerId: string, today: string): Promise<"5:30" | "Sent" | "Skipped" | null> {
-  const { data, error } = await sb.from("end_of_day").select("status").eq("owner_id", ownerId).eq("day", today).maybeSingle();
+export async function loadEodBadge(sb: SupabaseClient, ownerId: string, today: string): Promise<string | null> {
+  const [{ data, error }, time] = await Promise.all([sb.from("end_of_day").select("status").eq("owner_id", ownerId).eq("day", today).maybeSingle(), loadEodTime(sb, ownerId)]);
   if (error) return null;
   const s = (data as Row | null)?.status;
-  return s === "sent" ? "Sent" : s === "skipped" ? "Skipped" : "5:30";
+  return s === "sent" ? "Sent" : s === "skipped" ? "Skipped" : eodShort(time);
+}
+
+/** The End of day time from Settings, Work settings (push D): "17:30" unless changed. */
+export async function loadEodTime(sb: SupabaseClient, ownerId: string): Promise<string> {
+  const { data } = await sb.from("inputs").select("value_text").eq("owner_id", ownerId).eq("key", "end_of_day_time").maybeSingle();
+  return parseTime((data as Row | null)?.value_text) ?? DEFAULT_EOD_TIME;
 }
 
 export type { DayNumbers, Judged, Target, TargetView, WeekNumbers, WeekTile };

@@ -11,7 +11,7 @@ import { explainGoogleError } from "@/lib/google-errors";
 import { getGoogleConnection, sendGmailMessage } from "@/lib/google";
 import { sendPermission } from "@/lib/google-scopes";
 import { sentEmailCommunication } from "@/lib/calc/sent-email";
-import { DB_UPDATE_NOTICE_0025, isMissingSchemaError } from "@/lib/schema-guard";
+import { DB_UPDATE_NOTICE_0025, DB_UPDATE_NOTICE_PUSH_D, isMissingSchemaError } from "@/lib/schema-guard";
 import { recordWorkEvent } from "@/lib/accountability/events";
 import { buildEndOfDay, factsSince, loadEodRow, loadFacts, loadOwedFromSkipped, loadPartners, loadSentCopies, loadTargets, type EndOfDayPage, type PartnerCopy } from "@/lib/accountability/data";
 import { cleanPartnerSettings } from "@/lib/accountability/partners";
@@ -20,7 +20,7 @@ import { TODO_MAX_LENGTH } from "@/lib/work/questions";
 import { nextTodoPosition } from "@/lib/work/todos";
 import { reasonsPrompt, validateReasonsReply, type ReasonDraft } from "@/lib/accountability/ask-ai";
 import { reportInnerHtml, reportSubject, reportText } from "@/lib/accountability/report-email";
-import { cleanChoices, hasChoices, type ReportChoices } from "@/lib/accountability/report-sections";
+import { cleanChoices, cleanReview, hasChoices, type ReportChoices, type WeeklyReview } from "@/lib/accountability/report-sections";
 import { personHref } from "@/lib/work/people";
 import { countable, isCountKey, noReasonText, owedReasons, reportSummary, type Cadence } from "@/lib/accountability/targets";
 import { loadWorkCtx } from "@/lib/work/data";
@@ -189,6 +189,25 @@ export async function saveTomorrow(day: string, text: string): Promise<{ ok: tru
   return { ok: true };
 }
 
+/**
+ * The Weekly review on Friday's End of day (push D): the three answers, merged by key (what went well, what slipped,
+ * next week's focus). They go into Friday's report to each partner who gets the Weekly review section.
+ */
+export async function saveWeeklyReview(day: string, patch: Partial<WeeklyReview>): Promise<{ ok: true; review: WeeklyReview } | Fail> {
+  const s = await setup();
+  if (isFail(s)) return s;
+  const { sb, ctx } = s;
+  const row = await ensureEod(sb, ctx, day);
+  if (isFail(row)) return row;
+  if (row.status !== "open") return fail(`Today is already ${row.status}.`);
+  if (!("weekly_review" in row)) return fail(DB_UPDATE_NOTICE_PUSH_D);
+  const review = cleanReview({ ...cleanReview(row.weekly_review), ...Object.fromEntries(Object.entries(patch ?? {}).filter(([k]) => ["well", "slipped", "focus"].includes(k))) });
+  const { error } = await sb.from("end_of_day").update({ weekly_review: review }).eq("id", row.id);
+  if (error) return fail(isMissingSchemaError(error) ? DB_UPDATE_NOTICE_PUSH_D : `Not saved: ${error.message}`);
+  done();
+  return { ok: true, review };
+}
+
 /** The copy a per-partner action is about: that partner's, or the first one when none is named. */
 function copyOf(page: EndOfDayPage, contactId: string | null | undefined): PartnerCopy | null {
   return page.copies.find((c) => c.partner.id === contactId) ?? (contactId ? null : page.copies[0] ?? null);
@@ -242,7 +261,7 @@ export async function putShortReport(day: string, contactId?: string | null): Pr
 async function loadPage(sb: SupabaseClient, ctx: Ctx, day: string): Promise<EndOfDayPage> {
   const wctx = await loadWorkCtx(sb, ctx.ownerId);
   const [targets, bundle, row, partners, owed, sent] = await Promise.all([loadTargets(sb, ctx.ownerId), loadFacts(sb, wctx, factsSince(day)), loadEodRow(sb, ctx.ownerId, day), loadPartners(sb, ctx.ownerId), loadOwedFromSkipped(sb, ctx.ownerId, day), loadSentCopies(sb, ctx.ownerId, day)]);
-  return buildEndOfDay({ targets, bundle, row, partners, sent, owed, day, tz: ctx.tz, threshold: wctx.threshold });
+  return buildEndOfDay({ targets, bundle, row, partners, sent, owed, day, tz: ctx.tz, threshold: wctx.threshold, eodTime: wctx.eodTime });
 }
 
 function owedCount(page: EndOfDayPage): number {

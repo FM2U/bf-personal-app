@@ -1,3 +1,4 @@
+import { eodShort } from "@/lib/work/settings";
 import Link from "next/link";
 import { requireOwner } from "@/lib/auth";
 import { loadCtx } from "@/lib/engine/helpers";
@@ -70,7 +71,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
   const partner = d.partner;
   let figures: HeaderFigure[] = headerFigures({ nextDue: person.nextFollowUp, hasNext: !!person.nextFollowUp || !!person.followUpFor, nextLabel: "Next follow-up", openTasks: openTodos(d.tasks).length, lastContactAt: person.lastContactOn, lastContactKind: person.lastContactKind }, d.today, fmt);
   if (partner) {
-    const next = partner.nextReport ? (partner.nextReport === d.today ? "Today 5:30" : fmtDate(partner.nextReport, "EEE MMM d")) : "None";
+    const next = partner.nextReport ? (partner.nextReport === d.today ? `Today ${eodShort(partner.eodTime)}` : fmtDate(partner.nextReport, "EEE MMM d")) : "None";
     figures = [
       { key: "next", value: next, label: "Next report", tone: partner.nextReport === d.today ? "today" : "none" },
       { key: "tasks", value: partner.lastReplyOn ? fmt(partner.lastReplyOn) : "None", label: "Last reply", tone: "none" },
