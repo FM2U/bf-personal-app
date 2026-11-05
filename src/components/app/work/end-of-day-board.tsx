@@ -575,7 +575,7 @@ function TodayDrawer({ part, n, threshold, dateLabel, onClose }: { part: TodayPa
   else if (part.key === "done") items = n.actionsDoneList.map((a) => ({ name: a.name, detail: a.label || null }));
   else {
     items = n.waits.map((w) => ({ name: w.name, detail: `${w.days} days${w.who ? ` · ${w.who}` : ""}`, note: w.what ? `Waiting on: ${w.what}${w.since ? `, since ${w.since}` : ""}` : null, tone: w.days >= threshold * 2 ? "red" : "plain" }));
-    empty = `Nobody has kept you waiting over ${threshold} days.`;
+    empty = `Nobody has kept you waiting ${threshold}+ days.`;
   }
   return (
     <Drawer open onOpenChange={(o) => !o && onClose()} title={DRAWER_TITLE[part.key]} sub={`${dateLabel} · ${part.value} ${part.words}`} testId="eod-today-drawer">

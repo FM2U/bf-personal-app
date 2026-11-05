@@ -379,7 +379,7 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
         </div>
 
         <div className="flex min-w-0 flex-col gap-[18px] desk:h-full desk:overflow-y-auto desk:overscroll-contain desk:pb-0.5" data-testid="home-right">
-          <WorkCard id="now-wait" title="Waiting on someone" count={waitCount} sub={`Amber at ${threshold} days, red at ${threshold * 2}`} testId="now-wait" pinned headerClassName="sticky top-0 z-[2]" className="max-h-[340px] shrink-0 overflow-y-auto overscroll-contain">
+          <WorkCard id="now-wait" title="Waiting on someone" count={waitCount} sub="Items waiting on external parties" testId="now-wait" pinned headerClassName="sticky top-0 z-[2]" className="max-h-[340px] shrink-0 overflow-y-auto overscroll-contain">
             {waitCount ? (
               <StickySections under="card" always className="px-[22px] pb-3">
                 {waiting.map((w) => {
@@ -796,7 +796,7 @@ function GlanceTile({ glance, threshold }: { glance: WorkNowData["glance"]; thre
     { key: "early", label: "Early", n: glance.early, href: "/work/deals" },
     { key: "evaluate", label: "Evaluate", n: glance.evaluate, href: "/work/deals" },
     { key: "decide", label: "Decide", n: glance.decide, href: "/work/deals" },
-    { key: "wait", label: `Waiting over ${threshold} days`, n: glance.waitingOver, href: "/work/deals?filter=wait", warn: true },
+    { key: "wait", label: `Waiting ${threshold}+ days`, n: glance.waitingOver, href: "/work/deals?filter=wait", warn: true },
     { key: "needs", label: "Needs a next action", n: glance.needsAction, href: "/work/deals?filter=needs", warn: true },
   ];
   return (

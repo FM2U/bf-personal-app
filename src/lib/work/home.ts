@@ -1,7 +1,7 @@
 /**
  * Home (Work on now) as the bento of mockup v6 (approved 2026-10-31), pure and tested in src/lib/work/home.test.ts:
  * the sections of the Next actions card (Overdue, Due today, Needs a next action), the sections of Waiting on someone
- * (over and under the threshold), the filter pills (the same four as Deals, counted over the rows on the page), and
+ * (at or past the threshold, and less than it), the filter pills (the same four as Deals, counted over the rows on the page), and
  * the Deals at a glance counts. The filters run in the browser over the deals the page already loaded.
  */
 import { groupByPhase, type FilterableDeal } from "@/lib/work/phases";
@@ -10,13 +10,13 @@ export type HomeRow = FilterableDeal & { id: string; waitDays: number; stageName
 
 type WaitSectionKey = "over" | "under";
 
-/** "Over 5 days" (at or past the threshold) and "Under 5 days", for the Waiting on someone card. */
+/** "5+ days" (at or past the threshold: a deal waiting exactly 5 days is here) and "Less than 5 days", for the Waiting on someone card. */
 export function waitSections<T extends HomeRow>(deals: readonly T[], threshold: number): { key: WaitSectionKey; label: string; deals: T[] }[] {
   const t = Math.max(1, Math.round(threshold));
   const waiting = deals.filter((d) => d.status === "open" && d.waitLevel !== "none");
   return [
-    { key: "over", label: `Over ${t} days`, deals: waiting.filter((d) => d.waitDays >= t) },
-    { key: "under", label: `Under ${t} days`, deals: waiting.filter((d) => d.waitDays < t) },
+    { key: "over", label: `${t}+ days`, deals: waiting.filter((d) => d.waitDays >= t) },
+    { key: "under", label: `Less than ${t} days`, deals: waiting.filter((d) => d.waitDays < t) },
   ];
 }
 

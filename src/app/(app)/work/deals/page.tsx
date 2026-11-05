@@ -22,7 +22,7 @@ export default async function DealsPage({ searchParams }: { searchParams: Promis
   const sp = await searchParams;
   const d = await loadDeals(supabase, ownerId);
   const tabs = await loadTabCounts(supabase, ownerId, d.today);
-  const summary = d.available ? [`Acquisition`, `${d.active} active`, d.waitingOver ? `${d.waitingOver} waiting over ${d.threshold} days` : null].filter(Boolean).join(" · ") : "";
+  const summary = d.available ? [`Acquisition`, `${d.active} active`, d.waitingOver ? `${d.waitingOver} waiting ${d.threshold}+ days` : null].filter(Boolean).join(" · ") : "";
   const header = (
     <>
       <WorkHeader

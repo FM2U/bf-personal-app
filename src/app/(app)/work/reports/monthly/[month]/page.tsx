@@ -5,7 +5,8 @@ import { date as fmtDate } from "@/lib/format";
 import { loadEodBadge } from "@/lib/accountability/data";
 import { monthLabel, parseMonthSlug } from "@/lib/accountability/monthly";
 import { loadMonthlyReviewPage } from "@/lib/accountability/monthly-data";
-import { AccountabilityTabs } from "@/components/app/nav-links";
+import { AccountabilityTabs, WorkTabs } from "@/components/app/nav-links";
+import { loadTabCounts } from "@/lib/work/data";
 import { AskAiPill } from "@/components/app/work/ask-ai";
 import { MonthlyReviewBoard } from "@/components/app/work/monthly-review-board";
 import { WorkShell, WorkUpdateNotice } from "@/components/app/work/shell";
@@ -31,6 +32,9 @@ export default async function MonthlyReviewPage({ params, searchParams }: { para
   const badge = await loadEodBadge(supabase, ownerId, ctx.today);
   const month = parseMonthSlug(slug);
   const fromHome = sp.from === "home";
+  // The top menu row (under 1024px) follows the crumb, as the left menu does: Work with Home from Work on now, else Accountability.
+  const counts = fromHome ? await loadTabCounts(supabase, ownerId, ctx.today) : null;
+  const menuRow = counts ? <WorkTabs toScreen={counts.toScreen} outreachDue={counts.outreachDue} tight /> : <AccountabilityTabs eodBadge={badge} tight />;
   const crumb = fromHome ? (
     <>
       <Link href="/work" className="text-primary-strong hover:underline" data-testid="monthly-crumb">
@@ -53,7 +57,7 @@ export default async function MonthlyReviewPage({ params, searchParams }: { para
       <WorkShell testId="work-monthly">
         <PinnedBlock testId="monthly-sticky">
           <WorkHeader title="Monthly review" crumb={crumb} />
-          <AccountabilityTabs eodBadge={badge} tight />
+          {menuRow}
         </PinnedBlock>
         <EmptyState title="There is no review for this month." body="A month's review opens on the first workday of the month after it." />
       </WorkShell>
@@ -89,7 +93,7 @@ export default async function MonthlyReviewPage({ params, searchParams }: { para
       <WorkShell testId="work-monthly">
         <PinnedBlock testId="monthly-sticky">
           {title}
-          <AccountabilityTabs eodBadge={badge} tight />
+          {menuRow}
         </PinnedBlock>
         <WorkUpdateNotice notice={d.notice} />
       </WorkShell>
@@ -97,7 +101,7 @@ export default async function MonthlyReviewPage({ params, searchParams }: { para
   }
   return (
     <WorkShell testId="work-monthly">
-      <MonthlyReviewBoard data={d} title={title} tabs={<AccountabilityTabs eodBadge={badge} tight />} />
+      <MonthlyReviewBoard data={d} title={title} tabs={menuRow} />
     </WorkShell>
   );
 }

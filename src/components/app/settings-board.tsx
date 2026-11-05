@@ -74,10 +74,23 @@ export function WorkSettingsCard({ initial }: { initial: WorkSettingsValues }) {
       testId="work-settings"
     >
       <div className="px-[22px] pt-1 pb-3">
-        <KV label="Waiting, amber at" testId="work-settings-threshold">
-          <input value={v.threshold} onChange={set("threshold")} inputMode="numeric" className={NUM} aria-label="Waiting, amber at (days)" data-testid="work-threshold" />
-          <span>days</span>
-          <span className="text-[12.5px] text-muted-foreground">{red ? `red at ${red} (twice that)` : ""}</span>
+        <KV label="Waiting on someone" testId="work-settings-threshold">
+          {/* One sentence after the box: "[5] + days: day count turns amber; red at 10+ (double)". The "+" sits against the
+              box, the doubled number is live, and a wrapped line starts under "+ days", not under the box. */}
+          <span className="flex min-w-0 items-center gap-x-1.5">
+            <input value={v.threshold} onChange={set("threshold")} inputMode="numeric" className={cn(NUM, "shrink-0")} aria-label="Waiting on someone (days)" data-testid="work-threshold" />
+            <span className="min-w-0">
+              + days: day count turns amber
+              {red ? (
+                <>
+                  ;{" "}
+                  <span className="whitespace-nowrap text-muted-foreground" data-testid="work-threshold-red">
+                    red at {red}+ (double)
+                  </span>
+                </>
+              ) : null}
+            </span>
+          </span>
         </KV>
         <KV label="Network outreach" testId="work-settings-outreach">
           <input value={v.outreach} onChange={set("outreach")} inputMode="numeric" className={NUM} aria-label="Network outreach per week" data-testid="work-outreach" />

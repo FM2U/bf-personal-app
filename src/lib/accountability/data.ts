@@ -286,7 +286,7 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
     today: todayTiles(numbers, targets),
     targets: judged.map((j) => ({ id: j.targetId, group: targetGroup(j), text: targetLine(j, j.cadence === "day" ? (weekSums[j.targetId] ?? null) : null, countedDays(day, bundle.skippedDays)), commitment: j.commitment, asks: j.judged && !j.met && j.commitment, reason: j.judged && !j.met && j.commitment ? String(row.reasons[j.targetId] ?? "").trim() || null : null })),
     owed,
-    waits: bundle.waits.filter((w) => w.days > i.threshold).map((w) => ({ id: w.dealId, name: w.name, days: w.days, who: w.who })),
+    waits: bundle.waits.filter((w) => w.days >= i.threshold).map((w) => ({ id: w.dealId, name: w.name, days: w.days, who: w.who })),
     threshold: i.threshold,
     deals,
     jobs,
@@ -402,7 +402,7 @@ export type SentRow = {
 
 type SentSection = { key: string; label: string; hint: string; rows: SentRow[]; collapsed: boolean };
 
-export type ReportsPage = { today: string; partner: Partner | null; partners: Partner[]; periods: PeriodView[]; sent: SentSection[]; /** The four full weeks before this one, newest first (the Past weeks tiles, Edit batch C item 7). */ past: WeekTile[]; mostMissed: { name: string; n: number; of: number } | null };
+export type ReportsPage = { today: string; partner: Partner | null; partners: Partner[]; periods: PeriodView[]; sent: SentSection[]; /** The four full weeks before this one, newest first (the Past weeks tiles, Edit batch C item 7). */ past: WeekTile[]; mostMissed: { name: string; n: number; of: number } | null; /** The waiting threshold from Settings (days): a day count turns amber at it and red at double. */ threshold: number };
 
 export async function loadReportsPage(sb: SupabaseClient, ctx: Ctx): Promise<ReportsPage> {
   const wctx = await loadWorkCtx(sb, ctx.ownerId);
@@ -453,7 +453,7 @@ export async function loadReportsPage(sb: SupabaseClient, ctx: Ctx): Promise<Rep
       words: d.words,
     };
   });
-  return { today: ctx.today, partner, partners, periods, sent: groupSent(sentRows, ctx.today), past: pastWeeks(targets, bundle.facts, ctx.today, bundle.skippedDays, PAST_WEEKS), mostMissed: mostMissed(targets, bundle.facts, ctx.today, bundle.skippedDays) };
+  return { today: ctx.today, partner, partners, periods, sent: groupSent(sentRows, ctx.today), past: pastWeeks(targets, bundle.facts, ctx.today, bundle.skippedDays, PAST_WEEKS), mostMissed: mostMissed(targets, bundle.facts, ctx.today, bundle.skippedDays), threshold: wctx.threshold };
 }
 
 function targetRow(t: Target, bundle: FactsBundle, p: { start: string; end: string }, key: PeriodKey, today: string): PeriodView["targets"][number] {

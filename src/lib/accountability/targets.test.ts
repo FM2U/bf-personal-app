@@ -74,7 +74,7 @@ describe("counting from the facts", () => {
     expect(countIn("follow_ups_on_time", EMPTY_FACTS, "2026-11-02", FRI)).toMatchObject({ value: 100, detail: "none due" });
   });
   it("deals moved, next actions done, and the Rosara focus", () => {
-    expect(countIn("deals_moved", facts, "2026-11-02", FRI)).toMatchObject({ value: 3, detail: "Dalton, Meridian, BrightPath" });
+    expect(countIn("deals_moved", facts, "2026-11-02", FRI)).toMatchObject({ value: 3, detail: "Dalton, Meridian and 1 more" });
     expect(countIn("next_actions_done", facts, FRI, FRI).value).toBe(2);
     expect(countIn("rosara_focus_done", facts, "2026-10-26", "2026-10-30")).toMatchObject({ value: 1, detail: "KarmaKare landing page, done Thursday" });
     expect(countIn("rosara_focus_done", facts, "2026-11-02", FRI).value).toBe(0);
@@ -237,7 +237,7 @@ describe("the report's numbers and the email", () => {
     const text = reportText(d);
     expect(text).toContain("TODAY\n- Listings screened: 3 of 5 (2 passed (Too small, Retail), 1 Interested: Industrial Filtration Distributor)");
     expect(text).toContain("Missed\n  - Listings screened: 3 of 5 today, 19 of 25 this week\n    - Commitment. Reason: Deal work filled the block");
-    expect(text).toContain("Waiting on brokers over 5 days\n  - Summit Logistics Group: 11 days, Mark Reed");
+    expect(text).toContain("Waiting on brokers 5+ days\n  - Summit Logistics Group: 11 days, Mark Reed");
     expect(text).toContain("MONDAY\nMonday: finish the Meridian model before 10");
     expect(text).toMatch(/Thank you,\nBram$/);
   });
@@ -264,13 +264,16 @@ describe("Edit batch C: the target pill, what a target counts, exceeded reads me
   });
   it("the Today strip: six figures in order with their words, each with the items behind it", () => {
     const n = dayNumbers(facts, FRI, [{ name: "Summit Logistics Group", days: 11, who: "Mark Reed", what: "A seller call", since: "Oct 26" }, { name: "Oakline Dental Lab", days: 2, who: null, what: "The CIM", since: null }], 5);
-    expect(todayStrip(n, 5).map((p) => `${p.value} ${p.words}`)).toEqual(["3 screened", "1 moved", "2 calls", "2 emails", "2 next actions done", "1 waiting over 5 days"]);
+    expect(todayStrip(n, 5).map((p) => `${p.value} ${p.words}`)).toEqual(["3 screened", "1 moved", "2 calls", "2 emails", "2 next actions done", "1 waiting 5+ days"]);
     expect(n.screenedList.map((x) => `${x.name} ${x.outcome} ${x.reason ?? ""}`.trim())).toEqual(["Fri 1 passed Too small", "Fri 2 passed Retail", "Industrial Filtration Distributor interested"]);
     expect(n.contactsList.filter((c) => c.kind === "call").map((c) => c.name)).toEqual(["Priya Natarajan", "Carla Jenkins"]);
     expect(n.contactsList.filter((c) => c.kind === "email").map((c) => c.name)).toEqual(["Tom Baker", "Someone not on Contacts"]);
     expect(n.actionsDoneList).toEqual([{ name: "Meridian Industrial Coatings", label: "Finish the model" }, { name: "Dalton Services", label: "Call Carla" }]);
     const one = dayNumbers({ ...EMPTY_FACTS, comms: [{ on: FRI, method: "call", contactId: "p1", contactName: "A", broker: false }] }, FRI, [], 5);
     expect(todayStrip(one, 5).find((p) => p.key === "calls")!.words).toBe("call");
+    // A wait of exactly the threshold counts in "5+ days"; one day under does not.
+    const edge = dayNumbers(EMPTY_FACTS, FRI, [{ name: "At five", days: 5, who: null, what: null, since: null }, { name: "At four", days: 4, who: null, what: null, since: null }], 5);
+    expect(edge.waits.map((w) => w.name)).toEqual(["At five"]);
   });
 });
 

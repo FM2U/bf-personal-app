@@ -9,7 +9,7 @@ import { date as fmtDate } from "@/lib/format";
 import { nextTargetText, targetLineOf, type MonthResult, type NextTarget } from "@/lib/accountability/monthly";
 import type { MonthlyReviewPage } from "@/lib/accountability/monthly-data";
 import { StatusMark, Switch } from "@/components/app/work/targets-ui";
-import { Confirm, Figure, Line1, Line2, Name, Pill, PinnedBlock, WorkCard } from "@/components/app/work/ui";
+import { Confirm, Figure, Line1, Line2, Name, Pill, PinnedBlock, ROW_GRIDS, WorkCard } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
 
 /**
@@ -185,8 +185,8 @@ function WentCard({ data }: { data: MonthlyReviewPage }) {
 function WentRow({ r }: { r: MonthResult }) {
   const allMet = r.weeks > 0 && r.weeksMet === r.weeks;
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_22px_82px] items-center gap-x-3 gap-y-1 border-t border-slate-100 px-[22px] py-[11px] first:border-t-0 sm:grid-cols-[minmax(0,1fr)_22px_82px_86px] sm:gap-x-4" data-testid="monthly-went-row" data-target={r.name} data-met={allMet ? "1" : "0"}>
-      <div className="min-w-0">
+    <div className={cn("grid items-center gap-y-1 border-t border-slate-100 px-[22px] py-[11px] first:border-t-0", ROW_GRIDS.monthlyWent.cls, ROW_GRIDS.monthlyWent.gapCls)} data-testid="monthly-went-row" data-target={r.name} data-met={allMet ? "1" : "0"}>
+      <div className={cn("min-w-0", ROW_GRIDS.monthlyWent.textMarginCls)} data-row-text>
         <Line1>
           <Name>{r.name}</Name>
           {r.commitment ? <Pill tone="blue">Commitment</Pill> : null}

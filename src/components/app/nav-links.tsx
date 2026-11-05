@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { ACCOUNTABILITY_TABS, MAIN_NAV, mainFor, moduleFor, WORK_TABS, workTabFor } from "@/lib/nav";
+import { usePathname, useSearchParams } from "next/navigation";
+import { ACCOUNTABILITY_TABS, MAIN_NAV, mainFor, menuPath, moduleFor, WORK_TABS, workTabFor } from "@/lib/nav";
 import { cn } from "@/lib/utils";
 import { ModuleIcon } from "@/components/app/module-icon";
 import { useWorkTabOverride } from "@/components/app/work-tab-override";
@@ -34,12 +34,19 @@ function tabBadge(href: string, toScreen: number | null | undefined, outreachDue
   return null;
 }
 
+/** The address the menus go by: the Monthly review opened from Work on now belongs to Work > Home (src/lib/nav.ts). */
+function useMenuPath(): string {
+  const path = usePathname();
+  const from = useSearchParams().get("from");
+  return menuPath(path, from);
+}
+
 /**
  * The main menu: Work, Accountability, More. Under Work (while it is open), its eight screens with the count of
  * listings to screen and the count of people due on Outreach (`toScreen`, `outreachDue`, read by the app layout).
  */
 export function SidebarLinks({ toScreen, outreachDue, eodBadge }: { toScreen?: number | null; outreachDue?: number | null; eodBadge?: EodBadge }) {
-  const path = usePathname();
+  const path = useMenuPath();
   const active = mainFor(path).key;
   const override = useWorkTabOverride();
   const tab = override ? (WORK_TABS.find((t) => t.href === override) ?? workTabFor(path)) : workTabFor(path);
@@ -102,7 +109,7 @@ const TOP_ROW = "no-print -mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0 lg:hidden";
 
 /** The Accountability tabs (batch C): Targets, End of day with its badge, Reports, in the Work tab style (under 1024px). */
 export function AccountabilityTabs({ eodBadge, tight = false }: { eodBadge?: EodBadge; tight?: boolean }) {
-  const path = usePathname();
+  const path = useMenuPath();
   const active = ACCOUNTABILITY_TABS.find((t) => path === t.href || path.startsWith(`${t.href}/`)) ?? null;
   return (
     <div className={cn(TOP_ROW, tight ? "mb-0" : "mb-6 border-b border-border")} data-testid="top-menu-row">
@@ -128,7 +135,7 @@ export function AccountabilityTabs({ eodBadge, tight = false }: { eodBadge?: Eod
 
 /** The Work tabs (Home, Screen listings with the count, Deals, Contacts with the due count, Rosara, Job search, Consulting, To-dos), in the module tab style (under 1024px). */
 export function WorkTabs({ toScreen, outreachDue, tight = false, className }: { toScreen?: number | null; outreachDue?: number | null; /** No space or line under the tabs (a pinned block with no filter row draws the hairline itself). */ tight?: boolean; className?: string }) {
-  const path = usePathname();
+  const path = useMenuPath();
   const override = useWorkTabOverride();
   const tab = override ? (WORK_TABS.find((t) => t.href === override) ?? workTabFor(path)) : workTabFor(path);
   return (
@@ -154,7 +161,7 @@ export function WorkTabs({ toScreen, outreachDue, tight = false, className }: { 
 }
 
 export function MobileModuleBar() {
-  const path = usePathname();
+  const path = useMenuPath();
   const active = mainFor(path).key;
   return (
     <nav className="flex gap-1 overflow-x-auto px-4 pb-2 lg:hidden" aria-label="Main menu">

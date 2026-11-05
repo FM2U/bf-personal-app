@@ -7,7 +7,7 @@
 
 /** The settings rows the Work settings card writes, with their labels for the inputs table. */
 export const WORK_SETTING_KEYS = {
-  threshold: { key: "waiting_threshold_days", label: "Waiting, amber at (days)", unit: "number", description: "A deal waiting on someone this many days shows amber; twice as many, red." },
+  threshold: { key: "waiting_threshold_days", label: "Waiting on someone (days)", unit: "number", description: "Waiting on someone: at this many days or more, a deal's day count turns amber; at double, red." },
   outreach: { key: "outreach_weekly_target", label: "Network outreach per week", unit: "number", description: "The weekly outreach counter on Contacts and Home." },
   eodTime: { key: "end_of_day_time", label: "End of day time", unit: "text", description: "The time End of day shows for the report, weekdays (HH:MM, 24-hour)." },
 } as const;
@@ -47,7 +47,7 @@ const whole = (v: unknown) => {
 /** The Work settings card's values checked for Save; the first problem as one plain sentence. */
 export function cleanWorkSettings(input: { threshold: unknown; outreach: unknown; eodTime: unknown; blockMinutes: unknown }): { ok: true; value: WorkSettings } | { ok: false; error: string } {
   const threshold = whole(input.threshold);
-  if (!(threshold >= 1 && threshold <= 60)) return { ok: false, error: "Waiting, amber at: a whole number of days from 1 to 60." };
+  if (!(threshold >= 1 && threshold <= 60)) return { ok: false, error: "Waiting on someone: a whole number of days from 1 to 60." };
   const outreach = whole(input.outreach);
   if (!(outreach >= 1 && outreach <= 200)) return { ok: false, error: "Network outreach: a whole number from 1 to 200 per week." };
   const eodTime = parseTime(input.eodTime);

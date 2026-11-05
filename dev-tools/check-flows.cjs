@@ -3465,8 +3465,8 @@ const expectText = async (page, text) => {
       (select count(*)::int from pipeline_items i join pipeline_stages s on s.id = i.stage_id where i.status = 'open' and i.screened and s.name in ('CIM review', 'Broker call', 'Seller call', 'Model')) evaluate,
       (select count(*)::int from pipeline_items i join pipeline_stages s on s.id = i.stage_id where i.status = 'open' and i.screened and s.name in ('Partner presentation', 'IOI or LOI', 'Diligence')) decide`);
     if (glance.early !== inDb.early || glance.evaluate !== inDb.evaluate || glance.decide !== inDb.decide) throw new Error(`glance: ${JSON.stringify(glance)} vs ${JSON.stringify(inDb)}`);
-    if (glance.wait !== 2) throw new Error("Waiting over 5 days should count the two long waits");
-    // Sections: Overdue (Meridian), Due today, Needs a next action (none in the sample); Waiting over and under 5 days.
+    if (glance.wait !== 2) throw new Error("Waiting 5+ days should count the two long waits");
+    // Sections: Overdue (Meridian), Due today, Needs a next action (none in the sample); Waiting 5+ days and less than 5 days.
     const sections = await page.getByTestId("home-section").evaluateAll((els) => els.map((e) => [e.dataset.section, e.querySelector("[data-testid=section-heading]")?.dataset.count]));
     if (sections.map((x) => x[0]).join(",") !== "overdue,today,needs,wait-over,wait-under") throw new Error(`sections: ${JSON.stringify(sections)}`);
     if (Number(sections[0][1]) < 1 || Number(sections[1][1]) < 3 || Number(sections[3][1]) !== 2) throw new Error(`section counts: ${JSON.stringify(sections)}`);
@@ -3542,7 +3542,7 @@ const expectText = async (page, text) => {
     await page.getByTestId("collapse-all").click();
     await page.waitForFunction(() => document.querySelector("[data-testid=collapse-all]")?.innerText.trim() === "Collapse all");
     if ((await shownRows()) !== (await pill("all"))) throw new Error("Expand all shows every row");
-    // Deals at a glance: "Waiting over 5 days" opens Deals with the Waiting on someone filter on; "Needs a next action" too.
+    // Deals at a glance: "Waiting 5+ days" opens Deals with the Waiting on someone filter on; "Needs a next action" too.
     await page.locator("[data-testid=glance-row][data-key=wait]").click();
     await page.waitForURL(/\/work\/deals\?filter=wait$/);
     await page.getByTestId("deals-columns").waitFor();
@@ -5497,14 +5497,14 @@ const expectText = async (page, text) => {
     if (style !== "rgb(213, 219, 227)|rgba(0, 0, 0, 0)|rgb(51, 65, 85)|12.5px|1px") throw new Error(`the pill: ${style}`);
     const lines = await page.getByTestId("target-line").allInnerTexts();
     if (!lines.every((l) => l.startsWith("Counts ")) || lines.some((l) => /target \d|Per week/.test(l))) throw new Error(`lines: ${lines.join(" | ")}`);
-    // A long name wraps inside its column and still keeps 32px from the mark.
+    // A long name wraps inside its column and still keeps 48px from the mark (2026-11-05).
     await pg.query("update targets set name = 'Listings screened from the broker newsletters and the two marketplaces every weekday' where name = 'Listings screened'");
     try {
       await page.reload();
       await page.getByTestId("target-row").first().waitFor();
       const gaps = await textGap("[data-testid=target-row]", "[data-testid=status-mark]");
       if (gaps.length !== 6 || new Set(gaps.map((g) => g.x)).size !== 1) throw new Error(`the marks shift: ${JSON.stringify(gaps)}`);
-      if (gaps.some((g) => g.gap < 32)) throw new Error(`text within 32px of the mark: ${JSON.stringify(gaps)}`);
+      if (gaps.some((g) => g.gap < 48)) throw new Error(`text within 48px of the mark: ${JSON.stringify(gaps)}`);
       const figs = await page.getByTestId("target-row").evaluateAll((els) => [...new Set(els.map((e) => Math.round(e.querySelector("[data-row-right]").getBoundingClientRect().left)))]);
       if (figs.length !== 1) throw new Error(`the figures shift: ${figs.join(",")}`);
     } finally {
@@ -5549,7 +5549,7 @@ const expectText = async (page, text) => {
     const parts = await page.getByTestId("eod-today-part").evaluateAll((els) => els.map((e) => [e.dataset.key, Number(e.dataset.count), e.innerText.trim()]));
     if (parts.map((p) => p[0]).join(",") !== "screened,moved,calls,emails,done,waits") throw new Error(`the strip: ${JSON.stringify(parts)}`);
     const strip = (await page.getByTestId("eod-today").innerText()).replace(/\s+/g, " ");
-    if (!/^Today: \d+ screened · \d+ moved · \d+ calls? · \d+ emails? · \d+ next actions? done · \d+ waiting over \d+ days$/.test(strip)) throw new Error(`the strip reads: ${strip}`);
+    if (!/^Today: \d+ screened · \d+ moved · \d+ calls? · \d+ emails? · \d+ next actions? done · \d+ waiting \d+\+ days$/.test(strip)) throw new Error(`the strip reads: ${strip}`);
     const db = await one(`select count(*) filter (where method = 'email')::int emails, count(*) filter (where method in ('call','meeting','video'))::int calls from communications
       where direction <> 'incoming' and not awaiting_log and (occurred_at at time zone 'America/New_York')::date = $1`, [eodDay()]);
     if (parts[2][1] !== db.calls || parts[3][1] !== db.emails) throw new Error(`calls and emails ${parts[2][1]}, ${parts[3][1]} vs ${db.calls}, ${db.emails} in the database`);
@@ -5571,9 +5571,9 @@ const expectText = async (page, text) => {
     const below = await page.evaluate(() => { const rows = [...document.querySelectorAll("[data-testid=eod-target]")]; const h = document.querySelector("[data-testid=eod-owed-heading]").getBoundingClientRect(); const o = document.querySelector("[data-testid=eod-owed]").getBoundingClientRect(); return h.top >= rows[rows.length - 1].getBoundingClientRect().bottom - 1 && o.top >= h.bottom - 1; });
     if (!below) throw new Error("the owed rows sit under their heading, below today's targets");
     if ((await page.getByTestId("eod-owed").first().innerText()).includes("Owed from")) throw new Error("the owed pill should be gone from the row");
-    // The 32px gap and the same x on every target row (today's and the owed ones).
+    // The 48px gap and the same x on every target row (today's and the owed ones).
     const gaps = await textGap("[data-testid=eod-target], [data-testid=eod-owed]", "[data-testid=status-mark]");
-    if (new Set(gaps.map((g) => g.x)).size !== 1 || gaps.some((g) => g.gap < 32)) throw new Error(`target rows: ${JSON.stringify(gaps)}`);
+    if (new Set(gaps.map((g) => g.x)).size !== 1 || gaps.some((g) => g.gap < 48)) throw new Error(`target rows: ${JSON.stringify(gaps)}`);
     // The report preview's Today notes are not cut off in the wider column.
     const cut = await page.getByTestId("report-preview").evaluate((el) => [...el.querySelectorAll("td, div, span")].filter((e) => e.children.length === 0 && e.textContent.trim() && (e.scrollWidth > e.clientWidth + 1 || e.scrollHeight > e.clientHeight + 1) && getComputedStyle(e).overflow !== "visible").map((e) => e.textContent.trim()));
     if (cut.length) throw new Error(`cut off in the preview: ${cut.join(" | ")}`);

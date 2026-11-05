@@ -36,6 +36,16 @@ export const WORK_TABS: NavTab[] = [
   { href: "/work/todos", label: "To-dos" },
 ];
 
+/**
+ * The address the menus go by (2026-11-05). The Monthly review lives under /work/reports/monthly/<month>; opened from
+ * Work on now (?from=home) its crumb reads "Work on now › Monthly review", so the menus show Work > Home there too.
+ * Opened from Reports (crumb "Reports › Monthly reviews") it stays under Accountability > Reports.
+ */
+export function menuPath(path: string, from: string | null | undefined): string {
+  if (path.startsWith("/work/reports/monthly/") && from === "home") return "/work";
+  return path;
+}
+
 /** The main menu item a path belongs to (for the active state in the menu). */
 export function mainFor(path: string): NavModule {
   if (isAccountabilityPath(path)) return MAIN_NAV[1];

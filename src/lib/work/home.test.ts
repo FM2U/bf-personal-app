@@ -8,10 +8,14 @@ describe("Home", () => {
   it("splits the waits at the threshold", () => {
     const deals = [row("eleven", { waitLevel: "red", waitDays: 11 }), row("five", { waitLevel: "amber", waitDays: 5 }), row("two", { waitLevel: "quiet", waitDays: 2 }), row("none")];
     const w = waitSections(deals, 5);
-    expect(w.map((x) => x.label)).toEqual(["Over 5 days", "Under 5 days"]);
+    expect(w.map((x) => x.label)).toEqual(["5+ days", "Less than 5 days"]);
     expect(w[0].deals.map((d) => d.id)).toEqual(["eleven", "five"]);
     expect(w[1].deals.map((d) => d.id)).toEqual(["two"]);
-    expect(waitSections(deals, 7)[0].label).toBe("Over 7 days");
+    // Exactly at the threshold counts in "N+ days"; one day under does not.
+    const edge = waitSections([row("seven", { waitLevel: "amber", waitDays: 7 }), row("six", { waitLevel: "quiet", waitDays: 6 })], 7);
+    expect(edge[0].deals.map((d) => d.id)).toEqual(["seven"]);
+    expect(edge[1].deals.map((d) => d.id)).toEqual(["six"]);
+    expect(waitSections(deals, 7)[0].label).toBe("7+ days");
   });
   it("counts Deals at a glance by phase, waiting over the threshold, and needs a next action", () => {
     const groups = WORK_STAGES.map((name) => ({ stage: { name }, deals: [] as { status: string; nextAction: string | null; waitLevel: string }[] }));

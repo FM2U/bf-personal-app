@@ -126,7 +126,7 @@ export function ReportsBoard({ data, title, tabs, view: viewAtStart, period: per
       {view === "monthly" ? (
         <MonthlyList items={monthly} />
       ) : view === "week" ? (
-        <WeekView p={p} first={first} past={data.past} mostMissed={data.mostMissed} active={period} onOpen={(k) => pickPeriod(k, true)} />
+        <WeekView p={p} first={first} past={data.past} mostMissed={data.mostMissed} threshold={data.threshold} active={period} onOpen={(k) => pickPeriod(k, true)} />
       ) : (
         <WorkCard title="Sent reports" hint={replyNote ? undefined : "By email · a sent report never changes · replies from Gmail"} actions={replyNote ? <span className="text-[12.5px] text-status-soon" data-testid="replies-reconnect">{replyNote} <Link href="/settings" className="font-medium underline">Open Settings</Link></span> : undefined} testId="sent-reports-card">
           <div className="px-[22px] pb-2" data-testid="sent-sections">
@@ -244,7 +244,7 @@ function GroupHeading({ children, note, testId }: { children: React.ReactNode; n
  * keeps you waiting), "What moved" (deals moved, passed by reason), and "Trend" (the past weeks tiles with Most missed
  * over 7 weeks). Nothing repeats between a tile and a card: the tiles carry last week's figures, the cards the names.
  */
-function WeekView({ p, first, past, mostMissed, active, onOpen }: { p: PeriodView; first: string; past: WeekTile[]; mostMissed: ReportsPage["mostMissed"]; active: PeriodKey; onOpen: (k: PeriodKey) => void }) {
+function WeekView({ p, first, past, mostMissed, threshold, active, onOpen }: { p: PeriodView; first: string; past: WeekTile[]; mostMissed: ReportsPage["mostMissed"]; /** The waiting threshold from Settings (days). */ threshold: number; active: PeriodKey; onOpen: (k: PeriodKey) => void }) {
   const needs = p.targets.filter((t) => !t.met);
   const month = p.key === "month";
   return (
@@ -280,10 +280,10 @@ function WeekView({ p, first, past, mostMissed, active, onOpen }: { p: PeriodVie
               {!p.targets.length ? <p className="px-[22px] py-3 text-[13px] text-muted-foreground">No targets yet.</p> : !needs.length ? <p className="px-[22px] py-3 text-[13px] text-status-met" data-testid="report-targets-all-met">Every target is met {p.words}.</p> : null}
             </Rows>
           </WorkCard>
-          <WorkCard title={`Waiting on brokers ${p.key === "this" ? "" : "now"}`.trim()} hint="Amber at 5 days, red at 10" testId="report-waits">
+          <WorkCard title={`Waiting on brokers ${p.key === "this" ? "" : "now"}`.trim()} hint={`Day count turns amber at ${threshold}+ days, red at ${threshold * 2}+`} testId="report-waits">
             <Rows>
               {p.waits.map((w) => (
-                <Row key={w.dealId} name={w.who ?? w.name} line={`${w.who ? `${w.name} · ` : ""}${w.what}${w.since ? ` · since ${w.since}` : ""}`} figure={String(w.days)} label="Days" tone={w.days >= 10 ? "missed" : w.days >= 5 ? "amber" : "plain"} />
+                <Row key={w.dealId} name={w.who ?? w.name} line={`${w.who ? `${w.name} · ` : ""}${w.what}${w.since ? ` · since ${w.since}` : ""}`} figure={String(w.days)} label="Days" tone={w.days >= threshold * 2 ? "missed" : w.days >= threshold ? "amber" : "plain"} />
               ))}
               {!p.waits.length ? <p className="px-[22px] py-3 text-[13px] text-muted-foreground">Nobody is keeping you waiting.</p> : null}
             </Rows>

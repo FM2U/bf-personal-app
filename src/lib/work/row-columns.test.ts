@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FIGURE_COLS_GAP, ROW_COLS, ROW_GRIDS, TEXT_GAP } from "@/components/app/work/ui";
+import { FIGURE_COLS_GAP, ROW_COLS, ROW_GRIDS, TARGET_TEXT_GAP, TEXT_GAP } from "@/components/app/work/ui";
 
 /**
  * The alignment rule (Edit batch B, item 5): every figure and button column on a row has a fixed width sized for its
@@ -43,9 +43,11 @@ describe("the fixed row columns", () => {
  */
 type Track = { fr: true } | { px: number };
 const tracks = (cls: string): Track[] => {
-  const inner = (cls.match(/grid-cols-\[(.+)\]/) ?? [])[1];
+  const inner = (cls.match(/grid-cols-\[([^\]]+)\]/) ?? [])[1];
   return inner.split("_").map((t) => (t === "minmax(0,1fr)" ? { fr: true as const } : { px: Number(t.replace("px", "")) }));
 };
+/** Each layout a grid class string holds (the phone one and, when there is one, the sm: one), as its own grid. */
+const layoutsOf = <G extends { cls: string }>(grid: G): G[] => [...grid.cls.matchAll(/grid-cols-\[[^\]]+\]/g)].map((m) => ({ ...grid, cls: m[0] }));
 /** The left x of every column and the text's right edge, for a card content width; the text column never grows past its share. */
 const layout = (grid: { cls: string; gap: number; textMargin: number }, width: number, textNeeds: number) => {
   const t = tracks(grid.cls);
@@ -68,22 +70,23 @@ describe("the fixed gap before the figure and mark columns (Edit batch C)", () =
     expect(TEXT_GAP.cls).toBe("sm:gap-x-8");
   });
 
-  for (const [name, grid] of Object.entries(ROW_GRIDS)) {
+  for (const [name, grid] of Object.entries(ROW_GRIDS).flatMap(([n, g]) => layoutsOf(g).map((x, i, all) => [all.length > 1 ? `${n} (${i ? "sm" : "phone"})` : n, x] as const))) {
     it(`${name} rows: text column first and flexible, every other column fixed`, () => {
       const t = tracks(grid.cls);
       expect("fr" in t[0]).toBe(true);
       for (const tr of t.slice(1)) expect("px" in tr && tr.px > 0).toBe(true);
-      expect(grid.gap + grid.textMargin).toBeGreaterThanOrEqual(TEXT_GAP.px);
+      // The Targets rows keep 48px before the status mark (2026-11-05).
+      expect(grid.gap + grid.textMargin).toBeGreaterThanOrEqual(TARGET_TEXT_GAP.px);
       expect(grid.gapCls).toMatch(new RegExp(`gap-x-${grid.gap / 4}$`));
       expect(grid.textMarginCls).toMatch(new RegExp(`mr-${grid.textMargin / 4}$`));
     });
 
-    it(`${name} rows: the mark and figure columns sit at the same x with short and long text, 32px clear of the text`, () => {
+    it(`${name} rows: the mark and figure columns sit at the same x with short and long text, 48px clear of the text`, () => {
       for (const width of [460, 560, 900]) {
         const short = layout(grid, width, 90);
         const long = layout(grid, width, 4000);
         expect(long.xs).toEqual(short.xs);
-        for (const l of [short, long]) expect(l.xs[1] - l.textRight).toBeGreaterThanOrEqual(TEXT_GAP.px);
+        for (const l of [short, long]) expect(l.xs[1] - l.textRight).toBeGreaterThanOrEqual(TARGET_TEXT_GAP.px);
       }
     });
   }

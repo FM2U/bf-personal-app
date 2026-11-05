@@ -8,7 +8,7 @@
  * Sections, in order: Today (tiles), Targets, Top 3 deals, Active today (Friday: Active this week), Waiting on
  * brokers, Job search, The week (Fridays, tiles), Weekly review (Fridays, push D: the three answers), Tomorrow (or
  * Monday). A list section is parent lines with child
- * lines under them ("Waiting on brokers over 5 days" over "Summit Logistics Group: 11 days, Mark Reed").
+ * lines under them ("Waiting on brokers 5+ days" over "Summit Logistics Group: 11 days, Mark Reed").
  */
 import type { ReportTile } from "@/lib/accountability/targets";
 import type { TileStatus } from "@/lib/calc/partner-report";
@@ -72,7 +72,7 @@ export type ReportData = {
   targets: ReportTarget[];
   /** The reasons owed from a skipped day ("Owed from Monday"). */
   owed: { dayWord: string; items: { id: string; text: string; reason: string | null }[] } | null;
-  /** Open waits on brokers over the threshold, longest first. */
+  /** Open waits on brokers at or past the threshold, longest first. */
   waits: { id: string; name: string; days: number; who: string | null }[];
   threshold: number;
   /** Open acquisition deals (the Top 3 candidates), furthest along first. */
@@ -290,13 +290,13 @@ export function buildSections(d: ReportData): BuiltSection[] {
     push({ key: "active", kind: "list", tiles: [], blocks, line: null, text: blocksText(blocks), choices: active.map((x) => ({ id: x.id, label: x.name, on: !h.has(x.id) })), pick: null, emptyAfterChange: !shown.length, quiet: null });
   }
 
-  // Waiting on brokers over the threshold.
+  // Waiting on brokers at or past the threshold.
   {
     const h = hid("waiting");
     const shown = d.waits.filter((w) => !h.has(w.id));
     const red = shown.some((w) => w.days >= d.threshold * 2);
-    const blocks: Block[] = shown.length ? [{ title: `Waiting on brokers over ${d.threshold} days`, tone: red ? "red" : "amber", items: shown.map((w) => ({ id: w.id, line: { lead: w.name, text: `${w.days} days${w.who ? `, ${w.who}` : ""}` } })) }] : [];
-    push({ key: "waiting", kind: "list", tiles: [], blocks, line: null, text: blocksText(blocks), choices: d.waits.length ? d.waits.map((w) => ({ id: w.id, label: w.name, on: !h.has(w.id) })) : null, pick: null, emptyAfterChange: !shown.length && d.waits.length > 0, quiet: d.waits.length ? null : `No deal has been waiting on a broker over ${d.threshold} days.` });
+    const blocks: Block[] = shown.length ? [{ title: `Waiting on brokers ${d.threshold}+ days`, tone: red ? "red" : "amber", items: shown.map((w) => ({ id: w.id, line: { lead: w.name, text: `${w.days} days${w.who ? `, ${w.who}` : ""}` } })) }] : [];
+    push({ key: "waiting", kind: "list", tiles: [], blocks, line: null, text: blocksText(blocks), choices: d.waits.length ? d.waits.map((w) => ({ id: w.id, label: w.name, on: !h.has(w.id) })) : null, pick: null, emptyAfterChange: !shown.length && d.waits.length > 0, quiet: d.waits.length ? null : `No deal has been waiting on a broker ${d.threshold}+ days.` });
   }
 
   // Job search: the top 3 opportunities the same way, then the others worked on in the period.

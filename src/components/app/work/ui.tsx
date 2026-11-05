@@ -25,6 +25,8 @@ import { DockingActions, SlimBar } from "@/components/app/work/slim-bar";
  * longer; the text columns wrap inside their own width. The widths are in ROW_COLS (one place to edit, tested).
  * Edit batch C (items 4 and 8): on Outreach, Targets, and End of day the text column keeps a reserved 32px gap
  * (TEXT_GAP) before the first figure or mark column, so wrapped text never touches it; the grids are in ROW_GRIDS.
+ * 2026-11-05: the Targets rows (Targets, End of day, the Monthly review's How the month went) keep 48px
+ * (TARGET_TEXT_GAP) before the status mark.
  */
 
 /** The space between the figure columns of a listing row (REVENUE, EBITDA, ASKING; Edit batch C round 2, item 2): about 28px. */
@@ -33,16 +35,21 @@ export const FIGURE_COLS_GAP = { px: 28, cls: "gap-x-7" } as const;
 /** The reserved gap between a row's text and its first figure or mark column (Edit batch C, items 4 and 8). */
 export const TEXT_GAP = { px: 32, cls: "sm:gap-x-8" } as const;
 
+/** The wider gap the Targets rows keep between their text and the status mark (2026-11-05): the grid gap plus the text's right margin. */
+export const TARGET_TEXT_GAP = { px: 48 } as const;
+
 /**
  * The fixed grids of the target rows (Edit batch C, item 8): the text column takes what is left and wraps; every other
  * column has a fixed width, so the mark and the figures sit at the same x on every row. `gap` is the grid's column gap
- * and `textMargin` the text cell's right margin: together they make TEXT_GAP before the mark.
+ * and `textMargin` the text cell's right margin: together they make TARGET_TEXT_GAP (48px) before the mark.
  */
 export const ROW_GRIDS = {
   /** Targets: the text, the status mark (22px), the two figures (82px each, 24px apart), the Commitment switch and Edit. */
-  target: { cls: "sm:grid-cols-[minmax(0,1fr)_22px_188px_202px]", gap: 16, gapCls: "sm:gap-x-4", textMargin: 16, textMarginCls: "sm:mr-4" },
-  /** End of day: the text, the status mark (22px), the figure (82px). */
-  eodTarget: { cls: "grid-cols-[minmax(0,1fr)_22px_82px]", gap: 16, gapCls: "gap-x-4", textMargin: 16, textMarginCls: "mr-4" },
+  target: { cls: "sm:grid-cols-[minmax(0,1fr)_22px_188px_202px]", gap: 16, gapCls: "sm:gap-x-4", textMargin: 32, textMarginCls: "sm:mr-8" },
+  /** End of day (its Targets rows and the "Owed from" rows): the text, the status mark (22px), the figure (82px). */
+  eodTarget: { cls: "grid-cols-[minmax(0,1fr)_22px_82px]", gap: 16, gapCls: "gap-x-4", textMargin: 32, textMarginCls: "mr-8" },
+  /** The Monthly review's How the month went: the text, the status mark (22px), Weeks met (82px), and Average (86px; under Weeks met on the phone). */
+  monthlyWent: { cls: "grid-cols-[minmax(0,1fr)_22px_82px] sm:grid-cols-[minmax(0,1fr)_22px_82px_86px]", gap: 16, gapCls: "gap-x-4", textMargin: 32, textMarginCls: "mr-8" },
 } as const;
 
 /**

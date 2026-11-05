@@ -149,8 +149,8 @@ export function countIn(key: CountKey, f: Facts, start: string, end: string): Co
   }
 }
 
-/** "Dalton, Meridian, BrightPath" or "Dalton, Meridian and 4 more". */
-export function listNames(names: readonly string[], max = 3): string {
+/** "Dalton, Meridian" or "Dalton, Meridian and 4 more": at most two names on a target's line (2026-11-05), then the count. */
+export function listNames(names: readonly string[], max = 2): string {
   const list = names.filter(Boolean);
   if (list.length <= max) return list.join(", ");
   return `${list.slice(0, max).join(", ")} and ${list.length - max} more`;
@@ -520,7 +520,7 @@ export type DayNumbers = {
   outreachToday: Count;
   outreachWeek: Count;
   actionsDone: Count;
-  /** Open waits on brokers over the threshold: "Summit Logistics Group (11 days, Mark Reed)". */
+  /** Open waits on brokers at or past the threshold: "Summit Logistics Group (11 days, Mark Reed)". */
   waits: { name: string; days: number; who: string | null; what: string | null; since: string | null }[];
   /** Every open wait (for the average on Reports). */
   allWaits: { name: string; days: number; who: string | null; what: string | null; since: string | null }[];
@@ -543,7 +543,7 @@ export function dayNumbers(f: Facts, day: string, waits: DayNumbers["allWaits"],
     outreachToday: countIn("outreach_contacts", f, day, day),
     outreachWeek: countIn("outreach_contacts", f, week.start, week.end),
     actionsDone: countIn("next_actions_done", f, day, day),
-    waits: waits.filter((w) => w.days > threshold),
+    waits: waits.filter((w) => w.days >= threshold),
     allWaits: waits,
     screenedList: f.screened.filter((x) => x.on === day).map((x) => ({ name: x.name, outcome: x.outcome, reason: x.reason })),
     contactsList: f.comms.filter((c) => c.on === day && (c.method === "email" || isCall(c.method))).map((c) => ({ name: c.contactName ?? "Someone not on Contacts", kind: c.method === "email" ? ("email" as const) : ("call" as const), method: c.method })),
@@ -553,7 +553,7 @@ export function dayNumbers(f: Facts, day: string, waits: DayNumbers["allWaits"],
 
 /**
  * The Today strip at the top of End of day (Edit batch C, item 10): "Today: 4 screened · 0 moved · 0 calls · 0 emails
- * · 0 next actions done · 2 waiting over 5 days". Each part is a link to its drawer. The figures are the same counts
+ * · 0 next actions done · 2 waiting 5+ days". Each part is a link to its drawer. The figures are the same counts
  * as the report's Today tiles (dayNumbers).
  */
 export type TodayPart = { key: "screened" | "moved" | "calls" | "emails" | "done" | "waits"; value: number; words: string };
@@ -565,7 +565,7 @@ export function todayStrip(n: DayNumbers, threshold: number): TodayPart[] {
     { key: "calls", value: n.calls.value, words: n.calls.value === 1 ? "call" : "calls" },
     { key: "emails", value: n.emails.value, words: n.emails.value === 1 ? "email" : "emails" },
     { key: "done", value: n.actionsDone.value, words: n.actionsDone.value === 1 ? "next action done" : "next actions done" },
-    { key: "waits", value: n.waits.length, words: `waiting over ${threshold} days` },
+    { key: "waits", value: n.waits.length, words: `waiting ${threshold}+ days` },
   ];
 }
 

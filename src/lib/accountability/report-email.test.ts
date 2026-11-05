@@ -20,7 +20,7 @@ const d: ReportData = {
 describe("the report email's formatting", () => {
   it("draws every list as a parent line with simple ul/li children, inline styles only", () => {
     const html = reportInnerHtml(d);
-    expect(html).toMatch(/Waiting on brokers over 5 days<\/div><ul style="[^"]+"><li style="[^"]+"><b>Summit Logistics Group:<\/b> 11 days, Mark Reed<\/li><\/ul>/);
+    expect(html).toMatch(/Waiting on brokers 5\+ days<\/div><ul style="[^"]+"><li style="[^"]+"><b>Summit Logistics Group:<\/b> 11 days, Mark Reed<\/li><\/ul>/);
     // Targets: the group, one child per target, the details as a child line under it.
     expect(html).toMatch(/>Missed<\/div><ul [^>]+><li [^>]+>Listings screened: 3 of 5 today, 8 of 10 this week<ul [^>]+><li [^>]+>Commitment. Reason: Two CIMs came in<\/li><\/ul><\/li><\/ul>/);
     // Top 3: the deal, then Stage, Status, Next step.

@@ -89,6 +89,28 @@ const until = async (fn, msg, tries = 60) => {
   };
   const tileCount = async (key) => Number(await page.getByTestId("home-tiles").locator(`[data-testid="status-tile"][data-key="${key}"]`).getAttribute("data-count"));
   const todoLine = (text) => page.getByTestId("personal-todo").filter({ hasText: text }).first();
+  /** For each row: the space between the right edge of the text it draws (wrapped lines and pills included) and the left of its status mark. */
+  const markGaps = (selector) =>
+    page.locator(selector).evaluateAll((els) =>
+      els
+        .filter((e) => e.getBoundingClientRect().height > 0)
+        .map((e) => {
+          const text = e.querySelector("[data-row-text]");
+          const mark = e.querySelector("[data-testid=status-mark]");
+          if (!text || !mark) return null;
+          let right = 0;
+          const walk = document.createTreeWalker(text, NodeFilter.SHOW_TEXT);
+          for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+            if (!n.textContent.trim()) continue;
+            const r = document.createRange();
+            r.selectNodeContents(n);
+            for (const rect of r.getClientRects()) right = Math.max(right, rect.right);
+          }
+          for (const el of text.querySelectorAll("[data-testid=target-pill], span.rounded-full")) right = Math.max(right, el.getBoundingClientRect().right);
+          return { gap: Math.round(mark.getBoundingClientRect().left - right), x: Math.round(mark.getBoundingClientRect().left), line: text.innerText.split("\n").pop() };
+        })
+        .filter(Boolean),
+    );
 
   await step("Sample data loads with the push D records; Google is connected through the stand-in", async () => {
     if ((await one("select count(*)::int n from sample_records")).n === 0) {
@@ -303,6 +325,23 @@ const until = async (fn, msg, tries = 60) => {
     await shot(page, "friday-end-of-day-weekly-review.png", true);
   });
 
+  await step("End of day Targets rows (2026-11-05): the text stops at least 48px before the status mark; a names line lists at most two names, then 'and N more'", async () => {
+    await page.goto(`${BASE}/work/end-of-day`);
+    await page.getByTestId("eod-targets").waitFor();
+    const gaps = await markGaps("[data-testid=eod-target], [data-testid=eod-owed]");
+    assert(gaps.length > 0 && new Set(gaps.map((g) => g.x)).size === 1, `the marks line up: ${JSON.stringify(gaps)}`);
+    assert(gaps.every((g) => g.gap >= 48), `text within 48px of the mark: ${JSON.stringify(gaps)}`);
+    for (const g of gaps) {
+      const m = g.line.match(/· ([^·]+) and (\d+) more$/);
+      if (m) assert(m[1].split(",").length <= 2, `more than two names: ${g.line}`);
+    }
+    if (SHOTS) await page.getByTestId("eod-targets").screenshot({ path: path.join(SHOTS, `${friday ? "friday" : "monday"}-end-of-day-targets.png`) });
+    await page.goto(`${BASE}/work/targets`);
+    await page.getByTestId("target-row").first().waitFor();
+    const tGaps = await markGaps("[data-testid=target-row]");
+    assert(tGaps.length > 0 && new Set(tGaps.map((g) => g.x)).size === 1 && tGaps.every((g) => g.gap >= 48), `Targets rows: ${JSON.stringify(tGaps)}`);
+  });
+
   await step(friday ? "Friday's report: Weekly review in each partner's copy with include, Change, Edit; a partner who unticks it on their page does not get it" : "Monday's report: no Weekly review section", async () => {
     await page.goto(`${BASE}/work/end-of-day`);
     await page.getByTestId("report-view").click();
@@ -379,8 +418,13 @@ const until = async (fn, msg, tries = 60) => {
     await page.waitForURL(new RegExp(`/work/reports/monthly/${slug}`));
     await page.getByTestId("monthly-went").waitFor();
     assert((await page.getByTestId("monthly-crumb").innerText()) === "Work on now", "crumb from Home");
+    // The left menu follows the crumb: Work open with Home current, Accountability closed (2026-11-05).
+    assert((await page.getByTestId("work-subnav").locator("a.font-semibold").innerText()).startsWith("Home"), "the menu shows Work > Home");
+    assert((await page.getByTestId("accountability-subnav").count()) === 0, "Accountability is not open");
     assert((await page.title()).startsWith("Monthly review:"), await page.title());
     assert((await page.getByTestId("monthly-went-row").count()) === 6 && (await page.getByTestId("monthly-next-row").count()) === 6, "six targets");
+    const wentGaps = await markGaps("[data-testid=monthly-went-row]");
+    assert(wentGaps.length === 6 && new Set(wentGaps.map((g) => g.x)).size === 1 && wentGaps.every((g) => g.gap >= 48), `How the month went rows: ${JSON.stringify(wentGaps)}`);
     assert(/\(not yet\)/.test(await page.getByTestId("monthly-step-export").innerText()), "export not yet");
     assert((await page.getByTestId("monthly-finish-note").innerText()) === "Export not downloaded yet. You can still finish.", "the note");
     // Cards side by side line up: the two title rows are level.
@@ -390,8 +434,10 @@ const until = async (fn, msg, tries = 60) => {
     const phone = await browser.newContext({ viewport: { width: 390, height: 844 } });
     await phone.addCookies([cookie]);
     const pp = await phone.newPage();
-    await pp.goto(`${BASE}/work/reports/monthly/${slug}`);
+    await pp.goto(`${BASE}/work/reports/monthly/${slug}?from=home`);
     await pp.getByTestId("monthly-went").waitFor();
+    // The phone menu follows too: Work with Home current in the top row.
+    assert(/border-primary/.test((await pp.getByTestId("work-tab-work").getAttribute("class")) ?? ""), "the phone menu shows Home");
     const over = await pp.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert(over <= 0, `phone page scrolls sideways by ${over}px`);
     if (SHOTS) await pp.screenshot({ path: path.join(SHOTS, "phone-monthly-review.png"), fullPage: true });
@@ -451,6 +497,8 @@ const until = async (fn, msg, tries = 60) => {
     await page.getByTestId("work-outreach").fill("12");
     await page.getByTestId("work-eod-time").fill("17:45");
     await page.getByTestId("work-block-minutes").fill("45");
+    // The waiting row reads "Waiting on someone [6] + days: day count turns amber; red at 12+ (double)", the doubled number live.
+    assert((await page.getByTestId("work-settings-threshold").innerText()).replace(/\s+/g, " ").includes("Waiting on someone + days: day count turns amber; red at 12+ (double)"), await page.getByTestId("work-settings-threshold").innerText());
     await page.locator("#s-work").scrollIntoViewIfNeeded();
     await shot(page, "settings-work-settings.png");
     await page.getByTestId("work-settings-save").click();
@@ -459,7 +507,13 @@ const until = async (fn, msg, tries = 60) => {
     const b = await one("select default_block_minutes m from owner_profile");
     assert(JSON.stringify(v.map((x) => x.n ?? x.t)) === JSON.stringify(["17:45", 12, 6]) && b.m === 45, JSON.stringify([v, b]));
     await page.goto(`${BASE}/work`);
-    assert((await page.getByTestId("now-wait").innerText()).includes("Amber at 6 days, red at 12"), "the waiting line follows");
+    // The Waiting on someone card: the fixed subtitle, and the two groups named from the threshold.
+    const waitText = await page.getByTestId("now-wait").innerText();
+    assert(waitText.includes("Items waiting on external parties"), "the waiting subtitle");
+    const waitHeads = await page.locator("[data-testid=now-wait] [data-testid=home-section] [data-testid=section-heading]").allInnerTexts();
+    assert(/6\+ days/i.test(waitHeads[0] ?? "") && /Less than 6 days/i.test(waitHeads[1] ?? ""), `the waiting groups follow: ${waitHeads}`);
+    await page.goto(`${BASE}/work/reports`);
+    assert((await page.getByTestId("report-waits").innerText()).includes("Day count turns amber at 6+ days, red at 12+"), "the Reports waiting hint follows");
     await page.goto(`${BASE}/work/targets`);
     const badge = await page.getByTestId("subnav-eod-badge").getAttribute("data-badge");
     assert(badge === "Sent" || badge === "5:45", `badge ${badge}`);
