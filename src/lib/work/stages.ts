@@ -5,6 +5,7 @@
  * say "Follow up" since update 0021; Broker call moved after CIM review and the NDA signed default became "Ask the
  * broker for the CIM" in update 0024, Edit batch B); these helpers read them by name.
  */
+import { parseReplyWait } from "@/lib/work/reply-wait";
 import { daysBetween } from "@/lib/calc/dates";
 
 /** The nine working stages, in order. Passed, Lost, and Closed come after them and are not part of the progress mark. */
@@ -104,9 +105,9 @@ export function followUpDraft(i: { dealName: string; waitingOn: string | null; c
   const first = String(i.contactName ?? "").trim().split(/\s+/)[0] || "there";
   const what = String(i.waitingOn ?? "").trim();
   const since = i.days >= 2 ? ` It has been ${i.days} days, so I wanted to make sure it did not get lost.` : "";
-  // A wait made from an email ("Reply to your email: Pinecrest LOI", or "A reply to: ..." saved before Nov 5).
-  const reply = /^(?:Reply to your email(?::\s*(.*))?|A reply to:\s*(.*))$/.exec(what);
-  const subject = reply ? String(reply[1] ?? reply[2] ?? "").trim() : "";
+  // A wait made from an email ("Dana Whitfield's reply to your email "Pinecrest LOI"", or an older wording).
+  const reply = parseReplyWait(what);
+  const subject = reply?.subject ?? "";
   const topic = reply ? (subject ? `your reply to my email about ${subject}` : "your reply to my email") : what ? `${what.charAt(0).toLowerCase()}${what.slice(1)}` : "the next step";
   return {
     subject: `Following up on ${i.dealName}`,

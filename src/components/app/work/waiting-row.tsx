@@ -4,6 +4,7 @@ import Link from "next/link";
 import { date as fmtDate } from "@/lib/format";
 import { daysLabel } from "@/lib/work/stages";
 import type { NoReplyRow as NoReplyData, WaitItem, WaitItemLine } from "@/lib/work/waiting";
+import { repliedLabel, replyWaitName } from "@/lib/work/reply-wait";
 import { LanePill, Line1, Line2, Name, Pill, RowButton, RowShell, waitTone } from "@/components/app/work/ui";
 
 /**
@@ -13,7 +14,7 @@ import { LanePill, Line1, Line2, Name, Pill, RowButton, RowShell, waitTone } fro
  * (the editor is held by the Home board, so it stays open while the row moves to another group after the send).
  * Sending logs the email on the deal or person and starts that wait again from today ("Followed up"). When a reply
  * arrived in the thread of the email a wait came from (Add to Waiting) or of its follow-up, that line shows the green
- * "Replied Nov 6" and Clear (which removes that wait) in place of Follow up; it does not clear by itself, because the
+ * "Dana replied Nov 6" (the first name of the person the email went to; item 3 of 2026-11-05) and Clear (which removes that wait) in place of Follow up; it does not clear by itself, because the
  * reply may not settle it. A person row carries the Contacts area pill (deal rows have none, as on Next actions). The
  * days pills sit in one fixed column and the buttons at the right edge, so the lines line up when their text wraps. A
  * click on the row outside the buttons and the name opens the deal or person.
@@ -74,7 +75,7 @@ function WaitLineRow({ line, followedUp, onFollowUp, onClear, clearing }: { line
         {line.repliedOn ? (
           <span className="ml-auto flex items-center gap-2">
             <Pill tone="green" testId="waiting-replied">
-              Replied {fmtDate(line.repliedOn, "MMM d")}
+              {repliedLabel(replyWaitName(line.waitingOn) ?? line.contactName, fmtDate(line.repliedOn, "MMM d"))}
             </Pill>
             <RowButton tone="cobalt" onClick={onClear} disabled={clearing} data-testid="waiting-clear">
               {clearing ? "Clearing..." : "Clear"}

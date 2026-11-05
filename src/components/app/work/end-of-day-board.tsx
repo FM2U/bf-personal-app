@@ -3,14 +3,14 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Eye } from "lucide-react";
+import { Check, Eye } from "lucide-react";
 import { approveAndSend, saveReasons, saveTomorrow, saveWeeklyReview, skipToday, putShortReport } from "@/app/actions/accountability";
 import type { ReasonDraft } from "@/lib/accountability/ask-ai";
 import type { EndOfDayPage } from "@/lib/accountability/data";
-import { dueLine, sendLabel } from "@/lib/accountability/partners";
-import { includesLine, REVIEW_QUESTIONS, reviewAnswered, type WeeklyReview } from "@/lib/accountability/report-sections";
+import { dueLine, getsLabel, sendLabel } from "@/lib/accountability/partners";
+import { includesLine, REVIEW_QUESTIONS, reviewAnswered, sentSections, type WeeklyReview } from "@/lib/accountability/report-sections";
 import { ReportWindow } from "@/components/app/work/report-window";
-import { DONE_AREAS, judgedMark, MARK_WORD, owedReasons, statusItems, todayStrip, type DayNumbers, type Judged, type TodayPart } from "@/lib/accountability/targets";
+import { DONE_AREAS, judgedMark, MARK_WORD, owedReasons, sendChecklist, todayStrip, type DayNumbers, type Judged, type TodayPart } from "@/lib/accountability/targets";
 import type { AskContext } from "@/lib/work/ask-ai";
 import { AccountabilityTabs, type EodBadge } from "@/components/app/nav-links";
 import { AiCardStar, AiFieldStar, AskAiPill, type EodExtras } from "@/components/app/work/ask-ai";
@@ -20,24 +20,29 @@ import { Confirm, Figure, Line1, Line2, Name, Pill, PinnedBlock, ROW_GRIDS, RowB
 import { cn } from "@/lib/utils";
 
 /**
- * End of day (batch C, approved 2026-10-31; Edit batch C items 9 to 12; push B edits 2026-11-03): the status line
- * with the three things to do before sending (each a link to its card, the state live). Two columns at desktop width
- * (the right one about 40% of the width; stacked on the phone). Left, what Bram does: the one-line Today strip, each
- * figure opening a small drawer with the items behind it; the Targets card with the status mark, the Commitment
+ * End of day (batch C, approved 2026-10-31; Edit batch C items 9 to 12; push B edits 2026-11-03). Two columns at desktop
+ * width (the right one about 40% of the width; stacked on the phone), their tops level. Left, what Bram does: the
+ * Today tiles (hybrid of 2026-11-05, Option A: a small TODAY label, then white tiles, a big number over a small-caps
+ * label, 4 a row on desktop and 2 on the phone, Next actions done two tiles wide with its area split; a zero is light
+ * gray, Waiting red above 0), each tile opening a small drawer with the items behind it; the Targets card with the status mark, the Commitment
  * pill, and a one-line reason box on each missed Commitment (the field star drafts it; "Same reason for all" fills
- * every box), with reasons owed from a skipped day under their own heading. Right: the compact "Report to Jake" card
- * (what the report is, its status, what it includes, View report, Approve and send, Edit, Skip today, the due line),
- * then "What matters tomorrow". View report opens the report window (src/components/app/work/report-window.tsx) with
+ * every box), with reasons owed from a skipped day under their own heading. Right: the "Report to Jake" card (hybrid of
+ * 2026-11-05, Option B): the "Before you send" checklist (Reasons, Fridays the Weekly review, Tomorrow's line, each
+ * row a circle that turns into a green check, a click scrolling to its card and outlining it for a moment, "N of M
+ * done" at the right), View report, Approve and send, Edit, Skip today, then a Partner | Gets | Sections table (View
+ * shows a partner's sections as a list); then "What matters tomorrow". View report opens the report window (src/components/app/work/report-window.tsx) with
  * the email exactly as it will be sent and the include box, Change, and Edit on each section. Approve and send works
  * from the card or the window, with the same check for missing reasons.
  *
  * Push D (approved 2026-11-04): on Fridays a Weekly review card under Targets asks three questions (What went well
  * this week, What slipped, Next week's focus); each answer saves when the box loses focus, goes into Friday's report
- * as the Weekly review section (include, Change, Edit like every section), and the status line counts them (2 of 3).
+ * as the Weekly review section (include, Change, Edit like every section), and the checklist counts them (2 of 3).
  */
 const INPUT = "h-9 w-full min-w-0 rounded-[7px] border border-input bg-white px-2.5 text-[13px] text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:bg-slate-50 disabled:text-slate-500";
 const FIG = "w-[82px]";
 const GRID = ROW_GRIDS.eodTarget;
+/** The partner table on the report card: Partner | Gets | Sections | View, the columns the same on every row. */
+const PT_ROW = "grid grid-cols-[minmax(0,0.9fr)_minmax(0,1fr)_minmax(0,1fr)_44px] items-center gap-3";
 const BTN_LG = "inline-flex h-[38px] w-full min-w-0 shrink-0 min-[421px]:w-auto min-[421px]:flex-1 min-[421px]:basis-0 items-center justify-center gap-2 rounded-[7px] border px-4 text-sm font-medium whitespace-nowrap disabled:pointer-events-none disabled:opacity-50";
 
 const newRequestId = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID().replace(/-/g, "") : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`);
@@ -85,13 +90,17 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
   const met = judged.filter((j) => j.judged && j.met).length;
   const judgedCount = judged.filter((j) => j.judged).length;
   const badge: EodBadge = state.status === "sent" ? "Sent" : state.status === "skipped" ? "Skipped" : data.eodTime.short;
-  const items = statusItems(owedLeft, tomorrow, state.status, state.sentTime, data.review ? reviewAnswered(review) : null);
+  const checks = sendChecklist(owedLeft, tomorrow, data.tomorrowLabel, data.review ? reviewAnswered(review) : null);
+  const checksDone = checks.filter((c) => c.done).length;
+  /** The partner whose sections show under the table (View). */
+  const [openPartner, setOpenPartner] = useState<string | null>(null);
   const page: AskContext = { page: "end_of_day", label: `End of day, ${data.dateLabel}` };
   // What is still missing before sending: the reasons and the tomorrow line.
   const needs = [owedLeft ? `${owedLeft} ${owedLeft === 1 ? "reason" : "reasons"} still needed` : null, data.review && reviewAnswered(review) < 3 ? `Weekly review ${reviewAnswered(review)} of 3` : null, !tomorrow.trim() ? `${data.tomorrowLabel === "Monday" ? "Monday's" : "Tomorrow's"} line still empty` : null].filter((x): x is string => !!x);
   const reportTitle = copies.length > 1 ? `Reports to ${toNames(copies)}` : partner ? `Report to ${first}` : "Report";
   const kind = data.friday ? "Daily and week report" : "Daily report";
-  const due = copies.some((c) => c.sentAt) && unsent.length ? `Sent to ${toNames(copies.filter((c) => c.sentAt))}; ${toNames(unsent)} still to send` : dueLine(data.partners, day);
+  // Sent to one partner and not yet to another (a failed send): said under the buttons.
+  const partly = copies.some((c) => c.sentAt) && unsent.length ? `Sent to ${toNames(copies.filter((c) => c.sentAt))}; ${toNames(unsent)} still to send` : null;
 
   // The tomorrow box starts at two lines and grows with wrapped text.
   useEffect(() => {
@@ -183,15 +192,21 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
       el?.scrollIntoView({ block: "center", behavior: "smooth" });
     }, 0);
   };
+  /** A checklist row: scroll to its card and outline it for a moment. */
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const goCard = (id: string) => {
     const el = document.getElementById(id);
     if (!el) return;
     const pad = (document.querySelector<HTMLElement>("[data-testid=eod-sticky]")?.offsetHeight ?? 0) + 16;
     window.scrollTo({ top: Math.max(0, el.getBoundingClientRect().top + window.scrollY - pad), behavior: "smooth" });
+    document.querySelectorAll(".field-flash").forEach((x) => x.classList.remove("field-flash"));
+    el.classList.add("field-flash");
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => el.classList.remove("field-flash"), 1400);
   };
   const extras: EodExtras = { day, tomorrow, closed: closed ? (state.status as "sent" | "skipped") : null, onUseReasons: useDrafts, onUseTomorrow: useLine, onUseShort: applyShort };
   const n = data.numbers;
-  const cardIds = { reasons: "eod-targets", review: "eod-review", tomorrow: "eod-tomorrow", send: "report-card" };
+  const cardIds = { reasons: "eod-targets", review: "eod-review", tomorrow: "eod-tomorrow" };
   const checkBox = check ? (
     <Confirm tone="warn" testId="send-check">
       <span>{check}</span>
@@ -204,6 +219,7 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
     </Confirm>
   ) : null;
   const sendLabelNow = sending ? "Sending..." : sendLabel(unsent.length);
+  // Sent or skipped: one line above the checklist (the mockup's Sent state).
   const statusLine =
     state.status === "sent" ? (
       <RStat tone="green">
@@ -211,11 +227,8 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
       </RStat>
     ) : state.status === "skipped" ? (
       <RStat tone="amber">Skipped today</RStat>
-    ) : needs.length ? (
-      <RStat tone="amber">{needs.join(" · ")}</RStat>
-    ) : (
-      <RStat tone="green">Ready to send</RStat>
-    );
+    ) : null;
+  const checkCount = state.status === "sent" ? { text: `Sent ${state.sentTime ?? ""}`.trim(), tone: "green" } : state.status === "skipped" ? { text: "Skipped", tone: "amber" } : checksDone === checks.length ? { text: "All done", tone: "green" } : { text: `${checksDone} of ${checks.length} done`, tone: "plain" };
 
   return (
     <>
@@ -232,20 +245,6 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
           }
         />
         <AccountabilityTabs eodBadge={badge} tight />
-        <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-muted-foreground" data-testid="eod-status" data-owed={owedLeft} data-state={state.status}>
-          <span className="whitespace-nowrap">Before you send:</span>
-          <span className="inline-flex flex-wrap items-center gap-x-2.5 gap-y-1">
-            {items.map((it, i) => (
-              <span key={it.key} className="inline-flex items-center gap-2 whitespace-nowrap" data-testid={`eod-step-${it.key}`} data-word={it.word ?? ""}>
-                {i ? <span className="hidden text-slate-400 sm:inline">·</span> : null}
-                <button type="button" onClick={() => goCard(cardIds[it.key])} className="font-medium text-primary-strong hover:underline">
-                  {it.label}
-                </button>
-                {it.word ? <em className={cn("not-italic", it.tone === "left" ? "font-medium text-status-soon" : it.tone === "done" ? "font-medium text-status-met" : "text-muted-foreground")}>({it.word})</em> : null}
-              </span>
-            ))}
-          </span>
-        </div>
       </PinnedBlock>
 
       {error ? (
@@ -256,7 +255,7 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
 
       <div className="grid grid-cols-1 items-start gap-4 min-[1000px]:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]" data-testid="eod-columns">
         <div className="flex min-w-0 flex-col gap-4" data-testid="eod-left">
-          <TodayStrip parts={todayStrip(n, data.threshold)} onOpen={setDrawer} />
+          <TodayTiles parts={todayStrip(n, data.threshold)} onOpen={setDrawer} />
 
           <WorkCard
             id="eod-targets"
@@ -410,31 +409,31 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
         <div className="flex min-w-0 flex-col gap-4" data-testid="eod-right">
           <WorkCard id="report-card" title={reportTitle} sub={`${kind} · ${data.dateLabel}`} actions={<AiCardStar context={{ ...page, card: "Report" }} extras={extras} />} testId="report-card">
             <div className="px-[22px] pt-3 pb-4">
-              <div data-testid="report-status" data-state={state.status} data-needs={needs.length}>
-                {statusLine}
+              {statusLine ? (
+                <div className="mb-3" data-testid="report-status" data-state={state.status}>
+                  {statusLine}
+                </div>
+              ) : null}
+              <div data-testid="eod-checklist" data-state={state.status} data-done={checksDone} data-total={checks.length} data-owed={owedLeft} data-needs={needs.length}>
+                <div className="flex items-baseline justify-between gap-3 border-b border-rule pb-1.5">
+                  <span className="label-caps">Before you send</span>
+                  <span className={cn("tabular text-[12.5px] font-medium whitespace-nowrap", checkCount.tone === "green" ? "text-status-met" : checkCount.tone === "amber" ? "text-status-soon" : "text-muted-foreground")} data-testid="eod-checklist-count">
+                    {checkCount.text}
+                  </span>
+                </div>
+                <div className="mt-1">
+                  {checks.map((c) => (
+                    <button key={c.key} type="button" onClick={() => goCard(cardIds[c.key])} className="row-hover -mx-2 grid w-[calc(100%+16px)] grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-3 p-2 text-left" data-testid="eod-check" data-key={c.key} data-done={c.done ? "1" : "0"} data-state={c.state}>
+                      <span className={cn("inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border-[1.5px]", c.done ? "border-status-met-solid bg-status-met-bg text-status-met-solid" : "border-input bg-white")} aria-hidden>
+                        {c.done ? <Check className="h-[11px] w-[11px]" strokeWidth={3} /> : null}
+                      </span>
+                      <span className="min-w-0 text-[13.5px] font-medium text-slate-900">{c.label}</span>
+                      <span className={cn("text-right text-[12.5px] font-medium whitespace-nowrap", c.done ? "text-status-met" : "text-status-soon")}>{c.state}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
-              <p className="mt-2 text-[12.5px] leading-[1.5] text-muted-foreground" data-testid="report-includes">
-                {copies.length > 1 ? (
-                  copies.map((c) => (
-                    <span key={c.partner.id} className="block">
-                      {c.partner.first}: {includesLine(c.report)}
-                    </span>
-                  ))
-                ) : copy ? (
-                  <>Includes: {includesLine(copy.report)}</>
-                ) : data.partners.length ? (
-                  <>No partner gets the report today. Each partner&apos;s days are on their page under Contacts.</>
-                ) : (
-                  <>
-                    No accountability partner yet. Add a person under{" "}
-                    <Link href="/work/people?view=people" className="font-medium text-primary-strong hover:underline">
-                      Contacts
-                    </Link>{" "}
-                    with the role Accountability partner.
-                  </>
-                )}
-              </p>
-              <div id="report-acts" className="mt-3.5 flex flex-col gap-2 min-[421px]:flex-row" data-testid="report-acts">
+              <div id="report-acts" className="mt-3 flex flex-col gap-2 min-[421px]:flex-row" data-testid="report-acts">
                 <button type="button" onClick={() => setWindowOpen("view")} disabled={!copies.length} aria-haspopup="dialog" className={cn(BTN_LG, "border-primary-strong bg-white text-primary-strong hover:bg-primary-soft")} data-testid="report-view">
                   <Eye className="h-[15px] w-[15px]" aria-hidden />
                   View report
@@ -462,21 +461,70 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
                   <RowButton onClick={() => setSkipOpen(false)}>Cancel</RowButton>
                 </div>
               ) : null}
-              <div className="mt-2.5 flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[13px]">
-                {state.status === "open" ? (
-                  <>
-                    <button type="button" onClick={() => setWindowOpen("edit")} disabled={!copies.length} className="font-medium text-muted-foreground hover:text-primary-strong" data-testid="report-edit">
-                      Edit
-                    </button>
-                    <button type="button" onClick={() => setSkipOpen(true)} className="font-medium text-muted-foreground hover:text-primary-strong" data-testid="skip-today">
-                      Skip today
-                    </button>
-                  </>
-                ) : null}
-                <span className="min-w-0 text-[12.5px] text-muted-foreground sm:ml-auto sm:text-right" data-testid="report-due-line">
-                  {state.status === "open" ? due : state.status === "sent" ? "Kept under Reports, Sent reports" : `${copies.length > 1 ? "Nobody gets" : `${first} gets`} nothing today`}
-                </span>
-              </div>
+              {state.status === "open" ? (
+                <div className="mt-2.5 flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[13px]">
+                  <button type="button" onClick={() => setWindowOpen("edit")} disabled={!copies.length} className="font-medium text-muted-foreground hover:text-primary-strong" data-testid="report-edit">
+                    Edit
+                  </button>
+                  <button type="button" onClick={() => setSkipOpen(true)} className="font-medium text-muted-foreground hover:text-primary-strong" data-testid="skip-today">
+                    Skip today
+                  </button>
+                  {partly ? (
+                    <span className="min-w-0 text-[12.5px] text-muted-foreground sm:ml-auto sm:text-right" data-testid="report-due-line">
+                      {partly}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
+              {copies.length ? (
+                <div className="mt-4 border-t border-border pt-3.5" data-testid="eod-partners">
+                  <div className={cn(PT_ROW, "border-b border-rule pb-1.5")}>
+                    <span className="label-caps figure-label">Partner</span>
+                    <span className="label-caps figure-label">Gets</span>
+                    <span className="label-caps figure-label">Sections</span>
+                    <span />
+                  </div>
+                  {copies.map((c) => {
+                    const open = openPartner === c.partner.id;
+                    const count = sentSections(c.report).length;
+                    return (
+                      <div key={c.partner.id} className="border-b border-slate-100 last:border-b-0" data-testid="eod-partner" data-partner={c.partner.first} data-open={open ? "1" : "0"}>
+                        <div className={cn(PT_ROW, "py-[9px] text-[13px] text-slate-700")}>
+                          <span className="min-w-0 text-sm font-semibold break-words text-slate-900">{c.partner.first}</span>
+                          <span className="min-w-0" data-testid="eod-partner-gets">
+                            {getsLabel(c.partner.days)}
+                          </span>
+                          <span className="tabular min-w-0" data-testid="eod-partner-count">
+                            {count} {count === 1 ? "section" : "sections"}
+                          </span>
+                          <button type="button" onClick={() => setOpenPartner(open ? null : c.partner.id)} aria-expanded={open} className="text-right text-[12.5px] font-medium text-primary-strong hover:underline" data-testid="eod-partner-view">
+                            {open ? "Hide" : "View"}
+                          </button>
+                        </div>
+                        {open ? (
+                          <p className="pb-[11px] text-[12.5px] leading-[1.55] text-slate-700" data-testid="eod-partner-sections">
+                            {includesLine(c.report)}
+                          </p>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="mt-4 border-t border-border pt-3.5 text-[12.5px] leading-[1.5] text-muted-foreground" data-testid="report-includes">
+                  {data.partners.length ? (
+                    <>No partner gets the report today. Each partner&apos;s days are on their page under Contacts.</>
+                  ) : (
+                    <>
+                      No accountability partner yet. Add a person under{" "}
+                      <Link href="/work/people?view=people" className="font-medium text-primary-strong hover:underline">
+                        Contacts
+                      </Link>{" "}
+                      with the role Accountability partner.
+                    </>
+                  )}
+                </p>
+              )}
             </div>
           </WorkCard>
 
@@ -517,7 +565,7 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
         sub={`${kind} · ${data.dateLabel} · ${state.status === "sent" ? `sent at ${state.sentTime}` : state.status === "skipped" ? "not sent today" : `as it will be sent at ${data.eodTime.long}`}`}
         startEditing={windowOpen === "edit"}
         resetKey={resetKey}
-        footerNote={checkBox ?? (state.status === "open" && needs.length ? `${needs.join(" · ")}. Gaps go out as "(still to give)".` : state.status === "open" ? due : state.status === "sent" ? `Sent to ${toNames(copies)} at ${state.sentTime}.` : "Skipped today. Nothing is sent.")}
+        footerNote={checkBox ?? (state.status === "open" && needs.length ? `${needs.join(" · ")}. Gaps go out as "(still to give)".` : state.status === "open" ? (partly ?? dueLine(data.partners, day)) : state.status === "sent" ? `Sent to ${toNames(copies)} at ${state.sentTime}.` : "Skipped today. Nothing is sent.")}
         sendButton={
           state.status === "open" ? (
             <button type="button" onClick={() => send(false)} disabled={sending || !unsent.length} className="inline-flex h-8 items-center rounded-[7px] border border-primary-solid bg-primary-solid px-3 text-[13px] font-medium text-white hover:bg-primary-solid-hover disabled:opacity-50" data-testid="report-window-send">
@@ -542,29 +590,45 @@ function RStat({ tone, children }: { tone: "green" | "amber"; children: React.Re
 }
 
 /**
- * The one-line Today strip (Edit batch C, item 10): each figure is a link that opens the drawer listing its items.
- * Push E2: "5 next actions done: Deals 2 · Rosara 1" (the split wraps between areas, never inside one), "N to-dos
- * done", and "N waiting 5+ days" with the people waited on.
+ * The Today tiles (hybrid of 2026-11-05, Option A; was the one-line Today strip of Edit batch C, item 10): a small
+ * TODAY label, then a white tile per figure, a big number over a small-caps label. Four a row when the column is wide
+ * enough (desktop), two on the phone; Next actions done is two tiles wide with its area split under the label ("Deals 2
+ * · Rosara 1"; the split wraps between areas, never inside one). A zero is light gray; Waiting is red above 0. Each
+ * tile opens the drawer listing its items. The tiles of a row are the same height, so numbers and labels stay level.
  */
-function TodayStrip({ parts, onOpen }: { parts: TodayPart[]; onOpen: (p: TodayPart) => void }) {
+function TodayTiles({ parts, onOpen }: { parts: TodayPart[]; onOpen: (p: TodayPart) => void }) {
   return (
-    <section className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-border bg-white px-[22px] py-3 text-[13px] text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.04)]" data-testid="eod-today">
-      <span className="font-semibold text-slate-900">Today:</span>
-      {parts.map((p, i) => {
-        const areas = p.detail ? p.detail.split(" · ") : [];
-        return (
-          // The dot follows its figure, so a wrapped second line never starts with one.
-          <span key={p.key} className="inline-flex min-w-0 items-center gap-2">
-            <button type="button" onClick={() => onOpen(p)} className={cn("min-w-0 text-left font-medium hover:underline", p.key === "waits" && p.value ? "text-status-missed" : "text-primary-strong")} data-testid="eod-today-part" data-key={p.key} data-count={p.value}>
-              <span className="whitespace-nowrap">
-                <span className="tabular">{p.value}</span> {p.words}
-                {areas.length ? ":" : ""}
+    <section className="@container min-w-0" aria-label="Today" data-testid="eod-today">
+      <div className="label-caps mb-2 ml-0.5 leading-4" data-testid="eod-today-label">
+        Today
+      </div>
+      <div className="grid grid-cols-2 gap-2 @min-[560px]:grid-cols-4" data-testid="eod-today-tiles">
+        {parts.map((p) => {
+          const areas = p.key === "done" && p.value && p.detail ? p.detail.split(" · ") : [];
+          const alert = p.key === "waits" && p.value > 0;
+          return (
+            <button
+              key={p.key}
+              type="button"
+              onClick={() => onOpen(p)}
+              aria-label={`${p.value} ${p.words}${p.detail ? `: ${p.detail}` : ""}. Show the list.`}
+              className={cn("row-hover flex min-w-0 flex-col items-start rounded-[10px] border border-border bg-white px-3 pt-2.5 pb-[11px] text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:border-input", p.key === "done" && "col-span-2")}
+              data-testid="eod-today-part"
+              data-key={p.key}
+              data-count={p.value}
+              data-alert={alert ? "1" : "0"}
+            >
+              <b className={cn("tabular text-[22px] leading-[26px]", !p.value ? "font-medium text-slate-400" : alert ? "font-semibold text-status-missed" : "font-semibold text-slate-900")} data-testid="eod-today-value">
+                {p.value}
+              </b>
+              <span className="label-caps figure-label mt-1 max-w-full">
+                <span className={alert ? "text-status-missed" : undefined}>{p.words}</span>
               </span>
               {areas.length ? (
-                <span className="font-normal text-slate-600" data-testid="eod-today-areas">
+                <span className="mt-[3px] text-[12px] leading-[1.35] text-slate-600" data-testid="eod-today-areas">
                   {areas.map((a, n) => (
                     <span key={a}>
-                      {" "}
+                      {n ? " " : ""}
                       <span className="whitespace-nowrap">
                         {a}
                         {n < areas.length - 1 ? " ·" : ""}
@@ -574,14 +638,9 @@ function TodayStrip({ parts, onOpen }: { parts: TodayPart[]; onOpen: (p: TodayPa
                 </span>
               ) : null}
             </button>
-            {i < parts.length - 1 ? (
-              <span className="text-slate-400" aria-hidden>
-                ·
-              </span>
-            ) : null}
-          </span>
-        );
-      })}
+          );
+        })}
+      </div>
     </section>
   );
 }
@@ -589,7 +648,7 @@ function TodayStrip({ parts, onOpen }: { parts: TodayPart[]; onOpen: (p: TodayPa
 const DRAWER_TITLE: Record<TodayPart["key"], string> = { screened: "Listings screened today", moved: "Deals moved today", calls: "Calls today", emails: "Emails sent today", done: "Next actions done today", todos: "To-dos done today", waits: "Waiting on someone" };
 
 /**
- * The drawer behind one figure of the Today strip: the items it counts, one per row. Edits of Nov 5 (item 4): each row
+ * The drawer behind one Today tile: the items it counts, one per row. Edits of Nov 5 (item 4): each row
  * is a link to its record (the listing or deal, the person or the deal an email was on, the record a next action was
  * done on, the To-dos page for a to-do), with the shared row hover; it opens in the same tab.
  */

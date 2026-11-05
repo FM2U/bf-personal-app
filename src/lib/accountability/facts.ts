@@ -6,7 +6,8 @@
  * Outgoing emails and calls are the contacts; work events give the follow-ups, next actions done, and the focus done.
  * Push E2: tasks on records checked off count as next actions done in their record's area, and personal to-dos
  * checked off as to-dos done. Edits of Nov 5 (item 4): each fact carries the page it links to on End of day (the
- * listing or deal, the person or the deal an email was on, the record a next action was done on).
+ * listing or deal, the person or the deal an email was on, the record a next action was done on). Item 2 of
+ * 2026-11-05: a follow-up marked Done on Contacts counts toward Follow-ups on time and as a next action done (Contacts).
  */
 import { passReasonLabel } from "@/lib/work/buy-box";
 import { recordHref } from "@/lib/work/task-records";
@@ -108,16 +109,30 @@ export function buildFacts(r: FactsRows): { facts: Facts; passes: Pass[] } {
     const href = onDeal ? itemHref(c.pipeline_item_id) : c.contact_id ? recordHref({ kind: "person", id: String(c.contact_id) }) : itemById.has(String(c.pipeline_item_id ?? "")) ? itemHref(c.pipeline_item_id) : null;
     facts.comms.push({ on, method: String(c.method), contactId: c.contact_id ? String(c.contact_id) : null, contactName: contact?.name ? String(contact.name) : null, broker: contact?.outreach_role === "broker", href });
   }
+  // Item 2 of 2026-11-05: a follow-up marked Done on Contacts is also a next action done, under Contacts (the person's
+  // name, the follow-up note as the action). One Done counts once: a second event for the same person, day, and action
+  // (a next action done on that person, or the same Done recorded twice) is not counted again.
+  const doneOnce = new Set<string>();
+  const onceKey = (type: unknown, id: unknown, on: string, action: string) => (id ? `${String(type)}:${String(id)}:${on}:${action.trim().toLowerCase()}` : null);
   for (const e of r.events) {
     const on = String(e.happened_on).slice(0, 10);
     if (on < r.since) continue;
-    if (e.kind === "follow_up_done") facts.followUps.push({ on, onTime: e.on_time !== false, name: String(e.label ?? "") });
-    else if (e.kind === "next_action_done") {
-      const meta = (e.meta as Row | null) ?? {};
+    const meta = (e.meta as Row | null) ?? {};
+    if (e.kind === "follow_up_done") {
+      facts.followUps.push({ on, onTime: e.on_time !== false, name: String(e.label ?? "") });
+      const action = String(meta.what ?? "").trim() || "Follow up";
+      const key = onceKey("contacts", e.record_id, on, action);
+      if (key && doneOnce.has(key)) continue;
+      if (key) doneOnce.add(key);
+      facts.actionsDone.push({ on, name: String(e.label ?? ""), label: action, area: "Contacts", href: recordPage("contacts", e.record_id) });
+    } else if (e.kind === "next_action_done") {
       const area: DoneArea = e.record_type === "projects" ? "Rosara" : e.record_type === "contacts" || e.record_type === "organizations" ? "Contacts" : itemArea(e.record_id, meta.kind);
-      facts.actionsDone.push({ on, name: String(e.label ?? ""), label: String(meta.action ?? ""), area, href: recordPage(e.record_type, e.record_id, meta.kind) });
-    }
-    else if (e.kind === "focus_done") facts.focusDone.push({ on, text: String(e.label ?? "") });
+      const label = String(meta.action ?? "");
+      const key = e.record_type === "contacts" ? onceKey("contacts", e.record_id, on, label || "Follow up") : null;
+      if (key && doneOnce.has(key)) continue;
+      if (key) doneOnce.add(key);
+      facts.actionsDone.push({ on, name: String(e.label ?? ""), label, area, href: recordPage(e.record_type, e.record_id, meta.kind) });
+    } else if (e.kind === "focus_done") facts.focusDone.push({ on, text: String(e.label ?? "") });
   }
   for (const t of r.tasks ?? []) {
     if (!t.done_at) continue;

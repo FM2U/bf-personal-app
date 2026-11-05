@@ -173,7 +173,9 @@ const shot = async (page, name) => {
       return;
     }
     assert(n === 2 && (await page.getByTestId("report-send").innerText()) === "Approve and send to 2", `send button ${n}`);
-    assert((await page.getByTestId("report-due-line").innerText()) === "Jake gets weekdays; Sarah gets Fridays", await page.getByTestId("report-due-line").innerText());
+    // The partner table (2026-11-05): Partner | Gets | Sections, in place of "Jake gets weekdays; Sarah gets Fridays".
+    const partnerRows = await page.getByTestId("eod-partner").evaluateAll((els) => els.map((e) => [e.dataset.partner, e.querySelector("[data-testid=eod-partner-gets]").textContent.trim()]));
+    assert(JSON.stringify(partnerRows) === JSON.stringify([["Jake", "Weekdays"], ["Sarah", "Fridays"]]), JSON.stringify(partnerRows));
     assert((await page.getByTestId("report-card").innerText()).includes("Reports to Jake and Sarah"), "card title");
     await page.getByTestId("report-view").click();
     await page.getByTestId("report-window").waitFor();

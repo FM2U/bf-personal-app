@@ -286,11 +286,11 @@ const until = async (fn, msg, tries = 60) => {
   });
 
   // ---------- End of day: the Weekly review (Friday) and the send ----------
-  await step(friday ? "Friday's End of day: the Weekly review card, the status line (2 of 3), answers saved" : "Monday's End of day: no Weekly review card and no review in the status line", async () => {
+  await step(friday ? "Friday's End of day: the Weekly review card, the report card's checklist (Weekly review 2 of 3, Monday's line), answers saved" : "Monday's End of day: no Weekly review card and no review in the checklist", async () => {
     await page.goto(`${BASE}/work/end-of-day`);
     await page.getByTestId("report-card").waitFor();
     if (!friday) {
-      assert((await page.getByTestId("eod-review").count()) === 0 && (await page.getByTestId("eod-step-review").count()) === 0, "no Weekly review on a Monday");
+      assert((await page.getByTestId("eod-review").count()) === 0 && (await page.locator("[data-testid=eod-check][data-key=review]").count()) === 0, "no Weekly review on a Monday");
       return;
     }
     const card = page.getByTestId("eod-review");
@@ -301,7 +301,10 @@ const until = async (fn, msg, tries = 60) => {
     await fields.nth(1).fill("Brokers contacted came in one short.");
     await fields.nth(2).click();
     await until(async () => (await one("select weekly_review from end_of_day where day = $1", [today]))?.weekly_review?.slipped === "Brokers contacted came in one short.", "two answers saved");
-    await until(async () => (await page.getByTestId("eod-step-review").getAttribute("data-word")) === "2 of 3", "status line 2 of 3");
+    await until(async () => (await page.locator("[data-testid=eod-check][data-key=review]").getAttribute("data-state")) === "2 of 3", "checklist 2 of 3");
+    // The checklist on Fridays (2026-11-05): Reasons, Weekly review, Monday's line, in that order.
+    const checks = await page.getByTestId("eod-check").evaluateAll((els) => els.map((e) => `${e.dataset.key}:${e.querySelector("span:nth-child(2)").textContent}`));
+    assert(JSON.stringify(checks) === JSON.stringify(["reasons:Reasons", "review:Weekly review", "tomorrow:Monday's line"]), JSON.stringify(checks));
     // The field star drafts the third (the AI stand-in's answer), and Use this saves it.
     await card.getByTestId("eod-review-field").nth(2).getByTestId("ai-field-star").click();
     await page.getByTestId("ask-ai-use").waitFor({ timeout: 20000 });
@@ -312,7 +315,7 @@ const until = async (fn, msg, tries = 60) => {
     assert(`${full.system}\n${full.text}`.split(WRITING).length - 1 === 1, "the writing rules once in the star's click");
     await page.keyboard.press("Escape");
     await page.reload();
-    await until(async () => (await page.getByTestId("eod-step-review").getAttribute("data-word")) === "done", "status line done");
+    await until(async () => (await page.locator("[data-testid=eod-check][data-key=review]").getAttribute("data-state")) === "Done", "checklist Done");
     // Bram's own words for the focus, and Monday's line, as on a real Friday.
     await page.getByTestId("eod-review-input").nth(2).fill("The Meridian partner deck, and a yes or no on Summit by Wednesday.");
     await page.getByTestId("tomorrow-input").fill("Meridian partner deck first; call Mark about Summit at 10.");

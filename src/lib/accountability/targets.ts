@@ -26,7 +26,7 @@ export const COUNTABLES: readonly Countable[] = [
   { key: "outreach_contacts", label: "Outreach contacts", counts: "emails sent and calls logged to people, Mon to Fri", unit: "count" },
   { key: "follow_ups_on_time", label: "Follow-ups on time", counts: "outreach follow-ups done on or before their date", unit: "percent" },
   { key: "deals_moved", label: "Deals moved", counts: "stage moves on Deals, Job search and Consulting", unit: "count" },
-  { key: "next_actions_done", label: "Next actions done", counts: "next actions marked Done on deals, projects, and opportunities, and tasks checked off on records", unit: "count" },
+  { key: "next_actions_done", label: "Next actions done", counts: "next actions marked Done on deals, projects, and opportunities, follow-ups marked Done on Contacts, and tasks checked off on records", unit: "count" },
   { key: "rosara_focus_done", label: "Rosara focus done", counts: "the weekly focus marked done on Rosara", unit: "yesno" },
 ];
 
@@ -74,7 +74,7 @@ export type Facts = {
   comms: { on: string; method: string; contactId: string | null; contactName: string | null; broker: boolean; /** The person, or the deal when an email was on a deal (edits of Nov 5). */ href?: string | null }[];
   /** A follow-up marked Done, with whether it was on or before its date. */
   followUps: { on: string; onTime: boolean; name: string }[];
-  /** A next action marked Done, or (push E2) a task on a record checked off, with the record's area. */
+  /** A next action marked Done, (push E2) a task on a record checked off, or (2026-11-05) a follow-up marked Done on Contacts, with the record's area. */
   actionsDone: { on: string; name: string; label: string; area: DoneArea; /** The record it was done on (edits of Nov 5). */ href?: string | null }[];
   /** The Rosara weekly focus marked done. */
   focusDone: { on: string; text: string }[];
@@ -464,17 +464,16 @@ export function noReasonText(n: number, partnerFirst: string): string {
 
 export type EodState = "open" | "sent" | "skipped";
 
-/** The status line's three items with their state words. */
 /**
- * The "Before you send" line on End of day: Reasons, (Fridays, push D) Weekly review with "2 of 3" until all three are
- * written, Tomorrow's line, Approve and send. `reviewAnswered` is null on other days.
+ * The "Before you send" checklist on End of day's report card (hybrid of 2026-11-05, Option B): Reasons ("2 left" or
+ * "Done"), on Fridays (push D) Weekly review ("2 of 3" or "Done"), and the next working day's line ("Empty" or "Done",
+ * named "Monday's line" on Friday). `reviewAnswered` is null on other days.
  */
-export function statusItems(owed: number, tomorrow: string, state: EodState, sentAt: string | null, reviewAnswered: number | null = null): { key: "reasons" | "review" | "tomorrow" | "send"; label: string; word: string | null; tone: "left" | "done" | "off" }[] {
+export function sendChecklist(owed: number, tomorrow: string, tomorrowWord: "Tomorrow" | "Monday", reviewAnswered: number | null = null): { key: "reasons" | "review" | "tomorrow"; label: string; state: string; done: boolean }[] {
   return [
-    { key: "reasons", label: "Reasons", word: owed ? `${owed} left` : "done", tone: owed ? "left" : "done" },
-    ...(reviewAnswered === null ? [] : [{ key: "review" as const, label: "Weekly review", word: reviewAnswered >= 3 ? "done" : `${reviewAnswered} of 3`, tone: (reviewAnswered >= 3 ? "done" : "left") as "done" | "left" }]),
-    { key: "tomorrow", label: "Tomorrow's line", word: tomorrow.trim() ? "done" : "empty", tone: tomorrow.trim() ? "done" : "left" },
-    { key: "send", label: "Approve and send", word: state === "sent" ? `sent ${sentAt ?? ""}`.trim() : state === "skipped" ? "skipped" : null, tone: state === "sent" ? "done" : "off" },
+    { key: "reasons", label: "Reasons", state: owed ? `${owed} left` : "Done", done: !owed },
+    ...(reviewAnswered === null ? [] : [{ key: "review" as const, label: "Weekly review", state: reviewAnswered >= 3 ? "Done" : `${reviewAnswered} of 3`, done: reviewAnswered >= 3 }]),
+    { key: "tomorrow", label: `${tomorrowWord}'s line`, state: tomorrow.trim() ? "Done" : "Empty", done: !!tomorrow.trim() },
   ];
 }
 

@@ -74,6 +74,9 @@ describe("waiting on someone", () => {
     expect(followUpDraft({ dealName: "X", waitingOn: null, contactName: null, days: 1 }).body).toContain("Hi there,");
     // A wait made from an email reads as a reply to that email, in the new wording and the one saved before Nov 5.
     expect(followUpDraft({ dealName: "Pinecrest", waitingOn: "Reply to your email: Pinecrest LOI", contactName: "Dana", days: 6 }).body).toContain("still waiting on your reply to my email about Pinecrest LOI.");
+    // Item 3 of 2026-11-05: the wording that names the person.
+    expect(followUpDraft({ dealName: "Pinecrest", waitingOn: 'Dana Whitfield\'s reply to your email "Pinecrest LOI"', contactName: "Dana", days: 6 }).body).toContain("Quick follow-up on Pinecrest: I am still waiting on your reply to my email about Pinecrest LOI.");
+    expect(followUpDraft({ dealName: "Pinecrest", waitingOn: "Dana Whitfield's reply to your email", contactName: "Dana", days: 1 }).body).toContain("still waiting on your reply to my email.");
     expect(followUpDraft({ dealName: "Pinecrest", waitingOn: "A reply to: Pinecrest LOI", contactName: "Dana", days: 6 }).body).toContain("still waiting on your reply to my email about Pinecrest LOI.");
   });
 });

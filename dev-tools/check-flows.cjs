@@ -5112,11 +5112,11 @@ const expectText = async (page, text) => {
   await step("Batch C: End of day: the status line, Today counted from the database, the reason owed from the sample's skipped day, Skip today with a reason (badge Skipped, the tile line), then the day reopened for the send", async () => {
     await page.goto(`${BASE}/work/end-of-day`);
     await page.getByTestId("work-end-of-day").waitFor();
-    const status = page.getByTestId("eod-status");
+    const status = page.getByTestId("eod-checklist");
     const owed = Number(await status.getAttribute("data-owed"));
     if (owed < 1) throw new Error("the sample's skipped day should leave a reason owed");
-    if (!(await page.getByTestId("eod-step-reasons").innerText()).includes(`${owed} left`)) throw new Error("the status line should count the reasons left");
-    if (!(await page.getByTestId("eod-step-tomorrow").innerText()).includes("empty")) throw new Error("the tomorrow line starts empty");
+    if ((await page.locator("[data-testid=eod-check][data-key=reasons]").getAttribute("data-state")) !== `${owed} left`) throw new Error("the checklist should count the reasons left");
+    if ((await page.locator("[data-testid=eod-check][data-key=tomorrow]").getAttribute("data-state")) !== "Empty") throw new Error("the tomorrow line starts empty");
     if ((await page.getByTestId("eod-owed").count()) < 1) throw new Error("the owed row from the skipped day is missing");
     // The Today strip: the figures match the database (calls and emails logged today).
     const comms = await one("select count(*)::int n from communications where direction <> 'incoming' and method in ('call','meeting','video') and (occurred_at at time zone 'America/New_York')::date = $1", [eodDay()]);
@@ -5173,14 +5173,14 @@ const expectText = async (page, text) => {
     await page.getByTestId("drawer-close").click();
     const filled = await page.getByTestId("reason-input").evaluateAll((els) => els.map((e) => e.value));
     if (!filled.some((v) => v.startsWith("Mock reason"))) throw new Error(`the drafts did not fill the boxes: ${JSON.stringify(filled)}`);
-    await page.waitForFunction(() => { const r = document.querySelector("[data-testid=eod-status]"); return r && r.dataset.owed === String(document.querySelectorAll("[data-testid=reason-input]").length - [...document.querySelectorAll("[data-testid=reason-input]")].filter((e) => e.value.trim()).length); }, null, { timeout: 15000 }).catch((e) => { throw new Error(`reasons-left after Use these: ${e.message.split("\n")[0]}`); });
+    await page.waitForFunction(() => { const r = document.querySelector("[data-testid=eod-checklist]"); return r && r.dataset.owed === String(document.querySelectorAll("[data-testid=reason-input]").length - [...document.querySelectorAll("[data-testid=reason-input]")].filter((e) => e.value.trim()).length); }, null, { timeout: 15000 }).catch((e) => { throw new Error(`reasons-left after Use these: ${e.message.split("\n")[0]}`); });
     // Same reason for all: every box gets the typed line, saved on blur.
     await page.getByTestId("same-reason-toggle").click();
     await page.getByTestId("same-reason-input").fill("Site visit in Chattanooga took the day");
     await page.getByTestId("same-reason-input").blur();
-    await page.waitForFunction(() => document.querySelector("[data-testid=eod-status]")?.dataset.owed === "0", null, { timeout: 15000 }).catch((e) => { throw new Error(`reasons-left after Same reason for all: ${e.message.split("\n")[0]}`); });
+    await page.waitForFunction(() => document.querySelector("[data-testid=eod-checklist]")?.dataset.owed === "0", null, { timeout: 15000 }).catch((e) => { throw new Error(`reasons-left after Same reason for all: ${e.message.split("\n")[0]}`); });
     await untilDb(async () => Object.values((await one("select reasons from end_of_day where day = $1", [eodDay()])).reasons).every((v) => v === "Site visit in Chattanooga took the day"), "the shared reason was not saved to every box");
-    if (!(await page.getByTestId("eod-step-reasons").innerText()).includes("done")) throw new Error("Reasons should read done");
+    if ((await page.locator("[data-testid=eod-check][data-key=reasons]").getAttribute("data-state")) !== "Done") throw new Error("Reasons should read Done");
     // The tomorrow line: the field star writes it with the mock AI, Use this line fills the box.
     await page.getByTestId("tomorrow-input").focus();
     await page.getByTestId("ai-field-star").last().click();
@@ -5188,7 +5188,7 @@ const expectText = async (page, text) => {
     if ((await page.getByTestId("ask-ai-use").innerText()).trim() !== "Use this line") throw new Error("the button should read Use this line");
     await page.getByTestId("ask-ai-use").click();
     await page.waitForFunction(() => document.querySelector("[data-testid=tomorrow-input]")?.value.includes("Meridian model"), null, { timeout: 15000 }).catch((e) => { throw new Error(`tomorrow box after Use this line: ${e.message.split("\n")[0]}`); });
-    await page.waitForFunction(() => document.querySelector("[data-testid=eod-step-tomorrow]")?.dataset.word === "done");
+    await page.waitForFunction(() => document.querySelector("[data-testid=eod-check][data-key=tomorrow]")?.dataset.state === "Done");
     await untilDb(async () => String((await one("select tomorrow_line from end_of_day where day = $1", [eodDay()])).tomorrow_line ?? "").includes("Meridian model"), "the tomorrow line was not saved");
     await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.innerText.includes("Meridian model"));
     // Edit in place: a typed change lands in the saved HTML and the preview says edited.
@@ -5220,7 +5220,7 @@ const expectText = async (page, text) => {
     const comm = await one("select id, subject from communications where gmail_message_id = $1", [rep.gmail_message_id]);
     if (!comm) throw new Error("no communication for the send");
     if (!(await one("select count(*)::int n from record_links where from_id = $1 and to_type = 'partner_reports'", [comm.id])).n) throw new Error("the communication is not linked to the report");
-    if (!(await page.getByTestId("eod-step-send").innerText()).includes("sent")) throw new Error("the status line should say sent");
+    if (!(await page.getByTestId("eod-checklist-count").innerText()).startsWith("Sent")) throw new Error("the checklist should say Sent");
     if ((await page.getByTestId("report-hint").innerText()).trim() !== "As sent") throw new Error("the hint should say As sent");
     if (await page.getByTestId("report-send").count()) throw new Error("Approve and send should be gone after the send");
     // The menu's badge (drawn by the app layout) reads Sent too once the page refreshed.
@@ -5544,12 +5544,11 @@ const expectText = async (page, text) => {
     if (await page.getByTestId("eod-counted").count()) throw new Error("Today, counted should be gone");
     const box = await page.evaluate(() => { const l = document.querySelector("[data-testid=eod-left]").getBoundingClientRect(); const r = document.querySelector("[data-testid=eod-right]").getBoundingClientRect(); return { lw: Math.round(l.width), rw: Math.round(r.width), lt: Math.round(l.top), rt: Math.round(r.top), strip: Math.round(document.querySelector("[data-testid=eod-today]").getBoundingClientRect().top) }; });
     if (Math.abs(box.lw - box.rw) > 2 || box.lt !== box.rt) throw new Error(`the two columns: ${JSON.stringify(box)}`);
-    if (box.strip !== box.lt) throw new Error("the Today strip should open the left column");
-    // The strip: six figures in order; calls and emails match the database.
+    if (box.strip !== box.lt) throw new Error("the Today tiles should open the left column");
+    // The Today tiles (2026-11-05): seven figures in order; calls and emails match the database.
     const parts = await page.getByTestId("eod-today-part").evaluateAll((els) => els.map((e) => [e.dataset.key, Number(e.dataset.count), e.innerText.trim()]));
-    if (parts.map((p) => p[0]).join(",") !== "screened,moved,calls,emails,done,waits") throw new Error(`the strip: ${JSON.stringify(parts)}`);
-    const strip = (await page.getByTestId("eod-today").innerText()).replace(/\s+/g, " ");
-    if (!/^Today: \d+ screened · \d+ moved · \d+ calls? · \d+ emails? · \d+ next actions? done · \d+ waiting \d+\+ days$/.test(strip)) throw new Error(`the strip reads: ${strip}`);
+    if (parts.map((p) => p[0]).join(",") !== "screened,moved,calls,emails,done,todos,waits") throw new Error(`the tiles: ${JSON.stringify(parts)}`);
+    if ((await page.getByTestId("eod-today-label").innerText()).trim() !== "TODAY") throw new Error("the TODAY label");
     const db = await one(`select count(*) filter (where method = 'email')::int emails, count(*) filter (where method in ('call','meeting','video'))::int calls from communications
       where direction <> 'incoming' and not awaiting_log and (occurred_at at time zone 'America/New_York')::date = $1`, [eodDay()]);
     if (parts[2][1] !== db.calls || parts[3][1] !== db.emails) throw new Error(`calls and emails ${parts[2][1]}, ${parts[3][1]} vs ${db.calls}, ${db.emails} in the database`);

@@ -40,7 +40,7 @@ async function sentEmail(sb: SupabaseClient, ownerId: string, id: string): Promi
 }
 
 /**
- * Add to Waiting: an email on an open deal adds the line "Reply to your email: <subject>" to the deal's waits, since the day it
+ * Add to Waiting: an email on an open deal adds the line "<Name>'s reply to your email "<subject>"" to the deal's waits, since the day it
  * was sent, and remembers the email; any other email (from a person or organization page, or about a job or
  * consulting item) adds the same line to the person it went to. It never replaces a wait already there (push E2).
  */
@@ -70,7 +70,11 @@ export async function addToWaiting(commId: string): Promise<{ ok: true; target: 
   if (dupError) return notSaved(dupError);
   if (!((dup ?? []) as Row[]).length) {
     const sentOn = todayInTz(ctx.tz, new Date(String(c.occurred_at)));
-    const { error } = await insertWait(sb, ctx.ownerId, { table, id }, { text: replyWaitText(c.subject as string | null), since: sentOn, commId: String(c.id) });
+    // Item 3 of 2026-11-05: the wait names the person the email went to ("Dana Whitfield's reply to your email "...").
+    let to: Row | null = null;
+    if (target === "person") to = before as Row;
+    else if (c.contact_id) to = (await sb.from("contacts").select("name").eq("owner_id", ctx.ownerId).eq("id", String(c.contact_id)).maybeSingle()).data as Row | null;
+    const { error } = await insertWait(sb, ctx.ownerId, { table, id }, { text: replyWaitText(c.subject as string | null, to?.name ? String(to.name) : null), since: sentOn, commId: String(c.id) });
     if (error) return notSaved(error);
   }
   return { ok: true, target, name: target === "deal" ? (item?.name ?? "") : String((before as Row).name ?? "") };

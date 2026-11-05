@@ -189,9 +189,11 @@ const until = async (fn, msg, tries = 60) => {
     assert(await priya.getByTestId("follow-up-button").isVisible(), "Follow up");
     // The Replied row: the green pill with the reply's day and Clear in place of Follow up.
     const pine = waitRow("Pinecrest Landscaping");
-    assert((await pine.getByTestId("waiting-replied").innerText()) === `Replied ${short(addDays(today, -1))}` && (await pine.getByTestId("waiting-replied").getAttribute("data-tone")) === "green", "Replied");
+    // Item 3 of 2026-11-05: the pill names the person by first name.
+    assert((await pine.getByTestId("waiting-replied").innerText()) === `Dana replied ${short(addDays(today, -1))}` && (await pine.getByTestId("waiting-replied").getAttribute("data-tone")) === "green", "Dana replied");
     assert((await pine.getByTestId("waiting-clear").count()) === 1 && (await pine.getByTestId("follow-up-button").count()) === 0, "Clear, no Follow up");
-    assert((await pine.innerText()).includes("Reply to your email: Pinecrest LOI"), await pine.innerText());
+    // The text names Dana, so her name is not repeated after it.
+    assert((await pine.getByTestId("waiting-what").innerText()).trim() === 'Dana Whitfield\'s reply to your email "Pinecrest LOI"', await pine.innerText());
     // No reply yet (edits of Nov 5, item 1): "Emailed Nov 3 to Luis Ortega: Oakline CIM" with the deal, and Rita's email with her organization.
     const oak = noReplyRow("Oakline CIM");
     assert((await oak.getByTestId("no-reply-line").innerText()) === `Emailed ${short(addDays(today, -2))} to Luis Ortega: Oakline CIM`, await oak.getByTestId("no-reply-line").innerText());
@@ -279,18 +281,19 @@ const until = async (fn, msg, tries = 60) => {
     assert((await noReplyRow("Member survey project").count()) === 0 && (await groupCount("no-reply")) === before - 1, "still gone after a reload");
   });
 
-  await step("Add to Waiting on a deal email: the deal waits on 'Reply to your email: <subject>' since the day it was sent, with who it went to; the email is remembered", async () => {
+  await step("Add to Waiting on a deal email: the deal waits on '<Name>'s reply to your email \"<subject>\"' since the day it was sent (item 3 of 2026-11-05); the name is not repeated after it; the email is remembered", async () => {
     await openHome();
     const countBefore = await cardCount();
     await openGroup("no-reply");
     await noReplyRow("Oakline CIM").getByTestId("no-reply-add").click();
     await until(async () => (await noReplyRow("Oakline CIM").count()) === 0, "the No reply row goes");
     const d = await one("select w.text, w.since::text since, c.subject from waits w join pipeline_items i on i.id = w.pipeline_item_id join communications c on c.id = w.comm_id where i.name = 'Oakline Dental Lab'");
-    assert(d && d.text === "Reply to your email: Oakline CIM" && d.since === addDays(today, -2) && d.subject === "Oakline CIM", JSON.stringify(d));
+    assert(d && d.text === 'Luis Ortega\'s reply to your email "Oakline CIM"' && d.since === addDays(today, -2) && d.subject === "Oakline CIM", JSON.stringify(d));
     await openHome();
     await openAll();
     const row = waitRow("Oakline Dental Lab");
-    assert((await row.innerText()).includes("Reply to your email: Oakline CIM · Luis Ortega"), await row.innerText());
+    const whats = (await row.getByTestId("waiting-what").allInnerTexts()).map((t) => t.trim());
+    assert(whats.includes('Luis Ortega\'s reply to your email "Oakline CIM"') && !whats.some((t) => t.includes("Oakline CIM\" · Luis Ortega")), JSON.stringify(whats));
     assert((await cardCount()) === countBefore + 1, "Oakline was already waiting: one more wait on the same row, so the count goes up by one");
     assert((await noReplyRow("Oakline CIM").count()) === 0, "not listed again while the deal waits on it");
   });
@@ -305,7 +308,7 @@ const until = async (fn, msg, tries = 60) => {
     await noReplyRow("COO search update").getByTestId("no-reply-add").click();
     await until(async () => (await noReplyRow("COO search update").count()) === 0, "the No reply row goes");
     const p = await one("select w.text, w.since::text since, w.comm_id from waits w join contacts c on c.id = w.contact_id where c.name = 'Nina Reyes'");
-    assert(p.text === "Reply to your email: COO search update" && p.since === addDays(today, -3) && p.comm_id === nina.id, JSON.stringify(p));
+    assert(p.text === 'Nina Reyes\'s reply to your email "COO search update"' && p.since === addDays(today, -3) && p.comm_id === nina.id, JSON.stringify(p));
     await openHome();
     await openAll();
     const row = waitRow("Nina Reyes");
@@ -318,7 +321,7 @@ const until = async (fn, msg, tries = 60) => {
     await lookForReplies();
     await openAll();
     const row = waitRow("Nina Reyes");
-    assert((await row.getByTestId("waiting-replied").innerText()) === `Replied ${short(today)}`, await row.innerText());
+    assert((await row.getByTestId("waiting-replied").innerText()) === `Nina replied ${short(today)}`, await row.innerText());
     assert((await one("select count(*)::int n from waits w join contacts c on c.id = w.contact_id where c.name = 'Nina Reyes'")).n === 1, "still waiting until Clear");
     const countBefore = await cardCount();
     await row.getByTestId("waiting-clear").click();

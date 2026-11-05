@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  askedForReason, DONE_AREAS, judgedMark, mostMissedIn, reportTiles, MARK_WORD, countIn, todayStrip, countedDays, DEFAULT_TARGETS, dayNumbers, EMPTY_FACTS, judgeDay, judgeWeek, metThisWeek, mostMissed, noReasonText, owedFromLastClosed, owedReasons, pastWeeks, reportSummary, statusItems, targetView, tileEodLine, tileTargetLine, tileTargets, todayTiles, tomorrowLabel, weekNumbers, weekTiles, workWeekOf,
+  askedForReason, DONE_AREAS, judgedMark, mostMissedIn, reportTiles, MARK_WORD, countIn, todayStrip, countedDays, DEFAULT_TARGETS, dayNumbers, EMPTY_FACTS, judgeDay, judgeWeek, metThisWeek, mostMissed, noReasonText, owedFromLastClosed, owedReasons, pastWeeks, reportSummary, sendChecklist, targetView, tileEodLine, tileTargetLine, tileTargets, todayTiles, tomorrowLabel, weekNumbers, weekTiles, workWeekOf,
   type Facts, type Target,
 } from "./targets";
 import { pillOf, reportInnerHtml, reportSubject, reportText, targetGroup, targetLine, type ReportData } from "./report-email";
@@ -99,11 +99,12 @@ describe("judging: weekday versus weekly, the status mark", () => {
     const fri = judgeDay(targets, facts, FRI);
     expect(owedReasons(fri, {}).map((j) => j.name)).toEqual(["Listings screened", "Network outreach"]);
     expect(owedReasons(fri, { t1: "Deal work took the block", t3: " " }).map((j) => j.name)).toEqual(["Network outreach"]);
-    expect(statusItems(2, "", "open", null).map((i) => `${i.label} ${i.word ?? "-"} ${i.tone}`)).toEqual(["Reasons 2 left left", "Tomorrow's line empty left", "Approve and send - off"]);
-    expect(statusItems(0, "Monday: the model", "sent", "5:41 pm").map((i) => `${i.word}`)).toEqual(["done", "done", "sent 5:41 pm"]);
-    // Push D: Fridays add the Weekly review, "2 of 3" until all three answers are written.
-    expect(statusItems(0, "", "open", null, 2).map((i) => `${i.label} ${i.word ?? "-"} ${i.tone}`)).toEqual(["Reasons done done", "Weekly review 2 of 3 left", "Tomorrow's line empty left", "Approve and send - off"]);
-    expect(statusItems(0, "x", "open", null, 3)[1]).toMatchObject({ key: "review", word: "done", tone: "done" });
+    // The "Before you send" checklist on the report card (hybrid of 2026-11-05).
+    expect(sendChecklist(2, "", "Tomorrow").map((i) => `${i.label}: ${i.state} ${i.done}`)).toEqual(["Reasons: 2 left false", "Tomorrow's line: Empty false"]);
+    expect(sendChecklist(0, "Monday: the model", "Tomorrow").map((i) => i.state)).toEqual(["Done", "Done"]);
+    // Push D: Fridays add the Weekly review, "2 of 3" until all three answers are written; the line is Monday's.
+    expect(sendChecklist(0, "", "Monday", 2).map((i) => `${i.label}: ${i.state} ${i.done}`)).toEqual(["Reasons: Done true", "Weekly review: 2 of 3 false", "Monday's line: Empty false"]);
+    expect(sendChecklist(0, "x", "Monday", 3)[1]).toMatchObject({ key: "review", state: "Done", done: true });
     expect(noReasonText(2, "Jake")).toBe('2 commitments have no reason yet. Jake sees "(reason still to give)".');
     expect(noReasonText(1, "Jake")).toMatch(/^1 commitment has no reason yet/);
   });
@@ -432,6 +433,61 @@ describe("Push E2, item 5: the area of each next action done, from the rows", ()
     expect(todayStrip(dayNumbers(facts, FRI, [], 5), 5).find((p) => p.key === "done")!.detail).toBe("Deals 1 · Contacts 1 · Rosara 1 · Job search 1 · Consulting 1");
     // Edits of Nov 5 (item 4): each next action done links to its record.
     expect(facts.actionsDone.map((a) => a.href)).toEqual(["/work/deals/d1", "/work/consulting/gone", "/work/rosara/p1", "/work/jobs/j1", "/work/people/c1"]);
+  });
+});
+
+describe("Item 2 of 2026-11-05: a follow-up marked Done on Contacts is also a next action done", () => {
+  it("counts under Contacts in next actions done, the target, and the report's tile, still counts toward Follow-ups on time, and one Done counts once", async () => {
+    const { buildFacts } = await import("./facts");
+    const { facts } = buildFacts({
+      items: [{ id: "d1", name: "Dalton Services", pipeline_id: "acq" }],
+      history: [],
+      comms: [],
+      events: [
+        { kind: "next_action_done", record_type: "pipeline_items", record_id: "d1", label: "Dalton Services", happened_on: FRI, meta: { action: "Review the CIM" } },
+        { kind: "follow_up_done", record_type: "contacts", record_id: "c1", label: "Priya Natarajan", happened_on: FRI, on_time: true, meta: { due: FRI, what: "Ask for the two intros" } },
+        // The same Done recorded twice: one next action done, two follow-ups (as before).
+        { kind: "follow_up_done", record_type: "contacts", record_id: "c1", label: "Priya Natarajan", happened_on: FRI, on_time: true, meta: { due: FRI, what: "Ask for the two intros" } },
+        // A follow-up with no note reads "Follow up"; a late one still counts as done.
+        { kind: "follow_up_done", record_type: "contacts", record_id: "c2", label: "Mark Reed", happened_on: FRI, on_time: false, meta: { due: WED, what: null } },
+      ],
+      people: [{ id: "c1", name: "Priya Natarajan" }, { id: "c2", name: "Mark Reed" }],
+      stageById: {},
+      laneOf: { acq: "Deals" },
+      since: "2026-10-01",
+      local: (ts) => ts.slice(0, 10),
+    });
+    expect(facts.actionsDone.map((a) => `${a.area}: ${a.name}, ${a.label}, ${a.href}`)).toEqual(["Deals: Dalton Services, Review the CIM, /work/deals/d1", "Contacts: Priya Natarajan, Ask for the two intros, /work/people/c1", "Contacts: Mark Reed, Follow up, /work/people/c2"]);
+    // Follow-ups on time still counts every follow-up Done.
+    expect(countIn("follow_ups_on_time", facts, FRI, FRI).parts).toEqual({ done: 3, onTime: 2 });
+    // The End of day Today figure, its area split (the Area selector's order), the target, and the report's tile agree.
+    const n = dayNumbers(facts, FRI, [], 5);
+    const done = todayStrip(n, 5).find((p) => p.key === "done")!;
+    expect([done.value, done.detail]).toEqual([3, "Deals 1 · Contacts 2"]);
+    expect(countIn("next_actions_done", facts, FRI, FRI).value).toBe(3);
+    expect(todayTiles(n, targets).find((t) => t.label === "Next actions done")!.value).toBe("3");
+  });
+
+  it("does not count a follow-up Done again when a next action done on the same person, day, and action is recorded", async () => {
+    const { buildFacts } = await import("./facts");
+    const { facts } = buildFacts({
+      items: [],
+      history: [],
+      comms: [],
+      events: [
+        { kind: "follow_up_done", record_type: "contacts", record_id: "c1", label: "Priya Natarajan", happened_on: FRI, on_time: true, meta: { what: "Ask for the two intros" } },
+        { kind: "next_action_done", record_type: "contacts", record_id: "c1", label: "Priya Natarajan", happened_on: FRI, meta: { action: "Ask for the two intros" } },
+        // The same person on another day counts again.
+        { kind: "follow_up_done", record_type: "contacts", record_id: "c1", label: "Priya Natarajan", happened_on: WED, on_time: true, meta: { what: "Ask for the two intros" } },
+      ],
+      people: [{ id: "c1", name: "Priya Natarajan" }],
+      stageById: {},
+      laneOf: {},
+      since: "2026-10-01",
+      local: (ts) => ts.slice(0, 10),
+    });
+    expect(facts.actionsDone.map((a) => `${a.on} ${a.area}`)).toEqual([`${FRI} Contacts`, `${WED} Contacts`]);
+    expect(facts.followUps).toHaveLength(2);
   });
 });
 

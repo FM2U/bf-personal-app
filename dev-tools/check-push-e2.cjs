@@ -145,11 +145,11 @@ const until = async (fn, msg, tries = 60) => {
     assert(s.bright === 2 && s.tracked === s.waits && s.waits >= 6 && s.old_columns === 0, JSON.stringify(s));
   });
 
-  await step("Edits of Nov 5, items 7 and 8: sample next actions are things Bram does (Pinecrest: call Dana about the seller note); the owed thing is the wait, worded 'Reply to your email: <subject>'", async () => {
+  await step("Edits of Nov 5, items 7 and 8: sample next actions are things Bram does (Pinecrest: call Dana about the seller note); the owed thing is the wait, worded '<Name>'s reply to your email \"<subject>\"' (item 3 of 2026-11-05)", async () => {
     const pine = await one("select next_action from pipeline_items where name = 'Pinecrest Landscaping'");
     assert(pine.next_action === "Call Dana about the seller note", pine.next_action);
     const pw = await all("select w.text from waits w join pipeline_items i on i.id = w.pipeline_item_id where i.name = 'Pinecrest Landscaping'");
-    assert(JSON.stringify(pw.map((x) => x.text)) === JSON.stringify(["Reply to your email: Pinecrest LOI"]), JSON.stringify(pw));
+    assert(JSON.stringify(pw.map((x) => x.text)) === JSON.stringify(['Dana Whitfield\'s reply to your email "Pinecrest LOI"']), JSON.stringify(pw));
     // Nothing a next action or follow-up says is what someone else owes ("Wait for ...", "Response to ...", "... to be scheduled").
     const owed = "^(wait|waiting|response|awaiting|reply from)\\b|to be (scheduled|sent|signed)";
     const passive = await all(
@@ -234,19 +234,19 @@ const until = async (fn, msg, tries = 60) => {
     assert((await cardCount()) === groups.over + groups.under && (await cardCount()) === (await openWaits()), `card ${await cardCount()}, groups ${JSON.stringify(groups)}`);
   });
 
-  await step("Add to Waiting adds a line and never replaces the typed wait: Oakline keeps 'The CIM' and gets 'Reply to your email: Oakline CIM'", async () => {
+  await step("Add to Waiting adds a line and never replaces the typed wait: Oakline keeps 'The CIM' and gets 'Luis Ortega's reply to your email \"Oakline CIM\"', with no second '· Luis Ortega'", async () => {
     await openHome();
     const countBefore = await cardCount();
     await openGroup("no-reply");
     await noReplyRow("Oakline CIM").getByTestId("no-reply-add").click();
     await until(async () => (await noReplyRow("Oakline CIM").count()) === 0, "the No reply row goes");
     const w = await all("select w.text, w.since::text since, w.comm_id from waits w join pipeline_items i on i.id = w.pipeline_item_id where i.name = 'Oakline Dental Lab' order by w.created_at");
-    assert(w.length === 2 && w[0].text === "The CIM" && !w[0].comm_id && w[1].text === "Reply to your email: Oakline CIM" && w[1].since === addDays(today, -2) && w[1].comm_id, JSON.stringify(w));
+    assert(w.length === 2 && w[0].text === "The CIM" && !w[0].comm_id && w[1].text === 'Luis Ortega\'s reply to your email "Oakline CIM"' && w[1].since === addDays(today, -2) && w[1].comm_id, JSON.stringify(w));
     await openHome();
     await openAll();
     const row = waitRow("Oakline Dental Lab");
     assert((await row.count()) === 1 && (await row.getAttribute("data-lines")) === "2", "one row, two lines");
-    assert((await lines(row)).includes("The CIM · Luis Ortega") && (await lines(row)).includes("Reply to your email: Oakline CIM · Luis Ortega"), JSON.stringify(await lines(row)));
+    assert((await lines(row)).includes("The CIM · Luis Ortega") && (await lines(row)).includes('Luis Ortega\'s reply to your email "Oakline CIM"'), JSON.stringify(await lines(row)));
     assert((await cardCount()) === countBefore + 1, "the same row, one more wait: the count goes up by one (edits of Nov 5)");
     // Added twice (a second tab): still one line for that email.
     assert((await one("select count(*)::int n from waits where comm_id = $1", [w[1].comm_id])).n === 1, "no double");
@@ -269,7 +269,7 @@ const until = async (fn, msg, tries = 60) => {
     await cardEl.waitFor();
     const list = cardEl.getByTestId("waits-list");
     assert((await list.getByTestId("wait-line").count()) === 2, "two lines");
-    assert(JSON.stringify(await list.getByTestId("wait-text").allInnerTexts()) === JSON.stringify(["The CIM", "Reply to your email: Oakline CIM"]), JSON.stringify(await list.getByTestId("wait-text").allInnerTexts()));
+    assert(JSON.stringify(await list.getByTestId("wait-text").allInnerTexts()) === JSON.stringify(["The CIM", 'Luis Ortega\'s reply to your email "Oakline CIM"']), JSON.stringify(await list.getByTestId("wait-text").allInnerTexts()));
     assert(JSON.stringify(await list.getByTestId("wait-since").allInnerTexts()) === JSON.stringify([`Since ${short(addDays(today, -2))}`, `Since ${short(addDays(today, -2))}`]), "Since");
     assert((await list.getByTestId("wait-remove").count()) === 2, "an × per line");
     await cardEl.getByTestId("wait-add").click();
@@ -321,7 +321,7 @@ const until = async (fn, msg, tries = 60) => {
     assert(JSON.stringify(await list.getByTestId("wait-text").allInnerTexts()) === JSON.stringify(["Jamal Whitaker"]), "Lumen's wait");
   });
 
-  await step("Edits of Nov 5, item 6: Pinecrest's deal page shows the Nov 4 reply as a green 'Replied' pill with Clear on its wait, as the Waiting card does", async () => {
+  await step("Edits of Nov 5, item 6: Pinecrest's deal page shows the Nov 4 reply as a green 'Dana replied' pill with Clear on its wait, as the Waiting card does", async () => {
     const id = await dealId("Pinecrest Landscaping");
     await page.goto(`${BASE}/work/deals/${id}`);
     const cardEl = page.getByTestId("deal-next-action");
@@ -329,15 +329,15 @@ const until = async (fn, msg, tries = 60) => {
     // The reply is on the Timeline...
     assert((await page.locator("body").innerText()).includes("Re: Pinecrest LOI"), "the reply on the Timeline");
     // ...and now on the wait.
-    const line = cardEl.getByTestId("wait-line").filter({ hasText: "Reply to your email: Pinecrest LOI" });
+    const line = cardEl.getByTestId("wait-line").filter({ hasText: 'Dana Whitfield\'s reply to your email "Pinecrest LOI"' });
     assert((await line.getAttribute("data-replied")) === "1", "marked replied");
-    assert((await line.getByTestId("wait-replied").innerText()) === `Replied ${short(addDays(today, -1))}` && (await line.getByTestId("wait-replied").getAttribute("data-tone")) === "green", await line.innerText());
+    assert((await line.getByTestId("wait-replied").innerText()) === `Dana replied ${short(addDays(today, -1))}` && (await line.getByTestId("wait-replied").getAttribute("data-tone")) === "green", await line.innerText());
     assert((await line.getByTestId("wait-clear").innerText()) === "Clear" && (await line.getByTestId("wait-remove").count()) === 0, "Clear in place of the x");
     // The same day as the Waiting card shows.
     await shot("pinecrest-next-action-replied-1440.png", cardEl);
     await openHome();
     await openAll();
-    assert((await waitRow("Pinecrest Landscaping").getByTestId("waiting-replied").innerText()) === `Replied ${short(addDays(today, -1))}`, "the card agrees");
+    assert((await waitRow("Pinecrest Landscaping").getByTestId("waiting-replied").innerText()) === `Dana replied ${short(addDays(today, -1))}`, "the card agrees");
   });
 
   await step("Edits of Nov 5, item 6: a job item's waits list shows Replied after a reply to the email the wait came from; Clear removes the wait", async () => {
@@ -350,7 +350,9 @@ const until = async (fn, msg, tries = 60) => {
     const list = page.getByTestId("item-next-action").getByTestId("waits-list");
     await list.waitFor();
     const line = list.getByTestId("wait-line").filter({ hasText: "Second interview dates" });
-    assert((await line.getByTestId("wait-replied").innerText()) === `Replied ${short(addDays(today, -1))}`, await line.innerText());
+    // A wait saved in the older wording keeps its text; the pill names the person the email went to.
+    assert((await line.getByTestId("wait-text").innerText()).trim() === "Reply to your email: Second interview dates", await line.innerText());
+    assert((await line.getByTestId("wait-replied").innerText()) === `Jamal replied ${short(addDays(today, -1))}`, await line.innerText());
     // The other wait (no email) keeps its x.
     assert((await list.getByTestId("wait-line").filter({ hasText: "Jamal Whitaker" }).getByTestId("wait-remove").count()) === 1, "the x on the other wait");
     await line.getByTestId("wait-clear").click();
@@ -370,15 +372,17 @@ const until = async (fn, msg, tries = 60) => {
     await openHome();
     await openAll();
     const row = waitRow("Dalton Services");
-    await followUp(row, "Reply to your email: Dalton LOI");
+    await followUp(row, "reply to your email \"Dalton LOI\"");
     const w = await one("select w.since::text since, w.comm_id, f.subject fsubject, f.gmail_thread_id fthread from waits w left join communications f on f.id = w.follow_up_comm_id where w.comm_id = $1", [orig.id]);
     assert(w && w.since === today && w.comm_id === orig.id && w.fsubject && w.fthread && w.fthread !== orig.gmail_thread_id, JSON.stringify(w));
     // Rachel answers the original LOI email, not the follow-up.
     await g("/__reply", { threadId: orig.gmail_thread_id, from: "Rachel Kim <rachel.kim@example.com>", text: "Seller is reviewing the LOI." });
     await lookForReplies();
     await openAll();
-    const line = waitRow("Dalton Services").getByTestId("waiting-line").filter({ hasText: "Reply to your email: Dalton LOI" });
-    assert((await line.getByTestId("waiting-replied").innerText()) === `Replied ${short(today)}`, await line.innerText());
+    const line = waitRow("Dalton Services").getByTestId("waiting-line").filter({ hasText: "reply to your email \"Dalton LOI\"" });
+    const to = (await one("select c.name from communications m join contacts c on c.id = m.contact_id where m.id = $1", [orig.id]))?.name;
+    assert(to && (await line.getByTestId("waiting-what").innerText()).trim() === `${to}'s reply to your email "Dalton LOI"`, await line.innerText());
+    assert((await line.getByTestId("waiting-replied").innerText()) === `${to.split(" ")[0]} replied ${short(today)}`, await line.innerText());
     assert((await line.getByTestId("waiting-clear").count()) === 1, "Clear on that line");
     assert((await one("select since::text s from waits where comm_id = $1", [orig.id])).s === today, "Since stays the follow-up day");
   });
@@ -393,7 +397,7 @@ const until = async (fn, msg, tries = 60) => {
     await until(async () => (await noReplyRow("Carriers this winter").count()) === 0, "added");
     await openHome();
     await openAll();
-    await followUp(waitRow("Sam Patel"), "Reply to your email: Carriers this winter");
+    await followUp(waitRow("Sam Patel"), 'Sam Patel\'s reply to your email "Carriers this winter"');
     const f = await one("select f.gmail_thread_id t from waits w join communications f on f.id = w.follow_up_comm_id where w.comm_id = $1", [orig.id]);
     await g("/__reply", { threadId: f.t, from: "Sam Patel <sam.patel@example.com>", text: "Two of them. Call me." });
     await lookForReplies();
@@ -401,11 +405,11 @@ const until = async (fn, msg, tries = 60) => {
     await page.goto(`${BASE}/work/people/${id}`);
     const personLine = page.getByTestId("person-next-follow-up").getByTestId("wait-line").filter({ hasText: "Carriers this winter" });
     await personLine.waitFor();
-    assert((await personLine.getByTestId("wait-replied").innerText()) === `Replied ${short(today)}` && (await personLine.getByTestId("wait-clear").count()) === 1, await personLine.innerText());
+    assert((await personLine.getByTestId("wait-replied").innerText()) === `Sam replied ${short(today)}` && (await personLine.getByTestId("wait-clear").count()) === 1, await personLine.innerText());
     await openHome();
     await openAll();
     const row = waitRow("Sam Patel");
-    assert((await row.getByTestId("waiting-replied").innerText()) === `Replied ${short(today)}`, await row.innerText());
+    assert((await row.getByTestId("waiting-replied").innerText()) === `Sam replied ${short(today)}`, await row.innerText());
     await row.getByTestId("waiting-clear").click();
     await until(async () => (await waitRow("Sam Patel").count()) === 0, "the row goes with its last line");
     assert((await one("select count(*)::int n from waits where comm_id = $1", [orig.id])).n === 0, "removed");
@@ -508,7 +512,7 @@ const until = async (fn, msg, tries = 60) => {
     assert((await page.getByTestId("period-lead").innerText()) === `Week of ${span(w2, addDays(w2, 4))}`, await page.getByTestId("period-lead").innerText());
   });
 
-  await step("End of day, Today: next actions done split by area, to-dos done, and people in 'waiting 5+ days'; the report's broker section stays deals only", async () => {
+  await step("End of day, Today tiles: next actions done split by area, to-dos done, and people in 'waiting 5+ days'; the report's broker section stays deals only", async () => {
     // A known day: the next actions done today and the to-dos and tasks checked off today are set here.
     const owner = (await one("select id from auth.users limit 1")).id;
     await db.query("delete from work_events where kind = 'next_action_done' and happened_on = $1", [today]);
@@ -540,37 +544,35 @@ const until = async (fn, msg, tries = 60) => {
     await page.goto(`${BASE}/work/end-of-day`);
     const strip = page.getByTestId("eod-today");
     await strip.waitFor();
-    const text = (await strip.innerText()).replace(/\s+/g, " ").trim();
-    assert(text.includes("5 next actions done: Deals 2 · Rosara 1 · Job search 1 · Consulting 1"), text);
-    assert(text.includes("2 to-dos done"), text);
-    assert(text.includes(`${waiting.deals + waiting.people} waiting 5+ days`), `${text} vs ${JSON.stringify(waiting)}`);
-    // The split wraps between areas, never inside one, and the dots stay after their figures.
-    const dots = await strip.locator("[data-testid=eod-today-part]").evaluateAll((els) =>
-      els.map((b) => {
-        const dot = b.nextElementSibling;
-        if (!dot) return true;
-        const rects = b.getClientRects();
-        const last = rects[rects.length - 1];
-        const d = dot.getBoundingClientRect();
-        return d.top + d.height / 2 >= last.top && d.top + d.height / 2 <= last.bottom;
-      }),
-    );
-    assert(dots.every(Boolean), `a dot left its figure: ${dots}`);
-    await shot("end-of-day-today-line-1440.png", strip);
-    // Phone width: the line wraps between figures and areas, with no sideways scroll.
+    // The Today tiles (2026-11-05): a number over its label; Next actions done carries the split by area. A follow-up
+    // marked Done today (Contacts) counts too, so the split names Contacts when the sample has one today.
+    const tile = async (key) => {
+      const t = strip.locator(`[data-testid=eod-today-part][data-key=${key}]`);
+      return { n: Number(await t.getAttribute("data-count")), text: (await t.innerText()).replace(/\s+/g, " ").trim() };
+    };
+    const followUpsToday = (await one("select count(*)::int n from work_events where kind = 'follow_up_done' and happened_on = $1", [today])).n;
+    const done = await tile("done");
+    const split = `Deals 2${followUpsToday ? ` · Contacts ${followUpsToday}` : ""} · Rosara 1 · Job search 1 · Consulting 1`;
+    assert(done.n === 5 + followUpsToday && done.text === `${5 + followUpsToday} NEXT ACTIONS DONE ${split}`, done.text);
+    const todosTile = await tile("todos");
+    assert(todosTile.n === 2 && todosTile.text === "2 TO-DOS DONE", todosTile.text);
+    const waitsTile = await tile("waits");
+    assert(waitsTile.n === waiting.deals + waiting.people && waitsTile.text === `${waiting.deals + waiting.people} WAITING 5+ DAYS`, `${waitsTile.text} vs ${JSON.stringify(waiting)}`);
+    await shot("end-of-day-today-tiles-1440.png", strip);
+    // Phone width: two tiles a row, Next actions done two wide; the split wraps between areas, never inside one; no sideways scroll.
     await page.setViewportSize({ width: 390, height: 844 });
     await page.waitForTimeout(300);
     const over = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     assert(over <= 0, `scrolls sideways by ${over}px`);
     const areaChunks = await strip.locator("[data-testid=eod-today-areas] > span > span").evaluateAll((els) => els.map((e) => new Set([...e.getClientRects()].map((r) => Math.round(r.top))).size));
-    assert(areaChunks.length === 4 && areaChunks.every((n) => n === 1), `an area split inside: ${areaChunks}`);
+    assert(areaChunks.length === (followUpsToday ? 5 : 4) && areaChunks.every((n) => n === 1), `an area split inside: ${areaChunks}`);
     await page.setViewportSize({ width: 1440, height: 900 });
     // The drawers.
     await strip.locator('[data-key="done"]').click();
     let drawer = page.getByTestId("eod-today-drawer");
     await drawer.waitFor();
     const doneItems = await drawer.getByTestId("eod-today-item").allInnerTexts();
-    assert(doneItems.length === 5 && /^Dalton Services\nDeals · Review the CIM/.test(doneItems[0]) && doneItems.some((t) => t.includes("Rosara · Ship the screens")), JSON.stringify(doneItems));
+    assert(doneItems.length === 5 + followUpsToday && /^Dalton Services\nDeals · Review the CIM/.test(doneItems[0]) && doneItems.some((t) => t.includes("Rosara · Ship the screens")), JSON.stringify(doneItems));
     await page.keyboard.press("Escape");
     await drawer.waitFor({ state: "hidden" });
     await strip.locator('[data-key="todos"]').click();
@@ -650,6 +652,169 @@ const until = async (fn, msg, tries = 60) => {
     assert((preview.match(/Summit Logistics Group/g) || []).length >= 1 && !preview.includes("Three years of tax returns"), "the broker section is one line per deal");
     await page.keyboard.press("Escape");
     await db.query("delete from waits where pipeline_item_id = $1 and text = 'Three years of tax returns'", [summit]);
+  });
+
+  // ---------- End of day top areas (2026-11-05): Today tiles (Option A) and the report card (Option B) ----------
+  const eodTop = async () => {
+    await page.goto(`${BASE}/work/end-of-day`);
+    await page.getByTestId("eod-today").waitFor();
+    await page.getByTestId("report-card").waitFor();
+    await page.waitForLoadState("networkidle");
+  };
+
+  await step("End of day: the 'Before you send' line under the title is gone; the TODAY label and the report card's top line up; the tiles are 4 a row (2 on the phone), Next actions done two wide", async () => {
+    await eodTop();
+    assert(!(await page.getByTestId("eod-sticky").innerText()).toLowerCase().includes("before you send") && (await page.getByTestId("eod-status").count()) === 0, "the old line under the title");
+    assert((await page.getByTestId("report-status-line").count()) === 0, "no orange status line while the day is open");
+    const tops = async () => page.evaluate(() => ({ today: Math.round(document.querySelector("[data-testid=eod-today]").getBoundingClientRect().top), card: Math.round(document.querySelector("[data-testid=report-card]").getBoundingClientRect().top), left: Math.round(document.querySelector("[data-testid=eod-left]").getBoundingClientRect().top) }));
+    const t = await tops();
+    assert(Math.abs(t.today - t.card) <= 1 && t.today === t.left, `tops ${JSON.stringify(t)}`);
+    const boxes = async () => page.getByTestId("eod-today-part").evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return { key: e.dataset.key, top: Math.round(r.top), left: Math.round(r.left), w: Math.round(r.width), h: Math.round(r.height) }; }));
+    let b = await boxes();
+    assert(b.map((x) => x.key).join(",") === "screened,moved,calls,emails,done,todos,waits", JSON.stringify(b));
+    assert(new Set(b.slice(0, 4).map((x) => x.top)).size === 1 && new Set(b.slice(4).map((x) => x.top)).size === 1 && b[4].top > b[0].top, `rows of 4: ${JSON.stringify(b)}`);
+    assert(Math.abs(b[4].w - (b[0].w * 2 + 8)) <= 2, `Next actions done two wide: ${JSON.stringify(b)}`);
+    // The tiles of a row are the same height, so the numbers and labels stay level.
+    assert(new Set(b.slice(0, 4).map((x) => x.h)).size === 1 && new Set(b.slice(4).map((x) => x.h)).size === 1, `heights ${JSON.stringify(b)}`);
+    // A zero is light gray; Waiting is red above 0.
+    // Colors compared as the browser draws them (Tailwind's colors are lab()): the gray of slate-400, the red of the missed status.
+    const ref = await page.evaluate(() => {
+      const probe = (cls) => { const e = document.createElement("span"); e.className = cls; document.body.appendChild(e); const c = getComputedStyle(e).color; e.remove(); return c; };
+      return { gray: probe("text-slate-400"), red: probe("text-status-missed"), ink: probe("text-slate-900") };
+    });
+    const colors = await page.getByTestId("eod-today-part").evaluateAll((els) => els.map((e) => [e.dataset.key, Number(e.dataset.count), getComputedStyle(e.querySelector("[data-testid=eod-today-value]")).color]));
+    for (const [key, n, color] of colors) {
+      if (!n) assert(color === ref.gray, `${key} zero: ${color} vs ${ref.gray}`);
+      else if (key === "waits") assert(color === ref.red, `waits red: ${color} vs ${ref.red}`);
+      else assert(color === ref.ink, `${key}: ${color} vs ${ref.ink}`);
+    }
+    await shot("end-of-day-top-1440.png");
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForTimeout(300);
+    b = await boxes();
+    assert(b[0].top === b[1].top && b[2].top === b[3].top && b[2].top > b[0].top && b[4].top > b[2].top && b[5].top === b[6].top && b[5].top > b[4].top, `2 a row: ${JSON.stringify(b)}`);
+    assert(Math.abs(b[4].w - (b[0].w * 2 + 8)) <= 2, "two wide on the phone");
+    assert((await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)) <= 0, "no sideways scroll");
+    await page.setViewportSize({ width: 1440, height: 900 });
+  });
+
+  await step("End of day: each Today tile opens its panel (the existing side panel), listing what it counts", async () => {
+    await eodTop();
+    const titles = { screened: "Listings screened today", moved: "Deals moved today", calls: "Calls today", emails: "Emails sent today", done: "Next actions done today", todos: "To-dos done today", waits: "Waiting on someone" };
+    const tiles = await page.getByTestId("eod-today-part").evaluateAll((els) => els.map((e) => [e.dataset.key, Number(e.dataset.count)]));
+    for (const [key, n] of tiles) {
+      await page.locator(`[data-testid=eod-today-part][data-key=${key}]`).click();
+      const drawer = page.getByTestId("eod-today-drawer");
+      await drawer.waitFor();
+      assert((await drawer.innerText()).includes(titles[key]), `${key}: ${(await drawer.innerText()).slice(0, 80)}`);
+      const items = await drawer.getByTestId("eod-today-item").count();
+      assert(items === n || (key === "done" && items === n), `${key}: ${items} rows for ${n}`);
+      if (!n) assert((await drawer.getByTestId("eod-today-empty").count()) === 1, `${key}: the empty line`);
+      await page.keyboard.press("Escape");
+      await drawer.waitFor({ state: "hidden" });
+    }
+  });
+
+  await step("End of day: the report card's 'Before you send' checklist: Reasons and Tomorrow's line with their states, 'N of M done', a click scrolls to the card and outlines it, a green check when done", async () => {
+    await db.query("update end_of_day set tomorrow_line = '' where day = $1", [today]);
+    await eodTop();
+    const list = page.getByTestId("eod-checklist");
+    const rows = async () => list.getByTestId("eod-check").evaluateAll((els) => els.map((e) => ({ key: e.dataset.key, done: e.dataset.done, state: e.dataset.state, text: e.innerText.replace(/\s+/g, " ").trim(), check: !!e.querySelector("svg") })));
+    let r = await rows();
+    const owed = Number(await list.getAttribute("data-owed"));
+    assert(r.map((x) => x.key).join(",") === "reasons,tomorrow", JSON.stringify(r));
+    assert(r[0].state === (owed ? `${owed} left` : "Done") && r[0].text === `Reasons ${r[0].state}` && r[0].check === !owed, JSON.stringify(r[0]));
+    assert(r[1].state === "Empty" && r[1].text === "Tomorrow's line Empty" && !r[1].check, JSON.stringify(r[1]));
+    const doneN = r.filter((x) => x.done === "1").length;
+    assert((await list.innerText()).toUpperCase().startsWith("BEFORE YOU SEND") && (await page.getByTestId("eod-checklist-count").innerText()) === `${doneN} of 2 done`, await page.getByTestId("eod-checklist-count").innerText());
+    // The buttons sit right under the checklist.
+    const below = await page.evaluate(() => document.querySelector("[data-testid=report-acts]").getBoundingClientRect().top >= document.querySelector("[data-testid=eod-checklist]").getBoundingClientRect().bottom);
+    assert(below, "View report and Approve and send under the checklist");
+    // A click on Tomorrow's line scrolls to its card and outlines it for a moment.
+    await list.locator("[data-testid=eod-check][data-key=tomorrow]").click();
+    await until(async () => (await page.locator("#eod-tomorrow").getAttribute("class")).includes("field-flash"), "the card is outlined");
+    await page.waitForTimeout(800);
+    const inView = await page.evaluate(() => { const b = document.getElementById("eod-tomorrow").getBoundingClientRect(); return b.top >= 0 && b.top < window.innerHeight; });
+    assert(inView, "scrolled to the card");
+    await until(async () => !(await page.locator("#eod-tomorrow").getAttribute("class")).includes("field-flash"), "the outline goes");
+    // A click on Reasons goes to the Targets card.
+    await list.locator("[data-testid=eod-check][data-key=reasons]").click();
+    await until(async () => (await page.locator("#eod-targets").getAttribute("class")).includes("field-flash"), "the Targets card is outlined");
+    // Writing tomorrow's line turns its row green with a check.
+    await page.getByTestId("tomorrow-input").fill("Call Mark Reed about the Summit seller call at 10.");
+    await page.getByTestId("tomorrow-input").blur();
+    await until(async () => (await list.locator("[data-testid=eod-check][data-key=tomorrow]").getAttribute("data-state")) === "Done", "Tomorrow's line Done");
+    r = await rows();
+    assert(r[1].check && r[1].done === "1", JSON.stringify(r[1]));
+    const color = await list.locator("[data-testid=eod-check][data-key=tomorrow] > span").last().evaluate((e) => { const p = document.createElement("span"); p.className = "text-status-met"; document.body.appendChild(p); const g = getComputedStyle(p).color; p.remove(); return getComputedStyle(e).color === g; });
+    assert(color, "Done in green");
+    const count = await page.getByTestId("eod-checklist-count").innerText();
+    assert(count === (owed ? "1 of 2 done" : "All done"), count);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await shot("end-of-day-report-card-1440.png", page.getByTestId("report-card"));
+  });
+
+  await step("End of day: the partner table (Partner | Gets | Sections) replaces the section sentences; View shows a partner's sections as a list", async () => {
+    await eodTop();
+    const table = page.getByTestId("eod-partners");
+    await table.waitFor();
+    assert((await page.getByTestId("report-includes").count()) === 0, "no run-on section sentence");
+    const head = (await table.locator("div").first().innerText()).replace(/\s+/g, " ").trim();
+    assert(head === "PARTNER GETS SECTIONS", head);
+    const jake = table.locator("[data-testid=eod-partner][data-partner=Jake]");
+    assert((await jake.getByTestId("eod-partner-gets").innerText()) === "Weekdays", "Gets Weekdays");
+    const count = await jake.getByTestId("eod-partner-count").innerText();
+    assert(/^\d+ sections?$/.test(count), count);
+    assert((await jake.getByTestId("eod-partner-sections").count()) === 0 && (await jake.getByTestId("eod-partner-view").innerText()) === "View", "closed at first");
+    await jake.getByTestId("eod-partner-view").click();
+    const sections = (await jake.getByTestId("eod-partner-sections").innerText()).split(", ");
+    assert(sections.length === Number(count.split(" ")[0]) && sections[0].length > 0, `${count}: ${sections.join(" | ")}`);
+    assert((await jake.getByTestId("eod-partner-view").innerText()) === "Hide", "Hide");
+    await shot("end-of-day-partner-table-view-1440.png", page.getByTestId("report-card"));
+    // The columns line up across rows: Gets and Sections start at the same x as their headings.
+    const xs = await table.evaluate((el) => { const head = el.firstElementChild.children; const row = el.querySelector("[data-testid=eod-partner] > div").children; return [0, 1, 2].map((i) => Math.round(head[i].getBoundingClientRect().left) === Math.round(row[i].getBoundingClientRect().left)); });
+    assert(xs.every(Boolean), `columns ${xs}`);
+    await jake.getByTestId("eod-partner-view").click();
+    assert((await jake.getByTestId("eod-partner-sections").count()) === 0, "Hide closes it");
+  });
+
+  await step("Item 2: Done on a Contacts follow-up raises 'next actions done' under Contacts (the person's name, the follow-up note), and still counts toward Follow-ups on time", async () => {
+    const reed = await one("select id, follow_up_note from contacts where name = 'Mark Reed'");
+    await eodTop();
+    const before = Number(await page.locator("[data-testid=eod-today-part][data-key=done]").getAttribute("data-count"));
+    const contactsBefore = Number(((await page.locator("[data-testid=eod-today-part][data-key=done]").innerText()).match(/Contacts (\d+)/) || [0, 0])[1]);
+    const followUpsBefore = (await one("select count(*)::int n from work_events where kind = 'follow_up_done' and happened_on = $1", [today])).n;
+    await page.goto(`${BASE}/work/people`);
+    const row = page.locator(`[data-testid=person-row][data-person="${reed.id}"]`);
+    await row.waitFor();
+    await row.getByTestId("row-done").click();
+    await row.getByTestId("person-done-ask").waitFor();
+    await row.getByTestId("person-done-choice").first().click();
+    await row.getByTestId("person-done-result").waitFor();
+    await until(async () => (await one("select count(*)::int n from work_events where kind = 'follow_up_done' and happened_on = $1", [today])).n === followUpsBefore + 1, "the follow-up Done is recorded");
+    await eodTop();
+    const tile = page.locator("[data-testid=eod-today-part][data-key=done]");
+    assert(Number(await tile.getAttribute("data-count")) === before + 1, `next actions done ${await tile.getAttribute("data-count")} after ${before}`);
+    assert((await tile.innerText()).includes(`Contacts ${contactsBefore + 1}`), await tile.innerText());
+    await tile.click();
+    const drawer = page.getByTestId("eod-today-drawer");
+    await drawer.waitFor();
+    const link = drawer.getByTestId("eod-today-link").filter({ hasText: /^Mark ReedContacts/ });
+    assert((await link.count()) === 1, `one row for the one Done: ${JSON.stringify(await drawer.getByTestId("eod-today-item").allInnerTexts())}`);
+    assert((await link.innerText()).replace(/\s+/g, " ").trim() === `Mark Reed Contacts · ${reed.follow_up_note}`, await link.innerText());
+    assert((await link.getAttribute("href")) === `/work/people/${reed.id}`, await link.getAttribute("href"));
+    await page.keyboard.press("Escape");
+    await drawer.waitFor({ state: "hidden" });
+    // The Next actions done target and the report's Today tile agree; Follow-ups done on time still counts it.
+    const target = page.locator("[data-testid=eod-target][data-target='Next actions done']");
+    if (await target.count()) assert((await target.getByTestId("eod-figure").innerText()).startsWith(`${before + 1} of`), await target.innerText());
+    await page.getByTestId("report-view").click();
+    await page.getByTestId("report-window").waitFor();
+    const preview = (await page.getByTestId("report-preview").innerText()).replace(/\s+/g, " ");
+    assert(new RegExp(`NEXT ACTIONS DONE ${before + 1}\\b`, "i").test(preview) || preview.includes(`Next actions done ${before + 1}`), preview.slice(0, 600));
+    await page.keyboard.press("Escape");
+    const fu = page.locator("[data-testid=eod-target][data-target='Follow-ups done on time']");
+    if (await fu.count()) assert((await fu.innerText()).includes("Mark Reed") || /\d+ of \d+/.test(await fu.innerText()), await fu.innerText());
   });
 
   await step("Remove sample data removes the waits", async () => {

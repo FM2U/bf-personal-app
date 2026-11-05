@@ -109,7 +109,7 @@ export async function loadFacts(sb: SupabaseClient, ctx: WorkCtx, since: string)
   const nameOf = (i: Row) => displayName({ name: String(i.name), companyName: (i.company_name as string | null) ?? null });
   // The counting itself is pure and shared (src/lib/accountability/facts.ts).
   const { facts, passes } = buildFacts({ items: (items ?? []) as Row[], history: (hist ?? []) as Row[], comms: (comms ?? []) as Row[], events: (events ?? []) as Row[], people: (people ?? []) as Row[], tasks: (doneTasks ?? []) as Row[], stageById, laneOf, since, local });
-  // One wait per deal or person: its longest; "what" names every wait ("The CIM; Reply to your email: Oakline CIM").
+  // One wait per deal or person: its longest; "what" names every wait ("The CIM; Luis Ortega's reply to your email "Oakline CIM"").
   const longest = (saved: readonly SavedWait[]) => {
     const lines = waitLines(saved, ctx.today, ctx.threshold);
     return lines.length ? { days: lines[0].days, what: lines.map((l) => l.text).join("; "), sinceDate: lines[0].since } : null;

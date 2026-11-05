@@ -8,6 +8,7 @@ import { useUnsavedWork } from "@/components/app/unsaved-changes";
 import { date as fmtDate } from "@/lib/format";
 import { DB_UPDATE_NOTICE_PUSH_E2 } from "@/lib/schema-guard";
 import type { WaitLine } from "@/lib/work/waiting";
+import { repliedLabel, replyWaitName } from "@/lib/work/reply-wait";
 import { Pill, RowButton } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
 
@@ -21,7 +22,7 @@ const LINE = "grid grid-cols-[minmax(0,1fr)_88px_28px] items-center gap-x-2.5";
  * short list, longest wait first: each line shows what is waited on, Since, and an × that removes it at once. "+ Add"
  * opens a line with the text and Since (today unless changed) and adds it at once; the Save button of the card is
  * for the other fields. Nothing waited on reads "Nobody". The label sits in the card's label column, at the top.
- * Edits of Nov 5 (item 6): a wait whose email has a reply shows, under its text, the green "Replied Nov 4" pill and
+ * Edits of Nov 5 (item 6): a wait whose email has a reply shows, under its text, the green "Dana replied Nov 4" pill and
  * Clear (which removes the wait), as on the Waiting card; Clear takes the place of the × on that line.
  */
 export function WaitsField({ kind, recordId, waits, today, ready, labelClassName }: { kind: "deal" | "item" | "person"; recordId: string; waits: readonly WaitLine[]; today: string; /** False before UPDATE_PREVIEW_PUSH_E2.sql: the list says so and cannot save. */ ready: boolean; labelClassName: string }) {
@@ -88,7 +89,7 @@ export function WaitsField({ kind, recordId, waits, today, ready, labelClassName
               {w.repliedOn ? (
                 <span className="col-span-3 flex items-center justify-end gap-2 pr-2.5">
                   <Pill tone="green" testId="wait-replied">
-                    Replied {fmtDate(w.repliedOn, "MMM d")}
+                    {repliedLabel(replyWaitName(w.text) ?? w.repliedBy, fmtDate(w.repliedOn, "MMM d"))}
                   </Pill>
                   <RowButton tone="cobalt" onClick={() => remove(w.id)} disabled={pending} data-testid="wait-clear">
                     {removing === w.id ? "Clearing..." : "Clear"}

@@ -10,26 +10,18 @@
 import { addDaysISO, daysBetween } from "@/lib/calc/dates";
 import { personHref } from "@/lib/work/people";
 import { daysWaiting, waitLevel, type WaitLevel } from "@/lib/work/stages";
+import { parseReplyWait, whoBesides } from "@/lib/work/reply-wait";
 
 /** The No reply setting's default (Bram, 2026-11-05: 2, changed from 3). */
 export const DEFAULT_NO_REPLY_DAYS = 2;
 /** The reply-reading window (src/lib/replies-sync.ts): older emails are never on No reply yet. */
 export const NO_REPLY_WINDOW_DAYS = 30;
-/** What Add to Waiting writes as a wait (edits of Nov 5: was "A reply to: "). */
-export const REPLY_PREFIX = "Reply to your email: ";
-/** The wording before Nov 5, still on waits saved then (they keep their text). */
-const OLD_REPLY_PREFIX = "A reply to: ";
-
-/** The email subject of a wait made from an email ("Reply to your email: Pinecrest LOI", or the older wording), or "". */
-export function replySubject(text: string | null | undefined): string {
-  const t = String(text ?? "").trim();
-  for (const p of [REPLY_PREFIX, OLD_REPLY_PREFIX]) if (t.startsWith(p)) return t.slice(p.length).trim();
-  return "";
-}
+// The wording of a wait made from an email (item 3 of 2026-11-05): src/lib/work/reply-wait.ts.
+export { parseReplyWait, repliedLabel, replySubject, replyWaitName, replyWaitText, whoBesides } from "@/lib/work/reply-wait";
 
 /**
  * One wait as saved (push E2: table waits). A deal, a job or consulting item, or a person can hold several at once:
- * "The CIM" typed by hand and "Reply to your email: Oakline CIM" from an email. `commId` is the email it came from (Add to
+ * "The CIM" typed by hand and "Luis Ortega's reply to your email "Oakline CIM"" from an email. `commId` is the email it came from (Add to
  * Waiting) and `followUpCommId` the newest follow-up sent from the Waiting card; a reply to either shows Replied.
  */
 export type SavedWait = { id: string; text: string; since: string | null; commId: string | null; followUpCommId: string | null; createdAt: string };
@@ -43,6 +35,8 @@ export type WaitLine = {
   level: WaitLevel;
   /** Edits of Nov 5 (item 6): the day (YYYY-MM-DD) a reply came in for a wait made from an email; record pages show "Replied" and Clear. */
   repliedOn?: string | null;
+  /** Item 3 of 2026-11-05: the person the email went to, for "Dana replied Nov 4" when the text names nobody. */
+  repliedBy?: string | null;
 };
 
 /** A record's waits, longest first (then the one added first). Blank lines are left out. */
@@ -67,7 +61,7 @@ export function waitSummary(lines: readonly WaitLine[]): { waitingOn: string | n
   return { waitingOn: lines.length > 1 ? `${first.text} and ${lines.length - 1} more` : first.text, waitingSince: first.since, waitDays: first.days, waitLevel: first.level };
 }
 
-/** Every wait in one line for the AI and the Work through context: "The CIM, since Nov 3; Reply to your email: Oakline CIM, since Nov 3". */
+/** Every wait in one line for the AI and the Work through context: "The CIM, since Nov 3; Luis Ortega's reply to your email "Oakline CIM", since Nov 3". */
 export function waitsText(lines: readonly Pick<WaitLine, "text" | "since">[], fmt?: (d: string) => string): string {
   return lines.map((l) => (l.since && fmt ? `${l.text}, since ${fmt(l.since)}` : l.text)).join("; ");
 }
@@ -118,9 +112,15 @@ export function waitGroups<T extends Pick<WaitItem, "days" | "name">>(items: rea
   ];
 }
 
-/** A row of the card from its lines: the longest wait sets the days and tone. Null when no line is left. */
+/**
+ * A row of the card from its lines: the longest wait sets the days and tone. Null when no line is left. A line whose
+ * text already names its person drops the separate "· <person>" (item 3 of 2026-11-05).
+ */
 export function waitItem(row: Omit<WaitItem, "lines" | "days" | "level">, lines: readonly WaitItemLine[]): WaitItem | null {
-  const sorted = [...lines].filter((l) => l.waitingOn.trim()).sort((a, b) => b.days - a.days);
+  const sorted = [...lines]
+    .filter((l) => l.waitingOn.trim())
+    .map((l) => ({ ...l, who: whoBesides(l.waitingOn, l.who) }))
+    .sort((a, b) => b.days - a.days);
   if (!sorted.length) return null;
   return { ...row, lines: sorted, days: sorted[0].days, level: sorted[0].level };
 }
@@ -265,22 +265,15 @@ export function firstReplyAfter(mail: readonly Pick<MailRow, "direction" | "thre
   return replies[0] ?? null;
 }
 
-/** The wait line Add to Waiting adds: "Reply to your email: <subject>" (fits the 120 characters a wait keeps). */
-export function replyWaitText(subject: string | null | undefined): string {
-  const s = String(subject ?? "").replace(/\s+/g, " ").trim();
-  if (!s) return REPLY_PREFIX.replace(/:\s*$/, "");
-  const full = `${REPLY_PREFIX}${s}`;
-  return full.length > 120 ? `${full.slice(0, 117).trimEnd()}...` : full;
-}
-
 /** The drafted Follow up to a person being waited on. */
 export function personFollowUpDraft(i: { name: string; waitingOn: string | null; days: number }): { subject: string; body: string } {
   const first = String(i.name ?? "").trim().split(/\s+/)[0] || "there";
   const what = String(i.waitingOn ?? "").trim();
-  const reply = replySubject(what);
+  // A wait made from an email reads as "your reply to my email about <subject>" (whatever its wording).
+  const parsed = parseReplyWait(what);
+  const reply = parsed?.subject ?? "";
   const since = i.days >= 2 ? ` It has been ${i.days} days, so I wanted to make sure it did not get lost.` : "";
-  const bare = what === REPLY_PREFIX.replace(/:\s*$/, "");
-  const topic = reply ? `your reply to my email about ${reply}` : bare ? "your reply to my email" : what ? `${what.charAt(0).toLowerCase()}${what.slice(1)}` : "your reply";
+  const topic = reply ? `your reply to my email about ${reply}` : parsed ? "your reply to my email" : what ? `${what.charAt(0).toLowerCase()}${what.slice(1)}` : "your reply";
   return {
     subject: reply ? `Following up: ${reply}` : "Following up",
     body: `Hi ${first},\n\nQuick follow-up: I am still waiting on ${topic}.${since}\n\nIs there an update? Happy to jump on a call if that is easier.\n\nThanks,\nBram`,

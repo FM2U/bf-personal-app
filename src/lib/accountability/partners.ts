@@ -99,6 +99,12 @@ function daysShort(days: readonly number[]): string {
   return l === "every weekday" ? "weekdays" : l;
 }
 
+/** The Gets column of the partner table on End of day: "Weekdays", "Fridays", "Mon, Wed, Fri", "No days". */
+export function getsLabel(days: readonly number[]): string {
+  const l = daysShort(days);
+  return l.charAt(0).toUpperCase() + l.slice(1);
+}
+
 /** The line next to Approve and send: "Only Jake is due today", "Jake gets weekdays; Sarah gets Fridays", "No partner is due today". */
 export function dueLine(partners: readonly { first: string; days: readonly number[] }[], day: string): string {
   const due = partnersDueOn(partners, day);

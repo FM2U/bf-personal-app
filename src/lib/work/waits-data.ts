@@ -119,26 +119,30 @@ export async function followedUpWait(sb: SupabaseClient, ownerId: string, waitId
 /**
  * Edits of Nov 5 (item 6): the day a reply came in for each wait made from an email, as the Waiting card reads it (a
  * reply in the thread of the email the wait came from or of its follow-up, after that email). By wait id, as
- * YYYY-MM-DD in the owner's time zone; waits with no reply are left out. Only stored emails are read.
+ * YYYY-MM-DD in the owner's time zone, with (item 3 of 2026-11-05) the name of the person the email went to, for
+ * "Dana replied Nov 4"; waits with no reply are left out. Only stored emails are read.
  */
-export async function loadWaitReplies(sb: SupabaseClient, ownerId: string, waits: readonly SavedWait[], tz: string): Promise<Record<string, string>> {
+export async function loadWaitReplies(sb: SupabaseClient, ownerId: string, waits: readonly SavedWait[], tz: string): Promise<Record<string, { on: string; by: string | null }>> {
   const ids = [...new Set(waits.flatMap((w) => [w.commId, w.followUpCommId]).filter(Boolean))] as string[];
   if (!ids.length) return {};
-  const { data: sentRows } = await sb.from("communications").select("id,occurred_at,gmail_thread_id").eq("owner_id", ownerId).in("id", ids);
-  const sent = new Map(((sentRows ?? []) as Row[]).map((r) => [String(r.id), { at: String(r.occurred_at), thread: str(r.gmail_thread_id) }]));
+  const { data: sentRows } = await sb.from("communications").select("id,occurred_at,gmail_thread_id,contact_id").eq("owner_id", ownerId).in("id", ids);
+  const sent = new Map(((sentRows ?? []) as Row[]).map((r) => [String(r.id), { at: String(r.occurred_at), thread: str(r.gmail_thread_id), contactId: str(r.contact_id) }]));
   const threads = [...new Set([...sent.values()].map((x) => x.thread).filter(Boolean))] as string[];
   if (!threads.length) return {};
   const { data: replyRows } = await sb.from("communications").select("occurred_at,gmail_thread_id").eq("owner_id", ownerId).eq("direction", "incoming").in("gmail_thread_id", threads).limit(2000);
   const replies = ((replyRows ?? []) as Row[]).map((r) => ({ direction: "incoming", threadId: String(r.gmail_thread_id), occurredAt: String(r.occurred_at) }));
-  const out: Record<string, string> = {};
+  const out: Record<string, { on: string; contactId: string | null }> = {};
   for (const w of waits) {
     const at = waitRepliedAt(replies, [w.commId ? sent.get(w.commId) : null, w.followUpCommId ? sent.get(w.followUpCommId) : null]);
-    if (at) out[w.id] = todayInTz(tz, new Date(at));
+    if (at) out[w.id] = { on: todayInTz(tz, new Date(at)), contactId: (w.commId ? sent.get(w.commId)?.contactId : null) ?? (w.followUpCommId ? sent.get(w.followUpCommId)?.contactId : null) ?? null };
   }
-  return out;
+  const people = [...new Set(Object.values(out).map((x) => x.contactId).filter(Boolean))] as string[];
+  const { data: names } = people.length ? await sb.from("contacts").select("id,name").eq("owner_id", ownerId).in("id", people) : { data: [] as Row[] };
+  const nameOf = new Map(((names ?? []) as Row[]).map((c) => [String(c.id), str(c.name)]));
+  return Object.fromEntries(Object.entries(out).map(([id, x]) => [id, { on: x.on, by: x.contactId ? (nameOf.get(x.contactId) ?? null) : null }]));
 }
 
-/** A record's wait lines with the day a reply came in on each (edits of Nov 5, item 6). */
-export function withReplies(lines: readonly WaitLine[], replied: Readonly<Record<string, string>>): WaitLine[] {
-  return lines.map((l) => ({ ...l, repliedOn: replied[l.id] ?? null }));
+/** A record's wait lines with the day a reply came in on each and who it came from (edits of Nov 5, item 6; item 3 of 2026-11-05). */
+export function withReplies(lines: readonly WaitLine[], replied: Readonly<Record<string, { on: string; by: string | null }>>): WaitLine[] {
+  return lines.map((l) => ({ ...l, repliedOn: replied[l.id]?.on ?? null, repliedBy: replied[l.id]?.by ?? null }));
 }

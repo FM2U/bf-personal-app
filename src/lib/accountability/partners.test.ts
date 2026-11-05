@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ALL_SECTIONS, cleanPartnerSettings, daysLabel, dueLine, firstName, isoWeekday, partnerSettings, partnersDueOn, REPORT_SECTIONS, sendLabel } from "./partners";
+import { ALL_SECTIONS, cleanPartnerSettings, daysLabel, dueLine, firstName, getsLabel, isoWeekday, partnerSettings, partnersDueOn, REPORT_SECTIONS, sendLabel } from "./partners";
 import { reportFor, reportInnerHtml, reportText, type ReportData } from "./report-email";
 
 // 2026-11-02 is a Monday, 2026-11-06 a Friday, 2026-11-07 a Saturday.
@@ -31,6 +31,8 @@ describe("which partners are due on a weekday", () => {
     expect(daysLabel([5])).toBe("Fridays");
     expect(daysLabel([1, 3, 5])).toBe("Mon, Wed, Fri");
     expect(daysLabel([])).toBe("no days");
+    // The Gets column of the partner table on End of day (2026-11-05).
+    expect([[1, 2, 3, 4, 5], [5], [1, 3, 5], []].map((d) => getsLabel(d))).toEqual(["Weekdays", "Fridays", "Mon, Wed, Fri", "No days"]);
   });
 });
 
