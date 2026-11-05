@@ -16,6 +16,7 @@ import { parseOpenQuestions, type QuestionGroups } from "@/lib/work/questions";
 import { parseFindingList } from "@/lib/work/deal-facts";
 import { DEFAULT_WAIT_THRESHOLD_DAYS, WORK_STAGES, dayInStage, daysWaiting, doneOutcome, nextStageName, stageIndex, waitLevel, type WaitLevel } from "@/lib/work/stages";
 import { commTitle, type TimelineEvent } from "@/lib/work/timeline";
+import { DEFAULT_NO_REPLY_DAYS } from "@/lib/work/waiting";
 export type { TimelineEvent } from "@/lib/work/timeline";
 import { RECORD_TASK_COLUMNS, sortTodos, toDealTodo, topTodo, type DealTodo } from "@/lib/work/todos";
 import { DEFAULT_EOD_TIME, parseTime } from "@/lib/work/settings";
@@ -28,8 +29,8 @@ import type { Row } from "@/lib/types";
  * updates 0020 to 0024; before them `available` is false and `notice` names the file to run.
  */
 
-/** Push D: `eodTime` is the End of day time from Settings, Work settings ("17:30"). */
-export type WorkCtx = Ctx & { threshold: number; eodTime: string };
+/** Push D: `eodTime` is the End of day time from Settings, Work settings ("17:30"). Push E: `noReplyDays`, No reply yet after (days). */
+export type WorkCtx = Ctx & { threshold: number; eodTime: string; noReplyDays: number };
 
 
 export type Stage = { id: string; name: string; position: number; outcome: string; defaultTitle: string | null; defaultDueInDays: number | null };
@@ -106,11 +107,12 @@ export type ListingRow = DealRow & { buyBox: { tier: BuyBoxTier; fits: boolean; 
 
 export async function loadWorkCtx(sb: SupabaseClient, ownerId: string): Promise<WorkCtx> {
   const ctx = await loadCtx(sb, ownerId);
-  const { data } = await sb.from("inputs").select("key,value_number,value_text").eq("owner_id", ownerId).in("key", ["waiting_threshold_days", "end_of_day_time"]);
+  const { data } = await sb.from("inputs").select("key,value_number,value_text").eq("owner_id", ownerId).in("key", ["waiting_threshold_days", "end_of_day_time", "no_reply_after_days"]);
   const rows = (data ?? []) as Row[];
   const n = Number(rows.find((r) => r.key === "waiting_threshold_days")?.value_number);
   const eod = parseTime(rows.find((r) => r.key === "end_of_day_time")?.value_text) ?? DEFAULT_EOD_TIME;
-  return { ...ctx, threshold: Number.isFinite(n) && n > 0 ? Math.round(n) : DEFAULT_WAIT_THRESHOLD_DAYS, eodTime: eod };
+  const nr = Number(rows.find((r) => r.key === "no_reply_after_days")?.value_number);
+  return { ...ctx, threshold: Number.isFinite(n) && n > 0 ? Math.round(n) : DEFAULT_WAIT_THRESHOLD_DAYS, eodTime: eod, noReplyDays: Number.isFinite(nr) && nr > 0 ? Math.round(nr) : DEFAULT_NO_REPLY_DAYS };
 }
 
 /** The acquisition pipeline with its stages and each stage's default next action. Null when there is none. */

@@ -48,6 +48,9 @@ export type PersonRow = {
   archived: boolean;
   archivedAt: string | null;
   createdAt: string;
+  /** Push E: who or what this person is being waited on for, and since when (YYYY-MM-DD); null when nothing (or before the update). */
+  waitingOn: string | null;
+  waitingSince: string | null;
 };
 
 export const CONTACT_COLUMNS = "id,name,organization_id,outreach_role,title,purposes,notes,email,phone,linkedin_url,follow_up_date,follow_up_note,last_contact_at,last_contact_kind,archived_at,created_at";
@@ -75,6 +78,8 @@ export function toPersonRow(c: Row, orgName: string | null, tz: string): PersonR
     archived: !!c.archived_at,
     archivedAt: c.archived_at ? String(c.archived_at) : null,
     createdAt: String(c.created_at ?? ""),
+    waitingOn: c.waiting_on ? String(c.waiting_on) : null,
+    waitingSince: c.waiting_on && c.waiting_since ? String(c.waiting_since).slice(0, 10) : null,
   };
 }
 

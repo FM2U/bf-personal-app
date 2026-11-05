@@ -18,6 +18,7 @@ import { dealFactsFromRow, parseFindingList } from "@/lib/work/deal-facts";
 import { loadBuyBoxSettings } from "@/lib/work/buy-box-data";
 import { cleanQuestions, countQuestions, mergeQuestions, parseOpenQuestions, questionsPrompt, TODO_MAX_LENGTH, todosPrompt, validateQuestionsReply, validateTodosReply, type DealContext, type QuestionGroups } from "@/lib/work/questions";
 import { nextTodoPosition, openTodos, type DealTodo } from "@/lib/work/todos";
+import { dropWaitLink, moveWaitToNewestEmail } from "@/lib/work/waiting-data";
 import type { Row } from "@/lib/types";
 
 /**
@@ -417,11 +418,16 @@ export async function saveNextAction(id: string, input: NextActionInput): Promis
   if (action && !due) return fail("Give the next action a due date.");
   const { error } = await sb.from("pipeline_items").update({ next_action: action, next_action_due: action ? due : null, next_action_minutes: minutes, waiting_on: waitingOn, waiting_since: waitingOn ? since : null }).eq("id", item.id);
   if (error) return notSaved(error);
+  // Push E: Waiting on changed by hand on a wait that came from an email (Add to Waiting) forgets the email.
+  if (item.waiting_comm_id && waitingOn !== (clean(item.waiting_on, 120) ?? null)) await dropWaitLink(sb, ctx.ownerId, { table: "pipeline_items", id: String(item.id), commId: String(item.waiting_comm_id) });
   done();
   return { ok: true };
 }
 
-/** Follow up sent: the wait starts again today (the email itself is logged by the send). */
+/**
+ * Follow up sent: the wait starts again today (the email itself is logged by the send). Push E: the wait moves to the
+ * follow-up email, so a reply to it shows Replied and it is not listed again under No reply yet.
+ */
 export async function resetWaiting(id: string): Promise<{ ok: true } | Fail> {
   const s = await setup();
   if (isFail(s)) return s;
@@ -431,6 +437,7 @@ export async function resetWaiting(id: string): Promise<{ ok: true } | Fail> {
   if (!item.waiting_on) return { ok: true };
   const { error } = await sb.from("pipeline_items").update({ waiting_since: ctx.today }).eq("id", item.id);
   if (error) return notSaved(error);
+  if (Object.prototype.hasOwnProperty.call(item, "waiting_comm_id")) await moveWaitToNewestEmail(sb, ctx.ownerId, { table: "pipeline_items", id: String(item.id), commId: item.waiting_comm_id ? String(item.waiting_comm_id) : null });
   doneQuietly();
   return { ok: true };
 }

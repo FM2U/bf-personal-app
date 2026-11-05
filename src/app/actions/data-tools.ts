@@ -83,13 +83,16 @@ export async function loadSampleData(fd: FormData) {
  * the Tasks items (deals; batch B adds tasks on people, which carry record_type contacts). Sample removal deletes
  * stage history, documents, and tasks with the sample deals and people, so nothing here needs its own marker.
  */
-async function finishWorkSample(sb: SupabaseClient, ownerId: string, today: string, work: Pick<WorkSample, "stageDates" | "documents" | "todos" | "noteDates" | "noActionItems">, stageIds: Record<string, string>) {
+async function finishWorkSample(sb: SupabaseClient, ownerId: string, today: string, work: Pick<WorkSample, "stageDates" | "documents" | "todos" | "noteDates" | "noActionItems" | "waitLinks">, stageIds: Record<string, string>) {
   const at = (daysAgo: number, hour: number) => `${addDaysISO(today, -daysAgo)}T${String(hour).padStart(2, "0")}:00:00.000Z`;
   if (work.todos.length) await sb.from("deal_todos").insert(work.todos.map((t) => ({ ...t, owner_id: ownerId })));
   // The notes and findings on the sample projects carry their dates (batch B2).
   for (const n of work.noteDates) await sb.from("notes").update({ created_at: at(n.daysAgo, 15) }).eq("id", n.noteId);
   // An item meant to start without a next action (the stage trigger filled the default on insert).
   if (work.noActionItems.length) await sb.from("pipeline_items").update({ next_action: null, next_action_due: null }).in("id", work.noActionItems);
+  // Push E: the waits that came from an email (the record was inserted before the email). Before the push E update the
+  // column is missing and this quietly does nothing.
+  for (const l of work.waitLinks) await sb.from(l.table).update({ waiting_comm_id: l.commId }).eq("id", l.id);
   // Items with no earlier stages (the passed listings of the screening weeks, Edit batch C) are dated in one update
   // per day, so the load stays quick with a hundred of them.
   const single = new Map<number, string[]>();

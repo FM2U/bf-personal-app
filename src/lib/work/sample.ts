@@ -78,6 +78,11 @@ export type WorkSample = {
   monthlyReviews: R[];
   /** Batch C: follow-ups and next actions done, the Rosara focus done, over the last weeks. */
   workEvents: R[];
+  /**
+   * Push E: the waits that came from an email (Add to Waiting), set after the insert (the deal or person is inserted
+   * before the email): Pinecrest waits on the reply to its LOI email, and the reply has arrived ("Replied").
+   */
+  waitLinks: { table: "pipeline_items" | "contacts"; id: string; commId: string }[];
 };
 
 const PLACES = ["Riverside", "Bluegrass", "Magnolia", "Piedmont", "Cumberland", "Lakeview", "Tidewater", "Palmetto", "Red Clay", "Ironwood", "Northgate", "Cedar Point", "Granite", "Heritage", "Keystone", "Blue Ridge", "Clearwater", "Sandhill", "Fall Line", "Harborview"];
@@ -179,7 +184,7 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
   entered(meridian, 4, [{ stageName: "Interested", daysAgo: 24 }, { stageName: "NDA signed", daysAgo: 22 }, { stageName: "CIM review", daysAgo: 18 }, { stageName: "Broker call", daysAgo: 15 }, { stageName: "Seller call", daysAgo: 9 }]);
   const ridgeline = add({ name: "Ridgeline Commercial Roofing", stage_id: stage("Partner presentation"), what_it_does: "Commercial roofing repair and maintenance for property managers", source: "Broker newsletter", broker_name: "Sunbelt, Dana Whitfield", primary_contact_id: c.whitfield, organization_id: org.sunbelt, location: "Charleston, SC", industry: "Roofing services", next_action: d("Partner presentation"), next_action_due: ahead(4), next_action_minutes: 90, key_finding: "Backlog covers 7 months" }, { revenue: 9_200_000, ebitda: 2_100_000, asking: 7_900_000 });
   entered(ridgeline, 1, [{ stageName: "Interested", daysAgo: 30 }, { stageName: "NDA signed", daysAgo: 28 }, { stageName: "CIM review", daysAgo: 25 }, { stageName: "Broker call", daysAgo: 21 }, { stageName: "Seller call", daysAgo: 16 }, { stageName: "Model", daysAgo: 10 }]);
-  const pinecrest = add({ name: "Pinecrest Landscaping", stage_id: stage("IOI or LOI"), what_it_does: "Commercial grounds maintenance, 200 HOA and office contracts", source: "Broker newsletter", broker_name: "Sunbelt, Dana Whitfield", primary_contact_id: c.whitfield, organization_id: org.sunbelt, location: "Atlanta, GA", industry: "Grounds maintenance", next_action: "Response to the LOI", next_action_due: ahead(3), key_finding: "LOI at 3.2x TTM, seller note 15%", waiting_on: "Response to the LOI", waiting_since: ago(6) }, { revenue: 7_600_000, ebitda: 1_900_000, asking: 6_100_000 });
+  const pinecrest = add({ name: "Pinecrest Landscaping", stage_id: stage("IOI or LOI"), what_it_does: "Commercial grounds maintenance, 200 HOA and office contracts", source: "Broker newsletter", broker_name: "Sunbelt, Dana Whitfield", primary_contact_id: c.whitfield, organization_id: org.sunbelt, location: "Atlanta, GA", industry: "Grounds maintenance", next_action: "Response to the LOI", next_action_due: ahead(3), key_finding: "LOI at 3.2x TTM, seller note 15%", waiting_on: "A reply to: Pinecrest LOI", waiting_since: ago(6) }, { revenue: 7_600_000, ebitda: 1_900_000, asking: 6_100_000 });
   entered(pinecrest, 6, [{ stageName: "Interested", daysAgo: 40 }, { stageName: "NDA signed", daysAgo: 38 }, { stageName: "CIM review", daysAgo: 35 }, { stageName: "Broker call", daysAgo: 31 }, { stageName: "Seller call", daysAgo: 26 }, { stageName: "Model", daysAgo: 20 }, { stageName: "Partner presentation", daysAgo: 12 }]);
 
   // Passed (kept so they are never screened twice) and one lost.
@@ -190,6 +195,7 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
   entered(add({ name: "Valley Print Group", stage_id: stage("Lost"), what_it_does: "Commercial printing for schools and hospitals", source: "Broker newsletter", broker_name: "Murphy, Luis Ortega", primary_contact_id: c.ortega, organization_id: org.murphy, location: "Roanoke, VA", industry: "Commercial printing", key_finding: "Seller took a higher offer from a strategic buyer" }, { revenue: 4_800_000, ebitda: 1_200_000, asking: 4_000_000 }), 9, [{ stageName: "Interested", daysAgo: 35 }, { stageName: "NDA signed", daysAgo: 33 }, { stageName: "CIM review", daysAgo: 30 }, { stageName: "Broker call", daysAgo: 26 }, { stageName: "Seller call", daysAgo: 20 }]);
 
   // Dalton Services: the timeline of the mockup (an email received, a call, an email sent) and two documents.
+  const waitLinks: WorkSample["waitLinks"] = [];
   const communications: R[] = [
     { id: newId(), occurred_at: `${today}T13:05:00Z`, method: "email", direction: "incoming", contact_id: c.kim, organization_id: org.transworld, subject: "CIM received from Rachel Kim", summary: "Attached: Dalton_CIM.pdf, 3 years P&L.", is_outreach: false, purpose: "general", pipeline_item_id: dalton },
     { id: newId(), occurred_at: `${ago(3)}T15:30:00Z`, method: "call", direction: "outgoing", contact_id: c.kim, organization_id: org.transworld, subject: "Call with Rachel Kim, 20 min", summary: "Owner is 58, retiring. 11 technicians. Wants to close by Q2.", is_outreach: false, purpose: "general", pipeline_item_id: dalton, ...(s.batchB ? { call_minutes: 20 } : {}) },
@@ -255,7 +261,8 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
       return id;
     };
     const p = {
-      priya: person("Priya Natarajan", o.truist, "lender", "SBA, Atlanta", ["off_market_deals"], ago(3), "Ask which owners asked about exit loans this month", "Sends me owners who ask her about exit loans", "priya.natarajan@example.com", { phone: "(404) 555-0151" }),
+      // Push E: a person being waited on (Waiting on someone shows people too).
+      priya: person("Priya Natarajan", o.truist, "lender", "SBA, Atlanta", ["off_market_deals"], ago(3), "Ask which owners asked about exit loans this month", "Sends me owners who ask her about exit loans", "priya.natarajan@example.com", { phone: "(404) 555-0151", waiting_on: "Intros to the two owners who asked about exit loans", waiting_since: ago(6) }),
       carla: person("Carla Jenkins", o.ssg, network, "COO", ["job_search"], today, "Ask for the hiring manager's name at the portfolio company", "She mentioned a VP ops opening at a portfolio company", "carla.jenkins@example.com", { linkedin_url: "linkedin.com/in/carlajenkins-example" }),
       tom: person("Tom Alvarez", o.alvarez, "broker", "Nashville", ["off_market_deals"], today, "Ask for the two owners thinking about selling in 2027", "Promised two owners who are thinking about selling in 2027", "tom.alvarez@example.com", { is_deal_source: true, phone: "(615) 555-0109" }),
       denise: person("Denise Walker", o.sunrise, "rosara_customer", "Owner", ["off_market_deals", "rosara"], today, "Ask for the Macon and Augusta owners; show the care-plan screens", "Knows two agency owners near retirement in Macon and Augusta; tests the care-plan screens", "denise.walker@example.com", { phone: "(478) 555-0162" }),
@@ -287,12 +294,22 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
     comm(p.greg, o.sw, 2, 14, "call", "outgoing", "Call with Greg Thornton", "Q1 site selection work; he wants a scope and fee by next week.", { call_minutes: 25, purpose: "consulting" });
     comm(p.maria, o.av, 3, 15, "call", "outgoing", "Call with Maria Santos", "Intro call; she asked for the deck and three customer references.", { call_minutes: 30 });
     comm(p.jamal, o.bain, 9, 13, "email", "outgoing", "Thanks for the intro", "Thanked him for the intro to his partner.");
-    comm(p.rita, o.gahca, 10, 14, "email", "outgoing", "Member survey project", "Asked whether the survey project is funded for Q1.", { purpose: "consulting" });
+    // Push E: sent from the app (it has a Gmail thread) with no reply: No reply yet, to a person with no deal.
+    comm(p.rita, o.gahca, 10, 14, "email", "outgoing", "Member survey project", "Asked whether the survey project is funded for Q1.", { purpose: "consulting", gmail_thread_id: "sample-thread-e1" });
     comm(p.kevin, o.pathway, 21, 12, "meeting", "outgoing", "Coffee with Kevin O'Brien", "He offered to be a reference.", { call_minutes: 45 });
     comm(p.sam, o.peachtree, 31, 16, "call", "outgoing", "Call with Sam Patel", "Hears about carriers selling before the brokers do.", { call_minutes: 20 });
     comm(p.nina, o.kf, 23, 11, "email", "outgoing", "COO search", "Sent my resume for the COO search.");
     comm(c.whitfield, org.sunbelt, 3, 15, "meeting", "outgoing", "Coffee with Dana Whitfield", "Landscaping and roofing owners; Pinecrest LOI timing.", { call_minutes: 40 });
-    comm(c.ortega, org.murphy, 2, 10, "email", "outgoing", "Oakline CIM", "Asked when the CIM arrives.");
+    // Push E: sent from the app on a deal with no reply yet (No reply yet; Add to Waiting would wait on the reply instead
+    // of "The CIM"), and Pinecrest's LOI email, added to Waiting, with the reply that has arrived (Replied on the
+    // Waiting card; already on the timeline).
+    comm(c.ortega, org.murphy, 2, 10, "email", "outgoing", "Oakline CIM", "Asked when the CIM arrives.", { pipeline_item_id: oakline, gmail_thread_id: "sample-thread-e2" });
+    const pineMail = newId();
+    communications.push(
+      { id: pineMail, occurred_at: `${ago(6)}T14:00:00Z`, method: "email", direction: "outgoing", contact_id: c.whitfield, organization_id: org.sunbelt, subject: "Pinecrest LOI", summary: "Sent the LOI at 3.2x TTM with a 15% seller note.", is_outreach: true, purpose: "general", pipeline_item_id: pinecrest, gmail_thread_id: "sample-thread-e3" },
+      { id: newId(), occurred_at: `${ago(1)}T16:00:00Z`, method: "email", direction: "incoming", contact_id: c.whitfield, organization_id: org.sunbelt, subject: "Re: Pinecrest LOI", summary: "The seller wants to talk about the seller note before answering. Can you do a call Friday?", is_outreach: false, purpose: "general", pipeline_item_id: pinecrest, gmail_thread_id: "sample-thread-e3", gmail_message_id: "sample-message-e3", awaiting_log: false },
+    );
+    waitLinks.push({ table: "pipeline_items", id: pinecrest, commId: pineMail });
     notes.push({ id: newId(), record_type: "contacts", record_id: c.reed, body: "Prefers a call over email; answers the phone before 9." });
     notes.push({ id: newId(), record_type: "contacts", record_id: p.lena, body: "Wants a 50/50 split with a 4-year vest; open to a 1-year cliff." });
     // Tasks on two people (the Tasks card on the person page).
@@ -493,7 +510,7 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
     }
   }
 
-  return { organizations, contacts, items, financials, communications, notes, stageDates, documents, todos, personalTodos, timeBlocks, projects, consultingDetails, noteDates, noActionItems, partnerReports, endOfDay, workEvents, monthlyReviews };
+  return { organizations, contacts, items, financials, communications, notes, stageDates, documents, todos, personalTodos, timeBlocks, projects, consultingDetails, noteDates, noActionItems, partnerReports, endOfDay, workEvents, monthlyReviews, waitLinks };
 }
 
 /** The three sample sent reports (batch C): the email as sent, built the way End of day builds it, from fixed numbers. */

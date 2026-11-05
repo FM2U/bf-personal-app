@@ -15,7 +15,7 @@ export const SAMPLE_TABLES = [
   "communications", "notes", "deal_todos", "projects", "work_events", "end_of_day", "time_blocks", "monthly_reviews",
 ] as const;
 
-type Follow = Pick<WorkSample, "stageDates" | "documents" | "todos" | "noteDates" | "noActionItems">;
+type Follow = Pick<WorkSample, "stageDates" | "documents" | "todos" | "noteDates" | "noActionItems" | "waitLinks">;
 
 export function buildSampleData(setup: WorkSampleSetup, newId: () => string, today: string): { batches: Batch[]; counts: Record<string, number>; work: Follow } {
   const w = buildWorkSample(setup, newId, today);
@@ -38,5 +38,5 @@ export function buildSampleData(setup: WorkSampleSetup, newId: () => string, tod
     { table: "monthly_reviews", rows: w.monthlyReviews },
   ].filter((b) => b.rows.length);
   const counts = Object.fromEntries(batches.map((b) => [b.table, b.rows.length]));
-  return { batches, counts, work: { stageDates: w.stageDates, documents: w.documents, todos: w.todos, noteDates: w.noteDates, noActionItems: w.noActionItems } };
+  return { batches, counts, work: { stageDates: w.stageDates, documents: w.documents, todos: w.todos, noteDates: w.noteDates, noActionItems: w.noActionItems, waitLinks: w.waitLinks } };
 }

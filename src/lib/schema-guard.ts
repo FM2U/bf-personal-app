@@ -140,3 +140,10 @@ export const DB_UPDATE_NOTICE_PUSH_C = "Database update needed: paste supabase/U
  * of them says so; every page keeps working.
  */
 export const DB_UPDATE_NOTICE_PUSH_D = "Database update needed: paste supabase/UPDATE_PREVIEW_PUSH_D.sql into the Supabase SQL Editor and run it.";
+
+/**
+ * Push E (2026-11-05): No reply yet (communications.no_reply_dismissed_at), Add to Waiting (waiting_comm_id on deals
+ * and people), and waiting on a person (contacts.waiting_on, waiting_since). Before UPDATE_PREVIEW_PUSH_E.sql runs,
+ * the Waiting card shows deals only, and saving any of them says so.
+ */
+export const DB_UPDATE_NOTICE_PUSH_E = "Database update needed: paste supabase/UPDATE_PREVIEW_PUSH_E.sql into the Supabase SQL Editor and run it.";

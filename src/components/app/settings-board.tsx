@@ -36,11 +36,11 @@ export function KV({ label, children, testId }: { label: React.ReactNode; childr
   );
 }
 
-export type WorkSettingsValues = { threshold: number; outreach: number; eodTime: string; blockMinutes: number };
+export type WorkSettingsValues = { threshold: number; noReply: number; outreach: number; eodTime: string; blockMinutes: number };
 
 export function WorkSettingsCard({ initial }: { initial: WorkSettingsValues }) {
   const router = useRouter();
-  const start0 = { threshold: String(initial.threshold), outreach: String(initial.outreach), eodTime: initial.eodTime, blockMinutes: String(initial.blockMinutes) };
+  const start0 = { threshold: String(initial.threshold), noReply: String(initial.noReply), outreach: String(initial.outreach), eodTime: initial.eodTime, blockMinutes: String(initial.blockMinutes) };
   const [v, setV] = useState(start0);
   const [saved, setSaved] = useState(start0);
   const [note, setNote] = useState<Note>(null);
@@ -64,7 +64,7 @@ export function WorkSettingsCard({ initial }: { initial: WorkSettingsValues }) {
     <WorkCard
       id="s-work"
       title="Work settings"
-      sub="Waiting colors, the outreach target, End of day, Block time"
+      sub="Waiting colors, No reply yet, the outreach target, End of day, Block time"
       actions={
         <RowButton tone={dirty ? "primary" : "outline"} onClick={save} disabled={pending || !dirty} className="h-7 px-3 text-xs" data-testid="work-settings-save">
           {pending ? "Saving" : "Save"}
@@ -91,6 +91,11 @@ export function WorkSettingsCard({ initial }: { initial: WorkSettingsValues }) {
               ) : null}
             </span>
           </span>
+        </KV>
+        {/* Push E: "No reply yet after [2] days", under the waiting field it belongs with; the box lines up with the others. */}
+        <KV label="No reply yet after" testId="work-settings-no-reply">
+          <input value={v.noReply} onChange={set("noReply")} inputMode="numeric" className={NUM} aria-label="No reply yet after (days)" data-testid="work-no-reply" />
+          <span>days</span>
         </KV>
         <KV label="Network outreach" testId="work-settings-outreach">
           <input value={v.outreach} onChange={set("outreach")} inputMode="numeric" className={NUM} aria-label="Network outreach per week" data-testid="work-outreach" />

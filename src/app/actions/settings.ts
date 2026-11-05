@@ -64,14 +64,15 @@ async function putInput(sb: SupabaseClient, ownerId: string, def: { key: string;
   return error ? error.message : null;
 }
 
-/** Work settings: waiting turns amber at (days), the weekly outreach target, the End of day time, the default block length. */
-export async function saveWorkSettings(input: { threshold: string; outreach: string; eodTime: string; blockMinutes: string }): Promise<{ ok: true } | Fail> {
+/** Work settings: waiting turns amber at (days), No reply yet after (days; push E), the weekly outreach target, the End of day time, the default block length. */
+export async function saveWorkSettings(input: { threshold: string; noReply: string; outreach: string; eodTime: string; blockMinutes: string }): Promise<{ ok: true } | Fail> {
   const { supabase, ownerId } = await requireOwner();
   const c = cleanWorkSettings(input);
   if (!c.ok) return c;
   const v = c.value;
   for (const [def, value] of [
     [WORK_SETTING_KEYS.threshold, { value_number: v.threshold }],
+    [WORK_SETTING_KEYS.noReply, { value_number: v.noReply }],
     [WORK_SETTING_KEYS.outreach, { value_number: v.outreach }],
     [WORK_SETTING_KEYS.eodTime, { value_text: v.eodTime }],
   ] as const) {

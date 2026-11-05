@@ -121,6 +121,28 @@ describe("the Outreach sample (batch B)", () => {
   });
 });
 
+describe("the push E sample (No reply yet, a person waited on, Replied)", () => {
+  let k = 0;
+  const b = buildWorkSample({ pipelineId: "p-acq", stages, batchB: true }, () => `00000000-0000-4000-8000-${String(++k).padStart(12, "0")}`, "2026-11-05");
+  const id = (name: string) => String((b.items.find((i) => i.name === name) ?? b.contacts.find((c) => c.name === name))!.id);
+  const threaded = b.communications.filter((c) => String(c.gmail_thread_id ?? "").startsWith("sample-thread-e"));
+  it("has two emails with no reply (one on a deal, one to a person with no deal) and the Pinecrest email with its reply", () => {
+    const sent = threaded.filter((c) => c.direction === "outgoing");
+    expect(sent.map((c) => [c.subject, c.pipeline_item_id ?? null]).sort()).toEqual([["Member survey project", null], ["Oakline CIM", id("Oakline Dental Lab")], ["Pinecrest LOI", id("Pinecrest Landscaping")]]);
+    const reply = threaded.find((c) => c.direction === "incoming")!;
+    expect(reply.gmail_thread_id).toBe(sent.find((c) => c.subject === "Pinecrest LOI")!.gmail_thread_id);
+    expect(String(reply.occurred_at) > String(sent.find((c) => c.subject === "Pinecrest LOI")!.occurred_at)).toBe(true);
+  });
+  it("waits on Priya, and Pinecrest's wait came from its LOI email", () => {
+    const priya = b.contacts.find((c) => c.name === "Priya Natarajan")!;
+    expect(priya.waiting_on).toBeTruthy();
+    expect(priya.waiting_since).toBe("2026-10-30");
+    const pine = b.items.find((i) => i.name === "Pinecrest Landscaping")!;
+    expect(pine.waiting_on).toBe("A reply to: Pinecrest LOI");
+    expect(b.waitLinks).toEqual([{ table: "pipeline_items", id: id("Pinecrest Landscaping"), commId: threaded.find((c) => c.subject === "Pinecrest LOI")!.id }]);
+  });
+});
+
 describe("the batch B2 sample (projects, opportunities, consulting)", () => {
   let k = 0;
   const jobs = { pipelineId: "p-job", stages: Object.fromEntries(["Contact", "Conversation", "Interview", "Offer", "Accepted", "Declined", "Not chosen"].map((n, i) => [n, `j-${i}`])) };

@@ -10,6 +10,8 @@ import { loadTargetsTile, type TargetsTile } from "@/lib/accountability/data";
 import { loadMonthlyDue, type MonthlyDue } from "@/lib/accountability/monthly-data";
 import { loadDayCalendar, loadRowBlocks, type DayCalendar } from "@/lib/work/calendar-data";
 import { DEFAULT_BLOCK_MINUTES } from "@/lib/work/time-blocks";
+import { loadWaitingBoard, type WaitingBoard } from "@/lib/work/waiting-data";
+import { DEFAULT_NO_REPLY_DAYS } from "@/lib/work/waiting";
 import type { Row } from "@/lib/types";
 
 /**
@@ -36,6 +38,8 @@ export type HomeData = WorkNowData & {
   nowLocal: string;
   /** Push D: the monthly review due (from the first workday of the month until it is finished), or null. */
   monthlyReview: MonthlyDue | null;
+  /** Push E: Waiting on someone: the deals and people waited on, and No reply yet. */
+  waiting: WaitingBoard;
 };
 
 /** The AI's order for a day, from the cache, or null. */
@@ -70,11 +74,12 @@ export async function loadHome(sb: SupabaseClient, ownerId: string): Promise<Hom
     blockMinutes: DEFAULT_BLOCK_MINUTES,
     nowLocal: "09:00",
     monthlyReview: null,
+    waiting: { available: false, items: [], noReply: [], noReplyDays: DEFAULT_NO_REPLY_DAYS },
   };
   if (!now.available) return empty;
   const ctx = await loadWorkCtx(sb, ownerId);
-  const [rosara, pipelines, aiOrder, targets, todos, calendar, rowBlocks, blockMinutes, monthlyReview] = await Promise.all([loadRosaraHome(sb, ctx), loadPipelinesHome(sb, ctx), loadAiOrder(sb, ownerId, ctx.today), loadTargetsTile(sb, ctx), loadHomeTodos(sb, ctx), loadDayCalendar(sb, ownerId, ctx.tz, ctx.today), loadRowBlocks(sb, ownerId, ctx.tz, ctx.today), loadBlockMinutes(sb, ownerId), loadMonthlyDue(sb, ctx)]);
+  const [rosara, pipelines, aiOrder, targets, todos, calendar, rowBlocks, blockMinutes, monthlyReview, waiting] = await Promise.all([loadRosaraHome(sb, ctx), loadPipelinesHome(sb, ctx), loadAiOrder(sb, ownerId, ctx.today), loadTargetsTile(sb, ctx), loadHomeTodos(sb, ctx), loadDayCalendar(sb, ownerId, ctx.tz, ctx.today), loadRowBlocks(sb, ownerId, ctx.tz, ctx.today), loadBlockMinutes(sb, ownerId), loadMonthlyDue(sb, ctx), loadWaitingBoard(sb, ctx, now.deals)]);
   const hourLocal = Number(new Intl.DateTimeFormat("en-US", { timeZone: ctx.tz, hour: "numeric", hour12: false }).format(new Date())) || 0;
   const nowLocal = new Intl.DateTimeFormat("en-GB", { timeZone: ctx.tz, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date());
-  return { ...empty, rosara, pipelines, aiOrder, hourLocal: hourLocal % 24, targets, todos, calendar, rowBlocks, blockMinutes, nowLocal, monthlyReview };
+  return { ...empty, rosara, pipelines, aiOrder, hourLocal: hourLocal % 24, targets, todos, calendar, rowBlocks, blockMinutes, nowLocal, monthlyReview, waiting };
 }

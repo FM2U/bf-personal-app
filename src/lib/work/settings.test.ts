@@ -14,11 +14,15 @@ describe("Work settings (push D)", () => {
     expect(eodShort(null)).toBe("5:30");
   });
   it("checks the four values", () => {
-    expect(cleanWorkSettings({ threshold: "5", outreach: "10", eodTime: "17:30", blockMinutes: "60" })).toEqual({ ok: true, value: { threshold: 5, outreach: 10, eodTime: "17:30", blockMinutes: 60 } });
-    expect(cleanWorkSettings({ threshold: "0", outreach: "10", eodTime: "17:30", blockMinutes: "60" })).toMatchObject({ ok: false, error: expect.stringMatching(/^Waiting/) });
-    expect(cleanWorkSettings({ threshold: "5", outreach: "2.5", eodTime: "17:30", blockMinutes: "60" })).toMatchObject({ ok: false, error: expect.stringMatching(/^Network outreach/) });
-    expect(cleanWorkSettings({ threshold: "5", outreach: "10", eodTime: "late", blockMinutes: "60" })).toMatchObject({ ok: false, error: expect.stringMatching(/^End of day/) });
-    expect(cleanWorkSettings({ threshold: "5", outreach: "10", eodTime: "17:30", blockMinutes: "3" })).toMatchObject({ ok: false, error: expect.stringMatching(/^Default block/) });
+    expect(cleanWorkSettings({ threshold: "5", noReply: "2", outreach: "10", eodTime: "17:30", blockMinutes: "60" })).toEqual({ ok: true, value: { threshold: 5, noReply: 2, outreach: 10, eodTime: "17:30", blockMinutes: 60 } });
+    expect(cleanWorkSettings({ threshold: "0", noReply: "2", outreach: "10", eodTime: "17:30", blockMinutes: "60" })).toMatchObject({ ok: false, error: expect.stringMatching(/^Waiting/) });
+    expect(cleanWorkSettings({ threshold: "5", noReply: "2", outreach: "2.5", eodTime: "17:30", blockMinutes: "60" })).toMatchObject({ ok: false, error: expect.stringMatching(/^Network outreach/) });
+    expect(cleanWorkSettings({ threshold: "5", noReply: "2", outreach: "10", eodTime: "late", blockMinutes: "60" })).toMatchObject({ ok: false, error: expect.stringMatching(/^End of day/) });
+    expect(cleanWorkSettings({ threshold: "5", noReply: "2", outreach: "10", eodTime: "17:30", blockMinutes: "3" })).toMatchObject({ ok: false, error: expect.stringMatching(/^Default block/) });
+    // Push E: No reply yet after 1 to 29 days (inside the 30 days replies are read for).
+    expect(cleanWorkSettings({ threshold: "5", noReply: "0", outreach: "10", eodTime: "17:30", blockMinutes: "60" })).toMatchObject({ ok: false, error: expect.stringMatching(/^No reply yet/) });
+    expect(cleanWorkSettings({ threshold: "5", noReply: "30", outreach: "10", eodTime: "17:30", blockMinutes: "60" })).toMatchObject({ ok: false, error: expect.stringMatching(/^No reply yet/) });
+    expect(cleanWorkSettings({ threshold: "5", noReply: "29", outreach: "10", eodTime: "17:30", blockMinutes: "60" })).toMatchObject({ ok: true, value: { noReply: 29 } });
   });
   it("checks the stage defaults", () => {
     const names = { s1: "Interested", s2: "NDA signed" };

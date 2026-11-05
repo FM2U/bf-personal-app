@@ -1,6 +1,6 @@
 /**
  * Settings, Work settings (push D, approved mockup 2026-11-02 V.setup), pure and tested in src/lib/work/settings.test.ts:
- * the four values and their checks, the End of day time in the forms the screens show ("5:30", "5:30 pm"), and the
+ * the five values (push E added No reply yet) and their checks, the End of day time in the forms the screens show ("5:30", "5:30 pm"), and the
  * check of a pipeline's stage defaults before Save. The values are saved as settings rows (table inputs) except the
  * default block length, which is on the profile (owner_profile.default_block_minutes, push C).
  */
@@ -8,13 +8,15 @@
 /** The settings rows the Work settings card writes, with their labels for the inputs table. */
 export const WORK_SETTING_KEYS = {
   threshold: { key: "waiting_threshold_days", label: "Waiting on someone (days)", unit: "number", description: "Waiting on someone: at this many days or more, a deal's day count turns amber; at double, red." },
+  /** Push E: an email the app sent shows under No reply yet when no reply has come after this many days (default 2). */
+  noReply: { key: "no_reply_after_days", label: "No reply yet after (days)", unit: "number", description: "Waiting on someone, No reply yet: an email the app sent shows there when no reply has come after this many days." },
   outreach: { key: "outreach_weekly_target", label: "Network outreach per week", unit: "number", description: "The weekly outreach counter on Contacts and Home." },
   eodTime: { key: "end_of_day_time", label: "End of day time", unit: "text", description: "The time End of day shows for the report, weekdays (HH:MM, 24-hour)." },
 } as const;
 
 export const DEFAULT_EOD_TIME = "17:30";
 
-export type WorkSettings = { threshold: number; outreach: number; eodTime: string; blockMinutes: number };
+export type WorkSettings = { threshold: number; noReply: number; outreach: number; eodTime: string; blockMinutes: number };
 
 /** "17:30" -> "5:30"; anything not a time reads as the default. */
 export function eodShort(hhmm: string | null | undefined): string {
@@ -45,16 +47,19 @@ const whole = (v: unknown) => {
 };
 
 /** The Work settings card's values checked for Save; the first problem as one plain sentence. */
-export function cleanWorkSettings(input: { threshold: unknown; outreach: unknown; eodTime: unknown; blockMinutes: unknown }): { ok: true; value: WorkSettings } | { ok: false; error: string } {
+export function cleanWorkSettings(input: { threshold: unknown; noReply: unknown; outreach: unknown; eodTime: unknown; blockMinutes: unknown }): { ok: true; value: WorkSettings } | { ok: false; error: string } {
   const threshold = whole(input.threshold);
   if (!(threshold >= 1 && threshold <= 60)) return { ok: false, error: "Waiting on someone: a whole number of days from 1 to 60." };
+  // Push E: up to 29, inside the 30 days replies are read for.
+  const noReply = whole(input.noReply);
+  if (!(noReply >= 1 && noReply <= 29)) return { ok: false, error: "No reply yet: a whole number of days from 1 to 29." };
   const outreach = whole(input.outreach);
   if (!(outreach >= 1 && outreach <= 200)) return { ok: false, error: "Network outreach: a whole number from 1 to 200 per week." };
   const eodTime = parseTime(input.eodTime);
   if (!eodTime) return { ok: false, error: "End of day: a time such as 5:30 pm." };
   const blockMinutes = whole(input.blockMinutes);
   if (!(blockMinutes >= 5 && blockMinutes <= 480)) return { ok: false, error: "Default block length: 5 to 480 minutes." };
-  return { ok: true, value: { threshold, outreach, eodTime, blockMinutes } };
+  return { ok: true, value: { threshold, noReply, outreach, eodTime, blockMinutes } };
 }
 
 /** One stage's defaults as the table sends them. */

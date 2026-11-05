@@ -1,7 +1,9 @@
 import { requireOwner } from "@/lib/auth";
 import { loadGmailSetup, type ComposeSetup, type GmailSetup } from "@/lib/compose-email";
 import { date as fmtDate } from "@/lib/format";
-import { loadTabCounts, type DealRow } from "@/lib/work/data";
+import { isValidEmail } from "@/lib/email-address";
+import { loadTabCounts } from "@/lib/work/data";
+import type { WaitItem } from "@/lib/work/waiting";
 import { loadHome } from "@/lib/work/home-data";
 import { composeForPerson } from "@/lib/work/outreach-data";
 import { syncRepliesQuietly } from "@/lib/replies-sync";
@@ -25,20 +27,27 @@ export default async function WorkNowPage() {
   // Push B: opening Home looks for new replies to the reports and emails the app sent (at most once every few minutes).
   await syncRepliesQuietly(supabase, ownerId);
   const d = await loadHome(supabase, ownerId);
-  const waiting = d.available ? d.deals.filter((x) => x.waitLevel !== "none") : [];
+  const waiting = d.available ? d.waiting.items : [];
   const tilePeople = d.available ? d.outreach.dueToday : [];
   const gmail: GmailSetup = d.available ? await loadGmailSetup(supabase, ownerId) : { permission: "not_connected", fromEmail: null, canGmail: false, signature: null };
   const tabs0 = await loadTabCounts(supabase, ownerId, d.today);
-  const composeFor = (deal: DealRow): ComposeSetup => ({
-    ...gmail,
-    title: `Follow up: ${deal.name}`,
-    recipients: deal.contactId && deal.contactEmail ? [{ contactId: deal.contactId, name: deal.contactName ?? "Main contact", email: deal.contactEmail, role: "Main contact" }] : [],
-    defaultTo: deal.contactEmail ?? "",
-    contactId: deal.contactId && deal.contactEmail ? deal.contactId : null,
-    pipelineItemId: deal.id,
-    organizationId: null,
-    toNote: deal.contactEmail ? null : "This deal has no main contact with an email address. Type the address.",
-  });
+  /**
+   * Follow up on a waiting row: to the person an added email went to, a deal's main contact, or the person waited on
+   * (push E), logged on the deal or the person.
+   */
+  const composeFor = (w: WaitItem): ComposeSetup => {
+    const email = w.email && isValidEmail(w.email) ? w.email.trim() : null;
+    return {
+      ...gmail,
+      title: `Follow up: ${w.name}`,
+      recipients: w.contactId && email ? [{ contactId: w.contactId, name: w.contactName ?? "Main contact", email, role: w.kind === "deal" ? "Main contact" : "This person" }] : [],
+      defaultTo: email ?? "",
+      contactId: w.contactId && (email || w.kind === "person") ? w.contactId : null,
+      pipelineItemId: w.kind === "deal" ? w.id : null,
+      organizationId: null,
+      toNote: email ? null : w.kind === "deal" ? "This deal has no main contact with an email address. Type the address." : "This person has no email address saved. Type one here, or add it on their page.",
+    };
+  };
   /** "Open in email" from the Ask AI panel on Home: a typed address, logged as an email sent. */
   const askCompose: ComposeSetup = { ...gmail, title: "Email", recipients: [], defaultTo: "", contactId: null, pipelineItemId: null, organizationId: null, toNote: "Type the address." };
   const askAi = <AskAiPill context={{ page: "home", label: "Work on now" }} compose={askCompose} />;
@@ -66,7 +75,7 @@ export default async function WorkNowPage() {
           <WorkUpdateNotice notice={d.notice} />
         </>
       ) : (
-        <HomeBoard data={d} dateLabel={dateLabel} askAi={askAi} tabs={tabs} composes={Object.fromEntries(waiting.map((deal) => [deal.id, composeFor(deal)]))} personComposes={Object.fromEntries(tilePeople.map((p) => [p.id, composeForPerson(gmail, p)]))} askCompose={askCompose} />
+        <HomeBoard data={d} dateLabel={dateLabel} askAi={askAi} tabs={tabs} composes={Object.fromEntries(waiting.map((w) => [w.key, composeFor(w)]))} personComposes={Object.fromEntries(tilePeople.map((p) => [p.id, composeForPerson(gmail, p)]))} askCompose={askCompose} />
       )}
     </WorkShell>
   );
