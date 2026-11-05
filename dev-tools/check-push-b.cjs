@@ -201,7 +201,8 @@ const shot = async (page, name) => {
     await page.locator("[data-testid=report-tab][data-partner=Sarah]").click();
     await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hello Sarah,"));
     const sarahIn = await included();
-    assert(JSON.stringify(sarahIn) === JSON.stringify(["targets", "week", "tomorrow"]), `Sarah's standing sections ${JSON.stringify(sarahIn)}`);
+    // Push D: the Weekly review is one of Sarah's sections (on by default for partners who get Friday).
+    assert(JSON.stringify(sarahIn) === JSON.stringify(["targets", "week", "review", "tomorrow"]), `Sarah's standing sections ${JSON.stringify(sarahIn)}`);
     // Sarah, today only: Top 3 deals added.
     await sec("top").getByTestId("section-include").check();
     await page.waitForTimeout(1500);

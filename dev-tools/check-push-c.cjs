@@ -251,7 +251,9 @@ const until = async (fn, msg, tries = 40) => {
     assert(JSON.stringify(await tileCounts("home-tiles")) === JSON.stringify(counts), "the tiles keep their numbers");
     const rows = await page.locator('[data-testid="ai-order-rows"] [data-testid="home-row"]').evaluateAll((els) => els.map((e) => e.getAttribute("data-section")));
     const total = counts.reduce((a, b) => a + b, 0);
-    assert(rows.length === total && (await page.getByTestId("ai-order-number").count()) === total, `${rows.length} ranked rows for ${total}`);
+    // Push D: the Monthly review row (from the first workday of the month until finished) shows first, unranked.
+    const review = await page.locator('[data-testid="ai-order-rows"] [data-testid="home-row"][data-lane="review"]').count();
+    assert(rows.length === total && (await page.getByTestId("ai-order-number").count()) === total - review, `${rows.length} ranked rows for ${total} (${review} review row)`);
     assert(["overdue", "today", "needs"].every((k) => !counts[["overdue", "today", "needs"].indexOf(k)] || rows.includes(k)), `kinds ${[...new Set(rows)]}`);
     const head = await page.getByTestId("ai-order-heading").innerText();
     assert(/ordered by the ai/i.test(head) && head.includes("Order again"), head);
@@ -478,7 +480,8 @@ const until = async (fn, msg, tries = 40) => {
     const meridian = homeRow("Meridian Industrial Coatings");
     assert((await meridian.getByTestId("blocked-note").innerText()) === "Blocked 9:00", "Meridian blocked note");
     await pickTile("home-tiles", "today");
-    const rows = page.locator('[data-testid="home-list"] [data-testid="next-action-done"]');
+    // Push D: the Monthly review row has Open instead of Done, and the block icon too.
+    const rows = page.locator('[data-testid="home-list"] :is([data-testid="next-action-done"], [data-testid="monthly-review-open"])');
     const icons = page.locator('[data-testid="home-list"] [data-testid="block-time"]');
     assert((await rows.count()) > 5 && (await icons.count()) === (await rows.count()), `${await icons.count()} icons for ${await rows.count()} rows`);
     // The icon column and the Done column sit at the same x on every row.
@@ -494,7 +497,10 @@ const until = async (fn, msg, tries = 40) => {
   await step("Work through: steps one row at a time across every lane due today or earlier, with the progress bar", async () => {
     await page.goto(`${BASE}/work`);
     await page.getByTestId("home-tiles").waitFor();
-    const total = (await tileCount("home-tiles", "overdue")) + (await tileCount("home-tiles", "today"));
+    // Push D: the Monthly review row counts in Due today but is a page to open, not a step of Work through.
+    await pickTile("home-tiles", "today");
+    const review = await page.locator('[data-testid="home-row"][data-lane="review"]').count();
+    const total = (await tileCount("home-tiles", "overdue")) + (await tileCount("home-tiles", "today")) - review;
     await page.getByTestId("work-through-open").click();
     const w = page.getByTestId("work-through");
     await w.waitFor();

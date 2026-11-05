@@ -28,7 +28,7 @@ const session = {
 const cookieValue = `base64-${Buffer.from(JSON.stringify(session)).toString("base64url")}`;
 
 const PAGES = (process.env.PAGES || [
-  "/", "/work", "/work/listings", "/work/listings?add=1", "/work/deals", "/work/people", "/work/people?add=1", "/work/people?view=people", "/work/people?view=everyone&role=accountability_partner", "/work/people?view=orgs", "/work/people?view=orgs&add=1", "/work/todos", "/work/rosara", "/work/jobs", "/work/jobs?add=1", "/work/consulting", "/work/consulting?add=1", "/work/targets", "/work/targets?add=1", "/work/end-of-day", "/work/reports", "/work/reports?view=sent",
+  "/", "/work", "/work/listings", "/work/listings?add=1", "/work/deals", "/work/people", "/work/people?add=1", "/work/people?view=people", "/work/people?view=everyone&role=accountability_partner", "/work/people?view=orgs", "/work/people?view=orgs&add=1", "/work/todos", "/work/rosara", "/work/jobs", "/work/jobs?add=1", "/work/consulting", "/work/consulting?add=1", "/work/targets", "/work/targets?add=1", "/work/end-of-day", "/work/reports", "/work/reports?view=sent", "/work/reports?view=monthly", `/work/reports/monthly/${(() => { const d = new Date(); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() - 1); return d.toISOString().slice(0, 7); })()}`,
   "/settings", "/settings/email", "/settings/ai", "/settings/buy-box", "/settings/export", "/settings/profile", "/settings/data",
 ].join(",")).split(",");
 

@@ -623,7 +623,8 @@ google.listen(GOOGLE_PORT, () => console.log(`Mock Google listening on http://lo
 // higher limit gets the full reply), "delay": <ms before every AI reply, 0 by default>, "answerNext": "action" | "none" | "YYYY-MM-DD"
 // (the Ask about this page answer's next action: the default line, none, or the line with that date)}; GET /__calls; GET /__limits (max_tokens per next_steps and ask_page request);
 // GET /__last_chat (the last chat request's system prompt and messages, to check "Ask AI about this" context); GET /__prompts
-// (the last prompt of each task by its TASK name, to check what the app sent, such as the facts in the Key finding draft); POST /__reset.
+// (the last prompt of each task by its TASK name, to check what the app sent, such as the facts in the Key finding draft); GET /__full
+// (push D: the same with the system prompt, to check the writing rules are sent once per click); POST /__reset.
 import { createRequire } from "node:module";
 const requireCjs = createRequire(import.meta.url);
 const { mealPlanProposal } = requireCjs("./fixtures/meal-plan.cjs");
@@ -638,6 +639,8 @@ let aiLimits = [];
 let lastChat = null;
 /** The last prompt of each task ("field_draft", "next_action", ...), so a check can read what the app sent (GET /__prompts). */
 let lastPrompts = {};
+/** Push D: the last request of each task with its system prompt (GET /__full). */
+let lastFull = {};
 
 const nyToday = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 
@@ -683,6 +686,7 @@ const ai = http.createServer(async (req, res) => {
       aiCalls = [];
       aiLimits = [];
       lastPrompts = {};
+      lastFull = {};
       invalidSent = false;
       cutSent = new Set();
       return send(res, 200, { ok: true });
@@ -691,6 +695,7 @@ const ai = http.createServer(async (req, res) => {
     if (url.pathname === "/__limits") return send(res, 200, aiLimits);
     if (url.pathname === "/__last_chat") return send(res, 200, lastChat ?? {});
     if (url.pathname === "/__prompts") return send(res, 200, lastPrompts);
+    if (url.pathname === "/__full") return send(res, 200, lastFull);
     if (url.pathname.startsWith("/v1/models")) return send(res, 200, { data: [{ id: "mock-model", type: "model" }], has_more: false });
     if (url.pathname === "/v1/messages" && req.method === "POST") {
       const body = JSON.parse((await readRaw(req)) || "{}");
@@ -699,6 +704,8 @@ const ai = http.createServer(async (req, res) => {
       const text = (body.messages ?? []).map((m) => (typeof m.content === "string" ? m.content : (m.content ?? []).map((b) => b.text ?? "").join("\n"))).join("\n");
       const taskName = (text.match(/TASK: ([a-z_]+)/) || [])[1];
       if (taskName) lastPrompts[taskName] = text;
+      // Push D: the system prompt with the messages, to check the writing rules go once per click (GET /__full).
+      if (taskName) lastFull[taskName] = { system: typeof body.system === "string" ? body.system : JSON.stringify(body.system ?? ""), text };
       if (text.includes("TASK: initiative_proposal")) {
         aiCalls.push("initiative_proposal");
         const retry = (body.messages ?? []).length > 1;
@@ -819,6 +826,8 @@ const ai = http.createServer(async (req, res) => {
           // Batch C: the tomorrow line and a missed commitment's reason.
           [/next working day/, "Finish the Meridian model before 10, then chase Mark Reed on the Summit seller call"],
           [/missed commitment/, "The Dalton CIM review and the broker calls took the screening block; 2 listings carry to tomorrow"],
+          // Push D: an answer of the Friday Weekly review.
+          [/weekly review/, "Screened 27 listings and hit the outreach target for the first time in three weeks"],
           [/subject line/, `Next step on ${page}`],
           [/email message/, `Hi there,\n\nQuick note about ${page}: what is the next step on your side?\n\nThanks,\nBram`],
           [/key finding/, `Mock finding: ${page} turns on one number the page does not show yet`],
