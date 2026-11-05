@@ -1,11 +1,11 @@
 /**
  * Waiting on someone (push E, approved 2026-11-05), pure and tested in src/lib/work/waiting.test.ts.
  *
- * The card on Work on now has three groups: "N+ days" and "Less than N days" (deals and people whose Waiting on is
- * filled in; N is the waiting setting) and "No reply yet" (emails the app sent with no reply in their Gmail thread
- * after the No reply setting's days, End of day reports left out). Add to Waiting turns a No reply row into a wait on
- * the deal (an open deal in the nine stages) or otherwise on the person the email went to, and remembers the email;
- * when a reply to that email arrives the wait shows "Replied" until Clear.
+ * The card on Work on now has three groups: "N+ days" and "< N days" (deals and people with at least one wait, one row
+ * each with a line per wait, in the group of the longest; N is the waiting setting; push E2) and "No reply yet" (emails the app sent with no reply in their Gmail thread
+ * after the No reply setting's days, End of day reports left out). Add to Waiting adds a wait line to the deal (an open
+ * deal in the nine stages) or otherwise to the person the email went to, and remembers the email; when a reply to that
+ * email (or to the follow-up sent from the card) arrives the line shows "Replied" until Clear.
  */
 import { addDaysISO, daysBetween } from "@/lib/calc/dates";
 import { personHref } from "@/lib/work/people";
@@ -18,7 +18,62 @@ export const NO_REPLY_WINDOW_DAYS = 30;
 /** What Add to Waiting writes into Waiting on. */
 export const REPLY_PREFIX = "A reply to: ";
 
-/** One row of the two day groups: a deal or a person being waited on. Plain data for client components. */
+/**
+ * One wait as saved (push E2: table waits). A deal, a job or consulting item, or a person can hold several at once:
+ * "The CIM" typed by hand and "A reply to: Oakline CIM" from an email. `commId` is the email it came from (Add to
+ * Waiting) and `followUpCommId` the newest follow-up sent from the Waiting card; a reply to either shows Replied.
+ */
+export type SavedWait = { id: string; text: string; since: string | null; commId: string | null; followUpCommId: string | null; createdAt: string };
+
+/** One wait as a record page, a row, or the AI reads it: what, since, how many days, and the pill tone. */
+export type WaitLine = { id: string; text: string; since: string | null; days: number; level: WaitLevel };
+
+/** A record's waits, longest first (then the one added first). Blank lines are left out. */
+export function waitLines(waits: readonly Pick<SavedWait, "id" | "text" | "since" | "createdAt">[], today: string, threshold: number): WaitLine[] {
+  const order = new Map(waits.map((w) => [w.id, String(w.createdAt ?? "")]));
+  return waits
+    .filter((w) => String(w.text ?? "").trim())
+    .map((w): WaitLine => {
+      const days = daysWaiting(w.since, today);
+      return { id: w.id, text: String(w.text).trim(), since: w.since, days, level: waitLevel(w.text, days, threshold) };
+    })
+    .sort((a, b) => b.days - a.days || (order.get(a.id) ?? "").localeCompare(order.get(b.id) ?? ""));
+}
+
+/**
+ * What a record shows where there is room for one wait (the header pill, a list row's day pill, the Deals filter):
+ * the longest wait, "The CIM and 1 more" when there are more, its Since, days and tone. Nothing waited on: none.
+ */
+export function waitSummary(lines: readonly WaitLine[]): { waitingOn: string | null; waitingSince: string | null; waitDays: number; waitLevel: WaitLevel } {
+  const first = lines[0];
+  if (!first) return { waitingOn: null, waitingSince: null, waitDays: 0, waitLevel: "none" };
+  return { waitingOn: lines.length > 1 ? `${first.text} and ${lines.length - 1} more` : first.text, waitingSince: first.since, waitDays: first.days, waitLevel: first.level };
+}
+
+/** Every wait in one line for the AI and the Work through context: "The CIM, since Nov 3; A reply to: Oakline CIM, since Nov 3". */
+export function waitsText(lines: readonly Pick<WaitLine, "text" | "since">[], fmt?: (d: string) => string): string {
+  return lines.map((l) => (l.since && fmt ? `${l.text}, since ${fmt(l.since)}` : l.text)).join("; ");
+}
+
+/** One wait inside a row of the Waiting card: its own text, who, since, day pill, and Follow up or Replied and Clear. */
+export type WaitItemLine = {
+  waitId: string;
+  waitingOn: string;
+  /** Who is waited on: the person the email of an added wait went to, a deal's main contact and broker, a person's organization. */
+  who: string | null;
+  /** YYYY-MM-DD. */
+  since: string | null;
+  days: number;
+  level: WaitLevel;
+  /** The day (YYYY-MM-DD) a reply arrived in the thread of the email this wait came from or of its follow-up; null otherwise. */
+  repliedOn: string | null;
+  /** For Follow up: who it goes to (the person the email went to, the main contact, or the person waited on). */
+  email: string | null;
+  contactId: string | null;
+  contactName: string | null;
+};
+
+/** One row of the two day groups: a deal or a person, with each of its waits on its own line (longest first). */
 export type WaitItem = {
   /** "deal:<id>" or "person:<id>". */
   key: string;
@@ -26,62 +81,62 @@ export type WaitItem = {
   id: string;
   name: string;
   href: string;
-  waitingOn: string;
-  /** Who is waited on: the person an added email went to, a deal's main contact and broker, a person's organization. */
-  who: string | null;
-  /** YYYY-MM-DD. */
-  since: string | null;
+  /** The quiet word after the name: the deal's stage, the person's role. */
+  context: string | null;
+  lines: WaitItemLine[];
+  /** The longest wait's days and tone (the row sits in the group of its longest wait). */
   days: number;
   level: WaitLevel;
-  /** The quiet word after Since: the deal's stage, the person's role. */
-  context: string | null;
-  /** The day (YYYY-MM-DD) a reply arrived in the thread of the email this wait came from (Add to Waiting); null otherwise. */
-  repliedOn: string | null;
-  /** For Follow up: the main contact's or the person's email address, and the person's id and name. */
-  email: string | null;
-  contactId: string | null;
-  contactName: string | null;
 };
 
 export type WaitGroupKey = "over" | "under";
 
-/** "5+ days" (a wait of exactly 5 days is here) and "Less than 5 days"; each sorted longest wait first, then A to Z. */
+/** "5+ days" (a wait of exactly 5 days is here) and "< 5 days"; each sorted longest wait first, then A to Z. */
 export function waitGroups<T extends Pick<WaitItem, "days" | "name">>(items: readonly T[], threshold: number): { key: WaitGroupKey; label: string; items: T[] }[] {
   const t = Math.max(1, Math.round(threshold));
   const sort = (xs: T[]) => [...xs].sort((a, b) => b.days - a.days || a.name.localeCompare(b.name, "en", { sensitivity: "base" }));
   return [
     { key: "over", label: `${t}+ days`, items: sort(items.filter((d) => d.days >= t)) },
-    { key: "under", label: `Less than ${t} days`, items: sort(items.filter((d) => d.days < t)) },
+    { key: "under", label: `< ${t} days`, items: sort(items.filter((d) => d.days < t)) },
   ];
 }
 
-/** A person being waited on, as the loader reads it. */
-export type WaitingPerson = { id: string; name: string; waitingOn: string | null; waitingSince: string | null; organization: string | null; role: string | null; email: string | null; repliedOn: string | null };
+/** A row of the card from its lines: the longest wait sets the days and tone. Null when no line is left. */
+export function waitItem(row: Omit<WaitItem, "lines" | "days" | "level">, lines: readonly WaitItemLine[]): WaitItem | null {
+  const sorted = [...lines].filter((l) => l.waitingOn.trim()).sort((a, b) => b.days - a.days);
+  if (!sorted.length) return null;
+  return { ...row, lines: sorted, days: sorted[0].days, level: sorted[0].level };
+}
 
-/** People rows for the day groups (only those whose Waiting on is filled in). */
+/** A person being waited on, as the loader reads it, with each of their waits. */
+export type WaitingPerson = { id: string; name: string; organization: string | null; role: string | null; email: string | null; waits: { id: string; text: string; since: string | null; repliedOn: string | null; createdAt?: string }[] };
+
+/** People rows for the day groups (only those with at least one wait). */
 export function personWaits(people: readonly WaitingPerson[], today: string, threshold: number): WaitItem[] {
-  return people
-    .filter((p) => String(p.waitingOn ?? "").trim())
-    .map((p) => {
-      const days = daysWaiting(p.waitingSince, today);
-      return {
-        key: `person:${p.id}`,
-        kind: "person" as const,
-        id: p.id,
-        name: p.name,
-        href: personHref(p.id),
-        waitingOn: String(p.waitingOn).trim(),
-        who: p.organization,
-        since: p.waitingSince,
-        days,
-        level: waitLevel(p.waitingOn, days, threshold),
-        context: p.role,
-        repliedOn: p.repliedOn,
-        email: p.email,
-        contactId: p.id,
-        contactName: p.name,
-      };
-    });
+  const out: WaitItem[] = [];
+  for (const p of people) {
+    const lines = waitLines(p.waits.map((w) => ({ ...w, createdAt: w.createdAt ?? "" })), today, threshold).map((l) => ({
+      waitId: l.id,
+      waitingOn: l.text,
+      who: p.organization,
+      since: l.since,
+      days: l.days,
+      level: l.level,
+      repliedOn: p.waits.find((w) => w.id === l.id)?.repliedOn ?? null,
+      email: p.email,
+      contactId: p.id,
+      contactName: p.name,
+    }));
+    const item = waitItem({ key: `person:${p.id}`, kind: "person", id: p.id, name: p.name, href: personHref(p.id), context: p.role }, lines);
+    if (item) out.push(item);
+  }
+  return out;
+}
+
+/** The day a wait's reply arrived: the first reply after the email it came from or after its follow-up, whichever is earlier. */
+export function waitRepliedAt(mail: readonly Pick<MailRow, "direction" | "threadId" | "occurredAt">[], emails: readonly ({ thread: string | null; at: string } | null | undefined)[]): string | null {
+  const found = emails.map((e) => (e?.thread ? firstReplyAfter(mail, e.thread, e.at) : null)).filter((x): x is string => !!x).sort();
+  return found[0] ?? null;
 }
 
 /** One email of a thread the app sent in (outgoing) or a reply stored from it (incoming). */
@@ -140,7 +195,7 @@ export function noReplyRows(i: {
   mail: readonly MailRow[];
   /** Threads of End of day reports (partner_reports.gmail_thread_id). */
   reportThreads: ReadonlySet<string>;
-  /** Threads of the emails deals and people wait on (their waiting_comm_id). */
+  /** Threads of the emails deals and people wait on (the email a wait came from and its follow-up). */
   waitedThreads: ReadonlySet<string>;
   today: string;
   afterDays: number;
@@ -193,7 +248,7 @@ export function firstReplyAfter(mail: readonly Pick<MailRow, "direction" | "thre
   return replies[0] ?? null;
 }
 
-/** Waiting on, from Add to Waiting: "A reply to: <subject>" (fits the 120 characters Waiting on keeps). */
+/** The wait line Add to Waiting adds: "A reply to: <subject>" (fits the 120 characters a wait keeps). */
 export function replyWaitText(subject: string | null | undefined): string {
   const s = String(subject ?? "").replace(/\s+/g, " ").trim() || "your email";
   const full = `${REPLY_PREFIX}${s}`;

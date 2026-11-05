@@ -126,7 +126,7 @@ export function ReportsBoard({ data, title, tabs, view: viewAtStart, period: per
       {view === "monthly" ? (
         <MonthlyList items={monthly} />
       ) : view === "week" ? (
-        <WeekView p={p} first={first} past={data.past} mostMissed={data.mostMissed} threshold={data.threshold} active={period} onOpen={(k) => pickPeriod(k, true)} />
+        <WeekView p={p} first={first} past={data.past} mostMissed={data.mostMissed} threshold={data.threshold} active={period} onOpen={(k) => pickPeriod(k, true)} onBack={() => pickPeriod("this")} />
       ) : (
         <WorkCard title="Sent reports" hint={replyNote ? undefined : "By email · a sent report never changes · replies from Gmail"} actions={replyNote ? <span className="text-[12.5px] text-status-soon" data-testid="replies-reconnect">{replyNote} <Link href="/settings" className="font-medium underline">Open Settings</Link></span> : undefined} testId="sent-reports-card">
           <div className="px-[22px] pb-2" data-testid="sent-sections">
@@ -244,7 +244,7 @@ function GroupHeading({ children, note, testId }: { children: React.ReactNode; n
  * keeps you waiting), "What moved" (deals moved, passed by reason), and "Trend" (the past weeks tiles with Most missed
  * over 7 weeks). Nothing repeats between a tile and a card: the tiles carry last week's figures, the cards the names.
  */
-function WeekView({ p, first, past, mostMissed, threshold, active, onOpen }: { p: PeriodView; first: string; past: WeekTile[]; mostMissed: ReportsPage["mostMissed"]; /** The waiting threshold from Settings (days). */ threshold: number; active: PeriodKey; onOpen: (k: PeriodKey) => void }) {
+function WeekView({ p, first, past, mostMissed, threshold, active, onOpen, onBack }: { p: PeriodView; first: string; past: WeekTile[]; mostMissed: ReportsPage["mostMissed"]; /** The waiting threshold from Settings (days). */ threshold: number; active: PeriodKey; onOpen: (k: PeriodKey) => void; /** Back to this week (what the This week pill does). */ onBack: () => void }) {
   const needs = p.targets.filter((t) => !t.met);
   const month = p.key === "month";
   return (
@@ -266,7 +266,7 @@ function WeekView({ p, first, past, mostMissed, threshold, active, onOpen }: { p
             </div>
           ))}
         </div>
-        <TargetsMetRow past={past} mostMissed={mostMissed} active={active} onOpen={onOpen} />
+        <TargetsMetRow past={past} mostMissed={mostMissed} active={active} onOpen={onOpen} onBack={onBack} />
       </section>
 
       <section data-testid="reports-group-needs">
@@ -363,13 +363,17 @@ function Spark({ h }: { h: TileHistory }) {
 /**
  * The slim "Targets met" row under the tiles (push B edits, in place of the Trend section): each of the past 4 weeks
  * with its met count and small segments, newest first, and "Most missed over 7 weeks: ..." at the right. A week
- * opens that week above.
+ * opens that week above. Push E2 (approved 2026-11-05): each week is a button with the thin border and round ends of
+ * the period pills at the top; the chosen week has the chosen pill's blue fill and border, the others are white with
+ * a border and a hover. While a past week is chosen, "Back to this week" shows at the right end, under Most missed,
+ * and does what the This week pill does. The four buttons share one width, so they line up at every width.
  */
-function TargetsMetRow({ past, mostMissed, active, onOpen }: { past: WeekTile[]; mostMissed: ReportsPage["mostMissed"]; active: PeriodKey; onOpen: (k: PeriodKey) => void }) {
+function TargetsMetRow({ past, mostMissed, active, onOpen, onBack }: { past: WeekTile[]; mostMissed: ReportsPage["mostMissed"]; active: PeriodKey; onOpen: (k: PeriodKey) => void; onBack: () => void }) {
   if (!past.length) return null;
+  const pastChosen = past.some((_, i) => pastWeekPeriodKey(i + 1) === active);
   return (
-    <div className="mt-4 grid grid-cols-2 items-center gap-x-5 gap-y-3 rounded-xl border border-border bg-white px-5 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)] min-[901px]:grid-cols-[minmax(150px,auto)_repeat(4,minmax(0,1fr))_minmax(0,1.6fr)]" data-testid="past-weeks">
-      <div className="col-span-2 text-[12.5px] font-medium text-heading min-[901px]:col-span-1">
+    <div className="mt-4 grid grid-cols-2 items-center gap-x-3 gap-y-2.5 rounded-xl border border-border bg-white px-5 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)] min-[1180px]:grid-cols-[minmax(120px,auto)_repeat(4,minmax(0,1fr))_minmax(0,1.3fr)] min-[1180px]:gap-x-3.5" data-testid="past-weeks">
+      <div className="col-span-2 text-[12.5px] font-medium text-heading min-[1180px]:col-span-1">
         Targets met
         <small className="block text-xs font-normal text-muted-foreground">Past {past.length} weeks, of {past[0].total}</small>
       </div>
@@ -377,21 +381,28 @@ function TargetsMetRow({ past, mostMissed, active, onOpen }: { past: WeekTile[];
         const key = pastWeekPeriodKey(i + 1);
         const low = w.total > 0 && w.met * 3 < w.total * 2;
         return (
-          <button key={w.weekStart} type="button" onClick={() => onOpen(key)} aria-pressed={active === key} className={cn("flex min-w-0 items-center gap-2 rounded-md px-1 py-0.5 text-left hover:bg-slate-50", active === key && "bg-primary-soft")} data-testid="past-week" data-period={key} data-met={w.met} title={w.missed.length ? `Missed: ${w.missed.map((m) => `${shortTargetName(m.name)} ${m.figure}`).join(", ")}` : "Every target met"}>
+          <button key={w.weekStart} type="button" onClick={() => onOpen(key)} aria-pressed={active === key} className={cn("flex min-h-[32px] min-w-0 flex-wrap items-center justify-center gap-x-1.5 gap-y-0.5 rounded-full border px-2.5 py-1 text-left transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none", active === key ? "border-primary-border bg-primary-soft text-primary-strong" : "border-border bg-white hover:bg-slate-50")} data-testid="past-week" data-period={key} data-met={w.met} data-chosen={active === key ? "1" : "0"} title={w.missed.length ? `Missed: ${w.missed.map((m) => `${shortTargetName(m.name)} ${m.figure}`).join(", ")}` : "Every target met"}>
             <b className={cn("tabular text-sm font-semibold whitespace-nowrap", low ? "text-status-missed" : "text-slate-900")}>
               {w.met} of {w.total}
             </b>
             <span className="inline-flex gap-[2px]" aria-hidden>
               {Array.from({ length: w.total }, (_, n) => (
-                <i key={n} className={cn("block h-3 w-1.5 rounded-[2px]", n < w.met ? (low ? "bg-status-missed-border" : "bg-[#b9cdf5]") : "bg-border")} />
+                <i key={n} className={cn("block h-3 w-1 rounded-[2px]", n < w.met ? (low ? "bg-status-missed-border" : "bg-[#b9cdf5]") : "bg-border")} />
               ))}
             </span>
             <span className="text-[11px] whitespace-nowrap text-muted-foreground">{fmtDate(w.weekStart, "MMM d")}</span>
           </button>
         );
       })}
-      <div className="col-span-2 text-left text-[12.5px] text-muted-foreground min-[901px]:col-span-1 min-[901px]:text-right" data-testid="most-missed">
-        {mostMissed ? `Most missed over ${mostMissed.of} weeks: ${mostMissed.name}, ${mostMissed.n} of ${mostMissed.of}` : "Every week met"}
+      <div className="col-span-2 flex min-w-0 flex-col items-start gap-1 min-[1180px]:col-span-1 min-[1180px]:items-end" data-testid="past-weeks-end">
+        <span className="text-left text-[12.5px] text-muted-foreground min-[1180px]:text-right" data-testid="most-missed">
+          {mostMissed ? `Most missed over ${mostMissed.of} weeks: ${mostMissed.name}, ${mostMissed.n} of ${mostMissed.of}` : "Every week met"}
+        </span>
+        {pastChosen ? (
+          <button type="button" onClick={onBack} className="text-[12.5px] font-medium whitespace-nowrap text-primary-strong hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" data-testid="back-to-this-week">
+            Back to this week
+          </button>
+        ) : null}
       </div>
     </div>
   );

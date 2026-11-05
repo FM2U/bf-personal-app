@@ -23,6 +23,7 @@ import { LogCallDrawer } from "@/components/app/work/log-call-drawer";
 import { PurposePills } from "@/components/app/work/person-row";
 import { TasksCard } from "@/components/app/work/tasks-card";
 import { TimelineEvents } from "@/components/app/work/timeline-list";
+import { WaitsField } from "@/components/app/work/waits-list";
 import { cappedNote, ShowAll } from "@/components/app/work/show-all";
 import { Confirm, Pill, RowButton, WorkCard } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
@@ -112,7 +113,7 @@ export function WhyInTouchCard({ person }: { person: PersonRow }) {
 
 // ---------- Next follow-up ----------
 
-export function NextFollowUpCard({ person, today }: { person: PersonRow; today: string }) {
+export function NextFollowUpCard({ person, today, waitsReady = true }: { person: PersonRow; today: string; /** False before UPDATE_PREVIEW_PUSH_E2.sql. */ waitsReady?: boolean }) {
   const ids = useId();
   const router = useRouter();
   const { pending, state, run } = useSave();
@@ -123,10 +124,7 @@ export function NextFollowUpCard({ person, today }: { person: PersonRow; today: 
   const [result, setResult] = useState<{ tone: "blue" | "warn"; text: string } | null>(null);
   const [typed, setTyped] = useState("");
   const [focused, setFocused] = useState(false);
-  // Push E: Waiting on and Since, as on a deal's Next action card.
-  const [waitingOn, setWaitingOn] = useSynced(person.waitingOn ?? "");
-  const [since, setSince] = useSynced(person.waitingSince ?? today);
-  const dirty = date !== (person.nextFollowUp ?? "") || what !== (person.followUpFor ?? "") || waitingOn !== (person.waitingOn ?? "") || (waitingOn !== "" && since !== (person.waitingSince ?? today));
+  const dirty = date !== (person.nextFollowUp ?? "") || what !== (person.followUpFor ?? "");
   useUnsavedWork(dirty, "The next follow-up is not saved yet.");
   const hint = followUpHint(person.nextFollowUp, today, (d) => fmtDate(d, "MMM d"));
   const choices = nextDateChoices(today);
@@ -176,23 +174,11 @@ export function NextFollowUpCard({ person, today }: { person: PersonRow; today: 
           <input id={`${ids}-w`} value={what} onChange={(e) => setWhat(e.target.value)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} placeholder="What the follow-up is for" className={cn(INPUT, "pr-9")} data-testid="fu-what" />
           <AiFieldStar context={personAsk(person)} field={{ key: "next_action", label: "What for", current: what }} visible={!what.trim() || focused} onUse={setWhat} />
         </div>
-        <label htmlFor={`${ids}-wo`} className={LABEL}>
-          Waiting on
-        </label>
-        <div className="flex flex-wrap items-center gap-2">
-          <input id={`${ids}-wo`} value={waitingOn} onChange={(e) => setWaitingOn(e.target.value)} placeholder="Nothing" className={cn(INPUT, "min-w-[160px] flex-1")} data-testid="fu-waiting" />
-          {waitingOn.trim() ? (
-            <>
-              <label htmlFor={`${ids}-s`} className={LABEL}>
-                Since
-              </label>
-              <input id={`${ids}-s`} type="date" value={since} max={today} onChange={(e) => setSince(e.target.value)} className={cn(INPUT, "w-auto")} data-testid="fu-since" />
-            </>
-          ) : null}
-        </div>
+        {/* Push E2: several waits, each saved at once ("+ Add" and ×), as on a deal's Next action card. */}
+        <WaitsField kind="person" recordId={person.id} waits={person.waits} today={today} ready={waitsReady} labelClassName={LABEL} />
         <SaveLine state={dirty ? { kind: "idle" } : state}>
           {dirty ? (
-            <RowButton tone="primary" disabled={pending} onClick={() => run(() => saveFollowUp(person.id, { date, what, waitingOn, waitingSince: since }))} data-testid="fu-save">
+            <RowButton tone="primary" disabled={pending} onClick={() => run(() => saveFollowUp(person.id, { date, what }))} data-testid="fu-save">
               {pending ? "Saving..." : "Save"}
             </RowButton>
           ) : (

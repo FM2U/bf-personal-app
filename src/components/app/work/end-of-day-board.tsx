@@ -10,7 +10,7 @@ import type { EndOfDayPage } from "@/lib/accountability/data";
 import { dueLine, sendLabel } from "@/lib/accountability/partners";
 import { includesLine, REVIEW_QUESTIONS, reviewAnswered, type WeeklyReview } from "@/lib/accountability/report-sections";
 import { ReportWindow } from "@/components/app/work/report-window";
-import { judgedMark, MARK_WORD, owedReasons, statusItems, todayStrip, type DayNumbers, type Judged, type TodayPart } from "@/lib/accountability/targets";
+import { DONE_AREAS, judgedMark, MARK_WORD, owedReasons, statusItems, todayStrip, type DayNumbers, type Judged, type TodayPart } from "@/lib/accountability/targets";
 import type { AskContext } from "@/lib/work/ask-ai";
 import { AccountabilityTabs, type EodBadge } from "@/components/app/nav-links";
 import { AiCardStar, AiFieldStar, AskAiPill, type EodExtras } from "@/components/app/work/ask-ai";
@@ -541,25 +541,52 @@ function RStat({ tone, children }: { tone: "green" | "amber"; children: React.Re
   );
 }
 
-/** The one-line Today strip (Edit batch C, item 10): each figure is a link that opens the drawer listing its items. */
+/**
+ * The one-line Today strip (Edit batch C, item 10): each figure is a link that opens the drawer listing its items.
+ * Push E2: "5 next actions done: Deals 2 · Rosara 1" (the split wraps between areas, never inside one), "N to-dos
+ * done", and "N waiting 5+ days" with the people waited on.
+ */
 function TodayStrip({ parts, onOpen }: { parts: TodayPart[]; onOpen: (p: TodayPart) => void }) {
   return (
     <section className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-border bg-white px-[22px] py-3 text-[13px] text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.04)]" data-testid="eod-today">
       <span className="font-semibold text-slate-900">Today:</span>
-      {parts.map((p, i) => (
-        // The dot follows its figure, so a wrapped second line never starts with one.
-        <span key={p.key} className="inline-flex items-center gap-2 whitespace-nowrap">
-          <button type="button" onClick={() => onOpen(p)} className={cn("font-medium hover:underline", p.key === "waits" && p.value ? "text-status-missed" : "text-primary-strong")} data-testid="eod-today-part" data-key={p.key} data-count={p.value}>
-            <span className="tabular">{p.value}</span> {p.words}
-          </button>
-          {i < parts.length - 1 ? <span className="text-slate-400" aria-hidden>·</span> : null}
-        </span>
-      ))}
+      {parts.map((p, i) => {
+        const areas = p.detail ? p.detail.split(" · ") : [];
+        return (
+          // The dot follows its figure, so a wrapped second line never starts with one.
+          <span key={p.key} className="inline-flex min-w-0 items-center gap-2">
+            <button type="button" onClick={() => onOpen(p)} className={cn("min-w-0 text-left font-medium hover:underline", p.key === "waits" && p.value ? "text-status-missed" : "text-primary-strong")} data-testid="eod-today-part" data-key={p.key} data-count={p.value}>
+              <span className="whitespace-nowrap">
+                <span className="tabular">{p.value}</span> {p.words}
+                {areas.length ? ":" : ""}
+              </span>
+              {areas.length ? (
+                <span className="font-normal text-slate-600" data-testid="eod-today-areas">
+                  {areas.map((a, n) => (
+                    <span key={a}>
+                      {" "}
+                      <span className="whitespace-nowrap">
+                        {a}
+                        {n < areas.length - 1 ? " ·" : ""}
+                      </span>
+                    </span>
+                  ))}
+                </span>
+              ) : null}
+            </button>
+            {i < parts.length - 1 ? (
+              <span className="text-slate-400" aria-hidden>
+                ·
+              </span>
+            ) : null}
+          </span>
+        );
+      })}
     </section>
   );
 }
 
-const DRAWER_TITLE: Record<TodayPart["key"], string> = { screened: "Listings screened today", moved: "Deals moved today", calls: "Calls today", emails: "Emails sent today", done: "Next actions done today", waits: "Waiting on someone" };
+const DRAWER_TITLE: Record<TodayPart["key"], string> = { screened: "Listings screened today", moved: "Deals moved today", calls: "Calls today", emails: "Emails sent today", done: "Next actions done today", todos: "To-dos done today", waits: "Waiting on someone" };
 
 /** The drawer behind one figure of the Today strip: the items it counts, one per row. */
 function TodayDrawer({ part, n, threshold, dateLabel, onClose }: { part: TodayPart; n: DayNumbers; threshold: number; dateLabel: string; onClose: () => void }) {
@@ -572,13 +599,18 @@ function TodayDrawer({ part, n, threshold, dateLabel, onClose }: { part: TodayPa
     empty = "No stage move today.";
   } else if (part.key === "calls") items = n.contactsList.filter((c) => c.kind === "call").map((c) => ({ name: c.name, detail: c.method === "video" ? "Video call" : c.method === "meeting" ? "Meeting" : "Call" }));
   else if (part.key === "emails") items = n.contactsList.filter((c) => c.kind === "email").map((c) => ({ name: c.name, detail: "Email sent" }));
-  else if (part.key === "done") items = n.actionsDoneList.map((a) => ({ name: a.name, detail: a.label || null }));
-  else {
-    items = n.waits.map((w) => ({ name: w.name, detail: `${w.days} days${w.who ? ` · ${w.who}` : ""}`, note: w.what ? `Waiting on: ${w.what}${w.since ? `, since ${w.since}` : ""}` : null, tone: w.days >= threshold * 2 ? "red" : "plain" }));
+  else if (part.key === "done") {
+    // Push E2: by area, in the Area selector's order; the area leads each line.
+    items = DONE_AREAS.flatMap((area) => n.actionsDoneList.filter((a) => a.area === area).map((a) => ({ name: a.name, detail: a.label ? `${area} · ${a.label}` : area })));
+  } else if (part.key === "todos") {
+    items = (n.todosDone?.list ?? []).map((t) => ({ name: t || "A to-do" }));
+    empty = "No to-do checked off today.";
+  } else {
+    items = n.waits.map((w) => ({ name: w.name, detail: `${w.days} days${w.kind === "person" ? " · Contacts" : w.who ? ` · ${w.who}` : ""}`, note: w.what ? `Waiting on: ${w.what}${w.since ? `, since ${w.since}` : ""}` : null, tone: w.days >= threshold * 2 ? "red" : "plain" }));
     empty = `Nobody has kept you waiting ${threshold}+ days.`;
   }
   return (
-    <Drawer open onOpenChange={(o) => !o && onClose()} title={DRAWER_TITLE[part.key]} sub={`${dateLabel} · ${part.value} ${part.words}`} testId="eod-today-drawer">
+    <Drawer open onOpenChange={(o) => !o && onClose()} title={DRAWER_TITLE[part.key]} sub={`${dateLabel} · ${part.value} ${part.words}${part.detail ? `: ${part.detail}` : ""}`} testId="eod-today-drawer">
       {items.length ? (
         <ul className="-mx-7 flex flex-col" data-testid="eod-today-items" data-key={part.key}>
           {items.map((it, i) => (

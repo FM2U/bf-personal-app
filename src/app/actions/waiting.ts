@@ -4,23 +4,25 @@ import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireOwner } from "@/lib/auth";
 import { todayInTz } from "@/lib/calc/dates";
-import { DB_UPDATE_NOTICE_PUSH_E, isMissingSchemaError } from "@/lib/schema-guard";
+import { DB_UPDATE_NOTICE_PUSH_E2, isMissingSchemaError } from "@/lib/schema-guard";
 import { loadWorkCtx, loadWorkPipeline, type WorkCtx } from "@/lib/work/data";
 import { stageIndex } from "@/lib/work/stages";
 import { replyWaitText, waitTarget } from "@/lib/work/waiting";
-import { dismissNoReplyEmail, moveWaitToNewestEmail } from "@/lib/work/waiting-data";
+import { deleteWaits, followedUpWait, insertWait, WAIT_MAX, type WaitTarget } from "@/lib/work/waits-data";
 import type { Row } from "@/lib/types";
 
 /**
- * The saves of the Waiting on someone card (push E, approved 2026-11-05): Add to Waiting and Dismiss on a No reply yet
- * row, Clear on a Replied row, and the restart after Follow up on a person. Every action returns { ok: false, error }
- * instead of throwing. The card refreshes the page itself after a save (router.refresh).
+ * The saves of waiting (push E, push E2 approved 2026-11-05): Add to Waiting and Dismiss on a No reply yet row, Clear
+ * on a Replied line, the restart after Follow up, and "+ Add" and × in the waits list of a deal, a job or consulting
+ * item, or a person. A deal or person can hold several waits; each is one row of the waits table. Every action
+ * returns { ok: false, error } instead of throwing. The card refreshes the page itself after a save (router.refresh).
  */
 
 type Fail = { ok: false; error: string };
 const fail = (error: string): Fail => ({ ok: false, error });
-const notSaved = (e: { message?: string | null } | null | undefined) => fail(isMissingSchemaError(e) ? DB_UPDATE_NOTICE_PUSH_E : `Not saved: ${e?.message ?? "try again."}`);
+const notSaved = (e: { message?: string | null } | null | undefined) => fail(isMissingSchemaError(e) ? DB_UPDATE_NOTICE_PUSH_E2 : `Not saved: ${e?.message ?? "try again."}`);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const isFail = (v: unknown): v is Fail => !!v && typeof v === "object" && (v as Fail).ok === false;
 
 async function setup(): Promise<{ sb: SupabaseClient; ctx: WorkCtx }> {
@@ -38,10 +40,9 @@ async function sentEmail(sb: SupabaseClient, ownerId: string, id: string): Promi
 }
 
 /**
- * Add to Waiting: an email on an open deal sets the deal's Waiting on to "A reply to: <subject>", since the day it was
- * sent, and remembers the email; any other email (from a person or organization page, or about a job or consulting
- * item) sets the same on the person it went to. A wait that came from another email before is replaced, and that
- * email stays off No reply yet.
+ * Add to Waiting: an email on an open deal adds the line "A reply to: <subject>" to the deal's waits, since the day it
+ * was sent, and remembers the email; any other email (from a person or organization page, or about a job or
+ * consulting item) adds the same line to the person it went to. It never replaces a wait already there (push E2).
  */
 export async function addToWaiting(commId: string): Promise<{ ok: true; target: "deal" | "person"; name: string } | Fail> {
   const { sb, ctx } = await setup();
@@ -61,14 +62,17 @@ export async function addToWaiting(commId: string): Promise<{ ok: true; target: 
   if (!target) return fail("This email has no open deal or person to wait on.");
   const table = target === "deal" ? "pipeline_items" : "contacts";
   const id = String(target === "deal" ? c.pipeline_item_id : c.contact_id);
-  const { data: before, error: readError } = await sb.from(table).select("id,name,waiting_comm_id").eq("owner_id", ctx.ownerId).eq("id", id).maybeSingle();
+  const { data: before, error: readError } = await sb.from(table).select("id,name").eq("owner_id", ctx.ownerId).eq("id", id).maybeSingle();
   if (readError) return notSaved(readError);
   if (!before) return fail(target === "deal" ? "This deal was not found." : "This person was not found.");
-  const sentOn = todayInTz(ctx.tz, new Date(String(c.occurred_at)));
-  const { error } = await sb.from(table).update({ waiting_on: replyWaitText(c.subject as string | null), waiting_since: sentOn, waiting_comm_id: String(c.id) }).eq("owner_id", ctx.ownerId).eq("id", id);
-  if (error) return notSaved(error);
-  const old = (before as Row).waiting_comm_id ? String((before as Row).waiting_comm_id) : null;
-  if (old && old !== String(c.id)) await dismissNoReplyEmail(sb, ctx.ownerId, old);
+  // Already waiting on this email (added twice from two tabs): nothing to add.
+  const { data: dup, error: dupError } = await sb.from("waits").select("id").eq("owner_id", ctx.ownerId).eq("comm_id", String(c.id)).limit(1);
+  if (dupError) return notSaved(dupError);
+  if (!((dup ?? []) as Row[]).length) {
+    const sentOn = todayInTz(ctx.tz, new Date(String(c.occurred_at)));
+    const { error } = await insertWait(sb, ctx.ownerId, { table, id }, { text: replyWaitText(c.subject as string | null), since: sentOn, commId: String(c.id) });
+    if (error) return notSaved(error);
+  }
   return { ok: true, target, name: target === "deal" ? (item?.name ?? "") : String((before as Row).name ?? "") };
 }
 
@@ -78,33 +82,51 @@ export async function dismissNoReply(commId: string): Promise<{ ok: true } | Fai
   const c = await sentEmail(sb, ctx.ownerId, commId);
   if (isFail(c)) return c;
   const { error } = await sb.from("communications").update({ no_reply_dismissed_at: new Date().toISOString() }).eq("owner_id", ctx.ownerId).eq("id", c.id);
-  if (error) return notSaved(error);
+  if (error) return fail(`Not saved: ${error.message}`);
   return { ok: true };
 }
 
-/** Clear on a Replied row: Waiting on is emptied (and the email it came from is forgotten). */
-export async function clearWaiting(kind: "deal" | "person", id: string): Promise<{ ok: true } | Fail> {
+/**
+ * Clear on a Replied line, and × on a wait in a record's waits list: that one wait goes (the deal's or person's other
+ * waits stay). The emails it watched stay off No reply yet.
+ */
+export async function removeWait(waitId: string): Promise<{ ok: true } | Fail> {
   const { sb, ctx } = await setup();
-  if (!UUID.test(String(id ?? ""))) return fail("This record was not found.");
-  const table = kind === "deal" ? "pipeline_items" : "contacts";
-  const { data, error } = await sb.from(table).update({ waiting_on: null, waiting_since: null, waiting_comm_id: null }).eq("owner_id", ctx.ownerId).eq("id", id).select("id");
+  if (!UUID.test(String(waitId ?? ""))) return fail("This wait was not found.");
+  const { error, count } = await deleteWaits(sb, ctx.ownerId, { waitId });
   if (error) return notSaved(error);
-  if (!((data ?? []) as Row[]).length) return fail("This record was not found.");
+  if (!count) return fail("This wait was not found. It may have been removed already.");
   revalidatePath("/", "layout");
   return { ok: true };
 }
 
-/** Follow up sent to a person being waited on: the wait starts again today and moves to the follow-up email. */
-export async function resetPersonWaiting(id: string): Promise<{ ok: true } | Fail> {
+/** "+ Add" in a record's waits list: a new line with what is waited on and since when (today when left empty). */
+export async function addWait(kind: "deal" | "item" | "person", id: string, input: { text: string; since: string }): Promise<{ ok: true } | Fail> {
   const { sb, ctx } = await setup();
-  if (!UUID.test(String(id ?? ""))) return fail("This person was not found.");
-  const { data, error: readError } = await sb.from("contacts").select("id,waiting_on,waiting_comm_id").eq("owner_id", ctx.ownerId).eq("id", id).maybeSingle();
+  if (!UUID.test(String(id ?? ""))) return fail("This record was not found.");
+  const text = String(input.text ?? "").replace(/\s+/g, " ").trim().slice(0, WAIT_MAX);
+  if (!text) return fail("Write what you are waiting on.");
+  const since = DATE.test(String(input.since ?? "")) ? String(input.since) : ctx.today;
+  if (since > ctx.today) return fail("Since cannot be after today.");
+  const target: WaitTarget = { table: kind === "person" ? "contacts" : "pipeline_items", id };
+  const { data, error: readError } = await sb.from(target.table).select("id").eq("owner_id", ctx.ownerId).eq("id", id).maybeSingle();
   if (readError) return notSaved(readError);
-  const p = data as Row | null;
-  if (!p) return fail("This person was not found.");
-  if (!p.waiting_on) return { ok: true };
-  const { error } = await sb.from("contacts").update({ waiting_since: ctx.today }).eq("id", id);
+  if (!data) return fail("This record was not found.");
+  const { error } = await insertWait(sb, ctx.ownerId, target, { text, since });
   if (error) return notSaved(error);
-  await moveWaitToNewestEmail(sb, ctx.ownerId, { table: "contacts", id, commId: p.waiting_comm_id ? String(p.waiting_comm_id) : null });
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+/**
+ * Follow up sent from a line of the Waiting card: that wait starts again today and also watches the follow-up email,
+ * so a reply to the original email or to the follow-up shows Replied (push E2, item 3).
+ */
+export async function followedUp(waitId: string): Promise<{ ok: true } | Fail> {
+  const { sb, ctx } = await setup();
+  if (!UUID.test(String(waitId ?? ""))) return fail("This wait was not found.");
+  const { error, found } = await followedUpWait(sb, ctx.ownerId, waitId, ctx.today);
+  if (error) return notSaved(error);
+  if (!found) return fail("This wait was not found.");
   return { ok: true };
 }

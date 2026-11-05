@@ -79,10 +79,11 @@ export type WorkSample = {
   /** Batch C: follow-ups and next actions done, the Rosara focus done, over the last weeks. */
   workEvents: R[];
   /**
-   * Push E: the waits that came from an email (Add to Waiting), set after the insert (the deal or person is inserted
-   * before the email): Pinecrest waits on the reply to its LOI email, and the reply has arrived ("Replied").
+   * Push E2: the waits (table waits), inserted after the deals, people, and emails: BrightPath waits on two things
+   * (the CIM, and times for a seller call), Oakline, Summit, Priya Natarajan, and the job at Lumen on one each, and
+   * Pinecrest on the reply to its LOI email, which has arrived ("Replied").
    */
-  waitLinks: { table: "pipeline_items" | "contacts"; id: string; commId: string }[];
+  waits: R[];
 };
 
 const PLACES = ["Riverside", "Bluegrass", "Magnolia", "Piedmont", "Cumberland", "Lakeview", "Tidewater", "Palmetto", "Red Clay", "Ironwood", "Northgate", "Cedar Point", "Granite", "Heritage", "Keystone", "Blue Ridge", "Clearwater", "Sandhill", "Fall Line", "Harborview"];
@@ -162,7 +163,7 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
 
   const hilltop = add({ name: "Hilltop Pest Solutions", stage_id: stage("Interested"), what_it_does: "Residential and commercial pest control, 2,400 recurring accounts", source: "Broker newsletter", broker_name: "Transworld, Rachel Kim", primary_contact_id: c.kim, organization_id: org.transworld, location: "Athens, GA", industry: "Pest control", next_action: d("Interested"), next_action_due: today, next_action_minutes: 15 }, { revenue: 3_400_000, sde: 1_000_000, asking: 3_600_000 });
   entered(hilltop, 0);
-  const brightpath = add({ name: "BrightPath Home Care", stage_id: stage("NDA signed"), what_it_does: "Non-medical home care, 85 clients, private pay and LTC insurance", source: "Broker newsletter", broker_name: "Transworld, Rachel Kim", primary_contact_id: c.kim, organization_id: org.transworld, location: "Nashville, TN", industry: "Home care", next_action: d("NDA signed"), next_action_due: today, next_action_minutes: 10, key_finding: "Caregiver retention is the question", waiting_on: "The CIM and a call", waiting_since: ago(3),
+  const brightpath = add({ name: "BrightPath Home Care", stage_id: stage("NDA signed"), what_it_does: "Non-medical home care, 85 clients, private pay and LTC insurance", source: "Broker newsletter", broker_name: "Transworld, Rachel Kim", primary_contact_id: c.kim, organization_id: org.transworld, location: "Nashville, TN", industry: "Home care", next_action: d("NDA signed"), next_action_due: today, next_action_minutes: 10, key_finding: "Caregiver retention is the question", _waits: [{ text: "The CIM", since: ago(3) }, { text: "Times for a seller call", since: ago(1) }],
     open_questions_json: { seller: ["What is caregiver turnover over the last 12 months?", "How many clients are private pay versus LTC insurance?"], broker: ["When does the CIM arrive, and is a seller call possible next week?"], self: ["What do the two largest home care agencies in Nashville pay caregivers?"] } }, { revenue: 4_200_000, ebitda: 1_300_000, asking: 4_900_000 });
   entered(brightpath, 3, [{ stageName: "Interested", daysAgo: 5 }]);
   const oakline = add({ name: "Oakline Dental Lab", stage_id: stage("NDA signed"), what_it_does: "Crowns and implants for 140 dental practices", source: "Broker newsletter", broker_name: "Murphy, Luis Ortega", primary_contact_id: c.ortega, organization_id: org.murphy, location: "Birmingham, AL", industry: "Dental lab", next_action: "Wait for the CIM", next_action_due: ahead(2), key_finding: "Owner is the lead technician", waiting_on: "The CIM", waiting_since: ago(2) }, { revenue: 5_100_000, ebitda: 1_600_000, asking: 6_200_000 });
@@ -195,7 +196,8 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
   entered(add({ name: "Valley Print Group", stage_id: stage("Lost"), what_it_does: "Commercial printing for schools and hospitals", source: "Broker newsletter", broker_name: "Murphy, Luis Ortega", primary_contact_id: c.ortega, organization_id: org.murphy, location: "Roanoke, VA", industry: "Commercial printing", key_finding: "Seller took a higher offer from a strategic buyer" }, { revenue: 4_800_000, ebitda: 1_200_000, asking: 4_000_000 }), 9, [{ stageName: "Interested", daysAgo: 35 }, { stageName: "NDA signed", daysAgo: 33 }, { stageName: "CIM review", daysAgo: 30 }, { stageName: "Broker call", daysAgo: 26 }, { stageName: "Seller call", daysAgo: 20 }]);
 
   // Dalton Services: the timeline of the mockup (an email received, a call, an email sent) and two documents.
-  const waitLinks: WorkSample["waitLinks"] = [];
+  /** The email a deal's wait came from (Add to Waiting), by the deal's id. */
+  const waitLinks = new Map<string, string>();
   const communications: R[] = [
     { id: newId(), occurred_at: `${today}T13:05:00Z`, method: "email", direction: "incoming", contact_id: c.kim, organization_id: org.transworld, subject: "CIM received from Rachel Kim", summary: "Attached: Dalton_CIM.pdf, 3 years P&L.", is_outreach: false, purpose: "general", pipeline_item_id: dalton },
     { id: newId(), occurred_at: `${ago(3)}T15:30:00Z`, method: "call", direction: "outgoing", contact_id: c.kim, organization_id: org.transworld, subject: "Call with Rachel Kim, 20 min", summary: "Owner is 58, retiring. 11 technicians. Wants to close by Q2.", is_outreach: false, purpose: "general", pipeline_item_id: dalton, ...(s.batchB ? { call_minutes: 20 } : {}) },
@@ -309,7 +311,7 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
       { id: pineMail, occurred_at: `${ago(6)}T14:00:00Z`, method: "email", direction: "outgoing", contact_id: c.whitfield, organization_id: org.sunbelt, subject: "Pinecrest LOI", summary: "Sent the LOI at 3.2x TTM with a 15% seller note.", is_outreach: true, purpose: "general", pipeline_item_id: pinecrest, gmail_thread_id: "sample-thread-e3" },
       { id: newId(), occurred_at: `${ago(1)}T16:00:00Z`, method: "email", direction: "incoming", contact_id: c.whitfield, organization_id: org.sunbelt, subject: "Re: Pinecrest LOI", summary: "The seller wants to talk about the seller note before answering. Can you do a call Friday?", is_outreach: false, purpose: "general", pipeline_item_id: pinecrest, gmail_thread_id: "sample-thread-e3", gmail_message_id: "sample-message-e3", awaiting_log: false },
     );
-    waitLinks.push({ table: "pipeline_items", id: pinecrest, commId: pineMail });
+    waitLinks.set(pinecrest, pineMail);
     notes.push({ id: newId(), record_type: "contacts", record_id: c.reed, body: "Prefers a call over email; answers the phone before 9." });
     notes.push({ id: newId(), record_type: "contacts", record_id: p.lena, body: "Wants a 50/50 split with a 4-year vest; open to a 1-year cliff." });
     // Tasks on two people (the Tasks card on the person page).
@@ -510,7 +512,22 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
     }
   }
 
-  return { organizations, contacts, items, financials, communications, notes, stageDates, documents, todos, personalTodos, timeBlocks, projects, consultingDetails, noteDates, noActionItems, partnerReports, endOfDay, workEvents, monthlyReviews, waitLinks };
+  // Push E2: the rows above carry their waits as waiting_on and waiting_since (or _waits for several); they become rows
+  // of the waits table here, and leave the deal and person rows.
+  const waits: R[] = [];
+  const takeWaits = (rows: R[], key: "pipeline_item_id" | "contact_id") => {
+    for (const r of rows) {
+      const list = (r._waits as { text: string; since: string }[] | undefined) ?? (r.waiting_on ? [{ text: String(r.waiting_on), since: String(r.waiting_since ?? today) }] : []);
+      for (const w of list) waits.push({ id: newId(), [key]: r.id, text: w.text, since: w.since, comm_id: waitLinks.get(String(r.id)) ?? null });
+      delete r._waits;
+      delete r.waiting_on;
+      delete r.waiting_since;
+    }
+  };
+  takeWaits(items, "pipeline_item_id");
+  takeWaits(contacts, "contact_id");
+
+  return { organizations, contacts, items, financials, communications, notes, stageDates, documents, todos, personalTodos, timeBlocks, projects, consultingDetails, noteDates, noActionItems, partnerReports, endOfDay, workEvents, monthlyReviews, waits };
 }
 
 /** The three sample sent reports (batch C): the email as sent, built the way End of day builds it, from fixed numbers. */

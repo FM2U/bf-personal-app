@@ -19,8 +19,9 @@ export function endOfDayLines(p: EndOfDayPage): string[] {
     `deals moved: ${n.moves.length}${n.moves.length ? ` (${n.moves.map((m) => `${m.name} to ${m.to}${m.keyFinding ? `, key finding: ${m.keyFinding}` : ""}`).join("; ")})` : ""}`,
     `calls: ${n.calls.value}${n.calls.detail ? ` (${n.calls.detail})` : ""}; emails: ${n.emails.value}${n.emails.detail ? ` (${n.emails.detail})` : ""}`,
     `network outreach: ${n.outreachToday.value} today, ${n.outreachWeek.value} this week`,
-    `next actions done: ${n.actionsDone.value}${n.actionsDone.detail ? ` (${n.actionsDone.detail})` : ""}`,
-    ...n.waits.map((w) => `waiting on broker: ${w.name}, ${w.days} days${w.who ? `, ${w.who}` : ""}${w.what ? `, for ${w.what}` : ""}`),
+    `next actions done: ${n.actionsDone.value}${n.actionsByArea?.length ? ` (by area: ${n.actionsByArea.map((a) => `${a.area} ${a.count}`).join(", ")})` : ""}${n.actionsDone.detail ? ` (${n.actionsDone.detail})` : ""}`,
+    `to-dos done: ${n.todosDone?.value ?? 0}`,
+    ...n.waits.map((w) => `${w.kind === "person" ? "waiting on person" : "waiting on broker"}: ${w.name}, ${w.days} days${w.who ? `, ${w.who}` : ""}${w.what ? `, for ${w.what}` : ""}`),
     ...p.judged.map((j) => `target: ${j.name} | ${j.line} | ${MARK_WORD[judgedMark(j)].toLowerCase()} ${j.figure}${j.commitment ? " | commitment" : ""}${p.reasons[j.targetId] ? ` | reason given: ${p.reasons[j.targetId]}` : ""}`),
     `tomorrow line: ${p.tomorrow.trim() || "(empty)"}`,
   ];

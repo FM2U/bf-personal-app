@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { firstReplyAfter, noReplyRows, personFollowUpDraft, personWaits, replyWaitText, waitGroups, waitTarget, type ItemInfo, type MailRow } from "./waiting";
+import { firstReplyAfter, noReplyRows, personFollowUpDraft, personWaits, replyWaitText, waitGroups, waitItem, waitLines, waitRepliedAt, waitSummary, waitsText, waitTarget, type ItemInfo, type MailRow } from "./waiting";
 
 const today = "2026-11-05";
 const local = (ts: string) => ts.slice(0, 10);
@@ -61,23 +61,67 @@ describe("No reply yet (push E)", () => {
   });
 });
 
-describe("Waiting on someone with people (push E)", () => {
-  it("groups deals and people by the threshold, longest wait first", () => {
+describe("Waiting on someone with people (push E, push E2)", () => {
+  it("groups deals and people by the threshold, longest wait first; the labels are N+ days and < N days", () => {
     const people = personWaits(
       [
-        { id: "p1", name: "Priya Natarajan", waitingOn: "Two intros", waitingSince: "2026-10-30", organization: "Truist", role: "Lender", email: "p@example.com", repliedOn: null },
-        { id: "p2", name: "Nobody Waiting", waitingOn: " ", waitingSince: null, organization: null, role: null, email: null, repliedOn: null },
+        { id: "p1", name: "Priya Natarajan", organization: "Truist", role: "Lender", email: "p@example.com", waits: [{ id: "w1", text: "Two intros", since: "2026-10-30", repliedOn: null }] },
+        { id: "p2", name: "Nobody Waiting", organization: null, role: null, email: null, waits: [{ id: "w2", text: " ", since: null, repliedOn: null }] },
+        { id: "p3", name: "No waits", organization: null, role: null, email: null, waits: [] },
       ],
       today,
       5,
     );
     expect(people).toHaveLength(1);
-    expect(people[0]).toMatchObject({ key: "person:p1", kind: "person", days: 6, level: "amber", who: "Truist", context: "Lender", href: "/work/people/p1" });
+    expect(people[0]).toMatchObject({ key: "person:p1", kind: "person", days: 6, level: "amber", context: "Lender", href: "/work/people/p1" });
+    expect(people[0].lines).toEqual([{ waitId: "w1", waitingOn: "Two intros", who: "Truist", since: "2026-10-30", days: 6, level: "amber", repliedOn: null, email: "p@example.com", contactId: "p1", contactName: "Priya Natarajan" }]);
     const g = waitGroups([...people, { name: "Summit", days: 11 }, { name: "Oakline", days: 2 }] as never[], 5);
     expect(g.map((x) => [x.label, (x.items as { name: string }[]).map((i) => i.name)])).toEqual([
       ["5+ days", ["Summit", "Priya Natarajan"]],
-      ["Less than 5 days", ["Oakline"]],
+      ["< 5 days", ["Oakline"]],
     ]);
+  });
+
+  it("keeps two waits on one deal as one row with two lines, in the group of its longest wait", () => {
+    const line = (waitId: string, waitingOn: string, days: number) => ({ waitId, waitingOn, who: "Luis Ortega", since: null, days, level: days >= 5 ? ("amber" as const) : ("quiet" as const), repliedOn: null, email: null, contactId: null, contactName: null });
+    const row = waitItem({ key: "deal:oak", kind: "deal", id: "oak", name: "Oakline Dental Lab", href: "/work/deals/oak", context: "NDA signed" }, [line("a", "A reply to: Oakline CIM", 2), line("b", "The CIM", 6)]);
+    expect(row!.lines.map((l) => l.waitingOn)).toEqual(["The CIM", "A reply to: Oakline CIM"]);
+    expect([row!.days, row!.level]).toEqual([6, "amber"]);
+    expect(waitGroups([row!], 5).map((g) => g.items.length)).toEqual([1, 0]);
+    // Every line cleared: no row.
+    expect(waitItem({ key: "deal:x", kind: "deal", id: "x", name: "X", href: "", context: null }, [])).toBeNull();
+  });
+
+  it("reads a record's waits longest first, and sums them up where there is room for one", () => {
+    const lines = waitLines(
+      [
+        { id: "a", text: "A reply to: Oakline CIM", since: "2026-11-03", createdAt: "2026-11-05T10:00:00Z" },
+        { id: "b", text: "The CIM", since: "2026-11-03", createdAt: "2026-11-01T10:00:00Z" },
+        { id: "c", text: "Times for a call", since: "2026-10-28", createdAt: "2026-11-02T10:00:00Z" },
+        { id: "d", text: "  ", since: "2026-10-01", createdAt: "2026-11-02T10:00:00Z" },
+      ],
+      today,
+      5,
+    );
+    expect(lines.map((l) => [l.id, l.days, l.level])).toEqual([["c", 8, "amber"], ["b", 2, "quiet"], ["a", 2, "quiet"]]);
+    expect(waitSummary(lines)).toEqual({ waitingOn: "Times for a call and 2 more", waitingSince: "2026-10-28", waitDays: 8, waitLevel: "amber" });
+    expect(waitSummary(lines.slice(1, 2)).waitingOn).toBe("The CIM");
+    expect(waitSummary([])).toEqual({ waitingOn: null, waitingSince: null, waitDays: 0, waitLevel: "none" });
+    expect(waitsText(lines.slice(1), (d) => (d === "2026-11-03" ? "Nov 3" : d))).toBe("The CIM, since Nov 3; A reply to: Oakline CIM, since Nov 3");
+  });
+
+  it("shows Replied for a reply to the original email or to the follow-up, whichever came first (push E2, item 3)", () => {
+    const m = [
+      { direction: "incoming", threadId: "orig", occurredAt: "2026-11-05T09:00:00Z" },
+      { direction: "incoming", threadId: "follow", occurredAt: "2026-11-06T09:00:00Z" },
+    ];
+    const orig = { thread: "orig", at: "2026-10-30T14:00:00Z" };
+    const follow = { thread: "follow", at: "2026-11-04T14:00:00Z" };
+    // Dana answers the Oct 30 LOI email instead of the follow-up: Replied.
+    expect(waitRepliedAt(m, [orig, follow])).toBe("2026-11-05T09:00:00Z");
+    expect(waitRepliedAt(m.slice(1), [orig, follow])).toBe("2026-11-06T09:00:00Z");
+    expect(waitRepliedAt([], [orig, follow])).toBeNull();
+    expect(waitRepliedAt(m, [null, undefined])).toBeNull();
   });
 
   it("finds the first reply after the email a wait came from", () => {

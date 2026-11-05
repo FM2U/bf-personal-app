@@ -109,7 +109,7 @@ export async function ItemPage({ kind, id }: { kind: ItemKind; id: string }) {
         left={
           <>
           {kind === "job" ? <FindOutCard item={item} /> : null}
-          <ItemNextActionCard item={item} today={d.today} />
+          <ItemNextActionCard item={item} today={d.today} waitsReady={d.waitsReady} />
           <ItemTasksCard item={item} tasks={d.todos} today={d.today} />
           </>
         }

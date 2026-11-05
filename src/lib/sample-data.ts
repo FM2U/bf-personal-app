@@ -12,10 +12,10 @@ type Batch = { table: string; op?: "insert" | "update"; rows: Record<string, unk
 /** Tables sample data writes to, in insert order. Removal deletes in the reverse dependency order (SQL). */
 export const SAMPLE_TABLES = [
   "organizations", "contacts", "pipeline_items", "deal_financials", "consulting_details", "partner_reports",
-  "communications", "notes", "deal_todos", "projects", "work_events", "end_of_day", "time_blocks", "monthly_reviews",
+  "communications", "notes", "deal_todos", "projects", "work_events", "end_of_day", "time_blocks", "monthly_reviews", "waits",
 ] as const;
 
-type Follow = Pick<WorkSample, "stageDates" | "documents" | "todos" | "noteDates" | "noActionItems" | "waitLinks">;
+type Follow = Pick<WorkSample, "stageDates" | "documents" | "todos" | "noteDates" | "noActionItems">;
 
 export function buildSampleData(setup: WorkSampleSetup, newId: () => string, today: string): { batches: Batch[]; counts: Record<string, number>; work: Follow } {
   const w = buildWorkSample(setup, newId, today);
@@ -36,7 +36,9 @@ export function buildSampleData(setup: WorkSampleSetup, newId: () => string, tod
     { table: "time_blocks", rows: w.timeBlocks },
     // Push D: two monthly reviews (one finished, one to do).
     { table: "monthly_reviews", rows: w.monthlyReviews },
+    // Push E2: the waits, after the deals, people, and emails they point to.
+    { table: "waits", rows: w.waits },
   ].filter((b) => b.rows.length);
   const counts = Object.fromEntries(batches.map((b) => [b.table, b.rows.length]));
-  return { batches, counts, work: { stageDates: w.stageDates, documents: w.documents, todos: w.todos, noteDates: w.noteDates, noActionItems: w.noActionItems, waitLinks: w.waitLinks } };
+  return { batches, counts, work: { stageDates: w.stageDates, documents: w.documents, todos: w.todos, noteDates: w.noteDates, noActionItems: w.noActionItems } };
 }

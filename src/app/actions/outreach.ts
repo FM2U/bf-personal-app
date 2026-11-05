@@ -7,8 +7,7 @@ import { recordWorkEvent } from "@/lib/accountability/events";
 import { addDaysISO } from "@/lib/calc/dates";
 import { loadCtx, type Ctx } from "@/lib/engine/helpers";
 import { emailAddressProblem } from "@/lib/email-address";
-import { DB_UPDATE_NOTICE_0022, DB_UPDATE_NOTICE_PUSH_E, isMissingSchemaError } from "@/lib/schema-guard";
-import { dropWaitLink } from "@/lib/work/waiting-data";
+import { DB_UPDATE_NOTICE_0022, isMissingSchemaError } from "@/lib/schema-guard";
 import { parsePurposes, roleForDatabase } from "@/lib/work/outreach";
 import { TODO_MAX_LENGTH } from "@/lib/work/questions";
 import { nextTodoPosition, type DealTodo } from "@/lib/work/todos";
@@ -130,26 +129,17 @@ export async function savePersonFacts(id: string, input: PersonInput): Promise<{
 
 
 /** The Next follow-up card: the date and what the follow-up is for (Save). */
-export async function saveFollowUp(id: string, input: { date: string; what: string; /** Push E: Waiting on and Since (left out: unchanged). */ waitingOn?: string; waitingSince?: string }): Promise<{ ok: true } | Fail> {
+export async function saveFollowUp(id: string, input: { date: string; what: string }): Promise<{ ok: true } | Fail> {
   const s = await setup();
   if (isFail(s)) return s;
   const { sb, ctx } = s;
   const person = await personOf(sb, ctx, id);
   if (isFail(person)) return person;
   const date = DATE.test(String(input.date ?? "")) ? String(input.date) : null;
+  // Push E2: the waits under it save on their own ("+ Add" and ×, src/app/actions/waiting.ts).
   const row: Row = { follow_up_date: date, follow_up_note: clean(input.what, 300) };
-  // Push E: waiting on a person, like a deal. Before the push E update the columns are missing: an empty field is fine.
-  const hasWaiting = Object.prototype.hasOwnProperty.call(person, "waiting_on");
-  const waitingOn = input.waitingOn === undefined ? undefined : clean(input.waitingOn, 120);
-  if (waitingOn !== undefined && (hasWaiting || waitingOn)) {
-    if (!hasWaiting) return fail(DB_UPDATE_NOTICE_PUSH_E);
-    row.waiting_on = waitingOn;
-    row.waiting_since = waitingOn ? (DATE.test(String(input.waitingSince ?? "")) ? String(input.waitingSince) : ctx.today) : null;
-  }
   const { error } = await sb.from("contacts").update(row).eq("id", person.id);
   if (error) return notSaved(error);
-  // Waiting on changed by hand on a wait that came from an email (Add to Waiting) forgets the email.
-  if (waitingOn !== undefined && person.waiting_comm_id && waitingOn !== (clean(person.waiting_on, 120) ?? null)) await dropWaitLink(sb, ctx.ownerId, { table: "contacts", id: String(person.id), commId: String(person.waiting_comm_id) });
   done();
   return { ok: true };
 }

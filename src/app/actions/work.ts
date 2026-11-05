@@ -18,7 +18,7 @@ import { dealFactsFromRow, parseFindingList } from "@/lib/work/deal-facts";
 import { loadBuyBoxSettings } from "@/lib/work/buy-box-data";
 import { cleanQuestions, countQuestions, mergeQuestions, parseOpenQuestions, questionsPrompt, TODO_MAX_LENGTH, todosPrompt, validateQuestionsReply, validateTodosReply, type DealContext, type QuestionGroups } from "@/lib/work/questions";
 import { nextTodoPosition, openTodos, type DealTodo } from "@/lib/work/todos";
-import { dropWaitLink, moveWaitToNewestEmail } from "@/lib/work/waiting-data";
+import { deleteWaits } from "@/lib/work/waits-data";
 import type { Row } from "@/lib/types";
 
 /**
@@ -165,8 +165,10 @@ export async function passDeal(id: string, reason: string): Promise<{ ok: true }
   if (isFail(item)) return item;
   const passed = pipe.byName.Passed;
   if (!passed) return fail('The acquisition pipeline has no "Passed" stage. Run the database update again.');
-  const { error } = await sb.from("pipeline_items").update({ stage_id: passed.id, pass_reason: reason, screened: true, waiting_on: null, waiting_since: null }).eq("id", item.id);
+  const { error } = await sb.from("pipeline_items").update({ stage_id: passed.id, pass_reason: reason, screened: true }).eq("id", item.id);
   if (error) return notSaved(error);
+  // Push E2: a passed deal waits on nobody.
+  await deleteWaits(sb, ctx.ownerId, { table: "pipeline_items", id: String(item.id) });
   doneQuietly();
   return { ok: true };
 }
@@ -374,12 +376,14 @@ export async function completeNextAction(id: string, move: boolean, todoId: stri
   const next = move && current ? pipe.stages.find((st) => st.outcome === "open" && st.position > current.position) ?? null : null;
   let update: Row;
   if (move && next) {
-    update = { stage_id: next.id, next_action: next.defaultTitle, next_action_due: next.defaultTitle ? addDaysISO(ctx.today, next.defaultDueInDays ?? 0) : null, next_action_minutes: null, waiting_on: null, waiting_since: null };
+    update = { stage_id: next.id, next_action: next.defaultTitle, next_action_due: next.defaultTitle ? addDaysISO(ctx.today, next.defaultDueInDays ?? 0) : null, next_action_minutes: null };
   } else {
     update = { next_action: null, next_action_due: null, next_action_minutes: null };
   }
   const { error } = await sb.from("pipeline_items").update(update).eq("id", item.id);
   if (error) return notSaved(error);
+  // Push E2: moving to the next stage clears the deal's waits (as it cleared Waiting on).
+  if (move && next) await deleteWaits(sb, ctx.ownerId, { table: "pipeline_items", id: String(item.id) });
   doneQuietly();
   return { ok: true, movedTo: move && next ? next.name : null, nextAction: move && next ? next.defaultTitle : null };
 }
@@ -400,9 +404,12 @@ export async function deferNextAction(id: string, date: string): Promise<{ ok: t
 }
 
 
-type NextActionInput = { action: string; due: string; minutes: string | number | null; waitingOn: string; waitingSince: string };
+type NextActionInput = { action: string; due: string; minutes: string | number | null };
 
-/** The Next action card on the deal page: action, due date, block minutes, waiting on, waiting since. */
+/**
+ * The Next action card on the deal page: action, due date, block minutes. Push E2: the waits under it save on their
+ * own ("+ Add" and ×, src/app/actions/waiting.ts).
+ */
 export async function saveNextAction(id: string, input: NextActionInput): Promise<{ ok: true } | Fail> {
   const s = await setup();
   if (isFail(s)) return s;
@@ -413,32 +420,10 @@ export async function saveNextAction(id: string, input: NextActionInput): Promis
   const due = DATE.test(String(input.due ?? "")) ? String(input.due) : null;
   const minutesRaw = input.minutes === null || input.minutes === undefined || input.minutes === "" ? null : Number(String(input.minutes).replace(/[^\d.]/g, ""));
   const minutes = minutesRaw === null || !Number.isFinite(minutesRaw) ? null : Math.max(0, Math.min(1440, Math.round(minutesRaw)));
-  const waitingOn = clean(input.waitingOn, 120);
-  const since = DATE.test(String(input.waitingSince ?? "")) ? String(input.waitingSince) : ctx.today;
   if (action && !due) return fail("Give the next action a due date.");
-  const { error } = await sb.from("pipeline_items").update({ next_action: action, next_action_due: action ? due : null, next_action_minutes: minutes, waiting_on: waitingOn, waiting_since: waitingOn ? since : null }).eq("id", item.id);
+  const { error } = await sb.from("pipeline_items").update({ next_action: action, next_action_due: action ? due : null, next_action_minutes: minutes }).eq("id", item.id);
   if (error) return notSaved(error);
-  // Push E: Waiting on changed by hand on a wait that came from an email (Add to Waiting) forgets the email.
-  if (item.waiting_comm_id && waitingOn !== (clean(item.waiting_on, 120) ?? null)) await dropWaitLink(sb, ctx.ownerId, { table: "pipeline_items", id: String(item.id), commId: String(item.waiting_comm_id) });
   done();
-  return { ok: true };
-}
-
-/**
- * Follow up sent: the wait starts again today (the email itself is logged by the send). Push E: the wait moves to the
- * follow-up email, so a reply to it shows Replied and it is not listed again under No reply yet.
- */
-export async function resetWaiting(id: string): Promise<{ ok: true } | Fail> {
-  const s = await setup();
-  if (isFail(s)) return s;
-  const { sb, ctx, pipe } = s;
-  const item = await dealOf(sb, ctx, pipe, id);
-  if (isFail(item)) return item;
-  if (!item.waiting_on) return { ok: true };
-  const { error } = await sb.from("pipeline_items").update({ waiting_since: ctx.today }).eq("id", item.id);
-  if (error) return notSaved(error);
-  if (Object.prototype.hasOwnProperty.call(item, "waiting_comm_id")) await moveWaitToNewestEmail(sb, ctx.ownerId, { table: "pipeline_items", id: String(item.id), commId: item.waiting_comm_id ? String(item.waiting_comm_id) : null });
-  doneQuietly();
   return { ok: true };
 }
 
@@ -552,8 +537,10 @@ export async function advanceDeal(id: string): Promise<{ ok: true; stage: string
   const missing = await missingForStage(sb, item, next.id);
   if (missing.length) return fail(`Not moved to ${next.name}: add ${missing.map((m) => m.label).join(", ")} in Facts first.`);
   // The stage trigger sets the default next action when the current one was the old stage's default or empty.
-  const { error } = await sb.from("pipeline_items").update({ stage_id: next.id, waiting_on: null, waiting_since: null, next_action_minutes: null }).eq("id", item.id);
+  const { error } = await sb.from("pipeline_items").update({ stage_id: next.id, next_action_minutes: null }).eq("id", item.id);
   if (error) return notSaved(error);
+  // Push E2: Advance clears the deal's waits (as it cleared Waiting on).
+  await deleteWaits(sb, ctx.ownerId, { table: "pipeline_items", id: String(item.id) });
   done();
   return { ok: true, stage: next.name };
 }
@@ -567,8 +554,9 @@ export async function markLost(id: string): Promise<{ ok: true } | Fail> {
   if (isFail(item)) return item;
   const lost = pipe.byName.Lost;
   if (!lost) return fail('The acquisition pipeline has no "Lost" stage. Run the database update again.');
-  const { error } = await sb.from("pipeline_items").update({ stage_id: lost.id, waiting_on: null, waiting_since: null }).eq("id", item.id);
+  const { error } = await sb.from("pipeline_items").update({ stage_id: lost.id }).eq("id", item.id);
   if (error) return notSaved(error);
+  await deleteWaits(sb, ctx.ownerId, { table: "pipeline_items", id: String(item.id) });
   done();
   return { ok: true };
 }

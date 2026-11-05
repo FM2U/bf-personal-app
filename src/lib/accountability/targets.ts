@@ -26,7 +26,7 @@ export const COUNTABLES: readonly Countable[] = [
   { key: "outreach_contacts", label: "Outreach contacts", counts: "emails sent and calls logged to people, Mon to Fri", unit: "count" },
   { key: "follow_ups_on_time", label: "Follow-ups on time", counts: "outreach follow-ups done on or before their date", unit: "percent" },
   { key: "deals_moved", label: "Deals moved", counts: "stage moves on Deals, Job search and Consulting", unit: "count" },
-  { key: "next_actions_done", label: "Next actions done", counts: "next actions marked Done on deals, people, projects, and opportunities", unit: "count" },
+  { key: "next_actions_done", label: "Next actions done", counts: "next actions marked Done on deals, projects, and opportunities, and tasks checked off on records", unit: "count" },
   { key: "rosara_focus_done", label: "Rosara focus done", counts: "the weekly focus marked done on Rosara", unit: "yesno" },
 ];
 
@@ -74,13 +74,19 @@ export type Facts = {
   comms: { on: string; method: string; contactId: string | null; contactName: string | null; broker: boolean }[];
   /** A follow-up marked Done, with whether it was on or before its date. */
   followUps: { on: string; onTime: boolean; name: string }[];
-  /** A next action marked Done. */
-  actionsDone: { on: string; name: string; label: string }[];
+  /** A next action marked Done, or (push E2) a task on a record checked off, with the record's area. */
+  actionsDone: { on: string; name: string; label: string; area: DoneArea }[];
   /** The Rosara weekly focus marked done. */
   focusDone: { on: string; text: string }[];
+  /** Push E2: a personal to-do (no record) checked off. */
+  todosDone: { on: string; text: string }[];
 };
 
-export const EMPTY_FACTS: Facts = { screened: [], moves: [], comms: [], followUps: [], actionsDone: [], focusDone: [] };
+/** The areas next actions are done in, named as on the Area selector (src/lib/work/lanes.ts AREAS), in its order. */
+export const DONE_AREAS = ["Deals", "Contacts", "Rosara", "Job search", "Consulting"] as const;
+export type DoneArea = (typeof DONE_AREAS)[number];
+
+export const EMPTY_FACTS: Facts = { screened: [], moves: [], comms: [], followUps: [], actionsDone: [], focusDone: [], todosDone: [] };
 
 const inRange = (on: string, start: string, end: string) => on >= start && on <= end;
 const isCall = (m: string) => m === "call" || m === "meeting" || m === "video";
@@ -520,21 +526,33 @@ export type DayNumbers = {
   outreachToday: Count;
   outreachWeek: Count;
   actionsDone: Count;
-  /** Open waits on brokers at or past the threshold: "Summit Logistics Group (11 days, Mark Reed)". */
-  waits: { name: string; days: number; who: string | null; what: string | null; since: string | null }[];
-  /** Every open wait (for the average on Reports). */
-  allWaits: { name: string; days: number; who: string | null; what: string | null; since: string | null }[];
+  /** Push E2: the next actions done by area, in the Area selector's order, only areas with at least one. */
+  actionsByArea: { area: DoneArea; count: number }[];
+  /** Push E2: the personal to-dos checked off. */
+  todosDone: { value: number; list: string[] };
+  /**
+   * Open waits at or past the threshold, longest first: the deals ("Summit Logistics Group (11 days, Mark Reed)") and,
+   * push E2, the people waited on (End of day's Today line and its drawer).
+   */
+  waits: { name: string; days: number; who: string | null; what: string | null; since: string | null; kind?: "deal" | "person" }[];
+  /** Every open wait on a deal (for the average on Reports). */
+  allWaits: { name: string; days: number; who: string | null; what: string | null; since: string | null; kind?: "deal" | "person" }[];
   /** What the Today strip's drawers list (Edit batch C, item 10): the listings screened with the pass reason or Interested. */
   screenedList: { name: string; outcome: "passed" | "interested"; reason: string | null }[];
   /** The calls (calls, meetings, video calls) and emails sent today, with the person's name. */
   contactsList: { name: string; kind: "call" | "email"; method: string }[];
-  /** The next actions marked Done today, with the record and the action. */
-  actionsDoneList: { name: string; label: string }[];
+  /** The next actions marked Done today (and tasks on records checked off), with the record, the action, and the area. */
+  actionsDoneList: { name: string; label: string; area: DoneArea }[];
 };
 
-/** The counted facts of one day (End of day's Today strip and its drawers, and the email's Today tiles). */
-export function dayNumbers(f: Facts, day: string, waits: DayNumbers["allWaits"], threshold: number): DayNumbers {
+/**
+ * The counted facts of one day (End of day's Today strip and its drawers, and the email's Today tiles). `people` are
+ * the people waited on (push E2): they count in `waits` with the deals; `allWaits` stays deals only.
+ */
+export function dayNumbers(f: Facts, day: string, waits: DayNumbers["allWaits"], threshold: number, people: DayNumbers["allWaits"] = []): DayNumbers {
   const week = workWeekOf(day);
+  const done = f.actionsDone.filter((x) => x.on === day);
+  const todos = (f.todosDone ?? []).filter((x) => x.on === day);
   return {
     screened: countIn("listings_screened", f, day, day),
     moves: f.moves.filter((m) => m.on === day),
@@ -543,11 +561,13 @@ export function dayNumbers(f: Facts, day: string, waits: DayNumbers["allWaits"],
     outreachToday: countIn("outreach_contacts", f, day, day),
     outreachWeek: countIn("outreach_contacts", f, week.start, week.end),
     actionsDone: countIn("next_actions_done", f, day, day),
-    waits: waits.filter((w) => w.days >= threshold),
+    actionsByArea: DONE_AREAS.map((area) => ({ area, count: done.filter((x) => x.area === area).length })).filter((a) => a.count > 0),
+    todosDone: { value: todos.length, list: todos.map((t) => t.text) },
+    waits: [...waits.map((w) => ({ ...w, kind: w.kind ?? ("deal" as const) })), ...people.map((p) => ({ ...p, kind: "person" as const }))].filter((w) => w.days >= threshold).sort((a, b) => b.days - a.days),
     allWaits: waits,
     screenedList: f.screened.filter((x) => x.on === day).map((x) => ({ name: x.name, outcome: x.outcome, reason: x.reason })),
     contactsList: f.comms.filter((c) => c.on === day && (c.method === "email" || isCall(c.method))).map((c) => ({ name: c.contactName ?? "Someone not on Contacts", kind: c.method === "email" ? ("email" as const) : ("call" as const), method: c.method })),
-    actionsDoneList: f.actionsDone.filter((x) => x.on === day).map((x) => ({ name: x.name, label: x.label })),
+    actionsDoneList: done.map((x) => ({ name: x.name, label: x.label, area: x.area })),
   };
 }
 
@@ -556,15 +576,22 @@ export function dayNumbers(f: Facts, day: string, waits: DayNumbers["allWaits"],
  * · 0 next actions done · 2 waiting 5+ days". Each part is a link to its drawer. The figures are the same counts
  * as the report's Today tiles (dayNumbers).
  */
-export type TodayPart = { key: "screened" | "moved" | "calls" | "emails" | "done" | "waits"; value: number; words: string };
+export type TodayPart = { key: "screened" | "moved" | "calls" | "emails" | "done" | "todos" | "waits"; value: number; words: string; /** Push E2: after a colon, the next actions done by area ("Deals 2 · Rosara 1"). */ detail?: string | null };
 
+/**
+ * Push E2, item 5: "5 next actions done: Deals 2 · Rosara 1 · Job search 1 · Consulting 1" (only areas with at least
+ * one; "0 next actions done" when none), then "N to-dos done" (personal to-dos checked off today), and "N waiting 5+
+ * days" counts the deals and the people waited on.
+ */
 export function todayStrip(n: DayNumbers, threshold: number): TodayPart[] {
+  const todos = n.todosDone?.value ?? 0;
   return [
     { key: "screened", value: n.screened.value, words: "screened" },
     { key: "moved", value: n.moves.length, words: "moved" },
     { key: "calls", value: n.calls.value, words: n.calls.value === 1 ? "call" : "calls" },
     { key: "emails", value: n.emails.value, words: n.emails.value === 1 ? "email" : "emails" },
-    { key: "done", value: n.actionsDone.value, words: n.actionsDone.value === 1 ? "next action done" : "next actions done" },
+    { key: "done", value: n.actionsDone.value, words: n.actionsDone.value === 1 ? "next action done" : "next actions done", detail: n.actionsDone.value && n.actionsByArea?.length ? n.actionsByArea.map((a) => `${a.area} ${a.count}`).join(" · ") : null },
+    { key: "todos", value: todos, words: todos === 1 ? "to-do done" : "to-dos done" },
     { key: "waits", value: n.waits.length, words: `waiting ${threshold}+ days` },
   ];
 }

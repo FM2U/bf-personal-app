@@ -4,8 +4,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransiti
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { aiOrderToday } from "@/app/actions/ask-ai";
-import { resetWaiting } from "@/app/actions/work";
-import { addToWaiting, clearWaiting, dismissNoReply, resetPersonWaiting } from "@/app/actions/waiting";
+import { addToWaiting, dismissNoReply, followedUp as followedUpWait, removeWait } from "@/app/actions/waiting";
 import { ComposeEmailDialog } from "@/components/app/compose-email";
 import type { ComposeSetup } from "@/lib/compose-email";
 import { readRaw } from "@/lib/disclosure";
@@ -22,7 +21,7 @@ import type { ItemRow } from "@/lib/work/pipelines-data";
 import { dueThisWeekLabel } from "@/lib/work/projects";
 import type { ProjectRow } from "@/lib/work/projects-data";
 import { dueLabel, followUpDraft, STAGE_DEFAULTS, type WorkStageName } from "@/lib/work/stages";
-import { personFollowUpDraft, waitGroups, type NoReplyRow as NoReplyData, type WaitItem } from "@/lib/work/waiting";
+import { personFollowUpDraft, waitGroups, waitItem, type NoReplyRow as NoReplyData, type WaitItem, type WaitItemLine } from "@/lib/work/waiting";
 import { clickTile, selectedTile, tileAfterFilter, type Tile } from "@/lib/work/tiles";
 import { AiCardStar } from "@/components/app/work/ask-ai";
 import { ItemActionRow, itemHref } from "@/components/app/work/item-row";
@@ -62,7 +61,8 @@ import { cn } from "@/lib/utils";
  * Soonest first. Each new day starts on Soonest first. Push C: the solid "Work through" button opens the step-by-step
  * window (work-through.tsx); every row with Done has the block icon (block-time.tsx) and "Blocked 2:00" under its date.
  * Right third, level with the tiles: Waiting on someone (never filtered; its groups start closed and the card scrolls
- * on its own; push E: deals and people in "N+ days" and "Less than N days", then "No reply yet", each showing 8 rows
+ * on its own; push E: deals and people in "N+ days" and "< N days", then "No reply yet", each showing 8 rows; push E2:
+ * one row per deal or person with a line per wait, in the group of its longest wait; the card counts the rows
  * then Show all), Today's calendar, Targets today, Contacts, Rosara, Job search, Screen listings, Deals at a
  * glance. In a desktop window at least 720px tall the two columns scroll inside; under 1024px or in a shorter window
  * the page scrolls, and the slim pinned bar slides in once the title row and the tiles are gone.
@@ -85,7 +85,7 @@ const TILE_LABEL: Record<LaneSectionKey, string> = { overdue: "Overdue", today: 
 const TILE_KEYS: LaneSectionKey[] = ["overdue", "today", "needs"];
 const TILE_EMPTY: Record<LaneSectionKey, string> = { overdue: "Nothing is overdue.", today: "Nothing else is due today.", needs: "Every item has a next action." };
 
-export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personComposes, askCompose }: { data: HomeData; /** The date at the right of the title, long and short. */ dateLabel: { long: string; short: string }; /** Ask AI (server-rendered). */ askAi: React.ReactNode; /** The top menu row (under 1024px). */ tabs: React.ReactNode; /** The email setup per waiting deal or person (Follow up), by the row's key ("deal:<id>", "person:<id>"). */ composes: Record<string, ComposeSetup>; /** The email setup per person on the Outreach tile. */ personComposes: Record<string, ComposeSetup>; /** The email setup for "Open in email" in the Ask AI panel (a typed address). */ askCompose?: ComposeSetup | null }) {
+export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personComposes, askCompose }: { data: HomeData; /** The date at the right of the title, long and short. */ dateLabel: { long: string; short: string }; /** Ask AI (server-rendered). */ askAi: React.ReactNode; /** The top menu row (under 1024px). */ tabs: React.ReactNode; /** The email setup of each wait's Follow up (push E2: by the wait's id). */ composes: Record<string, ComposeSetup>; /** The email setup per person on the Outreach tile. */ personComposes: Record<string, ComposeSetup>; /** The email setup for "Open in email" in the Ask AI panel (a typed address). */ askCompose?: ComposeSetup | null }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [personEmail, setPersonEmail] = useState<PersonRowData | null>(null);
@@ -94,7 +94,7 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
   /** Deals and people followed up on this visit (by row key): the row keeps its "Followed up" line after it moves under the threshold. */
   const [followedUp, setFollowedUp] = useState<Record<string, boolean>>({});
   /** The waiting row whose Follow up editor is open (held here, so the editor survives the row moving after the send). */
-  const [followUp, setFollowUp] = useState<WaitItem | null>(null);
+  const [followUp, setFollowUp] = useState<{ item: WaitItem; line: WaitItemLine } | null>(null);
   const { deals, today, threshold } = data;
 
   // ---------- The AI order: By the AI is remembered for the rest of the day it was picked (read once, without an effect) ----------
@@ -210,11 +210,12 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
   const areaOptions: AreaOption<AreaKey>[] = [{ value: null, label: "All", count: allRows.length + (review ? 1 : 0) }, ...AREAS.map((x) => ({ value: x.value, label: x.label, count: allRows.filter((r) => r.area === x.value).length }))];
 
   // ---------- Waiting on someone: never filtered (push E: deals and people, and No reply yet) ----------
-  /** Rows saved away on this visit (Add to Waiting, Dismiss, Clear): gone at once, before the page re-reads. */
+  /** No reply rows and wait lines saved away on this visit (Add to Waiting, Dismiss, Clear): gone at once, before the page re-reads. */
   const [gone, setGone] = useState<Record<string, boolean>>({});
   const [waitBusy, setWaitBusy] = useState<string | null>(null);
   const [waitError, setWaitError] = useState<string | null>(null);
-  const waitItems = useMemo(() => data.waiting.items.filter((w) => !gone[w.key]), [data.waiting.items, gone]);
+  // A row whose last line was cleared goes; a row with lines left keeps its place by its longest remaining wait.
+  const waitItems = useMemo(() => data.waiting.items.map((w) => waitItem({ key: w.key, kind: w.kind, id: w.id, name: w.name, href: w.href, context: w.context }, w.lines.filter((l) => !gone[l.waitId]))).filter((w): w is WaitItem => !!w), [data.waiting.items, gone]);
   const noReply = useMemo(() => data.waiting.noReply.filter((r) => !gone[r.commId]), [data.waiting.noReply, gone]);
   const waiting = useMemo(() => waitGroups(waitItems, threshold), [waitItems, threshold]);
   const waitCount = waitItems.length;
@@ -422,7 +423,7 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
                           testId={`wait-${w.key}-all`}
                           title={`Waiting on someone · ${w.label}`}
                           sub={w.key === "no-reply" ? `Emails the app sent with no reply after ${data.waiting.noReplyDays} ${data.waiting.noReplyDays === 1 ? "day" : "days"}` : undefined}
-                          text={(r) => (r.item ? `${r.item.name} ${r.item.waitingOn} ${r.item.who ?? ""}` : `${r.mail?.subject ?? ""} ${r.mail?.to ?? ""} ${r.mail?.recordName ?? ""}`)}
+                          text={(r) => (r.item ? `${r.item.name} ${r.item.lines.map((l) => `${l.waitingOn} ${l.who ?? ""}`).join(" ")}` : `${r.mail?.subject ?? ""} ${r.mail?.to ?? ""} ${r.mail?.recordName ?? ""}`)}
                           wrap={(rows) => (
                             <div className="-mx-[22px] flex flex-col" data-testid="section-body">
                               {rows}
@@ -431,7 +432,7 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
                           render={(r) => (
                             <div key={r.key} className="border-t border-slate-100 first:border-t-0" data-testid="home-row">
                               {r.item ? (
-                                <WaitingRow item={r.item} followedUp={!!followedUp[r.item.key]} onFollowUp={() => setFollowUp(r.item)} onClear={() => waitSave(r.item!.key, () => clearWaiting(r.item!.kind, r.item!.id))} clearing={waitBusy === r.item.key} />
+                                <WaitingRow item={r.item} followedUp={followedUp} onFollowUp={(line) => setFollowUp({ item: r.item!, line })} onClear={(line) => waitSave(line.waitId, () => removeWait(line.waitId))} clearing={waitBusy} />
                               ) : r.mail ? (
                                 <NoReplyRow row={r.mail} busy={waitBusy === r.mail.commId} onAdd={() => waitSave(r.mail!.commId, () => addToWaiting(r.mail!.commId))} onDismiss={() => waitSave(r.mail!.commId, () => dismissNoReply(r.mail!.commId))} />
                               ) : null}
@@ -489,19 +490,20 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
           }}
         />
       ) : null}
-      {followUp && composes[followUp.key] ? (
+      {followUp && composes[followUp.line.waitId] ? (
         <ComposeEmailDialog
-          key={followUp.key}
-          setup={composes[followUp.key]}
+          key={followUp.line.waitId}
+          setup={composes[followUp.line.waitId]}
           open
-          ask={{ page: followUp.kind === "deal" ? "deal" : "person", recordId: followUp.id, label: followUp.name }}
+          ask={{ page: followUp.item.kind === "deal" ? "deal" : "person", recordId: followUp.item.id, label: followUp.item.name }}
           onOpenChange={(o) => {
             if (!o) setFollowUp(null);
           }}
-          initial={followUp.kind === "deal" ? followUpDraft({ dealName: followUp.name, waitingOn: followUp.waitingOn, contactName: followUp.contactName, days: followUp.days }) : personFollowUpDraft({ name: followUp.name, waitingOn: followUp.waitingOn, days: followUp.days })}
+          initial={followUp.item.kind === "deal" ? followUpDraft({ dealName: followUp.item.name, waitingOn: followUp.line.waitingOn, contactName: followUp.line.contactName, days: followUp.line.days }) : personFollowUpDraft({ name: followUp.item.name, waitingOn: followUp.line.waitingOn, days: followUp.line.days })}
           onSent={async () => {
-            await (followUp.kind === "deal" ? resetWaiting(followUp.id) : resetPersonWaiting(followUp.id));
-            setFollowedUp((m) => ({ ...m, [followUp.key]: true }));
+            // Push E2: that wait starts again today and also watches the follow-up email.
+            await followedUpWait(followUp.line.waitId);
+            setFollowedUp((m) => ({ ...m, [followUp.line.waitId]: true }));
           }}
         />
       ) : null}

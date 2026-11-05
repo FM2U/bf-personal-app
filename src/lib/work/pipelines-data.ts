@@ -8,7 +8,9 @@ import { loadPipelineOfKind, loadWorkCtx, type Stage, type WorkCtx, type WorkPip
 import { compareNames } from "@/lib/work/names";
 import { CONSULTING_CLOSED, CONSULTING_STAGES, JOB_CLOSED, JOB_STAGES, findOutLines, noteLine, openStageIndex } from "@/lib/work/pipelines";
 import { parseOpenQuestions } from "@/lib/work/questions";
-import { dayInStage, daysWaiting, waitLevel, type WaitLevel } from "@/lib/work/stages";
+import { dayInStage, type WaitLevel } from "@/lib/work/stages";
+import { waitLines, waitSummary, type SavedWait, type WaitLine } from "@/lib/work/waiting";
+import { loadWaitsFor } from "@/lib/work/waits-data";
 import { commKind, commTitle, type TimelineEvent } from "@/lib/work/timeline";
 import { RECORD_TASK_COLUMNS, sortTodos, toDealTodo, topTodo, type DealTodo } from "@/lib/work/todos";
 import type { Row } from "@/lib/types";
@@ -59,6 +61,8 @@ export type ItemRow = {
   nextActionDue: string | null;
   nextActionMinutes: number | null;
   actionIsDefault: boolean;
+  /** Push E2: every wait on this item, longest first; the four fields under it are the longest wait. */
+  waits: WaitLine[];
   waitingOn: string | null;
   waitingSince: string | null;
   waitDays: number;
@@ -69,7 +73,7 @@ export type ItemRow = {
   stageEnteredAt: string | null;
 };
 
-const ITEM_COLUMNS = "id,name,company_name,status,stage_id,pipeline_id,primary_contact_id,source,next_action,next_action_due,next_action_minutes,what_it_does,location,listing_url,role_title,contact_name,fee,pay_range,open_questions,open_questions_json,waiting_on,waiting_since,created_at,stage_entered_at,notes";
+const ITEM_COLUMNS = "id,name,company_name,status,stage_id,pipeline_id,primary_contact_id,source,next_action,next_action_due,next_action_minutes,what_it_does,location,listing_url,role_title,contact_name,fee,pay_range,open_questions,open_questions_json,created_at,stage_entered_at,notes";
 const TASK_COLUMNS = RECORD_TASK_COLUMNS;
 
 const num = (v: unknown) => (v === null || v === undefined || v === "" ? null : Number.isFinite(Number(v)) ? Number(v) : null);
@@ -78,10 +82,10 @@ function toTask(t: Row): DealTodo {
   return toDealTodo(t);
 }
 
-function toItemRow(kind: ItemKind, i: Row, pipe: WorkPipeline, ctx: WorkCtx, contact: Row | undefined, details: Row | undefined, todos: readonly DealTodo[] = []): ItemRow {
+function toItemRow(kind: ItemKind, i: Row, pipe: WorkPipeline, ctx: WorkCtx, contact: Row | undefined, details: Row | undefined, todos: readonly DealTodo[] = [], saved: readonly SavedWait[] = []): ItemRow {
   const stage = i.stage_id ? pipe.byId[i.stage_id] : undefined;
   const stageName = stage?.name ?? null;
-  const days = daysWaiting(i.waiting_since, ctx.today);
+  const waits = waitLines(saved, ctx.today, ctx.threshold);
   const top = topTodo(todos);
   const defaultTitle = stage?.defaultTitle ?? null;
   const name = String(i.company_name || i.name);
@@ -115,10 +119,8 @@ function toItemRow(kind: ItemKind, i: Row, pipe: WorkPipeline, ctx: WorkCtx, con
     nextActionDue: i.next_action_due ? String(i.next_action_due).slice(0, 10) : null,
     nextActionMinutes: num(i.next_action_minutes),
     actionIsDefault: !!defaultTitle && String(i.next_action ?? "").trim().toLowerCase() === defaultTitle.trim().toLowerCase(),
-    waitingOn: i.waiting_on ?? null,
-    waitingSince: i.waiting_since ? String(i.waiting_since).slice(0, 10) : null,
-    waitDays: days,
-    waitLevel: waitLevel(i.waiting_on, days, ctx.threshold),
+    waits,
+    ...waitSummary(waits),
     searchText: [title, contactName, i.location].filter(Boolean).join(" "),
     createdAt: String(i.created_at),
     stageEnteredAt: i.stage_entered_at ? String(i.stage_entered_at) : null,
@@ -131,16 +133,17 @@ async function loadItems(sb: SupabaseClient, ctx: WorkCtx, kind: ItemKind, pipe:
   const items = (data ?? []) as Row[];
   const ids = items.map((i) => String(i.id));
   const contactIds = [...new Set(items.map((i) => i.primary_contact_id).filter(Boolean))];
-  const [{ data: cs }, { data: td }, { data: det }] = await Promise.all([
+  const [{ data: cs }, { data: td }, { data: det }, waits] = await Promise.all([
     contactIds.length ? sb.from("contacts").select("id,name,email").in("id", contactIds) : Promise.resolve({ data: [] as Row[] }),
     ids.length ? sb.from("deal_todos").select(TASK_COLUMNS).eq("owner_id", ctx.ownerId).eq("record_type", "pipeline_items").in("record_id", ids).is("done_at", null).limit(2000) : Promise.resolve({ data: [] as Row[] }),
     ids.length && kind === "consulting" ? sb.from("consulting_details").select("item_id,scope_notes,start_date").in("item_id", ids) : Promise.resolve({ data: [] as Row[] }),
+    ids.length ? loadWaitsFor(sb, ctx.ownerId, { itemIds: ids }) : Promise.resolve({ byItem: {} as Record<string, SavedWait[]> }),
   ]);
   const contacts = Object.fromEntries(((cs ?? []) as Row[]).map((c) => [String(c.id), c]));
   const details = Object.fromEntries(((det ?? []) as Row[]).map((d) => [String(d.item_id), d]));
   const todos: Record<string, DealTodo[]> = {};
   for (const t of (td ?? []) as Row[]) (todos[String(t.record_id)] ??= []).push(toTask(t));
-  return items.map((i) => toItemRow(kind, i, pipe, ctx, contacts[String(i.primary_contact_id)], details[String(i.id)], todos[String(i.id)] ?? []));
+  return items.map((i) => toItemRow(kind, i, pipe, ctx, contacts[String(i.primary_contact_id)], details[String(i.id)], todos[String(i.id)] ?? [], waits.byItem[String(i.id)]));
 }
 
 type ItemStageGroup = { stage: Stage; hint: string | null; deals: ItemRow[] };
@@ -197,6 +200,8 @@ type ItemPageData = {
   advanceTo: Stage | null;
   /** The closed stages the Decision card offers, with their ids. */
   closeTo: { name: string; label: string; stageId: string }[];
+  /** False before UPDATE_PREVIEW_PUSH_E2.sql (the waits list says so and cannot save). */
+  waitsReady: boolean;
 };
 
 /** The email setup for an item: to its contact record when it has an email, otherwise a typed address, logged to the item. */
@@ -217,7 +222,7 @@ function composeForItem(gmail: GmailSetup, item: ItemRow): ComposeSetup {
 /** The opportunity or consulting record page: the item, its timeline, its tasks, the email setup, Advance and Close. */
 export async function loadItemPage(sb: SupabaseClient, ownerId: string, kind: ItemKind, id: string): Promise<ItemPageData> {
   const ctx = await loadWorkCtx(sb, ownerId);
-  const base: ItemPageData = { available: true, today: ctx.today, tz: ctx.tz, threshold: ctx.threshold, item: null, timeline: [], todos: [], lastContact: null, compose: null, advanceTo: null, closeTo: [] };
+  const base: ItemPageData = { available: true, today: ctx.today, tz: ctx.tz, threshold: ctx.threshold, item: null, timeline: [], todos: [], lastContact: null, compose: null, advanceTo: null, closeTo: [], waitsReady: false };
   const pipe = await loadPipelineOfKind(sb, ownerId, kind);
   if (!pipe) return base;
   const { data: row } = await sb.from("pipeline_items").select(ITEM_COLUMNS).eq("owner_id", ownerId).eq("id", id).eq("pipeline_id", pipe.id).maybeSingle();
@@ -234,7 +239,8 @@ export async function loadItemPage(sb: SupabaseClient, ownerId: string, kind: It
     sb.from("pipeline_items").select("*").eq("id", id).maybeSingle(),
   ]);
   const todos = sortTodos(((taskRows ?? []) as Row[]).map(toTask));
-  const item = toItemRow(kind, i, pipe, ctx, (contact as Row | null) ?? undefined, (details as Row | null) ?? undefined, todos);
+  const waits = await loadWaitsFor(sb, ownerId, { itemIds: [id] });
+  const item = toItemRow(kind, i, pipe, ctx, (contact as Row | null) ?? undefined, (details as Row | null) ?? undefined, todos, waits.byItem[id]);
   const commRows = ((comms ?? []) as Row[]).filter((c) => !c.awaiting_log);
   const linkedIds = ((links ?? []) as Row[]).map((l) => l.from_id).filter((x) => !commRows.some((c) => c.id === x));
   if (linkedIds.length) {
@@ -280,6 +286,7 @@ export async function loadItemPage(sb: SupabaseClient, ownerId: string, kind: It
     compose: compose && compose.recipients.length ? { ...compose, title: `Email about ${item.name}` } : composeForItem(gmail, item),
     advanceTo,
     closeTo: closedList.map((c) => ({ name: c.name, label: c.label, stageId: pipe.byName[c.name]?.id ?? "" })).filter((c) => c.stageId),
+    waitsReady: waits.available,
   };
 }
 

@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-  askedForReason, judgedMark, mostMissedIn, reportTiles, MARK_WORD, countIn, todayStrip, countedDays, DEFAULT_TARGETS, dayNumbers, EMPTY_FACTS, judgeDay, judgeWeek, metThisWeek, mostMissed, noReasonText, owedFromLastClosed, owedReasons, pastWeeks, reportSummary, statusItems, targetView, tileEodLine, tileTargetLine, tileTargets, todayTiles, tomorrowLabel, weekNumbers, weekTiles, workWeekOf,
+  askedForReason, DONE_AREAS, judgedMark, mostMissedIn, reportTiles, MARK_WORD, countIn, todayStrip, countedDays, DEFAULT_TARGETS, dayNumbers, EMPTY_FACTS, judgeDay, judgeWeek, metThisWeek, mostMissed, noReasonText, owedFromLastClosed, owedReasons, pastWeeks, reportSummary, statusItems, targetView, tileEodLine, tileTargetLine, tileTargets, todayTiles, tomorrowLabel, weekNumbers, weekTiles, workWeekOf,
   type Facts, type Target,
 } from "./targets";
 import { pillOf, reportInnerHtml, reportSubject, reportText, targetGroup, targetLine, type ReportData } from "./report-email";
 import { validateReasonsReply } from "./ask-ai";
+import { AREAS } from "@/lib/work/lanes";
 
 // Friday, Nov 6, 2026 (the week of Mon Nov 2 to Fri Nov 6).
 const FRI = "2026-11-06";
@@ -48,11 +49,12 @@ const facts: Facts = {
     { on: "2026-11-02", onTime: true, name: "Dana Whitfield" },
   ],
   actionsDone: [
-    { on: FRI, name: "Meridian Industrial Coatings", label: "Finish the model" },
-    { on: FRI, name: "Dalton Services", label: "Call Carla" },
-    { on: "2026-11-03", name: "BrightPath Home Care", label: "Sign the NDA" },
+    { on: FRI, name: "Meridian Industrial Coatings", label: "Finish the model", area: "Deals" },
+    { on: FRI, name: "Dalton Services", label: "Call Carla", area: "Deals" },
+    { on: "2026-11-03", name: "BrightPath Home Care", label: "Sign the NDA", area: "Deals" },
   ],
   focusDone: [{ on: "2026-10-29", text: "KarmaKare landing page" }],
+  todosDone: [],
 };
 
 describe("counting from the facts", () => {
@@ -264,16 +266,58 @@ describe("Edit batch C: the target pill, what a target counts, exceeded reads me
   });
   it("the Today strip: six figures in order with their words, each with the items behind it", () => {
     const n = dayNumbers(facts, FRI, [{ name: "Summit Logistics Group", days: 11, who: "Mark Reed", what: "A seller call", since: "Oct 26" }, { name: "Oakline Dental Lab", days: 2, who: null, what: "The CIM", since: null }], 5);
-    expect(todayStrip(n, 5).map((p) => `${p.value} ${p.words}`)).toEqual(["3 screened", "1 moved", "2 calls", "2 emails", "2 next actions done", "1 waiting 5+ days"]);
+    expect(todayStrip(n, 5).map((p) => `${p.value} ${p.words}${p.detail ? `: ${p.detail}` : ""}`)).toEqual(["3 screened", "1 moved", "2 calls", "2 emails", "2 next actions done: Deals 2", "0 to-dos done", "1 waiting 5+ days"]);
     expect(n.screenedList.map((x) => `${x.name} ${x.outcome} ${x.reason ?? ""}`.trim())).toEqual(["Fri 1 passed Too small", "Fri 2 passed Retail", "Industrial Filtration Distributor interested"]);
     expect(n.contactsList.filter((c) => c.kind === "call").map((c) => c.name)).toEqual(["Priya Natarajan", "Carla Jenkins"]);
     expect(n.contactsList.filter((c) => c.kind === "email").map((c) => c.name)).toEqual(["Tom Baker", "Someone not on Contacts"]);
-    expect(n.actionsDoneList).toEqual([{ name: "Meridian Industrial Coatings", label: "Finish the model" }, { name: "Dalton Services", label: "Call Carla" }]);
+    expect(n.actionsDoneList).toEqual([{ name: "Meridian Industrial Coatings", label: "Finish the model", area: "Deals" }, { name: "Dalton Services", label: "Call Carla", area: "Deals" }]);
     const one = dayNumbers({ ...EMPTY_FACTS, comms: [{ on: FRI, method: "call", contactId: "p1", contactName: "A", broker: false }] }, FRI, [], 5);
     expect(todayStrip(one, 5).find((p) => p.key === "calls")!.words).toBe("call");
     // A wait of exactly the threshold counts in "5+ days"; one day under does not.
     const edge = dayNumbers(EMPTY_FACTS, FRI, [{ name: "At five", days: 5, who: null, what: null, since: null }, { name: "At four", days: 4, who: null, what: null, since: null }], 5);
     expect(edge.waits.map((w) => w.name)).toEqual(["At five"]);
+  });
+});
+
+describe("Push E2, item 5: the Today line splits next actions done by area, adds to-dos done, and counts people waited on", () => {
+  const busy: Facts = {
+    ...EMPTY_FACTS,
+    actionsDone: [
+      { on: FRI, name: "Dalton Services", label: "Review the CIM", area: "Deals" },
+      { on: FRI, name: "KarmaKare", label: "Ship the landing page", area: "Rosara" },
+      { on: FRI, name: "Meridian Industrial Coatings", label: "Finish the model", area: "Deals" },
+      { on: FRI, name: "Harbor Home Health", label: "Send the thank-you", area: "Job search" },
+      { on: FRI, name: "GA Home Care Association", label: "Send the scope", area: "Consulting" },
+      { on: WED, name: "Older", label: "Not today", area: "Contacts" },
+    ],
+    todosDone: [{ on: FRI, text: "Renew the car registration" }, { on: FRI, text: "Call the dentist" }, { on: WED, text: "Not today" }],
+  };
+  it("5 next actions done: Deals 2 · Rosara 1 · Job search 1 · Consulting 1, in the Area selector's order, and 2 to-dos done", () => {
+    const n = dayNumbers(busy, FRI, [], 5);
+    const strip = todayStrip(n, 5);
+    const done = strip.find((p) => p.key === "done")!;
+    expect(`${done.value} ${done.words}: ${done.detail}`).toBe("5 next actions done: Deals 2 · Rosara 1 · Job search 1 · Consulting 1");
+    const todos = strip.find((p) => p.key === "todos")!;
+    expect(`${todos.value} ${todos.words}`).toBe("2 to-dos done");
+    expect(n.todosDone.list).toEqual(["Renew the car registration", "Call the dentist"]);
+    expect(strip.map((p) => p.key)).toEqual(["screened", "moved", "calls", "emails", "done", "todos", "waits"]);
+  });
+  it("0 next actions done keeps no split; one to-do reads to-do done", () => {
+    const n = dayNumbers({ ...EMPTY_FACTS, todosDone: [{ on: FRI, text: "One" }] }, FRI, [], 5);
+    const strip = todayStrip(n, 5);
+    expect(strip.find((p) => p.key === "done")).toMatchObject({ value: 0, words: "next actions done", detail: null });
+    expect(strip.find((p) => p.key === "todos")!.words).toBe("to-do done");
+  });
+  it("the area names are the Area selector's", () => {
+    expect([...DONE_AREAS]).toEqual(AREAS.filter((a) => a.value !== "todos" && a.value !== "tasks").map((a) => a.label));
+  });
+  it("waiting 5+ days counts deals and people, longest first; the deals alone stay for the report", () => {
+    const deals = [{ name: "Summit Logistics Group", days: 11, who: "Mark Reed", what: "A seller call", since: "Oct 26" }, { name: "Oakline Dental Lab", days: 2, who: null, what: "The CIM", since: null }];
+    const people = [{ name: "Priya Natarajan", days: 6, who: null, what: "Two intros", since: "Oct 30" }, { name: "Kevin O'Brien", days: 1, who: null, what: "A letter", since: null }];
+    const n = dayNumbers(EMPTY_FACTS, FRI, deals, 5, people);
+    expect(n.waits.map((w) => `${w.name} ${w.kind}`)).toEqual(["Summit Logistics Group deal", "Priya Natarajan person"]);
+    expect(todayStrip(n, 5).find((p) => p.key === "waits")!.value).toBe(2);
+    expect(n.allWaits.map((w) => w.name)).toEqual(["Summit Logistics Group", "Oakline Dental Lab"]);
   });
 });
 
@@ -342,5 +386,35 @@ describe("Edit batch C round 2: Reports regrouped", () => {
     expect(tiles.some((t) => t.status === "missed")).toBe(false);
     const closed = reportTiles(w, last, null, { label: "Most missed last week", open: false });
     expect(closed[5]).toMatchObject({ value: "None", note: "Every target met", status: "met" });
+  });
+});
+
+describe("Push E2, item 5: the area of each next action done, from the rows", () => {
+  it("events and tasks on records count in their record's area; personal to-dos count apart", async () => {
+    const { buildFacts } = await import("./facts");
+    const { facts } = buildFacts({
+      items: [{ id: "d1", name: "Dalton Services", pipeline_id: "acq" }, { id: "j1", name: "Harbor Home Health", pipeline_id: "job" }],
+      history: [],
+      comms: [],
+      events: [
+        { kind: "next_action_done", record_type: "pipeline_items", record_id: "d1", label: "Dalton Services", happened_on: FRI, meta: { action: "Review the CIM" } },
+        { kind: "next_action_done", record_type: "pipeline_items", record_id: "gone", label: "A consulting item", happened_on: FRI, meta: { action: "Send the scope", kind: "consulting" } },
+        { kind: "next_action_done", record_type: "projects", record_id: "p1", label: "KarmaKare", happened_on: FRI, meta: { action: "Ship it" } },
+      ],
+      people: [{ id: "c1", name: "Priya Natarajan" }],
+      tasks: [
+        { text: "Send the thank-you", done_at: `${FRI}T15:00:00Z`, record_type: "pipeline_items", record_id: "j1" },
+        { text: "Ask for the intro", done_at: `${FRI}T16:00:00Z`, record_type: "contacts", record_id: "c1" },
+        { text: "Renew the registration", done_at: `${FRI}T17:00:00Z`, record_type: null, record_id: null },
+        { text: "Too old", done_at: "2026-09-01T17:00:00Z", record_type: null, record_id: null },
+      ],
+      stageById: {},
+      laneOf: { acq: "Deals", job: "Job search" },
+      since: "2026-10-01",
+      local: (ts) => ts.slice(0, 10),
+    });
+    expect(facts.actionsDone.map((a) => `${a.area}: ${a.name}, ${a.label}`)).toEqual(["Deals: Dalton Services, Review the CIM", "Consulting: A consulting item, Send the scope", "Rosara: KarmaKare, Ship it", "Job search: Harbor Home Health, Send the thank-you", "Contacts: Priya Natarajan, Ask for the intro"]);
+    expect(facts.todosDone).toEqual([{ on: FRI, text: "Renew the registration" }]);
+    expect(todayStrip(dayNumbers(facts, FRI, [], 5), 5).find((p) => p.key === "done")!.detail).toBe("Deals 1 · Contacts 1 · Rosara 1 · Job search 1 · Consulting 1");
   });
 });

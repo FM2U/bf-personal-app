@@ -12,6 +12,9 @@ import { commKind, commTitle, type TimelineEvent } from "@/lib/work/timeline";
 import { nextReportDay, partnerSettings, type ReportSectionKey } from "@/lib/accountability/partners";
 import { RECORD_TASK_COLUMNS, sortTodos, toDealTodo, type DealTodo } from "@/lib/work/todos";
 import { DEFAULT_EOD_TIME, parseTime } from "@/lib/work/settings";
+import { DEFAULT_WAIT_THRESHOLD_DAYS } from "@/lib/work/stages";
+import { waitLines, type WaitLine } from "@/lib/work/waiting";
+import { loadWaitsFor } from "@/lib/work/waits-data";
 import type { Row } from "@/lib/types";
 
 /**
@@ -48,14 +51,13 @@ export type PersonRow = {
   archived: boolean;
   archivedAt: string | null;
   createdAt: string;
-  /** Push E: who or what this person is being waited on for, and since when (YYYY-MM-DD); null when nothing (or before the update). */
-  waitingOn: string | null;
-  waitingSince: string | null;
+  /** Push E2: what this person is being waited on for, one line per wait, longest first (empty when nothing, or before the update). */
+  waits: WaitLine[];
 };
 
 export const CONTACT_COLUMNS = "id,name,organization_id,outreach_role,title,purposes,notes,email,phone,linkedin_url,follow_up_date,follow_up_note,last_contact_at,last_contact_kind,archived_at,created_at";
 
-export function toPersonRow(c: Row, orgName: string | null, tz: string): PersonRow {
+export function toPersonRow(c: Row, orgName: string | null, tz: string, waits: WaitLine[] = []): PersonRow {
   const note = String(c.notes ?? "").split("\n").map((l) => l.trim()).find(Boolean) ?? null;
   return {
     id: String(c.id),
@@ -78,8 +80,7 @@ export function toPersonRow(c: Row, orgName: string | null, tz: string): PersonR
     archived: !!c.archived_at,
     archivedAt: c.archived_at ? String(c.archived_at) : null,
     createdAt: String(c.created_at ?? ""),
-    waitingOn: c.waiting_on ? String(c.waiting_on) : null,
-    waitingSince: c.waiting_on && c.waiting_since ? String(c.waiting_since).slice(0, 10) : null,
+    waits,
   };
 }
 
@@ -200,6 +201,8 @@ type PersonPageData = {
   tasks: DealTodo[];
   records: PersonRecordLink[];
   compose: ComposeSetup | null;
+  /** False before UPDATE_PREVIEW_PUSH_E2.sql (the waits list on Next follow-up says so and cannot save). */
+  waitsReady: boolean;
 };
 
 const TASK_COLUMNS = RECORD_TASK_COLUMNS;
@@ -210,11 +213,11 @@ function toTask(t: Row): DealTodo {
 
 /** The person page: the person, the timeline (notes, emails, calls; newest first), incoming replies, tasks, records, and the email setup. */
 export async function loadPersonPage(sb: SupabaseClient, ctx: Ctx, id: string): Promise<PersonPageData> {
-  const base: PersonPageData = { available: true, partner: null, notice: null, today: ctx.today, tz: ctx.tz, person: null, timeline: [], incoming: [], tasks: [], records: [], compose: null };
+  const base: PersonPageData = { available: true, partner: null, notice: null, today: ctx.today, tz: ctx.tz, person: null, timeline: [], incoming: [], tasks: [], records: [], compose: null, waitsReady: false };
   const { data: row } = await sb.from("contacts").select("*").eq("owner_id", ctx.ownerId).eq("id", id).maybeSingle();
   const c = row as Row | null;
   if (!c) return base;
-  const [{ data: org }, { data: notes }, { data: comms }, { data: taskRows }, { data: items }, { data: pipes }, compose] = await Promise.all([
+  const [{ data: org }, { data: notes }, { data: comms }, { data: taskRows }, { data: items }, { data: pipes }, compose, waits] = await Promise.all([
     c.organization_id ? sb.from("organizations").select("id,name").eq("id", c.organization_id).maybeSingle() : Promise.resolve({ data: null }),
     sb.from("notes").select("id,body,created_at").eq("record_type", "contacts").eq("record_id", id).order("created_at", { ascending: false }).limit(50),
     sb.from("communications").select("id,occurred_at,method,direction,subject,summary,call_minutes,call_outcome,awaiting_log,pipeline_item_id,partner_report_id").eq("contact_id", id).order("occurred_at", { ascending: false }).limit(80),
@@ -222,8 +225,9 @@ export async function loadPersonPage(sb: SupabaseClient, ctx: Ctx, id: string): 
     sb.from("pipeline_items").select("id,name,company_name,pipeline_id,status").eq("owner_id", ctx.ownerId).eq("primary_contact_id", id).limit(50),
     sb.from("pipelines").select("id,kind").eq("owner_id", ctx.ownerId),
     loadComposeSetup(sb, ctx.ownerId, "contacts", c).catch(() => null),
+    loadWaitsFor(sb, ctx.ownerId, { contactIds: [id] }),
   ]);
-  const person = toPersonRow(c, (org as Row | null)?.name ? String((org as Row).name) : null, ctx.tz);
+  const person = toPersonRow(c, (org as Row | null)?.name ? String((org as Row).name) : null, ctx.tz, waitLines(waits.byContact[id] ?? [], ctx.today, DEFAULT_WAIT_THRESHOLD_DAYS));
   const commRows = (comms ?? []) as Row[];
   // Push B: the End of day reports sent to this person and the replies to them (an accountability partner).
   const isPartner = c.outreach_role === "accountability_partner";
@@ -298,5 +302,5 @@ export async function loadPersonPage(sb: SupabaseClient, ctx: Ctx, id: string): 
       eodTime: parseTime((eodTimeRow as Row | null)?.value_text) ?? DEFAULT_EOD_TIME,
     };
   }
-  return { ...base, partner, person, timeline, incoming, tasks: sortTodos(((taskRows ?? []) as Row[]).map(toTask)), records, compose: compose ? { ...compose, title: `Email ${person.name}` } : null };
+  return { ...base, partner, person, timeline, incoming, tasks: sortTodos(((taskRows ?? []) as Row[]).map(toTask)), records, compose: compose ? { ...compose, title: `Email ${person.name}` } : null, waitsReady: waits.available };
 }

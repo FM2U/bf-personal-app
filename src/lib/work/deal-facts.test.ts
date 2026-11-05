@@ -44,6 +44,7 @@ const listing: DealRow = {
   nextActionDue: null,
   nextActionMinutes: null,
   actionIsDefault: false,
+  waits: [],
   waitingOn: null,
   waitingSince: null,
   waitDays: 0,

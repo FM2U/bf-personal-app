@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireOwner } from "@/lib/auth";
+import { deleteWaits } from "@/lib/work/waits-data";
 import { recordWorkEvent } from "@/lib/accountability/events";
 import { addDaysISO } from "@/lib/calc/dates";
 import { loadCtx, type Ctx } from "@/lib/engine/helpers";
@@ -145,7 +146,7 @@ export async function createLead(input: LeadInput): Promise<{ ok: true; id: stri
 
 // ---------- The next action ----------
 
-type ItemNextActionInput = { action: string; due: string; minutes: string | number | null; waitingOn: string; waitingSince: string };
+type ItemNextActionInput = { action: string; due: string; minutes: string | number | null };
 
 export async function saveItemNextAction(kind: ItemKind, id: string, input: ItemNextActionInput): Promise<{ ok: true } | Fail> {
   const s = await setup(kind);
@@ -155,10 +156,9 @@ export async function saveItemNextAction(kind: ItemKind, id: string, input: Item
   if (isFail(item)) return item;
   const action = clean(input.action, 300);
   const due = DATE.test(String(input.due ?? "")) ? String(input.due) : null;
-  const waitingOn = clean(input.waitingOn, 120);
-  const since = DATE.test(String(input.waitingSince ?? "")) ? String(input.waitingSince) : ctx.today;
   if (action && !due) return fail("Give the next action a due date.");
-  const { error } = await sb.from("pipeline_items").update({ next_action: action, next_action_due: action ? due : null, next_action_minutes: action ? minutesOf(input.minutes) : null, waiting_on: waitingOn, waiting_since: waitingOn ? since : null }).eq("id", item.id);
+  // Push E2: the waits save on their own ("+ Add" and ×, src/app/actions/waiting.ts).
+  const { error } = await sb.from("pipeline_items").update({ next_action: action, next_action_due: action ? due : null, next_action_minutes: action ? minutesOf(input.minutes) : null }).eq("id", item.id);
   if (error) return notSaved(error);
   done();
   return { ok: true };
@@ -217,9 +217,11 @@ export async function completeItemAction(kind: ItemKind, id: string, move: boole
   }
   const current = item.stage_id ? pipe.byId[item.stage_id] : null;
   const next = move && current ? pipe.stages.find((st) => st.outcome === "open" && st.position > current.position) ?? null : null;
-  const update: Row = move && next ? { stage_id: next.id, next_action: next.defaultTitle, next_action_due: next.defaultTitle ? addDaysISO(ctx.today, next.defaultDueInDays ?? 0) : null, next_action_minutes: null, waiting_on: null, waiting_since: null } : { next_action: null, next_action_due: null, next_action_minutes: null };
+  const update: Row = move && next ? { stage_id: next.id, next_action: next.defaultTitle, next_action_due: next.defaultTitle ? addDaysISO(ctx.today, next.defaultDueInDays ?? 0) : null, next_action_minutes: null } : { next_action: null, next_action_due: null, next_action_minutes: null };
   const { error } = await sb.from("pipeline_items").update(update).eq("id", item.id);
   if (error) return notSaved(error);
+  // Push E2: moving to the next stage clears the item's waits.
+  if (move && next) await deleteWaits(sb, ctx.ownerId, { table: "pipeline_items", id: String(item.id) });
   doneQuietly();
   return { ok: true, movedTo: move && next ? next.name : null, nextAction: move && next ? next.defaultTitle : null };
 }
@@ -251,8 +253,9 @@ export async function advanceItem(kind: ItemKind, id: string): Promise<{ ok: tru
   const current = item.stage_id ? pipe.byId[item.stage_id] : null;
   const next = pipe.stages.find((st) => st.outcome === "open" && st.position > (current?.position ?? 0));
   if (!next) return fail(`This ${noun(kind)} is at the last stage.`);
-  const { error } = await sb.from("pipeline_items").update({ stage_id: next.id, waiting_on: null, waiting_since: null, next_action_minutes: null }).eq("id", item.id);
+  const { error } = await sb.from("pipeline_items").update({ stage_id: next.id, next_action_minutes: null }).eq("id", item.id);
   if (error) return notSaved(error);
+  await deleteWaits(sb, ctx.ownerId, { table: "pipeline_items", id: String(item.id) });
   done();
   return { ok: true, stage: next.name };
 }
@@ -268,8 +271,9 @@ export async function closeItem(kind: ItemKind, id: string, outcome: string): Pr
   if (!allowed.includes(outcome)) return fail(`Choose one of ${allowed.join(", ")}.`);
   const stage = pipe.byName[outcome];
   if (!stage) return fail(`The pipeline has no "${outcome}" stage. Run the database update again.`);
-  const { error } = await sb.from("pipeline_items").update({ stage_id: stage.id, waiting_on: null, waiting_since: null }).eq("id", item.id);
+  const { error } = await sb.from("pipeline_items").update({ stage_id: stage.id }).eq("id", item.id);
   if (error) return notSaved(error);
+  await deleteWaits(sb, ctx.ownerId, { table: "pipeline_items", id: String(item.id) });
   done();
   return { ok: true, stage: stage.name };
 }

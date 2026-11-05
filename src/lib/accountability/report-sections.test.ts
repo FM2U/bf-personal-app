@@ -137,7 +137,7 @@ describe("the report's deals from the rows", () => {
   const stageById = { s1: { name: "Interested", outcome: "open", position: 1 }, s4: { name: "CIM review", outcome: "open", position: 3 }, s5: { name: "Broker call", outcome: "open", position: 4 }, sp: { name: "Passed", outcome: "lost", position: 99 } };
   const rows = {
     items: [
-      { id: "a", name: "Summit Logistics Group", pipeline_id: "acq", status: "open", screened: true, stage_id: "s4", waiting_on: "A seller call to be scheduled", waiting_since: "2026-10-23", primary_contact_id: "mark", next_action: "Push Mark for the call", next_action_due: "2026-11-04", updated_at: "2026-10-30T10:00:00Z" },
+      { id: "a", name: "Summit Logistics Group", pipeline_id: "acq", status: "open", screened: true, stage_id: "s4", primary_contact_id: "mark", next_action: "Push Mark for the call", next_action_due: "2026-11-04", updated_at: "2026-10-30T10:00:00Z" },
       { id: "b", name: "Dalton Services", pipeline_id: "acq", status: "open", screened: true, stage_id: "s5", next_action: "Review the CIM", next_action_due: "2026-11-03", updated_at: "2026-11-01T10:00:00Z" },
       { id: "c", name: "Old one", pipeline_id: "acq", status: "open", screened: true, stage_id: "sp" },
       { id: "d", name: "A listing", pipeline_id: "acq", status: "open", screened: false, stage_id: null },
@@ -152,6 +152,8 @@ describe("the report's deals from the rows", () => {
     notes: [{ record_id: "b", body: "Read the first half\nmore", created_at: "2026-11-03T18:00:00Z" }],
     events: [{ kind: "next_action_done", record_id: "b", happened_on: "2026-11-03", happened_at: "2026-11-03T13:00:00Z", meta: { action: "Ask Rachel for the CIM" } }],
     people: [{ id: "mark", name: "Mark Reed" }, { id: "rachel", name: "Rachel Kim" }],
+    // Push E2: the waits table (one wait here; a second one is added below).
+    waits: [{ pipeline_item_id: "a", text: "A seller call to be scheduled", since: "2026-10-23" }],
     stageById,
   };
   const out = reportDeals({ ...rows, pipelineId: "acq", period: { start: "2026-11-03", end: "2026-11-03" }, today: "2026-11-03", local: (ts) => ts.slice(0, 10), fmt: (d) => (d === "2026-10-23" ? "Oct 23" : d === "2026-11-04" ? "Nov 4" : d), weekday: () => "Monday" });
@@ -165,6 +167,10 @@ describe("the report's deals from the rows", () => {
     expect(summit.activity).toEqual([]);
     expect(out[0].status).toBe("Moved from CIM review today; nothing waiting");
     expect(out[0].next).toBe("Review the CIM, today");
+  });
+  it("writes every wait of a deal, longest first (push E2)", () => {
+    const two = reportDeals({ ...rows, waits: [...rows.waits, { pipeline_item_id: "a", text: "The CIM", since: "2026-11-01" }], pipelineId: "acq", period: { start: "2026-11-03", end: "2026-11-03" }, today: "2026-11-03", local: (ts) => ts.slice(0, 10), fmt: (d) => (d === "2026-10-23" ? "Oct 23" : d === "2026-11-01" ? "Nov 1" : d), weekday: () => "Monday" });
+    expect(two[1].status).toBe("Waiting on Mark Reed: a seller call to be scheduled, since Oct 23 (11 days); the CIM, since Nov 1 (2 days)");
   });
   it("lists what happened in the period, oldest first", () => {
     expect(out[0].activity).toEqual(["done: ask Rachel for the CIM", "moved to Broker call", "Rachel Kim emailed: CIM received", "note: Read the first half"]);

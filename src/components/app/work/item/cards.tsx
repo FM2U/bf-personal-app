@@ -24,6 +24,7 @@ import { TasksCard } from "@/components/app/work/tasks-card";
 import { TimelineEvents } from "@/components/app/work/timeline-list";
 import { cappedNote } from "@/components/app/work/show-all";
 import { Pill, RowButton, WorkCard } from "@/components/app/work/ui";
+import { WaitsField } from "@/components/app/work/waits-list";
 import { cn } from "@/lib/utils";
 
 /**
@@ -154,16 +155,14 @@ function CloseMenu({ closeTo, pending, onPick, testId, align = "right", classNam
 
 // ---------- Next action ----------
 
-export function ItemNextActionCard({ item, today }: { item: ItemRow; today: string }) {
+export function ItemNextActionCard({ item, today, waitsReady = true }: { item: ItemRow; today: string; /** False before UPDATE_PREVIEW_PUSH_E2.sql. */ waitsReady?: boolean }) {
   const ids = useId();
   const { pending, state, run } = useSave();
   const [action, setAction] = useSynced(item.nextAction ?? "");
   const [due, setDue] = useSynced(item.nextActionDue ?? "");
   const [minutes, setMinutes] = useSynced(item.nextActionMinutes ? String(item.nextActionMinutes) : "");
-  const [waitingOn, setWaitingOn] = useSynced(item.waitingOn ?? "");
-  const [since, setSince] = useSynced(item.waitingSince ?? today);
   const [focused, setFocused] = useState(false);
-  const dirty = action !== (item.nextAction ?? "") || due !== (item.nextActionDue ?? "") || minutes !== (item.nextActionMinutes ? String(item.nextActionMinutes) : "") || waitingOn !== (item.waitingOn ?? "") || (waitingOn !== "" && since !== (item.waitingSince ?? today));
+  const dirty = action !== (item.nextAction ?? "") || due !== (item.nextActionDue ?? "") || minutes !== (item.nextActionMinutes ? String(item.nextActionMinutes) : "");
   useUnsavedWork(dirty, "The next action is not saved yet.");
   const d = item.nextAction ? dueLabel(item.nextActionDue, today, (x) => fmtDate(x, "MMM d")) : null;
   const hint = item.nextAction ? `Due ${d!.text.toLowerCase() === "today" ? "today" : d!.text}${item.nextActionMinutes ? ` · ${item.nextActionMinutes} min` : ""}` : "Needs a next action";
@@ -202,23 +201,11 @@ export function ItemNextActionCard({ item, today }: { item: ItemRow; today: stri
           <input id={`${ids}-m`} value={minutes} onChange={(e) => setMinutes(e.target.value.replace(/[^\d]/g, "").slice(0, 4))} inputMode="numeric" placeholder="min" className={cn(INPUT, "w-20")} data-testid="na-minutes" />
           <span className="text-xs text-muted-foreground">min</span>
         </div>
-        <label htmlFor={`${ids}-w`} className={LABEL}>
-          Waiting on
-        </label>
-        <div className="flex flex-wrap items-center gap-2">
-          <input id={`${ids}-w`} value={waitingOn} onChange={(e) => setWaitingOn(e.target.value)} placeholder="Nobody" className={cn(INPUT, "min-w-[160px] flex-1")} data-testid="na-waiting" />
-          {waitingOn.trim() ? (
-            <>
-              <label htmlFor={`${ids}-s`} className={LABEL}>
-                Since
-              </label>
-              <input id={`${ids}-s`} type="date" value={since} max={today} onChange={(e) => setSince(e.target.value)} className={cn(INPUT, "w-auto")} data-testid="na-since" />
-            </>
-          ) : null}
-        </div>
+        {/* Push E2: several waits, each saved at once ("+ Add" and ×), as on a deal. */}
+        <WaitsField kind="item" recordId={item.id} waits={item.waits} today={today} ready={waitsReady} labelClassName={LABEL} />
         <SaveLine state={dirty ? { kind: "idle" } : state}>
           {dirty ? (
-            <RowButton tone="primary" disabled={pending} onClick={() => run(() => saveItemNextAction(item.kind, item.id, { action, due, minutes, waitingOn, waitingSince: since }))} data-testid="na-save">
+            <RowButton tone="primary" disabled={pending} onClick={() => run(() => saveItemNextAction(item.kind, item.id, { action, due, minutes }))} data-testid="na-save">
               {pending ? "Saving..." : "Save"}
             </RowButton>
           ) : item.nextAction && item.status === "open" ? (

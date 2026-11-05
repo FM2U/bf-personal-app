@@ -8,7 +8,7 @@ describe("Home", () => {
   it("splits the waits at the threshold", () => {
     const deals = [row("eleven", { waitLevel: "red", waitDays: 11 }), row("five", { waitLevel: "amber", waitDays: 5 }), row("two", { waitLevel: "quiet", waitDays: 2 }), row("none")];
     const w = waitSections(deals, 5);
-    expect(w.map((x) => x.label)).toEqual(["5+ days", "Less than 5 days"]);
+    expect(w.map((x) => x.label)).toEqual(["5+ days", "< 5 days"]);
     expect(w[0].deals.map((d) => d.id)).toEqual(["eleven", "five"]);
     expect(w[1].deals.map((d) => d.id)).toEqual(["two"]);
     // Exactly at the threshold counts in "N+ days"; one day under does not.

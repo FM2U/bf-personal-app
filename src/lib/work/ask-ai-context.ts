@@ -26,16 +26,18 @@ import { endOfDayLines, reportsLines, targetsLines } from "@/lib/accountability/
  */
 
 const fmt = (d: string) => fmtDate(d, "MMM d");
+/** Push E2: every wait, "waiting on the CIM for 3 days, a reply to: Oakline CIM for 2 days". */
+const waitsLine = (waits: readonly { text: string; days: number }[]) => (waits.length ? `; waiting on ${waits.map((w) => `${w.text} for ${w.days} ${w.days === 1 ? "day" : "days"}`).join(", ")}` : "");
 
 function dealLine(d: DealRow, today: string): string {
   const due = d.nextAction ? dueLabel(d.nextActionDue, today, fmt).text : "none";
-  const wait = d.waitLevel !== "none" ? `; waiting on ${d.waitingOn} for ${d.waitDays} days` : "";
+  const wait = waitsLine(d.waits);
   return `deal: ${d.name} | stage ${d.stageName ?? "none"} (day ${d.dayInStage}) | next action: ${d.nextAction ?? "none"} (due ${due}${d.nextActionMinutes ? `, ${d.nextActionMinutes} min` : ""})${wait}${d.keyFinding ? ` | key finding: ${d.keyFinding}` : ""}`;
 }
 
 function personLine(p: PersonRow, today: string): string {
   const next = p.nextFollowUp ? dueLabel(p.nextFollowUp, today, fmt).text : "no date";
-  return `person: ${p.name} | ${orgRoleLine(p) || "no organization"} | purpose: ${p.purposes.map(purposeLabel).join(", ") || "none"} | next follow-up: ${next}${p.followUpFor ? ` (${p.followUpFor})` : ""} | last contact: ${lastContactLabel(p.lastContactOn, p.lastContactKind, today, fmt)}${p.note ? ` | note: ${p.note}` : ""}`;
+  return `person: ${p.name} | ${orgRoleLine(p) || "no organization"} | purpose: ${p.purposes.map(purposeLabel).join(", ") || "none"} | next follow-up: ${next}${p.followUpFor ? ` (${p.followUpFor})` : ""} | last contact: ${lastContactLabel(p.lastContactOn, p.lastContactKind, today, fmt)}${waitsLine(p.waits ?? []).replace(/^; /, " | ")}${p.note ? ` | note: ${p.note}` : ""}`;
 }
 
 function projectLine(p: ProjectRow, today: string): string {
@@ -45,7 +47,7 @@ function projectLine(p: ProjectRow, today: string): string {
 
 function itemLine(i: ItemRow, today: string): string {
   const due = i.nextAction ? dueLabel(i.nextActionDue, today, fmt).text : "none";
-  const wait = i.waitLevel !== "none" ? `; waiting on ${i.waitingOn} for ${i.waitDays} days` : "";
+  const wait = waitsLine(i.waits);
   const what = i.kind === "job" ? `role ${i.title ?? "not set"}` : `project ${i.title ?? "not set"}${i.fee !== null ? `, fee $${Math.round(i.fee).toLocaleString("en-US")}` : ""}`;
   return `${i.kind === "job" ? "opportunity" : "consulting"}: ${i.name} | ${what} | contact ${i.contactName ?? "not set"} | stage ${i.stageName ?? "none"} (day ${i.dayInStage}) | next action: ${i.nextAction ?? "none"} (due ${due})${wait}${i.note ? ` | note: ${i.note}` : ""}`;
 }

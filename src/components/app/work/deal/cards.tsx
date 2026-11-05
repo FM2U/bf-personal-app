@@ -22,6 +22,7 @@ import { AiCardStar, AiFieldStar } from "@/components/app/work/ask-ai";
 import { NextActionRow } from "@/components/app/work/next-action-row";
 import { TasksCard } from "@/components/app/work/tasks-card";
 import { TimelineEvents } from "@/components/app/work/timeline-list";
+import { WaitsField } from "@/components/app/work/waits-list";
 import { cappedNote } from "@/components/app/work/show-all";
 import { PassMenu } from "@/components/app/work/pass-menu";
 import { LogCallDrawer } from "@/components/app/work/log-call-drawer";
@@ -185,16 +186,14 @@ export function DealHeaderActions({ deal, compose, advanceTo, today, tz, listing
 
 // ---------- Next action ----------
 
-export function NextActionCard({ deal, today, noActionHint = "Needs a next action" }: { deal: DealRow; today: string; /** The hint when there is none ("Optional for a listing"). */ noActionHint?: string }) {
+export function NextActionCard({ deal, today, noActionHint = "Needs a next action", waitsReady = true }: { deal: DealRow; today: string; /** The hint when there is none ("Optional for a listing"). */ noActionHint?: string; /** False before UPDATE_PREVIEW_PUSH_E2.sql. */ waitsReady?: boolean }) {
   const ids = useId();
   const { pending, state, run } = useSave();
   const [action, setAction] = useSynced(deal.nextAction ?? "");
   const [due, setDue] = useSynced(deal.nextActionDue ?? "");
   const [minutes, setMinutes] = useSynced(deal.nextActionMinutes ? String(deal.nextActionMinutes) : "");
-  const [waitingOn, setWaitingOn] = useSynced(deal.waitingOn ?? "");
-  const [since, setSince] = useSynced(deal.waitingSince ?? today);
   const [focused, setFocused] = useState(false);
-  const dirty = action !== (deal.nextAction ?? "") || due !== (deal.nextActionDue ?? "") || minutes !== (deal.nextActionMinutes ? String(deal.nextActionMinutes) : "") || waitingOn !== (deal.waitingOn ?? "") || (waitingOn !== "" && since !== (deal.waitingSince ?? today));
+  const dirty = action !== (deal.nextAction ?? "") || due !== (deal.nextActionDue ?? "") || minutes !== (deal.nextActionMinutes ? String(deal.nextActionMinutes) : "");
   useUnsavedWork(dirty, "The next action is not saved yet.");
   const d = deal.nextAction ? dueLabel(deal.nextActionDue, today, (x) => fmtDate(x, "MMM d")) : null;
   const hint = deal.nextAction ? `Due ${d!.text.toLowerCase() === "today" ? "today" : d!.text}${deal.nextActionMinutes ? ` · ${deal.nextActionMinutes} min` : ""}` : noActionHint;
@@ -232,23 +231,11 @@ export function NextActionCard({ deal, today, noActionHint = "Needs a next actio
           <input id={`${ids}-m`} value={minutes} onChange={(e) => setMinutes(e.target.value.replace(/[^\d]/g, "").slice(0, 4))} inputMode="numeric" placeholder="min" className={cn(INPUT, "w-20")} data-testid="na-minutes" />
           <span className="text-xs text-muted-foreground">min</span>
         </div>
-        <label htmlFor={`${ids}-w`} className={LABEL}>
-          Waiting on
-        </label>
-        <div className="flex flex-wrap items-center gap-2">
-          <input id={`${ids}-w`} value={waitingOn} onChange={(e) => setWaitingOn(e.target.value)} placeholder="Nobody" className={cn(INPUT, "min-w-[160px] flex-1")} data-testid="na-waiting" />
-          {waitingOn.trim() ? (
-            <>
-              <label htmlFor={`${ids}-s`} className={LABEL}>
-                Since
-              </label>
-              <input id={`${ids}-s`} type="date" value={since} max={today} onChange={(e) => setSince(e.target.value)} className={cn(INPUT, "w-auto")} data-testid="na-since" />
-            </>
-          ) : null}
-        </div>
+        {/* Push E2: several waits, each saved at once ("+ Add" and ×). */}
+        <WaitsField kind="deal" recordId={deal.id} waits={deal.waits} today={today} ready={waitsReady} labelClassName={LABEL} />
         <SaveLine state={dirty ? { kind: "idle" } : state}>
           {dirty ? (
-            <RowButton tone="primary" disabled={pending} onClick={() => run(() => saveNextAction(deal.id, { action, due, minutes, waitingOn, waitingSince: since }))} data-testid="na-save">
+            <RowButton tone="primary" disabled={pending} onClick={() => run(() => saveNextAction(deal.id, { action, due, minutes }))} data-testid="na-save">
               {pending ? "Saving..." : "Save"}
             </RowButton>
           ) : deal.nextAction && deal.status === "open" ? (

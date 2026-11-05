@@ -3,7 +3,7 @@ import { loadGmailSetup, type ComposeSetup, type GmailSetup } from "@/lib/compos
 import { date as fmtDate } from "@/lib/format";
 import { isValidEmail } from "@/lib/email-address";
 import { loadTabCounts } from "@/lib/work/data";
-import type { WaitItem } from "@/lib/work/waiting";
+import type { WaitItem, WaitItemLine } from "@/lib/work/waiting";
 import { loadHome } from "@/lib/work/home-data";
 import { composeForPerson } from "@/lib/work/outreach-data";
 import { syncRepliesQuietly } from "@/lib/replies-sync";
@@ -32,17 +32,17 @@ export default async function WorkNowPage() {
   const gmail: GmailSetup = d.available ? await loadGmailSetup(supabase, ownerId) : { permission: "not_connected", fromEmail: null, canGmail: false, signature: null };
   const tabs0 = await loadTabCounts(supabase, ownerId, d.today);
   /**
-   * Follow up on a waiting row: to the person an added email went to, a deal's main contact, or the person waited on
-   * (push E), logged on the deal or the person.
+   * Follow up on a line of a waiting row (push E2: each wait has its own Follow up): to the person the email of an
+   * added wait went to, a deal's main contact, or the person waited on, logged on the deal or the person.
    */
-  const composeFor = (w: WaitItem): ComposeSetup => {
-    const email = w.email && isValidEmail(w.email) ? w.email.trim() : null;
+  const composeFor = (w: WaitItem, l: WaitItemLine): ComposeSetup => {
+    const email = l.email && isValidEmail(l.email) ? l.email.trim() : null;
     return {
       ...gmail,
       title: `Follow up: ${w.name}`,
-      recipients: w.contactId && email ? [{ contactId: w.contactId, name: w.contactName ?? "Main contact", email, role: w.kind === "deal" ? "Main contact" : "This person" }] : [],
+      recipients: l.contactId && email ? [{ contactId: l.contactId, name: l.contactName ?? "Main contact", email, role: w.kind === "deal" ? "Main contact" : "This person" }] : [],
       defaultTo: email ?? "",
-      contactId: w.contactId && (email || w.kind === "person") ? w.contactId : null,
+      contactId: l.contactId && (email || w.kind === "person") ? l.contactId : null,
       pipelineItemId: w.kind === "deal" ? w.id : null,
       organizationId: null,
       toNote: email ? null : w.kind === "deal" ? "This deal has no main contact with an email address. Type the address." : "This person has no email address saved. Type one here, or add it on their page.",
@@ -75,7 +75,7 @@ export default async function WorkNowPage() {
           <WorkUpdateNotice notice={d.notice} />
         </>
       ) : (
-        <HomeBoard data={d} dateLabel={dateLabel} askAi={askAi} tabs={tabs} composes={Object.fromEntries(waiting.map((w) => [w.key, composeFor(w)]))} personComposes={Object.fromEntries(tilePeople.map((p) => [p.id, composeForPerson(gmail, p)]))} askCompose={askCompose} />
+        <HomeBoard data={d} dateLabel={dateLabel} askAi={askAi} tabs={tabs} composes={Object.fromEntries(waiting.flatMap((w) => w.lines.map((l) => [l.waitId, composeFor(w, l)])))} personComposes={Object.fromEntries(tilePeople.map((p) => [p.id, composeForPerson(gmail, p)]))} askCompose={askCompose} />
       )}
     </WorkShell>
   );

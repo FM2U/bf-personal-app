@@ -22,8 +22,14 @@ const MAX_THREADS = 40;
 
 type ThreadSource = { threadId: string; sentAt: string; contactId: string | null; organizationId: string | null; pipelineItemId: string | null; reportId: string | null };
 
-/** The threads to look in: partner reports first (they link the reply), then the other emails the app sent. */
+/**
+ * The threads to look in: partner reports first (they link the reply), then (push E2) the emails waits watch (the
+ * email a wait came from and its follow-up, however old), then the other emails the app sent.
+ */
 async function threadSources(sb: SupabaseClient, ownerId: string, since: string): Promise<ThreadSource[]> {
+  const { data: waitRows } = await sb.from("waits").select("comm_id,follow_up_comm_id").eq("owner_id", ownerId).limit(500);
+  const waitedIds = [...new Set(((waitRows ?? []) as Row[]).flatMap((w) => [w.comm_id, w.follow_up_comm_id]).filter(Boolean).map(String))];
+  const { data: waited } = waitedIds.length ? await sb.from("communications").select("id,contact_id,organization_id,pipeline_item_id,occurred_at,gmail_thread_id,partner_report_id").eq("owner_id", ownerId).in("id", waitedIds).not("gmail_thread_id", "is", null) : { data: [] as Row[] };
   const [{ data: reports }, { data: comms }] = await Promise.all([
     sb.from("partner_reports").select("id,contact_id,sent_at,gmail_thread_id").eq("owner_id", ownerId).not("gmail_thread_id", "is", null).gte("sent_at", since).order("sent_at", { ascending: false }).limit(MAX_THREADS),
     sb.from("communications").select("id,contact_id,organization_id,pipeline_item_id,occurred_at,gmail_thread_id,partner_report_id").eq("owner_id", ownerId).eq("direction", "outgoing").eq("method", "email").not("gmail_thread_id", "is", null).gte("occurred_at", since).order("occurred_at", { ascending: false }).limit(MAX_THREADS * 2),
@@ -33,7 +39,7 @@ async function threadSources(sb: SupabaseClient, ownerId: string, since: string)
     const t = String(r.gmail_thread_id);
     if (!out.has(t)) out.set(t, { threadId: t, sentAt: String(r.sent_at), contactId: r.contact_id ? String(r.contact_id) : null, organizationId: null, pipelineItemId: null, reportId: String(r.id) });
   }
-  for (const c of (comms ?? []) as Row[]) {
+  for (const c of [...((waited ?? []) as Row[]), ...((comms ?? []) as Row[])]) {
     const t = String(c.gmail_thread_id);
     const seen = out.get(t);
     // The earliest send in a thread is the one replies are newer than.

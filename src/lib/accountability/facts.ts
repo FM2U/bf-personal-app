@@ -4,10 +4,12 @@
  * checked through the same function in src/lib/work/sample.test.ts, Edit batch C item 6). Stage history by item, in
  * order: the first stage is the screening (Passed or Interested on a deal); every later working stage is a move.
  * Outgoing emails and calls are the contacts; work events give the follow-ups, next actions done, and the focus done.
+ * Push E2: tasks on records checked off count as next actions done in their record's area, and personal to-dos
+ * checked off as to-dos done.
  */
 import { passReasonLabel } from "@/lib/work/buy-box";
 import { displayName } from "@/lib/work/names";
-import { EMPTY_FACTS, type Facts } from "@/lib/accountability/targets";
+import { EMPTY_FACTS, type DoneArea, type Facts } from "@/lib/accountability/targets";
 
 type Row = Record<string, unknown>;
 
@@ -21,6 +23,11 @@ type FactsRows = {
   events: Row[];
   /** contacts rows (id, name, outreach_role). */
   people: Row[];
+  /**
+   * Push E2, item 5: deal_todos rows checked off (text, done_at, record_type, record_id, deal_id). A task on a record
+   * counts as a next action done in its record's area; a personal to-do (no record) counts as a to-do done.
+   */
+  tasks?: Row[];
   stageById: Record<string, { name: string; outcome: string }>;
   /** The lane of each pipeline id. */
   laneOf: Record<string, "Deals" | "Job search" | "Consulting">;
@@ -43,7 +50,14 @@ export function buildFacts(r: FactsRows): { facts: Facts; passes: Pass[] } {
     list.push(h);
     byItem.set(String(h.item_id), list);
   }
-  const facts: Facts = { ...EMPTY_FACTS, screened: [], moves: [], comms: [], followUps: [], actionsDone: [], focusDone: [] };
+  const facts: Facts = { ...EMPTY_FACTS, screened: [], moves: [], comms: [], followUps: [], actionsDone: [], focusDone: [], todosDone: [] };
+  // The area of a record, with the names the Area selector uses (push E2, item 5).
+  const itemArea = (id: unknown, kind?: unknown): DoneArea => {
+    const item = id ? itemById.get(String(id)) : undefined;
+    const lane = item ? r.laneOf[String(item.pipeline_id)] : undefined;
+    if (lane) return lane;
+    return kind === "job" ? "Job search" : kind === "consulting" ? "Consulting" : "Deals";
+  };
   const passes: Pass[] = [];
   for (const [itemId, rows] of byItem) {
     const item = itemById.get(itemId);
@@ -79,8 +93,29 @@ export function buildFacts(r: FactsRows): { facts: Facts; passes: Pass[] } {
     const on = String(e.happened_on).slice(0, 10);
     if (on < r.since) continue;
     if (e.kind === "follow_up_done") facts.followUps.push({ on, onTime: e.on_time !== false, name: String(e.label ?? "") });
-    else if (e.kind === "next_action_done") facts.actionsDone.push({ on, name: String(e.label ?? ""), label: String((e.meta as Row | null)?.action ?? "") });
+    else if (e.kind === "next_action_done") {
+      const meta = (e.meta as Row | null) ?? {};
+      const area: DoneArea = e.record_type === "projects" ? "Rosara" : e.record_type === "contacts" || e.record_type === "organizations" ? "Contacts" : itemArea(e.record_id, meta.kind);
+      facts.actionsDone.push({ on, name: String(e.label ?? ""), label: String(meta.action ?? ""), area });
+    }
     else if (e.kind === "focus_done") facts.focusDone.push({ on, text: String(e.label ?? "") });
+  }
+  for (const t of r.tasks ?? []) {
+    if (!t.done_at) continue;
+    const on = r.local(String(t.done_at));
+    if (on < r.since) continue;
+    const text = String(t.text ?? "").trim();
+    const type = t.record_type ? String(t.record_type) : t.deal_id ? "pipeline_items" : null;
+    if (!type) {
+      facts.todosDone.push({ on, text });
+      continue;
+    }
+    const recordId = String(t.record_id ?? t.deal_id ?? "");
+    const area: DoneArea = type === "projects" ? "Rosara" : type === "contacts" || type === "organizations" ? "Contacts" : itemArea(recordId);
+    const item = type === "pipeline_items" ? itemById.get(recordId) : undefined;
+    const person = type === "contacts" ? personById.get(recordId) : undefined;
+    const name = item ? nameOf(item) : person?.name ? String(person.name) : text;
+    facts.actionsDone.push({ on, name, label: text, area });
   }
   return { facts, passes };
 }

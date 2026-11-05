@@ -7,7 +7,9 @@ import type { Ctx } from "@/lib/engine/helpers";
 import { date as fmtDate } from "@/lib/format";
 import { orgKindLabel, parseOrgKind, type OrgKind } from "@/lib/work/people";
 import { CONTACT_COLUMNS, toPersonRow, type PersonRow } from "@/lib/work/outreach-data";
-import { daysWaiting, waitLevel, type WaitLevel } from "@/lib/work/stages";
+import { DEFAULT_WAIT_THRESHOLD_DAYS, type WaitLevel } from "@/lib/work/stages";
+import { waitLines, waitSummary } from "@/lib/work/waiting";
+import { loadWaitsFor } from "@/lib/work/waits-data";
 import { commKind, commTitle, type TimelineEvent } from "@/lib/work/timeline";
 import { RECORD_TASK_COLUMNS, sortTodos, toDealTodo, type DealTodo } from "@/lib/work/todos";
 import type { Row } from "@/lib/types";
@@ -144,18 +146,20 @@ export async function loadOrgPage(sb: SupabaseClient, ctx: Ctx, id: string): Pro
   const idSet = new Set(peopleIds);
   const orItems = [`organization_id.eq.${id}`, ...(peopleIds.length ? [`primary_contact_id.in.(${peopleIds.join(",")})`] : [])].join(",");
   const [{ data: items }, { data: comms }, { data: stages }, compose] = await Promise.all([
-    sb.from("pipeline_items").select("id,name,company_name,pipeline_id,status,stage_id,screened,next_action,waiting_on,waiting_since,primary_contact_id,organization_id,pass_reason").eq("owner_id", ctx.ownerId).or(orItems).limit(500),
+    sb.from("pipeline_items").select("id,name,company_name,pipeline_id,status,stage_id,screened,next_action,primary_contact_id,organization_id,pass_reason").eq("owner_id", ctx.ownerId).or(orItems).limit(500),
     sb.from("communications").select("id,occurred_at,method,direction,subject,summary,call_minutes,call_outcome,awaiting_log,contact_id,partner_report_id").eq("owner_id", ctx.ownerId).or([`organization_id.eq.${id}`, ...(peopleIds.length ? [`contact_id.in.(${peopleIds.join(",")})`] : [])].join(",")).order("occurred_at", { ascending: false }).limit(80),
     sb.from("pipeline_stages").select("id,name,outcome").eq("owner_id", ctx.ownerId).limit(500),
     loadComposeSetup(sb, ctx.ownerId, "organizations", o).catch(() => null),
   ]);
   const orgRow = toOrgRow(o, ppl, 0, ctx.tz);
+  // Push E2: the waits of these deals and items (the longest one shows on the row).
+  const waits = await loadWaitsFor(sb, ctx.ownerId, { itemIds: ((items ?? []) as Row[]).map((i) => String(i.id)) });
   const kindOf = Object.fromEntries(((pipes ?? []) as Row[]).map((p) => [String(p.id), String(p.kind)]));
   const stageOf = Object.fromEntries(((stages ?? []) as Row[]).map((s) => [String(s.id), s]));
   const nameOf = Object.fromEntries(ppl.map((p) => [String(p.id), String(p.name)]));
   const toDeal = (i: Row): OrgDeal => {
     const kind = kindOf[String(i.pipeline_id)] ?? "acquisition";
-    const days = daysWaiting((i.waiting_since as string | null) ?? null, ctx.today);
+    const w = waitSummary(waitLines(waits.byItem[String(i.id)] ?? [], ctx.today, DEFAULT_WAIT_THRESHOLD_DAYS));
     return {
       id: String(i.id),
       name: String(i.company_name || i.name),
@@ -164,9 +168,9 @@ export async function loadOrgPage(sb: SupabaseClient, ctx: Ctx, id: string): Pro
       stageName: i.stage_id ? String(stageOf[String(i.stage_id)]?.name ?? "") || null : i.screened === false ? "Listing" : null,
       status: String(i.status ?? "open"),
       nextAction: i.next_action ? String(i.next_action) : null,
-      waitingOn: i.waiting_on ? String(i.waiting_on) : null,
-      waitDays: days,
-      waitLevel: waitLevel((i.waiting_on as string | null) ?? null, days),
+      waitingOn: w.waitingOn,
+      waitDays: w.waitDays,
+      waitLevel: w.waitLevel,
       contactName: i.primary_contact_id ? nameOf[String(i.primary_contact_id)] ?? null : null,
       passReason: i.pass_reason ? PASS_WORDS[String(i.pass_reason)] ?? String(i.pass_reason).replace(/_/g, " ") : null,
     };

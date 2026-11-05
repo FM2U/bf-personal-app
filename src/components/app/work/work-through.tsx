@@ -18,6 +18,7 @@ import type { ItemRow } from "@/lib/work/pipelines-data";
 import type { ProjectRow } from "@/lib/work/projects-data";
 import { repeatDoneLine, repeatLabel } from "@/lib/work/repeat";
 import { dueLabel } from "@/lib/work/stages";
+import { waitsText } from "@/lib/work/waiting";
 import { recordHref, recordPillText } from "@/lib/work/task-records";
 import { useBlockTime } from "@/components/app/work/block-time";
 import { itemDoneAsks, AskMove as ItemAskMove, itemHref } from "@/components/app/work/item-row";
@@ -50,7 +51,7 @@ function viewOf(s: WorkStep, today: string): View {
   switch (s.kind) {
     case "deal": {
       const d = s.deal;
-      return { lane: d.screened ? "Deal" : "Listing", name: d.name, meta: [d.screened ? d.stageName : "Listing", [d.whatItDoes, d.location].filter(Boolean).join(", ")].filter(Boolean).join(" · "), action: d.nextAction ?? "", due: d.nextActionDue, minutes: d.nextActionMinutes, href: `/work/deals/${d.id}`, stage: d.stageName, ctx: [["Key finding", d.keyFinding || "None yet"], ["Waiting on", d.waitingOn ? `${d.waitingOn}${d.waitingSince ? `, since ${fmt(d.waitingSince)}` : ""}` : "No one"]] };
+      return { lane: d.screened ? "Deal" : "Listing", name: d.name, meta: [d.screened ? d.stageName : "Listing", [d.whatItDoes, d.location].filter(Boolean).join(", ")].filter(Boolean).join(" · "), action: d.nextAction ?? "", due: d.nextActionDue, minutes: d.nextActionMinutes, href: `/work/deals/${d.id}`, stage: d.stageName, ctx: [["Key finding", d.keyFinding || "None yet"], ["Waiting on", d.waits.length ? waitsText(d.waits, fmt) : "No one"]] };
     }
     case "person": {
       const p = s.person;
@@ -190,10 +191,10 @@ export function WorkThrough({ steps, today, onClose }: { steps: WorkStep[]; toda
       setEdits((m) => ({ ...m, [step.key]: { ...m[step.key], ...patch } }));
       setMode("idle");
     };
-    if (step.kind === "deal") return run(() => saveNextAction(step.deal.id, { action: form.action, due: form.due, minutes: form.minutes, waitingOn: step.deal.waitingOn ?? "", waitingSince: step.deal.waitingSince ?? "" }), after);
+    if (step.kind === "deal") return run(() => saveNextAction(step.deal.id, { action: form.action, due: form.due, minutes: form.minutes }), after);
     if (step.kind === "person") return run(() => saveFollowUp(step.person.id, { date: form.due, what: form.action }), after);
     if (step.kind === "project") return run(() => saveProjectNextAction(step.project.id, { action: form.action, due: form.due, minutes: form.minutes }), after);
-    if (step.kind === "item") return run(() => saveItemNextAction(step.item.kind, step.item.id, { action: form.action, due: form.due, minutes: form.minutes, waitingOn: step.item.waitingOn ?? "", waitingSince: step.item.waitingSince ?? "" }), after);
+    if (step.kind === "item") return run(() => saveItemNextAction(step.item.kind, step.item.id, { action: form.action, due: form.due, minutes: form.minutes }), after);
     return run(() => editTask(step.todo.id, { text: form.action, due: form.due || null }), after);
   };
 

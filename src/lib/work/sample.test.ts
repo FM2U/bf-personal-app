@@ -28,13 +28,16 @@ describe("the Work module's sample data", () => {
     expect(active.every((i) => i.next_action && i.next_action_due)).toBe(true);
   });
 
-  it("has five next actions due today or earlier and two waits over 5 days", () => {
+  it("has five next actions due today or earlier and two deals waiting over 5 days; BrightPath waits on two things", () => {
     const due = w.items.filter((i) => i.screened !== false && i.next_action_due && String(i.next_action_due) <= "2026-10-30" && ![stages.Passed, stages.Lost].includes(String(i.stage_id)));
     expect(due.map((i) => i.name).sort()).toEqual(["00 Fleet Repair Shop, Jacksonville", "BrightPath Home Care", "Dalton Services", "Hilltop Pest Solutions", "Meridian Industrial Coatings"].sort());
-    const waits = w.items.filter((i) => i.waiting_on).map((i) => ({ name: i.name, since: i.waiting_since }));
-    expect(waits.filter((x) => String(x.since) <= "2026-10-25")).toHaveLength(2);
-    expect(byName("Summit Logistics Group").waiting_since).toBe("2026-10-19");
-    expect(byName("Pinecrest Landscaping").waiting_since).toBe("2026-10-24");
+    // Push E2: the waits are rows of their own; no deal row keeps the old fields.
+    expect(w.items.some((i) => "waiting_on" in i || "waiting_since" in i || "_waits" in i)).toBe(false);
+    const waitsOf = (name: string) => w.waits.filter((x) => x.pipeline_item_id === byName(name).id);
+    expect(w.waits.filter((x) => String(x.since) <= "2026-10-25")).toHaveLength(2);
+    expect(waitsOf("Summit Logistics Group").map((x) => x.since)).toEqual(["2026-10-19"]);
+    expect(waitsOf("Pinecrest Landscaping").map((x) => x.since)).toEqual(["2026-10-24"]);
+    expect(waitsOf("BrightPath Home Care").map((x) => [x.text, x.since])).toEqual([["The CIM", "2026-10-27"], ["Times for a seller call", "2026-10-29"]]);
   });
 
   it("uses the stage default as the next action where Done should ask about the next stage", () => {
@@ -134,12 +137,11 @@ describe("the push E sample (No reply yet, a person waited on, Replied)", () => 
     expect(String(reply.occurred_at) > String(sent.find((c) => c.subject === "Pinecrest LOI")!.occurred_at)).toBe(true);
   });
   it("waits on Priya, and Pinecrest's wait came from its LOI email", () => {
-    const priya = b.contacts.find((c) => c.name === "Priya Natarajan")!;
-    expect(priya.waiting_on).toBeTruthy();
-    expect(priya.waiting_since).toBe("2026-10-30");
-    const pine = b.items.find((i) => i.name === "Pinecrest Landscaping")!;
-    expect(pine.waiting_on).toBe("A reply to: Pinecrest LOI");
-    expect(b.waitLinks).toEqual([{ table: "pipeline_items", id: id("Pinecrest Landscaping"), commId: threaded.find((c) => c.subject === "Pinecrest LOI")!.id }]);
+    const priya = b.waits.filter((x) => x.contact_id === id("Priya Natarajan"));
+    expect(priya.map((x) => [x.text, x.since, x.comm_id])).toEqual([["Intros to the two owners who asked about exit loans", "2026-10-30", null]]);
+    const pine = b.waits.filter((x) => x.pipeline_item_id === id("Pinecrest Landscaping"));
+    expect(pine.map((x) => [x.text, x.comm_id])).toEqual([["A reply to: Pinecrest LOI", threaded.find((c) => c.subject === "Pinecrest LOI")!.id]]);
+    expect(b.waits.every((x) => !!x.pipeline_item_id !== !!x.contact_id)).toBe(true);
   });
 });
 
@@ -157,7 +159,7 @@ describe("the batch B2 sample (projects, opportunities, consulting)", () => {
     expect(opps.filter((i) => i.stage_id === jobs.stages["Not chosen"])).toHaveLength(1);
     expect(open.filter((i) => !i.next_action).map((i) => i.name)).toEqual(["Peachtree Logistics"]);
     expect(b.noActionItems).toEqual([opps.find((i) => i.name === "Peachtree Logistics")!.id]);
-    expect(open.filter((i) => i.waiting_on)).toHaveLength(1);
+    expect(open.filter((i) => b.waits.some((x) => x.pipeline_item_id === i.id))).toHaveLength(1);
     const harbor = opps.find((i) => i.name === "Harbor Health Partners")!;
     expect(harbor.next_action_due).toBe("2026-10-30");
     expect(harbor.pay_range).toBe("$150K to $170K");

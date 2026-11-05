@@ -14,9 +14,10 @@ import { glanceCounts, type GlanceCounts } from "@/lib/work/home";
 import { compareNames, displayName } from "@/lib/work/names";
 import { parseOpenQuestions, type QuestionGroups } from "@/lib/work/questions";
 import { parseFindingList } from "@/lib/work/deal-facts";
-import { DEFAULT_WAIT_THRESHOLD_DAYS, WORK_STAGES, dayInStage, daysWaiting, doneOutcome, nextStageName, stageIndex, waitLevel, type WaitLevel } from "@/lib/work/stages";
+import { DEFAULT_WAIT_THRESHOLD_DAYS, WORK_STAGES, dayInStage, doneOutcome, nextStageName, stageIndex, type WaitLevel } from "@/lib/work/stages";
 import { commTitle, type TimelineEvent } from "@/lib/work/timeline";
-import { DEFAULT_NO_REPLY_DAYS } from "@/lib/work/waiting";
+import { DEFAULT_NO_REPLY_DAYS, waitLines, waitSummary, type SavedWait, type WaitLine } from "@/lib/work/waiting";
+import { loadWaitsFor } from "@/lib/work/waits-data";
 export type { TimelineEvent } from "@/lib/work/timeline";
 import { RECORD_TASK_COLUMNS, sortTodos, toDealTodo, topTodo, type DealTodo } from "@/lib/work/todos";
 import { DEFAULT_EOD_TIME, parseTime } from "@/lib/work/settings";
@@ -81,6 +82,9 @@ export type DealRow = {
   nextActionMinutes: number | null;
   /** The action is the stage's default, so Done asks about moving on. */
   actionIsDefault: boolean;
+  /** Push E2: every wait on this deal, longest first (table waits). The four fields under it are the longest wait. */
+  waits: WaitLine[];
+  /** The longest wait ("The CIM and 1 more" when there are more), its Since, days, and tone. */
   waitingOn: string | null;
   waitingSince: string | null;
   waitDays: number;
@@ -157,7 +161,7 @@ export async function loadTabCounts(sb: SupabaseClient, ownerId: string, today: 
   return { toScreen, outreachDue };
 }
 
-const ITEM_COLUMNS = "id,name,company_name,status,stage_id,pipeline_id,primary_contact_id,source,next_action,next_action_due,next_action_minutes,what_it_does,location,industry,listing_url,broker_name,why_selling,key_finding,open_questions,open_questions_json,waiting_on,waiting_since,pass_reason,screened,created_at,stage_entered_at,notes";
+const ITEM_COLUMNS = "id,name,company_name,status,stage_id,pipeline_id,primary_contact_id,source,next_action,next_action_due,next_action_minutes,what_it_does,location,industry,listing_url,broker_name,why_selling,key_finding,open_questions,open_questions_json,pass_reason,screened,created_at,stage_entered_at,notes";
 
 /** The columns of database update 0027 (Facts); read with a fallback to ITEM_COLUMNS until the update runs. */
 const ITEM_COLUMNS_0027 = `${ITEM_COLUMNS},year_established,employees`;
@@ -175,7 +179,7 @@ function toTodo(t: Row): DealTodo {
   return toDealTodo(t);
 }
 
-type Loaded = { items: Row[]; financials: Record<string, Row>; contacts: Record<string, Row>; todos: Record<string, DealTodo[]> };
+type Loaded = { items: Row[]; financials: Record<string, Row>; contacts: Record<string, Row>; todos: Record<string, DealTodo[]>; waits: Record<string, SavedWait[]> };
 
 async function loadItems(sb: SupabaseClient, ownerId: string, pipelineId: string, screened: boolean | null): Promise<Loaded> {
   const { data, error } = await readItems((columns) => {
@@ -187,10 +191,11 @@ async function loadItems(sb: SupabaseClient, ownerId: string, pipelineId: string
   const items = (data ?? []) as Row[];
   const ids = items.map((i) => i.id);
   const contactIds = [...new Set(items.map((i) => i.primary_contact_id).filter(Boolean))];
-  const [{ data: fin }, { data: cs }, { data: td }] = await Promise.all([
+  const [{ data: fin }, { data: cs }, { data: td }, waits] = await Promise.all([
     ids.length ? sb.from("deal_financials").select("item_id,revenue,ebitda,sde,asking_price").in("item_id", ids) : Promise.resolve({ data: [] as Row[] }),
     contactIds.length ? sb.from("contacts").select("id,name,email,organization_id").in("id", contactIds) : Promise.resolve({ data: [] as Row[] }),
     ids.length && screened !== false ? sb.from("deal_todos").select(TODO_COLUMNS).eq("owner_id", ownerId).in("deal_id", ids).is("done_at", null).limit(2000) : Promise.resolve({ data: [] as Row[] }),
+    ids.length ? loadWaitsFor(sb, ownerId, { itemIds: ids.map(String) }) : Promise.resolve({ byItem: {} as Record<string, SavedWait[]> }),
   ]);
   const todos: Record<string, DealTodo[]> = {};
   for (const t of (td ?? []) as Row[]) (todos[String(t.deal_id)] ??= []).push(toTodo(t));
@@ -199,15 +204,16 @@ async function loadItems(sb: SupabaseClient, ownerId: string, pipelineId: string
     financials: Object.fromEntries(((fin ?? []) as Row[]).map((f) => [f.item_id, f])),
     contacts: Object.fromEntries(((cs ?? []) as Row[]).map((c) => [c.id, c])),
     todos,
+    waits: waits.byItem,
   };
 }
 
 const num = (v: unknown) => (v === null || v === undefined || v === "" ? null : Number.isFinite(Number(v)) ? Number(v) : null);
 
-function toDealRow(i: Row, f: Row | undefined, contact: Row | undefined, pipe: WorkPipeline, ctx: WorkCtx, todos: readonly DealTodo[] = []): DealRow {
+function toDealRow(i: Row, f: Row | undefined, contact: Row | undefined, pipe: WorkPipeline, ctx: WorkCtx, todos: readonly DealTodo[] = [], saved: readonly SavedWait[] = []): DealRow {
   const stage = i.stage_id ? pipe.byId[i.stage_id] : undefined;
   const stageName = stage?.name ?? null;
-  const days = daysWaiting(i.waiting_since, ctx.today);
+  const waits = waitLines(saved, ctx.today, ctx.threshold);
   const { amount, label } = earningsOf(f?.ebitda, f?.sde);
   const outcome = doneOutcome({ stageName, nextAction: i.next_action ?? null, defaultTitle: stage?.defaultTitle ?? null });
   const top = topTodo(todos);
@@ -243,10 +249,8 @@ function toDealRow(i: Row, f: Row | undefined, contact: Row | undefined, pipe: W
     nextActionDue: i.next_action_due ? String(i.next_action_due).slice(0, 10) : null,
     nextActionMinutes: num(i.next_action_minutes),
     actionIsDefault: outcome.kind === "ask",
-    waitingOn: i.waiting_on ?? null,
-    waitingSince: i.waiting_since ? String(i.waiting_since).slice(0, 10) : null,
-    waitDays: days,
-    waitLevel: waitLevel(i.waiting_on, days, ctx.threshold),
+    waits,
+    ...waitSummary(waits),
     passReason: i.pass_reason ?? null,
     passReasonLabel: i.pass_reason ? passReasonLabel(i.pass_reason) : null,
     contactId: i.primary_contact_id ?? null,
@@ -295,7 +299,7 @@ export async function loadWorkNow(sb: SupabaseClient, ownerId: string): Promise<
   const [pipe, outreach] = await Promise.all([loadWorkPipeline(sb, ownerId), loadOutreachHome(sb, ctx)]);
   if (!pipe) return { ...base, available: true, outreach };
   const loaded = await loadItems(sb, ownerId, pipe.id, null);
-  const rows = loaded.items.map((i) => toDealRow(i, loaded.financials[i.id], loaded.contacts[i.primary_contact_id], pipe, ctx, loaded.todos[i.id]));
+  const rows = loaded.items.map((i) => toDealRow(i, loaded.financials[i.id], loaded.contacts[i.primary_contact_id], pipe, ctx, loaded.todos[i.id], loaded.waits[String(i.id)]));
   const deals = rows.filter((d, n) => loaded.items[n].screened !== false && d.status === "open" && d.stageIndex >= 0).sort((a, b) => compareNames(a.name, b.name));
   const listings = rows
     .filter((d, n) => loaded.items[n].screened === false && d.status === "open")
@@ -326,7 +330,7 @@ export async function loadListings(sb: SupabaseClient, ownerId: string): Promise
   const [pipe, buyBox] = await Promise.all([loadWorkPipeline(sb, ownerId), loadBuyBoxSettings(sb, ownerId)]);
   if (!pipe) return { ...base, available: true, buyBox };
   const loaded = await loadItems(sb, ownerId, pipe.id, null);
-  const rows = loaded.items.map((i) => toDealRow(i, loaded.financials[i.id], loaded.contacts[i.primary_contact_id], pipe, ctx));
+  const rows = loaded.items.map((i) => toDealRow(i, loaded.financials[i.id], loaded.contacts[i.primary_contact_id], pipe, ctx, [], loaded.waits[String(i.id)]));
   const listings: ListingRow[] = rows
     .filter((d, n) => loaded.items[n].screened === false && d.status === "open")
     .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : compareNames(a.name, b.name)))
@@ -368,7 +372,7 @@ export async function loadDeals(sb: SupabaseClient, ownerId: string): Promise<De
   const pipe = await loadWorkPipeline(sb, ownerId);
   if (!pipe) return { ...base, available: true };
   const loaded = await loadItems(sb, ownerId, pipe.id, true);
-  const deals = loaded.items.map((i) => toDealRow(i, loaded.financials[i.id], loaded.contacts[i.primary_contact_id], pipe, ctx, loaded.todos[i.id]));
+  const deals = loaded.items.map((i) => toDealRow(i, loaded.financials[i.id], loaded.contacts[i.primary_contact_id], pipe, ctx, loaded.todos[i.id], loaded.waits[String(i.id)]));
   const byDue = (a: DealRow, b: DealRow) => (a.nextActionDue ?? "9999") < (b.nextActionDue ?? "9999") ? -1 : (a.nextActionDue ?? "9999") > (b.nextActionDue ?? "9999") ? 1 : compareNames(a.name, b.name);
   const groups: StageGroup[] = WORK_STAGES.map((name) => {
     const stage = pipe.byName[name] ?? { id: name, name, position: 0, outcome: "open", defaultTitle: null, defaultDueInDays: null };
@@ -421,12 +425,14 @@ type DealPageData = {
   advanceTo: Stage | null;
   passedStageId: string | null;
   lostStageId: string | null;
+  /** False before UPDATE_PREVIEW_PUSH_E2.sql (the waits list on the Next action card says so and cannot save). */
+  waitsReady: boolean;
 };
 
 /** The deal page: the deal, its timeline (notes, communications, stage moves; newest first), documents, and the email setup. */
 export async function loadDealPage(sb: SupabaseClient, ownerId: string, id: string): Promise<DealPageData> {
   const ctx = await loadWorkCtx(sb, ownerId);
-  const base: DealPageData = { available: false, notice: null, today: ctx.today, tz: ctx.tz, threshold: ctx.threshold, deal: null, timeline: [], documents: [], todos: [], listingText: null, listingTextReady: false, findingListsReady: false, growthPathsReady: false, buyBox: defaultBuyBoxSettings(), lastContact: null, compose: null, questionsCompose: null, advanceTo: null, passedStageId: null, lostStageId: null };
+  const base: DealPageData = { available: false, notice: null, today: ctx.today, tz: ctx.tz, threshold: ctx.threshold, deal: null, timeline: [], documents: [], todos: [], listingText: null, listingTextReady: false, findingListsReady: false, growthPathsReady: false, buyBox: defaultBuyBoxSettings(), lastContact: null, compose: null, questionsCompose: null, advanceTo: null, passedStageId: null, lostStageId: null, waitsReady: false };
   const notice = null;
   if (notice) return { ...base, notice };
   const pipe = await loadWorkPipeline(sb, ownerId);
@@ -446,10 +452,11 @@ export async function loadDealPage(sb: SupabaseClient, ownerId: string, id: stri
     sb.from("deal_todos").select(TODO_COLUMNS).eq("owner_id", ownerId).eq("deal_id", id).limit(500),
     loadBuyBoxSettings(sb, ownerId),
   ]);
+  const waits = await loadWaitsFor(sb, ownerId, { itemIds: [id] });
   const todos = sortTodos(((todoRows ?? []) as Row[]).map(toTodo));
   // Strengths and risks (database update 0028), growth paths and financing (0029) come with the row read with "*".
   const fullRow = (full as Row | null) ?? {};
-  const deal = toDealRow({ ...item, strengths: fullRow.strengths, risks: fullRow.risks, growth_paths: fullRow.growth_paths, ...(Object.prototype.hasOwnProperty.call(fullRow, "financing") ? { financing: fullRow.financing } : {}) }, (fin as Row | null) ?? undefined, (contact as Row | null) ?? undefined, pipe, ctx, todos);
+  const deal = toDealRow({ ...item, strengths: fullRow.strengths, risks: fullRow.risks, growth_paths: fullRow.growth_paths, ...(Object.prototype.hasOwnProperty.call(fullRow, "financing") ? { financing: fullRow.financing } : {}) }, (fin as Row | null) ?? undefined, (contact as Row | null) ?? undefined, pipe, ctx, todos, waits.byItem[id]);
   // Communications linked through record_links but not stamped with the item (older rows).
   const commRows = ((comms ?? []) as Row[]).filter((c) => !c.awaiting_log);
   const linkedIds = ((links ?? []) as Row[]).map((l) => l.from_id).filter((x) => !commRows.some((c) => c.id === x));
@@ -496,6 +503,7 @@ export async function loadDealPage(sb: SupabaseClient, ownerId: string, id: stri
     advanceTo,
     passedStageId: pipe.byName.Passed?.id ?? null,
     lostStageId: pipe.byName.Lost?.id ?? null,
+    waitsReady: waits.available,
   };
 }
 

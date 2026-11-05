@@ -10,13 +10,13 @@ export type HomeRow = FilterableDeal & { id: string; waitDays: number; stageName
 
 type WaitSectionKey = "over" | "under";
 
-/** "5+ days" (at or past the threshold: a deal waiting exactly 5 days is here) and "Less than 5 days", for the Waiting on someone card. */
+/** "5+ days" (at or past the threshold: a deal waiting exactly 5 days is here) and "< 5 days", for the Waiting on someone card. */
 export function waitSections<T extends HomeRow>(deals: readonly T[], threshold: number): { key: WaitSectionKey; label: string; deals: T[] }[] {
   const t = Math.max(1, Math.round(threshold));
   const waiting = deals.filter((d) => d.status === "open" && d.waitLevel !== "none");
   return [
     { key: "over", label: `${t}+ days`, deals: waiting.filter((d) => d.waitDays >= t) },
-    { key: "under", label: `Less than ${t} days`, deals: waiting.filter((d) => d.waitDays < t) },
+    { key: "under", label: `< ${t} days`, deals: waiting.filter((d) => d.waitDays < t) },
   ];
 }
 

@@ -147,3 +147,10 @@ export const DB_UPDATE_NOTICE_PUSH_D = "Database update needed: paste supabase/U
  * the Waiting card shows deals only, and saving any of them says so.
  */
 export const DB_UPDATE_NOTICE_PUSH_E = "Database update needed: paste supabase/UPDATE_PREVIEW_PUSH_E.sql into the Supabase SQL Editor and run it.";
+
+/**
+ * Push E part 2 (2026-11-05): several waits on one deal or person (table waits; the old waiting_on, waiting_since and
+ * waiting_comm_id columns are moved into it and removed), and the follow-up email a wait watches. Before
+ * UPDATE_PREVIEW_PUSH_E2.sql runs, nothing shows as waited on, and adding or removing a wait says so.
+ */
+export const DB_UPDATE_NOTICE_PUSH_E2 = "Database update needed: paste supabase/UPDATE_PREVIEW_PUSH_E2.sql into the Supabase SQL Editor and run it.";

@@ -1,7 +1,7 @@
 /**
  * The deals and job opportunities as the End of day report shows them (Push B edits, 2026-11-03), pure and tested in
  * src/lib/accountability/report-sections.test.ts: each open record with its stage, its status (what it waits on and
- * since when, from the deal's waiting fields), its next step with the date, and what happened in the report's
+ * since when, from the deal's waits; push E2: every wait, longest first), its next step with the date, and what happened in the report's
  * period (stage changes, emails and calls, notes, next actions done). src/lib/accountability/data.ts loads the rows.
  */
 import { daysBetween } from "@/lib/calc/dates";
@@ -22,6 +22,8 @@ export type DealRows = {
   events: Row[];
   /** contacts rows (id, name). */
   people: Row[];
+  /** Push E2: waits rows (pipeline_item_id, text, since); a record can have several. Left out: none. */
+  waits?: Row[];
   stageById: Record<string, { name: string; outcome: string; position: number }>;
 };
 
@@ -43,6 +45,8 @@ export function brokerPerson(brokerName: string | null | undefined): string | nu
  */
 export function reportDeals(r: DealRows & { pipelineId: string; period: { start: string; end: string }; today: string; local: (ts: string) => string; fmt: (d: string) => string; weekday: (d: string) => string }): ReportDeal[] {
   const person = new Map(r.people.map((p) => [String(p.id), String(p.name ?? "")]));
+  const waitsOf = new Map<string, Row[]>();
+  for (const w of r.waits ?? []) if (w.pipeline_item_id) waitsOf.set(String(w.pipeline_item_id), [...(waitsOf.get(String(w.pipeline_item_id)) ?? []), w]);
   const inPeriod = (d: string) => d >= r.period.start && d <= r.period.end;
   const open = r.items.filter((i) => String(i.pipeline_id) === r.pipelineId && i.status === "open" && i.screened !== false && i.stage_id && r.stageById[String(i.stage_id)]?.outcome === "open");
   const out: ReportDeal[] = open.map((i) => {
@@ -90,16 +94,22 @@ export function reportDeals(r: DealRows & { pipelineId: string; period: { start:
     acts.sort((a, b) => a.at.localeCompare(b.at));
     const stamps = [...hist.map((h) => String(h.entered_at)), ...acts.map((a) => a.at), String(i.updated_at ?? "")].filter(Boolean).sort();
     const lastActivity = stamps[stamps.length - 1] ?? "";
-    const what = String(i.waiting_on ?? "").trim();
     const who = (i.primary_contact_id ? person.get(String(i.primary_contact_id)) : null) || brokerPerson(i.broker_name as string | null);
+    // Push E2: every wait, longest first ("Waiting on Mark Reed: a seller call, since Oct 23 (11 days); the CIM, since Nov 3 (2 days)").
+    const myWaits = (waitsOf.get(id) ?? [])
+      .map((w) => ({ what: String(w.text ?? "").trim(), since: w.since ? String(w.since).slice(0, 10) : null }))
+      .filter((w) => w.what)
+      .sort((a, b) => (a.since ?? "9999").localeCompare(b.since ?? "9999"));
     let status: string;
-    if (what) {
-      const since = i.waiting_since ? String(i.waiting_since).slice(0, 10) : null;
-      const when = since ? `, since ${r.fmt(since)} (${days(Math.max(0, daysBetween(since, r.today)))})` : "";
-      // "Jamal Whitaker" as what is waited on names the person: it is not repeated or lowered.
-      const isName = /^[A-Z][a-z]+ [A-Z][a-z]/.test(what);
-      const names = !!who && what.toLowerCase().includes(who.toLowerCase());
-      status = who && !names ? `Waiting on ${who}: ${isName ? what : lowerFirst(what)}${when}` : `Waiting on ${isName || names ? what : lowerFirst(what)}${when}`;
+    if (myWaits.length) {
+      const names = !!who && myWaits.some((w) => w.what.toLowerCase().includes(who.toLowerCase()));
+      const parts = myWaits.map((w) => {
+        const when = w.since ? `, since ${r.fmt(w.since)} (${days(Math.max(0, daysBetween(w.since, r.today)))})` : "";
+        // "Jamal Whitaker" as what is waited on names the person: it is not repeated or lowered.
+        const isName = /^[A-Z][a-z]+ [A-Z][a-z]/.test(w.what);
+        return `${isName || (names && w.what.toLowerCase().includes(String(who).toLowerCase())) ? w.what : lowerFirst(w.what)}${when}`;
+      });
+      status = who && !names ? `Waiting on ${who}: ${parts.join("; ")}` : `Waiting on ${parts.join("; ")}`;
     } else if (moved) {
       const m = moved as { from: string; on: string };
       status = `Moved from ${m.from} ${m.on === r.today ? "today" : `on ${r.weekday(m.on)}`}; nothing waiting`;
