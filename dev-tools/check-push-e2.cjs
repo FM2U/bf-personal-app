@@ -147,7 +147,7 @@ const until = async (fn, msg, tries = 60) => {
 
   await step("Edits of Nov 5, items 7 and 8: sample next actions are things Bram does (Pinecrest: call Dana about the seller note); the owed thing is the wait, worded 'Reply to your email: <subject>'", async () => {
     const pine = await one("select next_action from pipeline_items where name = 'Pinecrest Landscaping'");
-    assert(pine.next_action === "Call Dana about the seller note before Friday", pine.next_action);
+    assert(pine.next_action === "Call Dana about the seller note", pine.next_action);
     const pw = await all("select w.text from waits w join pipeline_items i on i.id = w.pipeline_item_id where i.name = 'Pinecrest Landscaping'");
     assert(JSON.stringify(pw.map((x) => x.text)) === JSON.stringify(["Reply to your email: Pinecrest LOI"]), JSON.stringify(pw));
     // Nothing a next action or follow-up says is what someone else owes ("Wait for ...", "Response to ...", "... to be scheduled").
