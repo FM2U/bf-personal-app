@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actionKey, aiOrderPrompt, applyAiOrder, AREAS, areaOf, areaSummary, TODO_AREAS, todoAreaOf, laneSectionOf, matchesActionSearch, mergeLanes, orderedAtLabel, orderToStore, parseOrderChoice, validateAiOrderReply, type HomeAction } from "./lanes";
+import { actionKey, aiOrderPrompt, applyAiOrder, AREAS, areaOf, areaSummary, areaToStore, parseAreaChoice, TODO_AREAS, todoAreaOf, laneSectionOf, matchesActionSearch, mergeLanes, orderedAtLabel, orderToStore, parseOrderChoice, validateAiOrderReply, type HomeAction } from "./lanes";
 
 const today = "2026-11-03";
 const a = (lane: HomeAction["lane"], id: string, over: Partial<HomeAction> = {}): HomeAction => ({ key: actionKey(lane, id), lane, id, name: id, action: "Do it", due: today, minutes: null, meta: "", ...over });
@@ -115,6 +115,14 @@ describe("the Area filter on Work on now (2026-11-04)", () => {
     expect(todoAreaOf({ kind: "project" })).toBe("rosara");
     expect(todoAreaOf({ kind: "job" })).toBe("job-search");
     expect(TODO_AREAS.map((x) => x.label)).toEqual(["Deals", "Contacts", "Rosara", "Job search", "Consulting", "To-dos"]);
+  });
+  it("the Area selector remembers one area for the rest of the day; each new day starts on All", () => {
+    expect(parseAreaChoice(areaToStore("deals", today), today)).toBe("deals");
+    expect(parseAreaChoice(areaToStore(null, today), today)).toBeNull();
+    expect(parseAreaChoice(areaToStore("deals", "2026-11-02"), today)).toBeNull();
+    expect(parseAreaChoice("area:deals", today)).toBeNull();
+    expect(parseAreaChoice(areaToStore("tasks", today), today, TODO_AREAS)).toBeNull();
+    expect(parseAreaChoice(areaToStore("todos", today), today, TODO_AREAS)).toBe("todos");
   });
   it("sums up the ticks in plain words", () => {
     expect(areaSummary([])).toBe("Showing every area");

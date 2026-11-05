@@ -96,7 +96,7 @@ const until = async (fn, msg, tries = 40) => {
 
   // ---------- The header of 2026-11-04: tiles that work like tabs, the Area filter, By the AI, the slim pinned bar ----------
   const tileKeys = (tiles) => page.getByTestId(tiles).locator('[data-testid="status-tile"]').evaluateAll((els) => els.map((e) => e.getAttribute("data-key")));
-  const tileCounts = (tiles) => page.getByTestId(tiles).locator('[data-testid="status-tile"]').evaluateAll((els) => els.map((e) => Number(e.getAttribute("data-count"))));
+  const tileCounts = (tiles, p = page) => p.getByTestId(tiles).locator('[data-testid="status-tile"]').evaluateAll((els) => els.map((e) => Number(e.getAttribute("data-count"))));
   const selectedKeys = (tiles) => page.getByTestId(tiles).locator('[aria-selected="true"]').evaluateAll((els) => els.map((e) => e.getAttribute("data-key")));
   const firstWithItems = (keys, counts) => keys[counts.findIndex((n) => n > 0)] ?? keys[0];
 
@@ -159,66 +159,88 @@ const until = async (fn, msg, tries = 40) => {
     await shot(page, "home-tiles.png");
   });
 
-  await step("Filter by Area: a small box under the button; a tick applies at once and the label says what is on; Waiting on someone is not filtered", async () => {
+  // The Area selector (one area or All) on a page: the choices with their numbers, greyed zero areas.
+  const areaOpts = (p = page) => p.getByTestId("area-selector").locator('[data-testid="area-option"]').evaluateAll((els) => els.map((e) => ({ v: e.getAttribute("data-value"), n: Number(e.getAttribute("data-count")), on: e.getAttribute("aria-checked") === "true", off: e.disabled, label: e.innerText.replace(/\s+\d+$/, "").trim() })));
+  const pickArea = async (v, p = page) => {
+    await p.getByTestId("area-selector").locator(`[data-testid="area-option"][data-value="${v}"]`).click();
+    await until(async () => (await p.getByTestId("area-selector").locator(`[data-value="${v}"]`).getAttribute("aria-checked")) === "true", `${v} is picked`);
+  };
+
+  await step("Work on now: the Area selector above the tiles picks one area; it narrows Next actions and the tile numbers; zero areas are greyed; no Filter button; Waiting on someone is not narrowed", async () => {
     await page.goto(`${BASE}/work`);
     await page.getByTestId("home-tiles").waitFor();
+    assert((await page.getByTestId("filter-open").count()) === 0 && (await page.getByTestId("slim-filter").count()) === 0, "no Filter button on Work on now");
     const before = await tileCounts("home-tiles");
     const waitBefore = await page.getByTestId("now-wait").innerText();
+    let opts = await areaOpts();
+    assert(JSON.stringify(opts.map((o) => o.label)) === JSON.stringify(["All", "Deals", "Contacts", "Rosara", "Job search", "Consulting", "To-dos", "Tasks"]), `areas ${opts.map((o) => o.label)}`);
+    assert(opts[0].on && opts[0].n === before.reduce((a, b) => a + b, 0), `All is picked with ${opts[0].n}`);
+    assert(opts.every((o) => (o.v !== "all" && o.n === 0) === o.off), `zero areas greyed ${JSON.stringify(opts)}`);
+    assert(opts.some((o) => o.off), "the sample has an empty area (Consulting)");
+    // Placed above the tiles, left-aligned with them, the right column still level with the tiles.
+    const sb = await page.getByTestId("area-selector").boundingBox();
+    const tb = await page.getByTestId("home-tiles").boundingBox();
+    const wb = await page.getByTestId("now-wait").boundingBox();
+    assert(sb.y + sb.height <= tb.y && Math.abs(sb.x - tb.x) <= 1 && Math.abs(wb.y - tb.y) <= 1, `selector ${JSON.stringify(sb)} tiles ${JSON.stringify(tb)}`);
     await pickTile("home-tiles", "needs");
-    const btn = page.getByTestId("filter-open");
-    assert((await btn.getAttribute("data-label")) === "Area: All", `label ${await btn.getAttribute("data-label")}`);
-    await btn.click();
-    const pop = page.getByTestId("filter-popover");
-    await pop.waitFor();
-    assert((await page.getByTestId("filter-window").count()) === 0 && (await page.getByTestId("filter-show").count()) === 0, "no centered window, no Show button");
-    const bb = await btn.boundingBox();
-    const pb = await pop.boundingBox();
-    assert(pb.y >= bb.y + bb.height && pb.y <= bb.y + bb.height + 12 && Math.abs(pb.x + pb.width - (bb.x + bb.width)) <= 2, `hangs under the button (${JSON.stringify(pb)} vs ${JSON.stringify(bb)})`);
-    assert(await page.evaluate(() => !!document.activeElement?.closest("[data-testid=filter-popover]")), "the cursor moves into the box");
-    const groups = await pop.getByTestId("filter-group").evaluateAll((els) => els.map((e) => e.getAttribute("data-group")));
-    const opts = await pop.getByTestId("filter-option").evaluateAll((els) => els.map((e) => e.innerText.split("\n")[0].trim()));
-    assert(JSON.stringify(groups) === '["area"]', `groups ${groups}`);
-    assert(JSON.stringify(opts) === JSON.stringify(["Deals", "Contacts", "Rosara", "Job search", "Consulting", "To-dos", "Tasks"]), `areas ${opts}`);
-    assert((await pop.innerText()).includes("Waiting on someone is not filtered"), "the box says Waiting is not filtered");
-    const contactsN = Number(await pop.locator('[data-testid="filter-option"][data-value="contacts"]').getAttribute("data-count"));
-    await page.locator("#fp-area-contacts").check();
-    // Applied at once, with the box still open.
-    await until(async () => (await tileCounts("home-tiles")).reduce((a, b) => a + b, 0) === contactsN, "the tile numbers change at once");
-    assert(await pop.isVisible(), "the box stays open while ticking");
-    assert((await btn.getAttribute("data-label")) === "Area: Contacts", `label ${await btn.getAttribute("data-label")}`);
-    await page.locator("#fp-area-deals").check();
-    await page.locator("#fp-area-rosara").check();
-    assert((await btn.getAttribute("data-label")) === "Area: Deals, Contacts +1", `label ${await btn.getAttribute("data-label")}`);
-    await shot(page, "home-filter-area.png");
-    await page.locator("#fp-area-deals").uncheck();
-    await page.locator("#fp-area-rosara").uncheck();
-    // Escape closes and puts the cursor back on the button.
-    await page.keyboard.press("Escape");
-    await pop.waitFor({ state: "detached" });
-    assert(await page.evaluate(() => document.activeElement?.getAttribute("data-testid") === "filter-open"), "Escape returns to the button");
+    const contactsN = opts.find((o) => o.v === "contacts").n;
+    await pickArea("contacts");
     const after = await tileCounts("home-tiles");
-    assert(after[2] === 0 && JSON.stringify(after) !== JSON.stringify(before), `tile numbers ${after} (were ${before})`);
+    assert(after.reduce((a, b) => a + b, 0) === contactsN && after[2] === 0, `tile numbers ${after} for ${contactsN}`);
     // Needs a next action dropped to 0, so the first tile with items is selected.
     assert(JSON.stringify(await selectedKeys("home-tiles")) === JSON.stringify([firstWithItems(["overdue", "today", "needs"], after)]), `selected ${await selectedKeys("home-tiles")}`);
     const areas = await page.locator('[data-testid="home-list"] [data-testid="home-row"]').evaluateAll((els) => [...new Set(els.map((e) => e.getAttribute("data-area")))]);
     assert(JSON.stringify(areas) === '["contacts"]', `areas shown ${areas}`);
     assert((await page.getByTestId("now-wait").innerText()) === waitBefore, "Waiting on someone did not change");
-    assert((await page.getByTestId("filter-chips").count()) === 0, "no chip row");
-    // Remembered in this browser; a click elsewhere closes the box; Clear puts every area back.
+    // Single choice: Deals replaces Contacts; a greyed area cannot be picked.
+    await pickArea("deals");
+    opts = await areaOpts();
+    assert(opts.filter((o) => o.on).map((o) => o.v).join() === "deals", "one area at a time");
+    const off = opts.find((o) => o.off);
+    await page.getByTestId("area-selector").locator(`[data-value="${off.v}"]`).click({ force: true });
+    assert((await areaOpts()).find((o) => o.on).v === "deals", "a greyed area is not picked");
+    await shot(page, "home-area-deals.png");
+    // The arrow keys move between the areas that can be picked.
+    await page.getByTestId("area-selector").locator('[data-value="deals"]').focus();
+    await page.keyboard.press("ArrowLeft");
+    await until(async () => (await areaOpts()).find((o) => o.on).v === "all", "ArrowLeft picks All");
+    await page.keyboard.press("ArrowRight");
+    await until(async () => (await areaOpts()).find((o) => o.on).v === "deals", "ArrowRight picks Deals");
+    // Remembered for the rest of the day; another day starts on All.
     await page.reload();
-    await until(async () => JSON.stringify(await tileCounts("home-tiles")) === JSON.stringify(after), "the ticks are remembered");
-    await page.getByTestId("filter-open").click();
-    await pop.waitFor();
-    await page.mouse.click(700, 860);
-    await pop.waitFor({ state: "detached" });
-    await page.getByTestId("filter-open").click();
-    await page.getByTestId("filter-clear").click();
-    await until(async () => JSON.stringify(await tileCounts("home-tiles")) === JSON.stringify(before), "Clear");
-    assert((await page.getByTestId("filter-open").getAttribute("data-label")) === "Area: All", "back to Area: All");
-    await page.keyboard.press("Escape");
+    await until(async () => (await areaOpts()).find((o) => o.on)?.v === "deals", "remembered on reload");
+    await page.evaluate(() => window.localStorage.setItem("work-home-areas", JSON.stringify({ area: "deals", day: "2000-01-01" })));
+    await page.reload();
+    await until(async () => (await areaOpts()).find((o) => o.on)?.v === "all", "a new day starts on All");
+    assert(JSON.stringify(await tileCounts("home-tiles")) === JSON.stringify(before), "All again");
   });
 
-  await page.evaluate(() => window.localStorage.removeItem("work-home-areas")).catch(() => {});
+  await step("Next actions title row: Work through right after the title and count, Order and the AI star on the right", async () => {
+    for (const w of [1440, 1280, 1100]) {
+      await page.setViewportSize({ width: w, height: 900 });
+      await page.goto(`${BASE}/work`);
+      const card = page.getByTestId("now-actions");
+      await card.waitFor();
+      const title = await card.locator("h2").first().boundingBox();
+      const wt = await page.getByTestId("work-through-open").boundingBox();
+      const ord = await page.getByTestId("home-order").boundingBox();
+      const star = await card.getByTestId("ai-card-star").first().boundingBox();
+      const cb = await card.boundingBox();
+      assert(Math.abs(wt.y + wt.height / 2 - (title.y + title.height / 2)) <= 3 && wt.x - (title.x + title.width) >= 16 && wt.x - (title.x + title.width) <= 32, `${w}: Work through right after the title (${wt.x} after ${title.x + title.width})`);
+      const wrapped = ord.y > wt.y + wt.height;
+      if (wrapped) {
+        // Too narrow for one line: Order and the star take the next line, lined up with the title.
+        assert(ord.x - title.x >= 0 && ord.x - title.x <= 60 && ord.y - (wt.y + wt.height) >= 6 && star.x + star.width <= cb.x + cb.width - 20, `${w}: the second line lines up with the title`);
+      } else {
+        assert(ord.x - (wt.x + wt.width) >= 28, `${w}: clear space before Order`);
+        assert(cb.x + cb.width - (star.x + star.width) >= 20 && cb.x + cb.width - (star.x + star.width) <= 24, `${w}: the star at the card's right edge`);
+      }
+      if (w === 1440) assert(!wrapped, "one line at 1440");
+      if (w === 1440 && SHOTS) await page.screenshot({ path: path.join(SHOTS, "next-actions-title-row.png"), clip: { x: cb.x - 8, y: cb.y - 8, width: cb.width + 16, height: 110 } });
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
+  });
+
   await step("By the AI: no tile selected, the full ranked list of all three kinds; a tile click goes back to Soonest first; a new day starts on Soonest first", async () => {
     await page.goto(`${BASE}/work`);
     await page.getByTestId("home-tiles").waitFor();
@@ -329,28 +351,25 @@ const until = async (fn, msg, tries = 40) => {
     await pickTile("todos-tiles", "later");
     assert((await page.getByTestId("todos-section").getAttribute("data-section")) === "later" && (await page.getByTestId("personal-todo").count()) === counts[2], "the Later list");
     assert((await page.getByTestId("collapse-all").count()) === 0, "no Collapse all");
-    // The Area filter: a personal to-do is To-dos, a record task counts by its record's area; applies at once.
+    // The Area selector: a personal to-do is To-dos, a record task counts by its record's area.
     await pickTile("todos-tiles", "today");
-    const btn = page.getByTestId("filter-open");
-    assert((await btn.getAttribute("data-label")) === "Area: All", "Area: All");
-    await btn.click();
-    const pop = page.getByTestId("filter-popover");
-    await pop.waitFor();
-    const opts = await pop.getByTestId("filter-option").evaluateAll((els) => els.map((e) => e.innerText.split("\n")[0].trim()));
-    assert(JSON.stringify(opts) === JSON.stringify(["Deals", "Contacts", "Rosara", "Job search", "Consulting", "To-dos"]), `areas ${opts}`);
-    const dealsN = Number(await pop.locator('[data-testid="filter-option"][data-value="deals"]').getAttribute("data-count"));
-    await page.locator("#fp-area-deals").check();
-    await until(async () => (await tileCounts("todos-tiles")).reduce((a, b) => a + b, 0) === dealsN, "the tile numbers follow at once");
-    assert((await btn.getAttribute("data-label")) === "Area: Deals", "Area: Deals");
+    assert((await page.getByTestId("filter-open").count()) === 0, "no Filter button on To-dos");
+    const opts = await areaOpts();
+    assert(JSON.stringify(opts.map((o) => o.label)) === JSON.stringify(["All", "Deals", "Contacts", "Rosara", "Job search", "Consulting", "To-dos"]), `areas ${opts.map((o) => o.label)}`);
+    assert(opts.every((o) => (o.v !== "all" && o.n === 0) === o.off), "zero areas greyed");
+    const dealsN = opts.find((o) => o.v === "deals").n;
+    await pickArea("deals");
+    await until(async () => (await tileCounts("todos-tiles")).reduce((a, b) => a + b, 0) === dealsN, "the tile numbers follow");
     const pills = await page.getByTestId("personal-todo").evaluateAll((els) => els.map((e) => e.getAttribute("data-record")));
     assert(pills.length > 0 && pills.every((r) => r.startsWith("listing:") || r.startsWith("deal:")), `only deal tasks ${pills}`);
-    await page.locator("#fp-area-deals").uncheck();
-    await page.locator("#fp-area-todos").check();
+    await shot(page, "todos-area-deals.png");
+    await pickArea("todos");
     const personal = await page.getByTestId("personal-todo").evaluateAll((els) => els.map((e) => e.getAttribute("data-record")));
     assert(personal.every((r) => r === ""), `only personal to-dos ${personal}`);
-    await page.getByTestId("filter-clear").click();
-    await page.keyboard.press("Escape");
-    assert(JSON.stringify(await tileCounts("todos-tiles")) === JSON.stringify(counts), "Clear");
+    await page.reload();
+    await until(async () => (await areaOpts()).find((o) => o.on)?.v === "todos", "remembered for the day");
+    await pickArea("all");
+    assert(JSON.stringify(await tileCounts("todos-tiles")) === JSON.stringify(counts), "All again");
   });
 
   await step("No top menu row at 1440 (the left menu has the pages and badges); the row shows at 400; Settings keeps its tabs; no 'lane' in the text", async () => {
@@ -384,14 +403,26 @@ const until = async (fn, msg, tries = 40) => {
     await sp.getByTestId("home-tiles").waitFor();
     await sp.waitForLoadState("networkidle");
     await oneHeaderAtATime(sp, "home-tiles");
-    // The slim bar's filter icon opens the same small box under the icon.
-    await sp.getByTestId("slim-filter").click();
-    const pop = sp.getByTestId("filter-popover");
-    await pop.waitFor();
-    const ib = await sp.getByTestId("slim-filter").boundingBox();
-    const pb = await pop.boundingBox();
-    assert(pb.y >= ib.y + ib.height && Math.abs(pb.x + pb.width - (ib.x + ib.width)) <= 2, "the box hangs under the slim bar's icon");
-    await sp.keyboard.press("Escape");
+    // The slim bar's area chip ("All") opens the same choices in a small menu; picking one narrows the list.
+    await sp.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    await until(async () => (await sp.getByTestId("slim-bar").getAttribute("data-shown")) === "1", "the bar shows");
+    const chip = sp.getByTestId("slim-area");
+    assert((await chip.innerText()).trim() === "All", `chip ${await chip.innerText()}`);
+    await chip.click();
+    const menu = sp.getByTestId("slim-area-menu");
+    await menu.waitFor();
+    const cb = await chip.boundingBox();
+    const mb = await menu.boundingBox();
+    assert(mb.y >= cb.y + cb.height && Math.abs(mb.x - cb.x) <= 2, "the menu hangs under the chip");
+    assert(await menu.locator('[data-value="consulting"]').isDisabled(), "a zero area is greyed in the menu");
+    const dealsN = Number((await sp.getByTestId("area-selector").locator('[data-value="deals"]').getAttribute("data-count")));
+    await menu.locator('[data-value="deals"]').click();
+    await menu.waitFor({ state: "detached" });
+    await until(async () => (await chip.innerText()).trim() === "Deals", "the chip says Deals");
+    assert((await tileCounts("home-tiles", sp)).reduce((a, b) => a + b, 0) === dealsN, "the tiles follow");
+    assert((await sp.getByTestId("area-selector").locator('[data-value="deals"]').getAttribute("aria-checked")) === "true", "the selector above the tiles follows");
+    await chip.click();
+    await sp.getByTestId("slim-area-menu").locator('[data-value="all"]').click();
     await short.close();
   });
 

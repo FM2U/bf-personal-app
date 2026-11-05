@@ -3,7 +3,7 @@
  * into one list. A deal row has no pill; outreach follow-ups, Rosara project actions, Job search opportunities,
  * Consulting items, and (Edit batch C round 2) personal to-dos due today or earlier carry an area pill ("To-do").
  * Pure and tested in src/lib/work/lanes.test.ts: the row key per lane, the sections (Overdue, Due today, Needs a next
- * action), the Area filter, the AI order (the reply's check, the cache, how a cached order is applied to the rows on
+ * action), the Area selector, the AI order (the reply's check, the cache, how a cached order is applied to the rows on
  * the page, and the day-start rule), and the prompt the AI gets.
  */
 import { daysBetween } from "@/lib/calc/dates";
@@ -80,12 +80,11 @@ export function matchesActionSearch(a: Pick<HomeAction, "name" | "meta">, query:
   return !q || a.name.toLowerCase().includes(q) || a.meta.toLowerCase().includes(q);
 }
 
-// ---------- The Area filter (2026-11-04) ----------
+// ---------- The Area selector (2026-11-04) ----------
 
 /**
- * The Filter window on Work on now has one column, Area: Deals, Contacts, Rosara, Job search, Consulting, To-dos, and
- * Tasks (a dated task on a record). Ticking areas narrows Next actions and its tile numbers; Waiting on someone is not
- * filtered. Several ticks mean either one; none ticked shows every area.
+ * The areas of Work on now's Area selector: Deals, Contacts, Rosara, Job search, Consulting, To-dos, and Tasks (a dated
+ * task on a record). Picking one narrows Next actions and its tile numbers; Waiting on someone is not narrowed.
  */
 export const AREAS = [
   { value: "deals", label: "Deals" },
@@ -98,7 +97,7 @@ export const AREAS = [
 ] as const;
 export type AreaKey = (typeof AREAS)[number]["value"];
 
-/** The ticked areas are remembered in this browser under this key. */
+/** The area picked today is remembered in this browser under this key. */
 export const AREA_STORAGE_KEY = "work-home-areas";
 
 /** The area of a row: its lane, with a to-do on a record counted as a Task. */
@@ -108,7 +107,7 @@ export function areaOf(lane: Lane, onRecord = false): AreaKey {
 }
 
 /**
- * The Area filter on To-dos (2026-11-04): the same areas without Tasks, since a task on a record counts by its record's
+ * The Area selector on To-dos (2026-11-04): the same areas without Tasks, since a task on a record counts by its record's
  * area there (a deal or listing is Deals, a person or organization Contacts, a project Rosara, a job Job search, a
  * consulting item Consulting) and a personal to-do with no record is To-dos.
  */
@@ -131,8 +130,30 @@ export function todoAreaOf(record: { kind: string } | null): AreaKey {
   }
 }
 
-/** The ticked areas on To-dos are remembered in this browser under this key. */
+/** The area picked today on To-dos is remembered in this browser under this key. */
 export const TODO_AREA_STORAGE_KEY = "work-todos-areas";
+
+/**
+ * The Area selector above the tiles (approved 2026-11-04, replaces the Area filter on Work on now and To-dos): one area
+ * at a time, or All. The choice is remembered for the rest of the day it was made only, so each day starts on All.
+ * Saved as {"area":"deals","day":"YYYY-MM-DD"}; anything else (an older saved filter, another day, an area the page
+ * does not list) is All (null).
+ */
+export function parseAreaChoice(raw: string | null | undefined, today: string, allowed: readonly { value: string }[] = AREAS): AreaKey | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw) as { area?: unknown; day?: unknown } | null;
+    if (!v || v.day !== today || typeof v.area !== "string") return null;
+    return allowed.some((a) => a.value === v.area) ? (v.area as AreaKey) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** What is saved for a choice made today. */
+export function areaToStore(area: AreaKey | null, today: string): string {
+  return JSON.stringify({ area, day: today });
+}
 
 /** "Showing: Deals or Contacts", or "Showing every area". */
 export function areaSummary(ticked: readonly string[]): string {

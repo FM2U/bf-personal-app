@@ -1,21 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { aiOrderToday } from "@/app/actions/ask-ai";
 import { resetWaiting } from "@/app/actions/work";
 import { ComposeEmailDialog } from "@/components/app/compose-email";
-import { FilterMenuButton, FilterPopover } from "@/components/app/filter-popover";
 import type { ComposeSetup } from "@/lib/compose-email";
 import { readRaw } from "@/lib/disclosure";
-import { filterButtonLabel, optionCounts, parseTicks, ticksToParam, toggleTick, type FilterGroup, type Ticks } from "@/lib/filters";
 import { date as fmtDate } from "@/lib/format";
 import type { AskContext } from "@/lib/work/ask-ai";
 import type { DealRow, ListingTile, WorkNowData } from "@/lib/work/data";
 import { waitSections } from "@/lib/work/home";
 import type { HomeData } from "@/lib/work/home-data";
-import { actionKey, applyAiOrder, AREA_STORAGE_KEY, AREAS, areaOf, compareActions, laneSectionOf, matchesActionSearch, ORDER_STORAGE_KEY, orderedAtLabel, orderToStore, parseOrderChoice, type AiOrder, type AreaKey, type HomeAction, type Lane, type LaneSectionKey, type OrderChoice } from "@/lib/work/lanes";
+import { actionKey, applyAiOrder, AREA_STORAGE_KEY, AREAS, areaOf, areaToStore, compareActions, laneSectionOf, matchesActionSearch, ORDER_STORAGE_KEY, orderedAtLabel, orderToStore, parseAreaChoice, parseOrderChoice, type AiOrder, type AreaKey, type HomeAction, type Lane, type LaneSectionKey, type OrderChoice } from "@/lib/work/lanes";
 import { compareNames } from "@/lib/work/names";
 import { contactKindLabel, orgRoleLine, overdueLabel } from "@/lib/work/outreach";
 import type { PersonRow as PersonRowData } from "@/lib/work/outreach-data";
@@ -35,6 +33,7 @@ import { TodoActionRow } from "@/components/app/work/todo-row";
 import { StickySections } from "@/components/app/work/sticky-sections";
 import { SlimBar, SlimTools } from "@/components/app/work/slim-bar";
 import { StatusTiles, TileChips } from "@/components/app/work/status-tiles";
+import { AreaChip, AreaSelector, type AreaOption } from "@/components/app/work/area-selector";
 import { FindBox, TitleRow } from "@/components/app/work/title-row";
 import { BAND_CLS, Due, Figure, Line1, Line2, ListBand, Name, Pill, ProgressMark, RowButton, RowButtons, RowLink, RowShell, SectionHeading, TargetBar, Thinking, What, WorkCard, type PillTone } from "@/components/app/work/ui";
 import { WaitingRow } from "@/components/app/work/waiting-row";
@@ -47,12 +46,12 @@ import { cn } from "@/lib/utils";
 
 /**
  * Work on now (Home; the bento of mockup v6, approved 2026-10-31, with the header of 2026-11-04). The title row: the
- * title, the date, Find, Filter, Ask AI. Then three tiles that work like tabs over the Next actions column (Overdue,
+ * title, the date, Find, Ask AI. Then three tiles that work like tabs over the Next actions column (Overdue,
  * Due today, Needs a next action; src/lib/work/tiles.ts): exactly one is selected and the card under them shows only
- * its list under one pinned band. The Filter has one column, Area (Deals, Contacts, Rosara, Job search, Consulting,
- * To-dos, Tasks); it narrows Next actions and its tile numbers, and is remembered in this browser.
- * The Filter button says what is on ("Area: All", "Area: Deals, Rosara +2") and opens a small box under it; a tick
- * applies at once. Next actions merges every area (a deal row has no pill; the others carry an area pill). "Order: Soonest first | By
+ * its list under one pinned band. Above the tiles the Area selector picks one area or All (Deals, Contacts, Rosara,
+ * Job search, Consulting, To-dos, Tasks); it narrows Next actions and its tile numbers, and is remembered for the rest
+ * of the day only (each day starts on All).
+ * Next actions merges every area (a deal row has no pill; the others carry an area pill). "Order: Soonest first | By
  * the AI": By the AI asks the AI once a day for the order (cached; "Order again" asks again), shows the full ranked list
  * of all three kinds with one purple reason under each row, and leaves no tile selected; a tile click goes back to
  * Soonest first. Each new day starts on Soonest first. Push C: the solid "Work through" button opens the step-by-step
@@ -74,7 +73,6 @@ type Row = { key: string; lane: Lane; area: AreaKey; section: LaneSectionKey; ac
 const TILE_LABEL: Record<LaneSectionKey, string> = { overdue: "Overdue", today: "Due today", needs: "Needs a next action" };
 const TILE_KEYS: LaneSectionKey[] = ["overdue", "today", "needs"];
 const TILE_EMPTY: Record<LaneSectionKey, string> = { overdue: "Nothing is overdue.", today: "Nothing else is due today.", needs: "Every item has a next action." };
-const AREA_GROUP: FilterGroup<Row>[] = [{ key: "area", title: "Area", options: AREAS.map((a) => ({ value: a.value, label: a.label })), test: (r, v) => r.area === v }];
 
 export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personComposes, askCompose }: { data: HomeData; /** The date at the right of the title, long and short. */ dateLabel: { long: string; short: string }; /** Ask AI (server-rendered). */ askAi: React.ReactNode; /** The top menu row (under 1024px). */ tabs: React.ReactNode; /** The email setup per waiting deal (Follow up). */ composes: Record<string, ComposeSetup>; /** The email setup per person on the Outreach tile. */ personComposes: Record<string, ComposeSetup>; /** The email setup for "Open in email" in the Ask AI panel (a typed address). */ askCompose?: ComposeSetup | null }) {
   const router = useRouter();
@@ -86,8 +84,6 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
   const [followedUp, setFollowedUp] = useState<Record<string, boolean>>({});
   /** The deal whose Follow up editor is open (held here, so the editor survives the row moving after the send). */
   const [followUp, setFollowUp] = useState<DealRow | null>(null);
-  /** The button the small Filter box hangs under (the title row's or the slim bar's), or null while it is closed. */
-  const [filterAnchor, setFilterAnchor] = useState<HTMLElement | null>(null);
   const { deals, today, threshold } = data;
 
   // ---------- The AI order: By the AI is remembered for the rest of the day it was picked (read once, without an effect) ----------
@@ -126,12 +122,10 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
     if (c === "ai" && !aiOrder) askOrder(false);
   };
 
-  // ---------- The Area filter, remembered in this browser ----------
-  const savedAreaRaw = useSyncExternalStore(noSubscribe, () => readRaw(AREA_STORAGE_KEY), () => null);
-  const savedTicks = useMemo(() => parseTicks(savedAreaRaw, AREA_GROUP), [savedAreaRaw]);
-  const [chosenTicks, setChosenTicks] = useState<Ticks | null>(null);
-  const ticks = chosenTicks ?? savedTicks;
-  const ticked = useMemo(() => ticks.area ?? [], [ticks]);
+  // ---------- The Area selector: one area or All, remembered for the rest of the day only ----------
+  const savedArea = useSyncExternalStore(noSubscribe, () => parseAreaChoice(readRaw(AREA_STORAGE_KEY), today), () => null);
+  const [chosenArea, setChosenArea] = useState<{ area: AreaKey | null } | null>(null);
+  const area = chosenArea ? chosenArea.area : savedArea;
 
   // ---------- The rows of every area ----------
   const allRows = useMemo<Row[]>(() => {
@@ -160,9 +154,9 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
     }
     return out;
   }, [deals, data.listingActions, data.outreach.due, data.rosara.actions, data.pipelines.jobs, data.pipelines.consulting, data.todos, today]);
-  const rows = useMemo(() => allRows.filter((r) => !ticked.length || ticked.includes(r.area)), [allRows, ticked]);
+  const rows = useMemo(() => allRows.filter((r) => !area || r.area === area), [allRows, area]);
 
-  // The three lists, each sorted (Soonest first); the tile numbers follow the Area ticks, not Find.
+  // The three lists, each sorted (Soonest first); the tile numbers follow the Area choice, not Find.
   const sectionsOf = useMemo(() => {
     const by: Record<LaneSectionKey, Row[]> = { overdue: [], today: [], needs: [] };
     for (const r of rows) by[r.section].push(r);
@@ -184,20 +178,21 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
     setChosenTile(next.selected);
     toListTop();
   };
-  const setTicks = (t: Ticks) => {
-    setChosenTicks(t);
+  const pickArea = (a: AreaKey | null) => {
+    setChosenArea({ area: a });
     try {
-      const v = ticksToParam(t);
-      if (v) window.localStorage.setItem(AREA_STORAGE_KEY, v);
-      else window.localStorage.removeItem(AREA_STORAGE_KEY);
+      window.localStorage.setItem(AREA_STORAGE_KEY, areaToStore(a, today));
     } catch {
       /* no storage: the choice holds until the page reloads */
     }
-    // A Filter tick that drops the selected tile to 0 selects the first tile with items.
-    const nextRows = allRows.filter((r) => !(t.area ?? []).length || (t.area ?? []).includes(r.area));
+    // An area that leaves the selected tile at 0 selects the first tile with items.
+    const nextRows = allRows.filter((r) => !a || r.area === a);
     const nextTiles = TILE_KEYS.map((k) => ({ key: k, count: nextRows.filter((r) => r.section === k).length }));
     if (selected) setChosenTile(tileAfterFilter(selected, nextTiles));
+    toListTop();
   };
+  // The choices with their numbers (every next action in that area, as the tiles count them).
+  const areaOptions: AreaOption<AreaKey>[] = [{ value: null, label: "All", count: allRows.length }, ...AREAS.map((x) => ({ value: x.value, label: x.label, count: allRows.filter((r) => r.area === x.value).length }))];
 
   // ---------- Waiting on someone: never filtered ----------
   const waiting = useMemo(() => waitSections(deals, threshold).map((w) => ({ ...w, deals: [...w.deals].sort((a, b) => b.waitDays - a.waitDays || compareNames(a.name, b.name)) })), [deals, threshold]);
@@ -223,12 +218,6 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
     return () => window.removeEventListener("resize", set);
   }, []);
 
-  // The Filter window: the count beside each area is how many next actions would show (with Find).
-  const filterCounts = optionCounts(allRows.filter(found), AREA_GROUP, ticks);
-  const toggleFilter = (el: HTMLElement) => setFilterAnchor((a) => (a === el ? null : el));
-  const closeFilter = useCallback(() => setFilterAnchor(null), []);
-  const filterLabel = filterButtonLabel("Area", AREA_GROUP, ticks);
-
   /**
    * One row box; with a number (the AI order) the row sits beside a small purple badge in its own 54px column (the
    * card's 22px edge, the 18px badge, a 14px gap), level with the name line, so it never touches the stage mark or the
@@ -247,11 +236,11 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
     </div>
   );
 
-  const narrowed = ticked.length > 0 || !!query.trim();
+  const narrowed = !!area || !!query.trim();
   const empty = (k: LaneSectionKey | null) => (
     <div className="px-[22px] py-[22px] text-[13px] text-muted-foreground" data-testid="now-actions-empty">
       <b className="mb-0.5 block text-[13.5px] font-semibold text-heading">{narrowed ? "Nothing matches." : k ? TILE_EMPTY[k] : "Nothing is due today."}</b>
-      {narrowed ? "Change the filter or the Find box." : "Pick another tile above."}
+      {narrowed ? "Pick All above or clear the Find box." : "Pick another tile above."}
     </div>
   );
   const list = selected ? sectionsOf[selected].filter(found) : [];
@@ -259,22 +248,28 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
 
   return (
     <BlockTimeProvider today={today} nowLocal={data.nowLocal} blockMinutes={data.blockMinutes} rowBlocks={data.rowBlocks} calendar={data.calendar}>
-      <SlimBar title="Work on now" chips={<TileChips tiles={tiles} selected={selected} onPick={pickTile} label="Next actions" idPrefix="home-chip" panelId={PANEL_ID} />} tools={<SlimTools findId={FIND_ID} filterCount={ticked.length} onFilter={toggleFilter} filterOpen={!!filterAnchor} />} />
+      <SlimBar
+        title="Work on now"
+        chips={
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
+            <AreaChip options={areaOptions} selected={area} onPick={pickArea} />
+            <TileChips tiles={tiles} selected={selected} onPick={pickTile} label="Next actions" idPrefix="home-chip" panelId={PANEL_ID} />
+          </div>
+        }
+        tools={<SlimTools findId={FIND_ID} />}
+      />
       <header className="pb-5" data-testid="home-header">
         <TitleRow
           title="Work on now"
           date={dateLabel}
-          tools={
-            <>
-              <FindBox id={FIND_ID} value={query} onChange={setQuery} testId="home-search" />
-              <FilterMenuButton label={filterLabel} ticked={ticked.length} open={!!filterAnchor} onOpen={toggleFilter} />
-            </>
-          }
+          tools={<FindBox id={FIND_ID} value={query} onChange={setQuery} testId="home-search" />}
           askAi={askAi}
         />
         {tabs}
+        <div className="mt-4" data-testid="home-area">
+          <AreaSelector options={areaOptions} selected={area} onPick={pickArea} />
+        </div>
       </header>
-      <FilterPopover anchor={filterAnchor} onClose={closeFilter} groups={AREA_GROUP} ticks={ticks} counts={filterCounts} onToggle={(g, v) => setTicks(toggleTick(ticks, g, v))} onClear={() => setTicks({})} note="Waiting on someone is not filtered." />
 
       <div ref={bentoRef} className="grid grid-cols-1 items-start gap-[18px] lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] desk:-mb-[72px] desk:h-[calc(100vh-var(--bento-top,104px)-24px)] desk:min-h-[460px] desk:items-stretch" data-testid="home-bento">
         <div className="flex min-h-0 min-w-0 flex-col gap-6" data-testid="home-left">
@@ -286,13 +281,15 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
             labelledBy={selected ? `home-tile-${selected}` : undefined}
             title="Next actions"
             count={shownCount}
-            sub={byAi ? "Every area, in the AI's order; one reason under each row" : "Every area, due today or earlier, soonest first"}
-            actions={
-              <>
-                <button type="button" onClick={() => setWorking(true)} disabled={!steps.length} className="mr-1 inline-flex h-[30px] items-center gap-1.5 rounded-[7px] border border-primary-solid bg-primary-solid px-3 text-[13px] font-medium whitespace-nowrap text-white hover:border-primary-solid-hover hover:bg-primary-solid-hover disabled:opacity-50" data-testid="work-through-open" title={steps.length ? `Step through the ${steps.length} due today or earlier, one at a time` : "Nothing is due today"}>
+            lead={
+                <button type="button" onClick={() => setWorking(true)} disabled={!steps.length} className="inline-flex h-[30px] items-center gap-1.5 rounded-[7px] border border-primary-solid bg-primary-solid px-3 text-[13px] font-medium whitespace-nowrap text-white hover:border-primary-solid-hover hover:bg-primary-solid-hover disabled:opacity-50" data-testid="work-through-open" title={steps.length ? `Step through the ${steps.length} due today or earlier, one at a time` : "Nothing is due today"}>
                   <Play className="h-3 w-3 fill-current" aria-hidden />
                   Work through
                 </button>
+            }
+            sub={byAi ? "Every area, in the AI's order; one reason under each row" : "Every area, due today or earlier, soonest first"}
+            actions={
+              <>
                 <span className="inline-flex items-center gap-2 whitespace-nowrap">
                 <span className="text-[12.5px] text-muted-foreground">Order:</span>
                 <div className="inline-flex rounded-full border border-border bg-white p-px" role="radiogroup" aria-label="Order" data-testid="home-order">

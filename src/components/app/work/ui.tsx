@@ -99,15 +99,25 @@ export const PINNED_CARD_HEADER = "bg-white border-b border-rule lg:sticky lg:to
 /** The same on Work on now, whose cards scroll on their own only in a desktop window tall enough (the desk variant). */
 const PINNED_CARD_HEADER_DESK = "bg-white border-b border-rule desk:sticky desk:top-0 desk:z-[2]";
 
-export function WorkCard({ id, ref, role, labelledBy, pinAt = "lg", title, count, hint, sub, actions, children, className, testId, rule = true, pinned = false, scroll = false, bodyClassName, headerClassName }: { ref?: React.Ref<HTMLElement>; /** "tabpanel" under status tiles, with the selected tile's id in labelledBy. */ role?: string; labelledBy?: string; /** From which width the title row pins and the card scrolls on its own: "desk" on Work on now (a desktop window tall enough). */ pinAt?: "lg" | "desk"; id?: string; title: React.ReactNode; count?: number | null; hint?: React.ReactNode; /** A quiet line under the title (for narrow cards, where a hint at the right would wrap). */ sub?: React.ReactNode; actions?: React.ReactNode; children: React.ReactNode; className?: string; testId?: string; /** False: no rule under the title (a closed card ends at its title row). */ rule?: boolean; /** The title row stays at the top while the content under it scrolls (desktop): solid white with the hairline across the full width. */ pinned?: boolean; /** The card scrolls on its own (desktop); give it a height through className. */ scroll?: boolean; bodyClassName?: string; /** Extra classes on the title row (a minimum height so cards side by side line up). */ headerClassName?: string }) {
+export function WorkCard({ id, ref, role, labelledBy, pinAt = "lg", lead, title, count, hint, sub, actions, children, className, testId, rule = true, pinned = false, scroll = false, bodyClassName, headerClassName }: { ref?: React.Ref<HTMLElement>; /** "tabpanel" under status tiles, with the selected tile's id in labelledBy. */ role?: string; labelledBy?: string; /** From which width the title row pins and the card scrolls on its own: "desk" on Work on now (a desktop window tall enough). */ pinAt?: "lg" | "desk"; /** A control right after the title and count, on the left (Work through). */ lead?: React.ReactNode; id?: string; title: React.ReactNode; count?: number | null; hint?: React.ReactNode; /** A quiet line under the title (for narrow cards, where a hint at the right would wrap). */ sub?: React.ReactNode; actions?: React.ReactNode; children: React.ReactNode; className?: string; testId?: string; /** False: no rule under the title (a closed card ends at its title row). */ rule?: boolean; /** The title row stays at the top while the content under it scrolls (desktop): solid white with the hairline across the full width. */ pinned?: boolean; /** The card scrolls on its own (desktop); give it a height through className. */ scroll?: boolean; bodyClassName?: string; /** Extra classes on the title row (a minimum height so cards side by side line up). */ headerClassName?: string }) {
   return (
     <section id={id} ref={ref} role={role} aria-labelledby={labelledBy} className={cn("flex min-w-0 flex-col rounded-xl border border-border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]", scroll && (pinAt === "desk" ? "desk:overflow-y-auto" : "lg:overflow-y-auto"), className)} data-testid={testId}>
       <div className={cn("rounded-t-xl bg-white", pinned && rule && (pinAt === "desk" ? PINNED_CARD_HEADER_DESK : PINNED_CARD_HEADER), headerClassName)} data-pinned={pinned && rule ? "card" : undefined}>
-        <div className={cn("flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-[22px] pt-4", rule ? "pb-3" : "pb-4")}>
-          <h2 className="flex items-center gap-2 text-[15px] font-semibold tracking-[-0.01em] whitespace-nowrap text-heading">
-            <span>{title}</span>
-            {count ? <span className="tabular rounded-full bg-status-neutral-bg px-2 py-px text-[11px] font-semibold leading-4 text-status-neutral">{count}</span> : null}
-          </h2>
+        <div className={cn("flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-[22px] pt-4", lead && "gap-x-8 gap-y-2.5", rule ? "pb-3" : "pb-4")}>
+          {lead ? (
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2" data-testid="card-title-lead">
+              <h2 className="flex items-center gap-2 text-[15px] font-semibold tracking-[-0.01em] whitespace-nowrap text-heading">
+                <span>{title}</span>
+                {count ? <span className="tabular rounded-full bg-status-neutral-bg px-2 py-px text-[11px] font-semibold leading-4 text-status-neutral">{count}</span> : null}
+              </h2>
+              {lead}
+            </div>
+          ) : (
+            <h2 className="flex items-center gap-2 text-[15px] font-semibold tracking-[-0.01em] whitespace-nowrap text-heading">
+              <span>{title}</span>
+              {count ? <span className="tabular rounded-full bg-status-neutral-bg px-2 py-px text-[11px] font-semibold leading-4 text-status-neutral">{count}</span> : null}
+            </h2>
+          )}
           {actions ? <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">{actions}</div> : hint ? <span className="min-w-0 flex-1 text-right text-[13px] text-muted-foreground">{hint}</span> : null}
           {sub ? <div className="-mt-1 w-full text-[13px] text-muted-foreground">{sub}</div> : null}
         </div>

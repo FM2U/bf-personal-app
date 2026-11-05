@@ -1,21 +1,20 @@
 "use client";
 
-import { useCallback, useMemo, useState, useSyncExternalStore, useTransition } from "react";
+import { useMemo, useState, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { addTask, deleteTask, editTask, setTaskDone, type TaskLink } from "@/app/actions/tasks";
 import { useUnsavedWork } from "@/components/app/unsaved-changes";
-import { FilterMenuButton, FilterPopover } from "@/components/app/filter-popover";
 import { readRaw } from "@/lib/disclosure";
-import { filterButtonLabel, optionCounts, parseTicks, ticksToParam, toggleTick, type FilterGroup, type Ticks } from "@/lib/filters";
 import { date as fmtDate } from "@/lib/format";
-import { TODO_AREA_STORAGE_KEY, TODO_AREAS, todoAreaOf } from "@/lib/work/lanes";
+import { areaToStore, parseAreaChoice, TODO_AREA_STORAGE_KEY, TODO_AREAS, todoAreaOf, type AreaKey } from "@/lib/work/lanes";
 import type { LinkRecord } from "@/lib/work/link-picker";
 import { splitTomorrow, TODO_SECTIONS, todoDueLabel, type PersonalTodo, type TodoSectionKey } from "@/lib/work/personal-todos";
 import type { TodosData } from "@/lib/work/personal-todos-data";
 import { REPEAT_CHOICES, type Repeat } from "@/lib/work/repeat";
 import type { TaskRecord } from "@/lib/work/task-records";
 import { selectedTile, tileAfterFilter, type Tile } from "@/lib/work/tiles";
-import { SlimBar, SlimTools } from "@/components/app/work/slim-bar";
+import { SlimBar } from "@/components/app/work/slim-bar";
+import { AreaChip, AreaSelector, type AreaOption } from "@/components/app/work/area-selector";
 import { StatusTiles, TileChips } from "@/components/app/work/status-tiles";
 import { TitleRow } from "@/components/app/work/title-row";
 import { rowClickOpens } from "@/components/app/work/open-row";
@@ -26,8 +25,8 @@ import { cn } from "@/lib/utils";
 
 /**
  * The To-dos page (batch B; push C, approved 2026-11-02 and 2026-11-03; the header of 2026-11-04): at most 720px wide.
- * The title with the Area filter (a small box under the button; a personal to-do is To-dos, a record task counts by its
- * record's area) and Ask AI, the top menu row under 1024px, then four tiles that work like tabs (Today with overdue and
+ * The title with Ask AI, the top menu row under 1024px, the Area selector (one area or All; a personal to-do is
+ * To-dos, a record task counts by its record's area; remembered for the day), then four tiles that work like tabs (Today with overdue and
  * undated personal to-dos, Next 7 days, Later, Done today; src/lib/work/tiles.ts) and one card: the intro line, the
  * selected tile's list under its pinned band (Next 7 days has a Tomorrow line, then the rest of the week), and Add at
  * the bottom. Personal to-dos and the dated tasks of records mix by date: a record task carries the gray record pill
@@ -39,8 +38,6 @@ import { cn } from "@/lib/utils";
  */
 const PANEL_ID = "todos-panel";
 const noSubscribe = () => () => {};
-/** The Area filter (2026-11-04): a personal to-do is To-dos; a task on a record counts by its record's area. */
-const AREA_GROUP: FilterGroup<PersonalTodo>[] = [{ key: "area", title: "Area", options: TODO_AREAS.map((a) => ({ value: a.value, label: a.label })), test: (t, v) => todoAreaOf(t.record) === v }];
 const TODO_EMPTY: Record<TodoSectionKey, string> = { today: "Nothing left for today.", week: "Nothing in the next 7 days.", later: "Nothing planned for later.", done: "Nothing checked off yet today." };
 const INPUT = "h-9 min-w-0 rounded-[7px] border border-input bg-white px-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
 const LABEL = "mb-1 block text-[12.5px] font-medium text-slate-700";
@@ -69,35 +66,30 @@ export function TodosBoard({ data, askAi, tabs }: { data: TodosData; askAi: Reac
   }
   useUnsavedWork(text.trim() !== "", "The to-do you typed is not added yet.");
   const { today, records } = data;
-  // ---------- The Area filter: narrows the lists and the tile numbers; remembered in this browser ----------
-  const savedAreaRaw = useSyncExternalStore(noSubscribe, () => readRaw(TODO_AREA_STORAGE_KEY), () => null);
-  const savedTicks = useMemo(() => parseTicks(savedAreaRaw, AREA_GROUP), [savedAreaRaw]);
-  const [chosenTicks, setChosenTicks] = useState<Ticks | null>(null);
-  const ticks = chosenTicks ?? savedTicks;
-  const areaTicked = useMemo(() => ticks.area ?? [], [ticks]);
-  const narrow = (t: Ticks) => (list: readonly PersonalTodo[]) => (t.area?.length ? list.filter((x) => t.area!.includes(todoAreaOf(x.record))) : [...list]);
+  // ---------- The Area selector: one area or All; narrows the lists and the tile numbers; remembered for the day ----------
+  const savedArea = useSyncExternalStore(noSubscribe, () => parseAreaChoice(readRaw(TODO_AREA_STORAGE_KEY), today, TODO_AREAS), () => null);
+  const [chosenArea, setChosenArea] = useState<{ area: AreaKey | null } | null>(null);
+  const area = chosenArea ? chosenArea.area : savedArea;
+  // A personal to-do is To-dos; a task on a record counts by its record's area.
+  const narrow = (a: AreaKey | null) => (list: readonly PersonalTodo[]) => (a ? list.filter((x) => todoAreaOf(x.record) === a) : [...list]);
   const sections = useMemo(() => {
-    const f = narrow(ticks);
+    const f = narrow(area);
     return Object.fromEntries(TODO_SECTIONS.map((s) => [s.key, f(data.sections[s.key])])) as Record<TodoSectionKey, PersonalTodo[]>;
-  }, [data.sections, ticks]);
+  }, [data.sections, area]);
   const tiles: Tile<TodoSectionKey>[] = TODO_SECTIONS.map((s) => ({ key: s.key, label: s.label, count: sections[s.key].length }));
   const [chosenTile, setChosenTile] = useState<TodoSectionKey | null>(null);
   const selected = selectedTile(chosenTile, tiles) as TodoSectionKey;
-  const [filterAnchor, setFilterAnchor] = useState<HTMLElement | null>(null);
-  const toggleFilter = (el: HTMLElement) => setFilterAnchor((a) => (a === el ? null : el));
-  const closeFilter = useCallback(() => setFilterAnchor(null), []);
   const allItems = useMemo(() => TODO_SECTIONS.flatMap((s) => data.sections[s.key]), [data.sections]);
-  const setTicks = (t: Ticks) => {
-    setChosenTicks(t);
+  const areaOptions: AreaOption<AreaKey>[] = [{ value: null, label: "All", count: allItems.length }, ...TODO_AREAS.map((x) => ({ value: x.value, label: x.label, count: allItems.filter((t) => todoAreaOf(t.record) === x.value).length }))];
+  const pickArea = (a: AreaKey | null) => {
+    setChosenArea({ area: a });
     try {
-      const v = ticksToParam(t);
-      if (v) window.localStorage.setItem(TODO_AREA_STORAGE_KEY, v);
-      else window.localStorage.removeItem(TODO_AREA_STORAGE_KEY);
+      window.localStorage.setItem(TODO_AREA_STORAGE_KEY, areaToStore(a, today));
     } catch {
       /* no storage: the choice holds until the page reloads */
     }
-    // A tick that drops the selected tile to 0 selects the first tile with items.
-    const f = narrow(t);
+    // An area that leaves the selected tile at 0 selects the first tile with items.
+    const f = narrow(a);
     setChosenTile(tileAfterFilter(selected, TODO_SECTIONS.map((s) => ({ key: s.key, count: f(data.sections[s.key]).length }))));
   };
   const pickTile = (k: TodoSectionKey) => {
@@ -155,12 +147,22 @@ export function TodosBoard({ data, askAi, tabs }: { data: TodosData; askAi: Reac
   const label = TODO_SECTIONS.find((s) => s.key === selected)?.label ?? "";
   return (
     <div className="w-full max-w-[720px]">
-      <SlimBar title="To-dos" chips={<TileChips tiles={tiles} selected={selected} onPick={pickTile} label="To-dos" idPrefix="todos-chip" panelId={PANEL_ID} />} tools={<SlimTools filterCount={areaTicked.length} onFilter={toggleFilter} filterOpen={!!filterAnchor} />} />
+      <SlimBar
+        title="To-dos"
+        chips={
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
+            <AreaChip options={areaOptions} selected={area} onPick={pickArea} />
+            <TileChips tiles={tiles} selected={selected} onPick={pickTile} label="To-dos" idPrefix="todos-chip" panelId={PANEL_ID} />
+          </div>
+        }
+      />
       <header className="pb-5" data-testid="todos-header">
-        <TitleRow title="To-dos" tools={<FilterMenuButton label={filterButtonLabel("Area", AREA_GROUP, ticks)} ticked={areaTicked.length} open={!!filterAnchor} onOpen={toggleFilter} />} askAi={askAi} />
+        <TitleRow title="To-dos" askAi={askAi} />
         {tabs}
+        <div className="mt-4" data-testid="todos-area">
+          <AreaSelector options={areaOptions} selected={area} onPick={pickArea} />
+        </div>
       </header>
-      <FilterPopover anchor={filterAnchor} onClose={closeFilter} groups={AREA_GROUP} ticks={ticks} counts={optionCounts(allItems, AREA_GROUP, ticks)} onToggle={(g, v) => setTicks(toggleTick(ticks, g, v))} onClear={() => setTicks({})} />
       <StatusTiles tiles={tiles} selected={selected} onPick={pickTile} label="To-dos" idPrefix="todos-tile" panelId={PANEL_ID} testId="todos-tiles" className="mb-6" />
       <section id={PANEL_ID} role="tabpanel" aria-labelledby={`todos-tile-${selected}`} className="w-full rounded-xl border border-border bg-white px-[22px] pb-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]" data-testid="todos-card">
         <div className="flex min-h-[46px] flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2 text-[13px] text-muted-foreground">
