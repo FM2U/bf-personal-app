@@ -9,6 +9,7 @@
 -- Push B (2026-11-03) is included: People and Organizations, partner report days and sections, Gmail replies.
 -- Push C (2026-11-03) is included: one list of tasks and to-dos with dates and Repeat, and Block time.
 -- Push D (2026-11-04) is included: an end date for Repeat, the Weekly review on Friday, and monthly reviews.
+-- Push E (2026-11-05) is included: No reply yet, Add to Waiting, and waiting on a person.
 
 -- Stops here, changing nothing, if this database already has the app's tables (for example the old project).
 do $$
@@ -726,6 +727,7 @@ CREATE TABLE public.communications (
     call_outcome text,
     awaiting_log boolean DEFAULT false NOT NULL,
     partner_report_id uuid,
+    no_reply_dismissed_at timestamp with time zone,
     CONSTRAINT communications_call_minutes_check CHECK (((call_minutes IS NULL) OR ((call_minutes >= 0) AND (call_minutes <= 1440)))),
     CONSTRAINT communications_direction_check CHECK ((direction = ANY (ARRAY['outgoing'::text, 'incoming'::text, 'both'::text]))),
     CONSTRAINT communications_method_check CHECK ((method = ANY (ARRAY['email'::text, 'call'::text, 'letter'::text, 'meeting'::text, 'text'::text, 'video'::text, 'other'::text]))),
@@ -792,6 +794,9 @@ CREATE TABLE public.contacts (
     archived_at timestamp with time zone,
     report_days smallint[] DEFAULT '{}'::smallint[] NOT NULL,
     report_sections text[] DEFAULT '{}'::text[] NOT NULL,
+    waiting_on text,
+    waiting_since date,
+    waiting_comm_id uuid,
     CONSTRAINT contacts_outreach_every_days_check CHECK (((outreach_every_days IS NULL) OR ((outreach_every_days >= 1) AND (outreach_every_days <= 3650)))),
     CONSTRAINT contacts_outreach_role_check CHECK (((outreach_role IS NULL) OR (outreach_role = ANY (ARRAY['broker'::text, 'lender'::text, 'personal_network'::text, 'service_provider'::text, 'rosara_customer'::text, 'recruiter'::text, 'cofounder_candidate'::text, 'investor'::text, 'accountability_partner'::text, 'consulting_client'::text, 'other'::text])))),
     CONSTRAINT contacts_purposes_check CHECK ((purposes <@ ARRAY['off_market_deals'::text, 'job_search'::text, 'consulting'::text, 'rosara'::text])),
@@ -1106,6 +1111,7 @@ CREATE TABLE public.pipeline_items (
     risks jsonb,
     growth_paths jsonb,
     financing text DEFAULT 'equity'::text NOT NULL,
+    waiting_comm_id uuid,
     CONSTRAINT pipeline_items_deal_source_type_check CHECK (((deal_source_type IS NULL) OR (deal_source_type = ANY (ARRAY['proprietary'::text, 'brokered'::text])))),
     CONSTRAINT pipeline_items_financing_check CHECK ((financing = ANY (ARRAY['equity'::text, 'equity_plus_debt'::text]))),
     CONSTRAINT pipeline_items_growth_paths_check CHECK (((growth_paths IS NULL) OR ((jsonb_typeof(growth_paths) = 'array'::text) AND (jsonb_array_length(growth_paths) <= 3)))),
@@ -1766,6 +1772,13 @@ CREATE INDEX communications_partner_report_idx ON public.communications USING bt
 
 
 --
+-- Name: communications_thread_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX communications_thread_idx ON public.communications USING btree (owner_id, gmail_thread_id) WHERE (gmail_thread_id IS NOT NULL);
+
+
+--
 -- Name: contacts_follow_up_date_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2415,6 +2428,14 @@ ALTER TABLE ONLY public.contacts
 
 
 --
+-- Name: contacts contacts_waiting_comm_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.contacts
+    ADD CONSTRAINT contacts_waiting_comm_id_fkey FOREIGN KEY (waiting_comm_id) REFERENCES public.communications(id) ON DELETE SET NULL;
+
+
+--
 -- Name: deal_financials deal_financials_item_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2588,6 +2609,14 @@ ALTER TABLE ONLY public.pipeline_items
 
 ALTER TABLE ONLY public.pipeline_items
     ADD CONSTRAINT pipeline_items_source_contact_id_fkey FOREIGN KEY (source_contact_id) REFERENCES public.contacts(id) ON DELETE SET NULL;
+
+
+--
+-- Name: pipeline_items pipeline_items_waiting_comm_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pipeline_items
+    ADD CONSTRAINT pipeline_items_waiting_comm_id_fkey FOREIGN KEY (waiting_comm_id) REFERENCES public.communications(id) ON DELETE SET NULL;
 
 
 --
