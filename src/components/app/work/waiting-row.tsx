@@ -27,13 +27,20 @@ export function WaitingRow({ item, followedUp, onFollowUp, onClear, clearing }: 
       openLabel={`Open ${item.name}`}
       stack
     >
-      <Line1>
-        {item.kind === "person" ? <LanePill lane="People" /> : null}
-        <Link href={item.href} className="min-w-0 hover:underline">
-          <Name>{item.name}</Name>
+      {/* Edits of Nov 5: every part of the heading sits in a 20px line box, top-aligned and on one row, so the stage or
+          role is centered on the name's line instead of riding higher; a long name wraps beside it, and the stage stays
+          level with the name's first line. */}
+      <Line1 className="flex-nowrap items-start">
+        {item.kind === "person" ? (
+          <span className="flex h-5 shrink-0 items-center">
+            <LanePill lane="People" />
+          </span>
+        ) : null}
+        <Link href={item.href} className="block min-w-0 text-sm leading-5 hover:underline" data-testid="waiting-name">
+          <Name className="leading-5">{item.name}</Name>
         </Link>
         {item.context ? (
-          <span className="text-xs text-muted-foreground" data-testid="waiting-context">
+          <span className="block shrink-0 text-xs leading-5 whitespace-nowrap text-muted-foreground" data-testid="waiting-context">
             {item.context}
           </span>
         ) : null}
@@ -88,7 +95,7 @@ function WaitLineRow({ line, followedUp, onFollowUp, onClear, clearing }: { line
 }
 
 /**
- * One row of "No reply yet" (push E): "Sent Nov 2 to Mark Reed: <subject>", the deal or other record it is about under
+ * One row of "No reply yet" (push E; wording of Nov 5): "Emailed Nov 2 to Mark Reed: <subject>", the deal or other record it is about under
  * it, then Add to Waiting and Dismiss. A click elsewhere on the row opens the deal or the person.
  */
 export function NoReplyRow({ row, busy, onAdd, onDismiss }: { row: NoReplyData; busy: boolean; onAdd: () => void; onDismiss: () => void }) {
@@ -113,7 +120,7 @@ export function NoReplyRow({ row, busy, onAdd, onDismiss }: { row: NoReplyData; 
       <Line1>
         <span className="min-w-0 text-[13.5px] text-slate-900" data-testid="no-reply-line">
           <b className="font-semibold">
-            Sent {fmtDate(row.sentOn, "MMM d")}
+            Emailed {fmtDate(row.sentOn, "MMM d")}
             {row.to ? ` to ${row.to}` : ""}:
           </b>{" "}
           {row.subject}

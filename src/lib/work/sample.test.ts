@@ -140,7 +140,7 @@ describe("the push E sample (No reply yet, a person waited on, Replied)", () => 
     const priya = b.waits.filter((x) => x.contact_id === id("Priya Natarajan"));
     expect(priya.map((x) => [x.text, x.since, x.comm_id])).toEqual([["Intros to the two owners who asked about exit loans", "2026-10-30", null]]);
     const pine = b.waits.filter((x) => x.pipeline_item_id === id("Pinecrest Landscaping"));
-    expect(pine.map((x) => [x.text, x.comm_id])).toEqual([["A reply to: Pinecrest LOI", threaded.find((c) => c.subject === "Pinecrest LOI")!.id]]);
+    expect(pine.map((x) => [x.text, x.comm_id])).toEqual([["Reply to your email: Pinecrest LOI", threaded.find((c) => c.subject === "Pinecrest LOI")!.id]]);
     expect(b.waits.every((x) => !!x.pipeline_item_id !== !!x.contact_id)).toBe(true);
   });
 });

@@ -10,7 +10,7 @@ import { CONSULTING_CLOSED, CONSULTING_STAGES, JOB_CLOSED, JOB_STAGES, findOutLi
 import { parseOpenQuestions } from "@/lib/work/questions";
 import { dayInStage, type WaitLevel } from "@/lib/work/stages";
 import { waitLines, waitSummary, type SavedWait, type WaitLine } from "@/lib/work/waiting";
-import { loadWaitsFor } from "@/lib/work/waits-data";
+import { loadWaitReplies, loadWaitsFor, withReplies } from "@/lib/work/waits-data";
 import { commKind, commTitle, type TimelineEvent } from "@/lib/work/timeline";
 import { RECORD_TASK_COLUMNS, sortTodos, toDealTodo, topTodo, type DealTodo } from "@/lib/work/todos";
 import type { Row } from "@/lib/types";
@@ -240,7 +240,9 @@ export async function loadItemPage(sb: SupabaseClient, ownerId: string, kind: It
   ]);
   const todos = sortTodos(((taskRows ?? []) as Row[]).map(toTask));
   const waits = await loadWaitsFor(sb, ownerId, { itemIds: [id] });
-  const item = toItemRow(kind, i, pipe, ctx, (contact as Row | null) ?? undefined, (details as Row | null) ?? undefined, todos, waits.byItem[id]);
+  const itemRow = toItemRow(kind, i, pipe, ctx, (contact as Row | null) ?? undefined, (details as Row | null) ?? undefined, todos, waits.byItem[id]);
+  // Edits of Nov 5 (item 6): Replied and Clear on a wait whose email has a reply.
+  const item: ItemRow = { ...itemRow, waits: withReplies(itemRow.waits, await loadWaitReplies(sb, ownerId, waits.byItem[id] ?? [], ctx.tz)) };
   const commRows = ((comms ?? []) as Row[]).filter((c) => !c.awaiting_log);
   const linkedIds = ((links ?? []) as Row[]).map((l) => l.from_id).filter((x) => !commRows.some((c) => c.id === x));
   if (linkedIds.length) {

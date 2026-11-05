@@ -61,9 +61,9 @@ import { cn } from "@/lib/utils";
  * Soonest first. Each new day starts on Soonest first. Push C: the solid "Work through" button opens the step-by-step
  * window (work-through.tsx); every row with Done has the block icon (block-time.tsx) and "Blocked 2:00" under its date.
  * Right third, level with the tiles: Waiting on someone (never filtered; its groups start closed and the card scrolls
- * on its own; push E: deals and people in "N+ days" and "< N days", then "No reply yet", each showing 8 rows; push E2:
- * one row per deal or person with a line per wait, in the group of its longest wait; the card counts the rows
- * then Show all), Today's calendar, Targets today, Contacts, Rosara, Job search, Screen listings, Deals at a
+ * on its own; push E: deals and people in "N+ days" and "< N days", then "No reply yet", each showing 8 rows, then
+ * Show all; push E2: one row per deal or person with a line per wait, in the group of its longest wait; edits of Nov 5:
+ * the card and each group count the waits, not the rows, while Show all (N) counts the rows it opens), Today's calendar, Targets today, Contacts, Rosara, Job search, Screen listings, Deals at a
  * glance. In a desktop window at least 720px tall the two columns scroll inside; under 1024px or in a shorter window
  * the page scrolls, and the slim pinned bar slides in once the title row and the tiles are gone.
  *
@@ -218,7 +218,9 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
   const waitItems = useMemo(() => data.waiting.items.map((w) => waitItem({ key: w.key, kind: w.kind, id: w.id, name: w.name, href: w.href, context: w.context }, w.lines.filter((l) => !gone[l.waitId]))).filter((w): w is WaitItem => !!w), [data.waiting.items, gone]);
   const noReply = useMemo(() => data.waiting.noReply.filter((r) => !gone[r.commId]), [data.waiting.noReply, gone]);
   const waiting = useMemo(() => waitGroups(waitItems, threshold), [waitItems, threshold]);
-  const waitCount = waitItems.length;
+  // Edits of Nov 5: the card and each group count the waits (a deal with two waits counts 2), not the rows.
+  const waitsIn = (list: readonly WaitItem[]) => list.reduce((n, w) => n + w.lines.length, 0);
+  const waitCount = waitsIn(waitItems);
   const [waitOpen, setWaitOpen] = useState<Record<string, boolean>>({});
   const waitSave = (key: string, save: () => Promise<{ ok: true } | { ok: false; error: string }>) => {
     setWaitError(null);
@@ -232,7 +234,7 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
   };
   type WaitLine = { key: string; item: WaitItem | null; mail: NoReplyData | null };
   const waitGroupList: { key: string; label: string; count: number; rows: WaitLine[] }[] = [
-    ...waiting.map((w) => ({ key: w.key, label: w.label, count: w.items.length, rows: w.items.map((it) => ({ key: it.key, item: it, mail: null })) })),
+    ...waiting.map((w) => ({ key: w.key, label: w.label, count: waitsIn(w.items), rows: w.items.map((it) => ({ key: it.key, item: it, mail: null })) })),
     { key: "no-reply", label: "No reply yet", count: noReply.length, rows: noReply.map((r) => ({ key: r.commId, item: null, mail: r })) },
   ];
 

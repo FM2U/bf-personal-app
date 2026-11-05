@@ -232,7 +232,8 @@ function GroupHeading({ children, note, testId }: { children: React.ReactNode; n
   return (
     <h2 className="label-caps mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-rule pb-[7px]" data-testid="reports-group-heading" data-group={testId}>
       <span>{children}</span>
-      {note ? <span className="text-xs font-normal tracking-normal text-muted-foreground normal-case sm:ml-auto">{note}</span> : null}
+      {/* Edits of Nov 5 (item 3): the week line reads at a glance: one line, 13.5px, medium, slate-600. */}
+      {note ? <span className="text-[13.5px] font-medium tracking-normal text-slate-600 normal-case sm:ml-auto sm:whitespace-nowrap">{note}</span> : null}
     </h2>
   );
 }

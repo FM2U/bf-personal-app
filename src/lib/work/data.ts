@@ -17,7 +17,7 @@ import { parseFindingList } from "@/lib/work/deal-facts";
 import { DEFAULT_WAIT_THRESHOLD_DAYS, WORK_STAGES, dayInStage, doneOutcome, nextStageName, stageIndex, type WaitLevel } from "@/lib/work/stages";
 import { commTitle, type TimelineEvent } from "@/lib/work/timeline";
 import { DEFAULT_NO_REPLY_DAYS, waitLines, waitSummary, type SavedWait, type WaitLine } from "@/lib/work/waiting";
-import { loadWaitsFor } from "@/lib/work/waits-data";
+import { loadWaitReplies, loadWaitsFor, withReplies } from "@/lib/work/waits-data";
 export type { TimelineEvent } from "@/lib/work/timeline";
 import { RECORD_TASK_COLUMNS, sortTodos, toDealTodo, topTodo, type DealTodo } from "@/lib/work/todos";
 import { DEFAULT_EOD_TIME, parseTime } from "@/lib/work/settings";
@@ -456,7 +456,9 @@ export async function loadDealPage(sb: SupabaseClient, ownerId: string, id: stri
   const todos = sortTodos(((todoRows ?? []) as Row[]).map(toTodo));
   // Strengths and risks (database update 0028), growth paths and financing (0029) come with the row read with "*".
   const fullRow = (full as Row | null) ?? {};
-  const deal = toDealRow({ ...item, strengths: fullRow.strengths, risks: fullRow.risks, growth_paths: fullRow.growth_paths, ...(Object.prototype.hasOwnProperty.call(fullRow, "financing") ? { financing: fullRow.financing } : {}) }, (fin as Row | null) ?? undefined, (contact as Row | null) ?? undefined, pipe, ctx, todos, waits.byItem[id]);
+  const dealRow = toDealRow({ ...item, strengths: fullRow.strengths, risks: fullRow.risks, growth_paths: fullRow.growth_paths, ...(Object.prototype.hasOwnProperty.call(fullRow, "financing") ? { financing: fullRow.financing } : {}) }, (fin as Row | null) ?? undefined, (contact as Row | null) ?? undefined, pipe, ctx, todos, waits.byItem[id]);
+  // Edits of Nov 5 (item 6): a wait whose email has a reply shows Replied and Clear on the Next action card.
+  const deal: DealRow = { ...dealRow, waits: withReplies(dealRow.waits, await loadWaitReplies(sb, ownerId, waits.byItem[id] ?? [], ctx.tz)) };
   // Communications linked through record_links but not stamped with the item (older rows).
   const commRows = ((comms ?? []) as Row[]).filter((c) => !c.awaiting_log);
   const linkedIds = ((links ?? []) as Row[]).map((l) => l.from_id).filter((x) => !commRows.some((c) => c.id === x));

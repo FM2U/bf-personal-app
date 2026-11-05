@@ -7,18 +7,19 @@ import { displayName } from "@/lib/work/names";
 import { loadPipelineOfKind, loadWorkCtx, type WorkCtx, type WorkPipeline } from "@/lib/work/data";
 import { weekdayShort } from "@/lib/work/outreach";
 import { waitLines, type SavedWait } from "@/lib/work/waiting";
+import { recordHref } from "@/lib/work/task-records";
 import { loadWaitsFor } from "@/lib/work/waits-data";
 import { buildFacts } from "@/lib/accountability/facts";
 import { pillOf, reportFor, reportInnerHtml, targetGroup, targetLine, type ReportData } from "@/lib/accountability/report-email";
 import { cleanChoices, cleanReview, hasChoices, reviewAnswered, type ReportChoices, type WeeklyReview } from "@/lib/accountability/report-sections";
 import { brokerPerson, reportDeals, type DealRows } from "@/lib/accountability/report-deals";
 import { firstName, partnerSettings, partnersDueOn, type ReportSectionKey } from "@/lib/accountability/partners";
-import { PAST_WEEKS, pastWeekPeriodKey, type PeriodKey } from "@/lib/accountability/periods";
+import { PAST_WEEKS, pastWeekPeriodKey, weekLine, type PeriodKey } from "@/lib/accountability/periods";
 import { tileHistories, type TileHistory } from "@/lib/accountability/week-history";
 import {
   countedDays, countIn, DEFAULT_TARGETS, dayNumbers, figure, isCountKey, judgeDay, listNames, metThisWeek, mostMissed, mostMissedIn, owedFromLastClosed, owedReasons, pastWeeks, shortName,
   targetView, tileEodLine, tileTargetLine, tileTargets, todayTiles, tomorrowLabel, reportTiles, weekNumbers, weekTiles, workWeekOf,
-  type Cadence, type DayNumbers, type EodState, type Facts, type Judged, type Target, type TargetView, type WeekNumbers, type WeekTile,
+  type Cadence, type DayNumbers, type DayWait, type EodState, type Facts, type Judged, type Target, type TargetView, type WeekNumbers, type WeekTile,
 } from "@/lib/accountability/targets";
 import { DEFAULT_EOD_TIME, eodLong, eodShort, parseTime } from "@/lib/work/settings";
 import type { Row } from "@/lib/types";
@@ -77,7 +78,7 @@ async function seedDefaultTargets(sb: SupabaseClient, ownerId: string, existing:
 /** An open wait as Targets, End of day, and Reports count it: one per deal (or person), its longest wait. */
 type Wait = { name: string; days: number; who: string | null; what: string | null; since: string | null; /** YYYY-MM-DD. */ sinceDate: string | null; dealId: string; kind: "deal" | "person" };
 
-type FactsBundle = { facts: Facts; waits: Wait[]; /** Push E2, item 5: the people waited on (End of day's "waiting N+ days" counts them with the deals; the report's broker section does not). */ personWaits: Wait[]; /** Days skipped on End of day (not counted). */ skippedDays: string[]; /** Passed listings by reason in the window (for Reports). */ passes: { on: string; name: string; reason: string | null }[]; /** The rows the report's deal sections read (push B edits), with the deal and job pipeline ids. */ raw: DealRows & { acqId: string | null; jobId: string | null } };
+type FactsBundle = { facts: Facts; waits: Wait[]; /** Push E2, item 5: the people waited on (End of day's "waiting N+ days" counts them with the deals; the report's broker section does not). */ personWaits: Wait[]; /** Edits of Nov 5: every open wait of the deals and people, one entry each (End of day counts these). */ eachWait: DayWait[]; /** Days skipped on End of day (not counted). */ skippedDays: string[]; /** Passed listings by reason in the window (for Reports). */ passes: { on: string; name: string; reason: string | null }[]; /** The rows the report's deal sections read (push B edits), with the deal and job pipeline ids. */ raw: DealRows & { acqId: string | null; jobId: string | null } };
 
 /** The facts from `since` (YYYY-MM-DD) to today: enough for the 8-week strips, the Past weeks, and This month. */
 export async function loadFacts(sb: SupabaseClient, ctx: WorkCtx, since: string): Promise<FactsBundle> {
@@ -108,31 +109,39 @@ export async function loadFacts(sb: SupabaseClient, ctx: WorkCtx, since: string)
   const nameOf = (i: Row) => displayName({ name: String(i.name), companyName: (i.company_name as string | null) ?? null });
   // The counting itself is pure and shared (src/lib/accountability/facts.ts).
   const { facts, passes } = buildFacts({ items: (items ?? []) as Row[], history: (hist ?? []) as Row[], comms: (comms ?? []) as Row[], events: (events ?? []) as Row[], people: (people ?? []) as Row[], tasks: (doneTasks ?? []) as Row[], stageById, laneOf, since, local });
-  // One wait per deal or person: its longest; "what" names every wait ("The CIM; A reply to: Oakline CIM").
+  // One wait per deal or person: its longest; "what" names every wait ("The CIM; Reply to your email: Oakline CIM").
   const longest = (saved: readonly SavedWait[]) => {
     const lines = waitLines(saved, ctx.today, ctx.threshold);
     return lines.length ? { days: lines[0].days, what: lines.map((l) => l.text).join("; "), sinceDate: lines[0].since } : null;
   };
-  const waits: Wait[] = ((items ?? []) as Row[])
-    .filter((i) => i.status === "open" && laneOf[String(i.pipeline_id)] === "Deals" && i.stage_id && stageById[String(i.stage_id)]?.outcome === "open")
+  const openDeals = ((items ?? []) as Row[]).filter((i) => i.status === "open" && laneOf[String(i.pipeline_id)] === "Deals" && i.stage_id && stageById[String(i.stage_id)]?.outcome === "open");
+  const dealWho = (i: Row) => {
+    const contact = i.primary_contact_id ? personById.get(String(i.primary_contact_id)) : null;
+    return String(contact?.name ?? "").trim() || brokerPerson(i.broker_name as string | null) || null;
+  };
+  const openPeople = ((people ?? []) as Row[]).filter((p) => !p.archived_at);
+  const waits: Wait[] = openDeals
     .flatMap((i): Wait[] => {
       const w = longest(waitRows.byItem[String(i.id)] ?? []);
       if (!w) return [];
-      const contact = i.primary_contact_id ? personById.get(String(i.primary_contact_id)) : null;
-      const who = String(contact?.name ?? "").trim() || brokerPerson(i.broker_name as string | null) || null;
-      return [{ dealId: String(i.id), kind: "deal", name: nameOf(i), days: w.days, who, what: w.what, since: w.sinceDate ? fmtDate(w.sinceDate, "MMM d") : null, sinceDate: w.sinceDate }];
+      return [{ dealId: String(i.id), kind: "deal", name: nameOf(i), days: w.days, who: dealWho(i), what: w.what, since: w.sinceDate ? fmtDate(w.sinceDate, "MMM d") : null, sinceDate: w.sinceDate }];
     })
     .sort((a, b) => b.days - a.days);
-  const personWaits: Wait[] = ((people ?? []) as Row[])
-    .filter((p) => !p.archived_at)
+  const personWaits: Wait[] = openPeople
     .flatMap((p): Wait[] => {
       const w = longest(waitRows.byContact[String(p.id)] ?? []);
       return w ? [{ dealId: String(p.id), kind: "person", name: String(p.name ?? ""), days: w.days, who: null, what: w.what, since: w.sinceDate ? fmtDate(w.sinceDate, "MMM d") : null, sinceDate: w.sinceDate }] : [];
     })
     .sort((a, b) => b.days - a.days);
+  // Edits of Nov 5 (item 5): every wait on its own, for End of day's "N waiting 5+ days" and its panel (each a link).
+  const each = (saved: readonly SavedWait[], base: Omit<DayWait, "days" | "what" | "since">): DayWait[] => waitLines(saved, ctx.today, ctx.threshold).map((l) => ({ ...base, days: l.days, what: l.text, since: l.since ? fmtDate(l.since, "MMM d") : null }));
+  const eachWait: DayWait[] = [
+    ...openDeals.flatMap((i) => each(waitRows.byItem[String(i.id)] ?? [], { kind: "deal", name: nameOf(i), who: dealWho(i), href: recordHref({ kind: "deal", id: String(i.id) }) })),
+    ...openPeople.flatMap((p) => each(waitRows.byContact[String(p.id)] ?? [], { kind: "person", name: String(p.name ?? ""), who: null, href: recordHref({ kind: "person", id: String(p.id) }) })),
+  ].sort((a, b) => b.days - a.days);
   const skippedDays = ((eods ?? []) as Row[]).map((e) => String(e.day).slice(0, 10));
   const raw = { items: (items ?? []) as Row[], history: (hist ?? []) as Row[], comms: (comms ?? []) as Row[], notes: (notes ?? []) as Row[], events: (events ?? []) as Row[], people: (people ?? []) as Row[], waits: waitRows.rows, stageById, acqId: acq?.id ?? null, jobId: job?.id ?? null };
-  return { facts, waits, personWaits, skippedDays, passes, raw };
+  return { facts, waits, personWaits, eachWait, skippedDays, passes, raw };
 }
 
 /** The window the screens read: 9 weeks back (the 8-week strips and four past weeks) or the start of the month, whichever is earlier. */
@@ -281,7 +290,7 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
   const weekday = !["Sat", "Sun"].includes(weekdayShort(day));
   // A sent or skipped day keeps the judgment it was closed with; an open day is judged live.
   const judged = row.status !== "open" && row.judged.length ? row.judged : judgeDay(targets, bundle.facts, day, bundle.skippedDays);
-  const numbers = dayNumbers(bundle.facts, day, bundle.waits, i.threshold, bundle.personWaits);
+  const numbers = dayNumbers(bundle.facts, day, bundle.waits, i.threshold, bundle.personWaits, bundle.eachWait);
   const week = workWeekOf(day);
   const weekSums: Record<string, number> = {};
   for (const t of targets) if (t.cadence === "day") weekSums[t.id] = countIn(t.key, bundle.facts, week.start, day).value;
@@ -369,7 +378,7 @@ export type { PeriodKey };
 export type PeriodView = {
   key: PeriodKey;
   label: string;
-  /** "Week of Oct 27 to 31 · counted so far; the per-week targets are judged at End of day". */
+  /** "This week, Nov 2 to 6 · partial, through today, Thu Nov 5", "This week, Nov 2 to 6", or "Week of Oct 12 to 16". */
   lead: string;
   tiles: ReturnType<typeof weekTiles>;
   /** The last 4 weeks under each tile, by the tile's label (push B edits). */
@@ -435,13 +444,13 @@ export async function loadReportsPage(sb: SupabaseClient, ctx: Ctx): Promise<Rep
   const month = { start: monthStart(ctx.today), end: ctx.today };
   const monthName = fmtDate(ctx.today, "MMMM");
   const defs: { key: PeriodKey; label: string; period: { start: string; end: string }; lead: string; words: string; last: { start: string; end: string } | null }[] = [
-    { key: "this", label: "This week", period: week, lead: `Week of ${fmtDate(week.start, "MMM d")} to ${fmtDate(week.end, "d")} · ${weekOpen ? "counted so far; the per-week targets are judged at End of day on Friday" : "judged at End of day on Friday"}`, words: "this week", last },
-    { key: "last", label: "Last week", period: last, lead: `Week of ${fmtDate(last.start, "MMM d")} to ${fmtDate(last.end, "d")}`, words: "last week", last: { start: addDaysISO(last.start, -7), end: addDaysISO(last.start, -3) } },
+    { key: "this", label: "This week", period: week, lead: weekLine(week, { thisWeek: true, open: weekOpen, today: ctx.today }), words: "this week", last },
+    { key: "last", label: "Last week", period: last, lead: weekLine(last, { thisWeek: false }), words: "last week", last: { start: addDaysISO(last.start, -7), end: addDaysISO(last.start, -3) } },
     // The older weeks of Past weeks (opened from Targets or a tile; their pill shows only while one is open).
     ...Array.from({ length: PAST_WEEKS - 1 }, (_, i) => {
       const start = addDaysISO(week.start, -7 * (i + 2));
       const period = { start, end: addDaysISO(start, 4) };
-      return { key: pastWeekPeriodKey(i + 2), label: `Week of ${fmtDate(start, "MMM d")}`, period, lead: `Week of ${fmtDate(start, "MMM d")} to ${fmtDate(period.end, "d")}`, words: `the week of ${fmtDate(start, "MMM d")}`, last: { start: addDaysISO(start, -7), end: addDaysISO(start, -3) } };
+      return { key: pastWeekPeriodKey(i + 2), label: `Week of ${fmtDate(start, "MMM d")}`, period, lead: weekLine(period, { thisWeek: false }), words: `the week of ${fmtDate(start, "MMM d")}`, last: { start: addDaysISO(start, -7), end: addDaysISO(start, -3) } };
     }),
     { key: "month", label: monthName, period: month, lead: `${monthName} · ${fmtDate(month.start, "MMM d")} to ${fmtDate(ctx.today, "MMM d")} · this week counted so far`, words: `in ${monthName}`, last: null },
   ];

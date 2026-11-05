@@ -72,6 +72,9 @@ describe("waiting on someone", () => {
     expect(d.body).toContain("11 days");
     expect(d.body).not.toMatch(/[\u2013\u2014]/);
     expect(followUpDraft({ dealName: "X", waitingOn: null, contactName: null, days: 1 }).body).toContain("Hi there,");
+    // A wait made from an email reads as a reply to that email, in the new wording and the one saved before Nov 5.
+    expect(followUpDraft({ dealName: "Pinecrest", waitingOn: "Reply to your email: Pinecrest LOI", contactName: "Dana", days: 6 }).body).toContain("still waiting on your reply to my email about Pinecrest LOI.");
+    expect(followUpDraft({ dealName: "Pinecrest", waitingOn: "A reply to: Pinecrest LOI", contactName: "Dana", days: 6 }).body).toContain("still waiting on your reply to my email about Pinecrest LOI.");
   });
 });
 

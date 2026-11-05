@@ -40,7 +40,7 @@ async function sentEmail(sb: SupabaseClient, ownerId: string, id: string): Promi
 }
 
 /**
- * Add to Waiting: an email on an open deal adds the line "A reply to: <subject>" to the deal's waits, since the day it
+ * Add to Waiting: an email on an open deal adds the line "Reply to your email: <subject>" to the deal's waits, since the day it
  * was sent, and remembers the email; any other email (from a person or organization page, or about a job or
  * consulting item) adds the same line to the person it went to. It never replaces a wait already there (push E2).
  */

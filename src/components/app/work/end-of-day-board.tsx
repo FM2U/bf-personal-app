@@ -588,36 +588,52 @@ function TodayStrip({ parts, onOpen }: { parts: TodayPart[]; onOpen: (p: TodayPa
 
 const DRAWER_TITLE: Record<TodayPart["key"], string> = { screened: "Listings screened today", moved: "Deals moved today", calls: "Calls today", emails: "Emails sent today", done: "Next actions done today", todos: "To-dos done today", waits: "Waiting on someone" };
 
-/** The drawer behind one figure of the Today strip: the items it counts, one per row. */
+/**
+ * The drawer behind one figure of the Today strip: the items it counts, one per row. Edits of Nov 5 (item 4): each row
+ * is a link to its record (the listing or deal, the person or the deal an email was on, the record a next action was
+ * done on, the To-dos page for a to-do), with the shared row hover; it opens in the same tab.
+ */
 function TodayDrawer({ part, n, threshold, dateLabel, onClose }: { part: TodayPart; n: DayNumbers; threshold: number; dateLabel: string; onClose: () => void }) {
-  type Item = { name: string; detail?: string | null; note?: string | null; tone?: "red" | "green" | "plain" };
+  type Item = { name: string; detail?: string | null; note?: string | null; tone?: "red" | "green" | "plain"; href?: string | null };
   let items: Item[] = [];
   let empty = "None yet today.";
-  if (part.key === "screened") items = n.screenedList.map((x) => ({ name: x.name, detail: x.outcome === "interested" ? "Interested" : `Passed${x.reason ? `: ${x.reason}` : ""}`, tone: x.outcome === "interested" ? "green" : "plain" }));
+  if (part.key === "screened") items = n.screenedList.map((x) => ({ name: x.name, detail: x.outcome === "interested" ? "Interested" : `Passed${x.reason ? `: ${x.reason}` : ""}`, tone: x.outcome === "interested" ? "green" : "plain", href: x.href }));
   else if (part.key === "moved") {
-    items = n.moves.map((m) => ({ name: m.name, detail: `${m.from ?? "New"} to ${m.to}${m.lane !== "Deals" ? ` · ${m.lane}` : ""}`, note: m.keyFinding ? `Key finding: ${m.keyFinding}` : null }));
+    items = n.moves.map((m) => ({ name: m.name, detail: `${m.from ?? "New"} to ${m.to}${m.lane !== "Deals" ? ` · ${m.lane}` : ""}`, note: m.keyFinding ? `Key finding: ${m.keyFinding}` : null, href: m.href }));
     empty = "No stage move today.";
-  } else if (part.key === "calls") items = n.contactsList.filter((c) => c.kind === "call").map((c) => ({ name: c.name, detail: c.method === "video" ? "Video call" : c.method === "meeting" ? "Meeting" : "Call" }));
-  else if (part.key === "emails") items = n.contactsList.filter((c) => c.kind === "email").map((c) => ({ name: c.name, detail: "Email sent" }));
+  } else if (part.key === "calls") items = n.contactsList.filter((c) => c.kind === "call").map((c) => ({ name: c.name, detail: c.method === "video" ? "Video call" : c.method === "meeting" ? "Meeting" : "Call", href: c.href }));
+  else if (part.key === "emails") items = n.contactsList.filter((c) => c.kind === "email").map((c) => ({ name: c.name, detail: "Email sent", href: c.href }));
   else if (part.key === "done") {
     // Push E2: by area, in the Area selector's order; the area leads each line.
-    items = DONE_AREAS.flatMap((area) => n.actionsDoneList.filter((a) => a.area === area).map((a) => ({ name: a.name, detail: a.label ? `${area} · ${a.label}` : area })));
+    items = DONE_AREAS.flatMap((area) => n.actionsDoneList.filter((a) => a.area === area).map((a) => ({ name: a.name, detail: a.label ? `${area} · ${a.label}` : area, href: a.href })));
   } else if (part.key === "todos") {
-    items = (n.todosDone?.list ?? []).map((t) => ({ name: t || "A to-do" }));
+    items = (n.todosDone?.list ?? []).map((t) => ({ name: t || "A to-do", href: "/work/todos" }));
     empty = "No to-do checked off today.";
   } else {
-    items = n.waits.map((w) => ({ name: w.name, detail: `${w.days} days${w.kind === "person" ? " · Contacts" : w.who ? ` · ${w.who}` : ""}`, note: w.what ? `Waiting on: ${w.what}${w.since ? `, since ${w.since}` : ""}` : null, tone: w.days >= threshold * 2 ? "red" : "plain" }));
+    // Edits of Nov 5 (item 5): one row per wait of 5+ days (a deal with two such waits has two rows).
+    items = n.waits.map((w) => ({ name: w.name, detail: `${w.days} days${w.kind === "person" ? " · Contacts" : w.who ? ` · ${w.who}` : ""}`, note: w.what ? `Waiting on: ${w.what}${w.since ? `, since ${w.since}` : ""}` : null, tone: w.days >= threshold * 2 ? "red" : "plain", href: w.href }));
     empty = `Nobody has kept you waiting ${threshold}+ days.`;
   }
+  const body = (it: Item) => (
+    <>
+      <div className="text-sm font-semibold text-slate-900">{it.name}</div>
+      {it.detail ? <div className={cn("mt-0.5 text-[13px]", it.tone === "red" ? "font-medium text-status-missed" : it.tone === "green" ? "font-medium text-status-met" : "text-slate-700")}>{it.detail}</div> : null}
+      {it.note ? <div className="mt-0.5 text-[12.5px] text-muted-foreground italic">{it.note}</div> : null}
+    </>
+  );
   return (
     <Drawer open onOpenChange={(o) => !o && onClose()} title={DRAWER_TITLE[part.key]} sub={`${dateLabel} · ${part.value} ${part.words}${part.detail ? `: ${part.detail}` : ""}`} testId="eod-today-drawer">
       {items.length ? (
         <ul className="-mx-7 flex flex-col" data-testid="eod-today-items" data-key={part.key}>
           {items.map((it, i) => (
-            <li key={`${it.name}-${i}`} className="border-t border-slate-100 px-7 py-2.5 first:border-t-0" data-testid="eod-today-item">
-              <div className="text-sm font-semibold text-slate-900">{it.name}</div>
-              {it.detail ? <div className={cn("mt-0.5 text-[13px]", it.tone === "red" ? "font-medium text-status-missed" : it.tone === "green" ? "font-medium text-status-met" : "text-slate-700")}>{it.detail}</div> : null}
-              {it.note ? <div className="mt-0.5 text-[12.5px] text-muted-foreground italic">{it.note}</div> : null}
+            <li key={`${it.name}-${i}`} className="border-t border-slate-100 first:border-t-0" data-testid="eod-today-item">
+              {it.href ? (
+                <Link href={it.href} className="row-hover block px-7 py-2.5" data-testid="eod-today-link">
+                  {body(it)}
+                </Link>
+              ) : (
+                <div className="px-7 py-2.5">{body(it)}</div>
+              )}
             </li>
           ))}
         </ul>

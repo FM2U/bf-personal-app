@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { firstReplyAfter, noReplyRows, personFollowUpDraft, personWaits, replyWaitText, waitGroups, waitItem, waitLines, waitRepliedAt, waitSummary, waitsText, waitTarget, type ItemInfo, type MailRow } from "./waiting";
+import { firstReplyAfter, noReplyRows, personFollowUpDraft, personWaits, replySubject, replyWaitText, waitGroups, waitItem, waitLines, waitRepliedAt, waitSummary, waitsText, waitTarget, type ItemInfo, type MailRow } from "./waiting";
 
 const today = "2026-11-05";
 const local = (ts: string) => ts.slice(0, 10);
@@ -84,8 +84,8 @@ describe("Waiting on someone with people (push E, push E2)", () => {
 
   it("keeps two waits on one deal as one row with two lines, in the group of its longest wait", () => {
     const line = (waitId: string, waitingOn: string, days: number) => ({ waitId, waitingOn, who: "Luis Ortega", since: null, days, level: days >= 5 ? ("amber" as const) : ("quiet" as const), repliedOn: null, email: null, contactId: null, contactName: null });
-    const row = waitItem({ key: "deal:oak", kind: "deal", id: "oak", name: "Oakline Dental Lab", href: "/work/deals/oak", context: "NDA signed" }, [line("a", "A reply to: Oakline CIM", 2), line("b", "The CIM", 6)]);
-    expect(row!.lines.map((l) => l.waitingOn)).toEqual(["The CIM", "A reply to: Oakline CIM"]);
+    const row = waitItem({ key: "deal:oak", kind: "deal", id: "oak", name: "Oakline Dental Lab", href: "/work/deals/oak", context: "NDA signed" }, [line("a", "Reply to your email: Oakline CIM", 2), line("b", "The CIM", 6)]);
+    expect(row!.lines.map((l) => l.waitingOn)).toEqual(["The CIM", "Reply to your email: Oakline CIM"]);
     expect([row!.days, row!.level]).toEqual([6, "amber"]);
     expect(waitGroups([row!], 5).map((g) => g.items.length)).toEqual([1, 0]);
     // Every line cleared: no row.
@@ -95,7 +95,7 @@ describe("Waiting on someone with people (push E, push E2)", () => {
   it("reads a record's waits longest first, and sums them up where there is room for one", () => {
     const lines = waitLines(
       [
-        { id: "a", text: "A reply to: Oakline CIM", since: "2026-11-03", createdAt: "2026-11-05T10:00:00Z" },
+        { id: "a", text: "Reply to your email: Oakline CIM", since: "2026-11-03", createdAt: "2026-11-05T10:00:00Z" },
         { id: "b", text: "The CIM", since: "2026-11-03", createdAt: "2026-11-01T10:00:00Z" },
         { id: "c", text: "Times for a call", since: "2026-10-28", createdAt: "2026-11-02T10:00:00Z" },
         { id: "d", text: "  ", since: "2026-10-01", createdAt: "2026-11-02T10:00:00Z" },
@@ -107,7 +107,7 @@ describe("Waiting on someone with people (push E, push E2)", () => {
     expect(waitSummary(lines)).toEqual({ waitingOn: "Times for a call and 2 more", waitingSince: "2026-10-28", waitDays: 8, waitLevel: "amber" });
     expect(waitSummary(lines.slice(1, 2)).waitingOn).toBe("The CIM");
     expect(waitSummary([])).toEqual({ waitingOn: null, waitingSince: null, waitDays: 0, waitLevel: "none" });
-    expect(waitsText(lines.slice(1), (d) => (d === "2026-11-03" ? "Nov 3" : d))).toBe("The CIM, since Nov 3; A reply to: Oakline CIM, since Nov 3");
+    expect(waitsText(lines.slice(1), (d) => (d === "2026-11-03" ? "Nov 3" : d))).toBe("The CIM, since Nov 3; Reply to your email: Oakline CIM, since Nov 3");
   });
 
   it("shows Replied for a reply to the original email or to the follow-up, whichever came first (push E2, item 3)", () => {
@@ -136,10 +136,16 @@ describe("Waiting on someone with people (push E, push E2)", () => {
   });
 
   it("writes Waiting on and the Follow up to a person", () => {
-    expect(replyWaitText("East Tennessee owners")).toBe("A reply to: East Tennessee owners");
-    expect(replyWaitText("")).toBe("A reply to: your email");
+    expect(replyWaitText("East Tennessee owners")).toBe("Reply to your email: East Tennessee owners");
+    expect(replyWaitText("")).toBe("Reply to your email");
     expect(replyWaitText("x".repeat(200))).toHaveLength(120);
-    const d = personFollowUpDraft({ name: "Rita Caldwell", waitingOn: "A reply to: Member survey project", days: 4 });
+    // Waits saved before Nov 5 keep "A reply to: "; both read as a reply to that email.
+    expect(replySubject("Reply to your email: Pinecrest LOI")).toBe("Pinecrest LOI");
+    expect(replySubject("A reply to: Pinecrest LOI")).toBe("Pinecrest LOI");
+    expect(replySubject("The CIM")).toBe("");
+    expect(personFollowUpDraft({ name: "Rita", waitingOn: "A reply to: Member survey project", days: 1 }).subject).toBe("Following up: Member survey project");
+    expect(personFollowUpDraft({ name: "Rita", waitingOn: "Reply to your email", days: 1 }).body).toContain("still waiting on your reply to my email.");
+    const d = personFollowUpDraft({ name: "Rita Caldwell", waitingOn: "Reply to your email: Member survey project", days: 4 });
     expect(d.subject).toBe("Following up: Member survey project");
     expect(d.body).toContain("Hi Rita,");
     expect(d.body).toContain("your reply to my email about Member survey project. It has been 4 days");

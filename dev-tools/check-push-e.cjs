@@ -164,17 +164,17 @@ const until = async (fn, msg, tries = 60) => {
     await shot("settings-work-settings-1440.png");
   });
 
-  await step("Waiting on someone: three groups (closed at first), the card counts deals and people, No reply yet counts its own; a person row, a Replied row, two No reply rows", async () => {
+  await step("Waiting on someone: three groups (closed at first), the card counts the waits of deals and people, No reply yet counts its own; a person row, a Replied row, two No reply rows", async () => {
     await openHome();
     const sections = await card().locator('[data-testid="home-section"]').evaluateAll((els) => els.map((e) => [e.dataset.section, e.dataset.collapsed]));
     assert(JSON.stringify(sections) === JSON.stringify([["wait-over", "1"], ["wait-under", "1"], ["wait-no-reply", "1"]]), JSON.stringify(sections));
     const heads = await card().locator('[data-testid="home-section"] [data-testid="section-heading"]').allInnerTexts();
     assert(/5\+ days/i.test(heads[0]) && /< 5 days/i.test(heads[1]) && /No reply yet/i.test(heads[2]), `${heads}`);
-    // Push E2: the card counts rows (a deal or person with two waits is one row).
+    // Edits of Nov 5 (item 5): the card counts waits (a deal or person with two waits is one row and counts 2).
     const expected = await one(`select
-      (select count(*)::int from pipeline_items i join pipelines p on p.id = i.pipeline_id join pipeline_stages s on s.id = i.stage_id
-        where p.kind = 'acquisition' and i.screened and i.status = 'open' and s.outcome = 'open' and exists (select 1 from waits w where w.pipeline_item_id = i.id)) deals,
-      (select count(*)::int from contacts c where archived_at is null and exists (select 1 from waits w where w.contact_id = c.id)) people`);
+      (select count(*)::int from waits w join pipeline_items i on i.id = w.pipeline_item_id join pipelines p on p.id = i.pipeline_id join pipeline_stages s on s.id = i.stage_id
+        where p.kind = 'acquisition' and i.screened and i.status = 'open' and s.outcome = 'open') deals,
+      (select count(*)::int from waits w join contacts c on c.id = w.contact_id where c.archived_at is null) people`);
     assert((await cardCount()) === expected.deals + expected.people && expected.people === 1, `card ${await cardCount()} vs ${JSON.stringify(expected)}`);
     assert((await groupCount("over")) + (await groupCount("under")) === expected.deals + expected.people, "the day groups hold every wait");
     assert((await groupCount("no-reply")) === 2, `no reply ${await groupCount("no-reply")}`);
@@ -191,13 +191,13 @@ const until = async (fn, msg, tries = 60) => {
     const pine = waitRow("Pinecrest Landscaping");
     assert((await pine.getByTestId("waiting-replied").innerText()) === `Replied ${short(addDays(today, -1))}` && (await pine.getByTestId("waiting-replied").getAttribute("data-tone")) === "green", "Replied");
     assert((await pine.getByTestId("waiting-clear").count()) === 1 && (await pine.getByTestId("follow-up-button").count()) === 0, "Clear, no Follow up");
-    assert((await pine.innerText()).includes("A reply to: Pinecrest LOI"), await pine.innerText());
-    // No reply yet: "Sent Nov 3 to Luis Ortega: Oakline CIM" with the deal, and Rita's email with her organization.
+    assert((await pine.innerText()).includes("Reply to your email: Pinecrest LOI"), await pine.innerText());
+    // No reply yet (edits of Nov 5, item 1): "Emailed Nov 3 to Luis Ortega: Oakline CIM" with the deal, and Rita's email with her organization.
     const oak = noReplyRow("Oakline CIM");
-    assert((await oak.getByTestId("no-reply-line").innerText()) === `Sent ${short(addDays(today, -2))} to Luis Ortega: Oakline CIM`, await oak.getByTestId("no-reply-line").innerText());
+    assert((await oak.getByTestId("no-reply-line").innerText()) === `Emailed ${short(addDays(today, -2))} to Luis Ortega: Oakline CIM`, await oak.getByTestId("no-reply-line").innerText());
     assert((await oak.innerText()).includes("Oakline Dental Lab") && (await oak.getAttribute("data-target")) === "deal", "the deal");
     const rita = noReplyRow("Member survey project");
-    assert((await rita.getByTestId("no-reply-line").innerText()) === `Sent ${short(addDays(today, -10))} to Rita Caldwell: Member survey project`, await rita.getByTestId("no-reply-line").innerText());
+    assert((await rita.getByTestId("no-reply-line").innerText()) === `Emailed ${short(addDays(today, -10))} to Rita Caldwell: Member survey project`, await rita.getByTestId("no-reply-line").innerText());
     assert((await rita.innerText()).includes("GA Home Care Association") && (await rita.getAttribute("data-target")) === "person", "the person");
     assert((await rita.getByTestId("no-reply-add").innerText()) === "Add to Waiting" && (await rita.getByTestId("no-reply-dismiss").innerText()) === "Dismiss", "the two buttons");
     // The End of day reports sent to the partners are never listed.
@@ -246,7 +246,7 @@ const until = async (fn, msg, tries = 60) => {
     await openHome();
     await openGroup("no-reply");
     const r = noReplyRow("Carriers selling this winter");
-    assert((await r.getByTestId("no-reply-line").innerText()) === `Sent ${short(addDays(today, -2))} to Sam Patel: Carriers selling this winter`, await r.getByTestId("no-reply-line").innerText());
+    assert((await r.getByTestId("no-reply-line").innerText()) === `Emailed ${short(addDays(today, -2))} to Sam Patel: Carriers selling this winter`, await r.getByTestId("no-reply-line").innerText());
     assert((await groupCount("no-reply")) === 3, `count ${await groupCount("no-reply")}`);
     // The setting: at 3 days the two-day-old emails go; at 1 day the one-day-old would show; back to 2.
     await setting(3);
@@ -279,19 +279,19 @@ const until = async (fn, msg, tries = 60) => {
     assert((await noReplyRow("Member survey project").count()) === 0 && (await groupCount("no-reply")) === before - 1, "still gone after a reload");
   });
 
-  await step("Add to Waiting on a deal email: the deal waits on 'A reply to: <subject>' since the day it was sent, with who it went to; the email is remembered", async () => {
+  await step("Add to Waiting on a deal email: the deal waits on 'Reply to your email: <subject>' since the day it was sent, with who it went to; the email is remembered", async () => {
     await openHome();
     const countBefore = await cardCount();
     await openGroup("no-reply");
     await noReplyRow("Oakline CIM").getByTestId("no-reply-add").click();
     await until(async () => (await noReplyRow("Oakline CIM").count()) === 0, "the No reply row goes");
     const d = await one("select w.text, w.since::text since, c.subject from waits w join pipeline_items i on i.id = w.pipeline_item_id join communications c on c.id = w.comm_id where i.name = 'Oakline Dental Lab'");
-    assert(d && d.text === "A reply to: Oakline CIM" && d.since === addDays(today, -2) && d.subject === "Oakline CIM", JSON.stringify(d));
+    assert(d && d.text === "Reply to your email: Oakline CIM" && d.since === addDays(today, -2) && d.subject === "Oakline CIM", JSON.stringify(d));
     await openHome();
     await openAll();
     const row = waitRow("Oakline Dental Lab");
-    assert((await row.innerText()).includes("A reply to: Oakline CIM · Luis Ortega"), await row.innerText());
-    assert((await cardCount()) === countBefore, "Oakline was already waiting, so the count stays");
+    assert((await row.innerText()).includes("Reply to your email: Oakline CIM · Luis Ortega"), await row.innerText());
+    assert((await cardCount()) === countBefore + 1, "Oakline was already waiting: one more wait on the same row, so the count goes up by one");
     assert((await noReplyRow("Oakline CIM").count()) === 0, "not listed again while the deal waits on it");
   });
 
@@ -305,7 +305,7 @@ const until = async (fn, msg, tries = 60) => {
     await noReplyRow("COO search update").getByTestId("no-reply-add").click();
     await until(async () => (await noReplyRow("COO search update").count()) === 0, "the No reply row goes");
     const p = await one("select w.text, w.since::text since, w.comm_id from waits w join contacts c on c.id = w.contact_id where c.name = 'Nina Reyes'");
-    assert(p.text === "A reply to: COO search update" && p.since === addDays(today, -3) && p.comm_id === nina.id, JSON.stringify(p));
+    assert(p.text === "Reply to your email: COO search update" && p.since === addDays(today, -3) && p.comm_id === nina.id, JSON.stringify(p));
     await openHome();
     await openAll();
     const row = waitRow("Nina Reyes");
@@ -403,10 +403,11 @@ const until = async (fn, msg, tries = 60) => {
     await db.query("insert into waits (owner_id, contact_id, text, since) select owner_id, id, 'A test wait', $2 from contacts where id = any($1)", [ids, addDays(today, -1)]);
     await openHome();
     await openGroup("under");
-    const n = await groupCount("under");
-    assert(n > 8, `under has ${n}`);
-    assert((await group("under").getByTestId("waiting-row").count()) === 8, "8 rows");
+    // The badge counts waits (edits of Nov 5); Show all counts the rows it opens.
     const link = page.getByTestId("wait-under-all-link");
+    const n = Number(await link.getAttribute("data-total"));
+    assert(n > 8 && (await groupCount("under")) >= n, `under has ${n} rows, ${await groupCount("under")} waits`);
+    assert((await group("under").getByTestId("waiting-row").count()) === 8, "8 rows");
     assert((await link.innerText()) === `Show all (${n})`, await link.innerText());
     const lb = await link.boundingBox();
     const cb = await card().boundingBox();

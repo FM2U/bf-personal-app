@@ -104,7 +104,10 @@ export function followUpDraft(i: { dealName: string; waitingOn: string | null; c
   const first = String(i.contactName ?? "").trim().split(/\s+/)[0] || "there";
   const what = String(i.waitingOn ?? "").trim();
   const since = i.days >= 2 ? ` It has been ${i.days} days, so I wanted to make sure it did not get lost.` : "";
-  const topic = what ? `${what.charAt(0).toLowerCase()}${what.slice(1)}` : "the next step";
+  // A wait made from an email ("Reply to your email: Pinecrest LOI", or "A reply to: ..." saved before Nov 5).
+  const reply = /^(?:Reply to your email(?::\s*(.*))?|A reply to:\s*(.*))$/.exec(what);
+  const subject = reply ? String(reply[1] ?? reply[2] ?? "").trim() : "";
+  const topic = reply ? (subject ? `your reply to my email about ${subject}` : "your reply to my email") : what ? `${what.charAt(0).toLowerCase()}${what.slice(1)}` : "the next step";
   return {
     subject: `Following up on ${i.dealName}`,
     body: `Hi ${first},\n\nQuick follow-up on ${i.dealName}: I am still waiting on ${topic}.${since}\n\nIs there an update on timing? Happy to jump on a call if that is easier.\n\nThanks,\nBram`,

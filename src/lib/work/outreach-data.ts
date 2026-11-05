@@ -14,7 +14,7 @@ import { RECORD_TASK_COLUMNS, sortTodos, toDealTodo, type DealTodo } from "@/lib
 import { DEFAULT_EOD_TIME, parseTime } from "@/lib/work/settings";
 import { DEFAULT_WAIT_THRESHOLD_DAYS } from "@/lib/work/stages";
 import { waitLines, type WaitLine } from "@/lib/work/waiting";
-import { loadWaitsFor } from "@/lib/work/waits-data";
+import { loadWaitReplies, loadWaitsFor, withReplies } from "@/lib/work/waits-data";
 import type { Row } from "@/lib/types";
 
 /**
@@ -227,7 +227,9 @@ export async function loadPersonPage(sb: SupabaseClient, ctx: Ctx, id: string): 
     loadComposeSetup(sb, ctx.ownerId, "contacts", c).catch(() => null),
     loadWaitsFor(sb, ctx.ownerId, { contactIds: [id] }),
   ]);
-  const person = toPersonRow(c, (org as Row | null)?.name ? String((org as Row).name) : null, ctx.tz, waitLines(waits.byContact[id] ?? [], ctx.today, DEFAULT_WAIT_THRESHOLD_DAYS));
+  // Edits of Nov 5 (item 6): Replied and Clear on a wait whose email has a reply.
+  const replied = await loadWaitReplies(sb, ctx.ownerId, waits.byContact[id] ?? [], ctx.tz);
+  const person = toPersonRow(c, (org as Row | null)?.name ? String((org as Row).name) : null, ctx.tz, withReplies(waitLines(waits.byContact[id] ?? [], ctx.today, DEFAULT_WAIT_THRESHOLD_DAYS), replied));
   const commRows = (comms ?? []) as Row[];
   // Push B: the End of day reports sent to this person and the replies to them (an accountability partner).
   const isPartner = c.outreach_role === "accountability_partner";

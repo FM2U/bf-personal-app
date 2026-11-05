@@ -8,7 +8,7 @@ import { useUnsavedWork } from "@/components/app/unsaved-changes";
 import { date as fmtDate } from "@/lib/format";
 import { DB_UPDATE_NOTICE_PUSH_E2 } from "@/lib/schema-guard";
 import type { WaitLine } from "@/lib/work/waiting";
-import { RowButton } from "@/components/app/work/ui";
+import { Pill, RowButton } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
 
 const INPUT = "h-9 w-full min-w-0 rounded-[7px] border border-input bg-white px-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-60";
@@ -21,6 +21,8 @@ const LINE = "grid grid-cols-[minmax(0,1fr)_88px_28px] items-center gap-x-2.5";
  * short list, longest wait first: each line shows what is waited on, Since, and an × that removes it at once. "+ Add"
  * opens a line with the text and Since (today unless changed) and adds it at once; the Save button of the card is
  * for the other fields. Nothing waited on reads "Nobody". The label sits in the card's label column, at the top.
+ * Edits of Nov 5 (item 6): a wait whose email has a reply shows, under its text, the green "Replied Nov 4" pill and
+ * Clear (which removes the wait), as on the Waiting card; Clear takes the place of the × on that line.
  */
 export function WaitsField({ kind, recordId, waits, today, ready, labelClassName }: { kind: "deal" | "item" | "person"; recordId: string; waits: readonly WaitLine[]; today: string; /** False before UPDATE_PREVIEW_PUSH_E2.sql: the list says so and cannot save. */ ready: boolean; labelClassName: string }) {
   const ids = useId();
@@ -69,16 +71,30 @@ export function WaitsField({ kind, recordId, waits, today, ready, labelClassName
       <div className="flex min-w-0 flex-col gap-1.5" data-testid="waits-list" data-count={shown.length}>
         {shown.length ? (
           shown.map((w) => (
-            <div key={w.id} className={cn(LINE, "min-h-9 rounded-[7px] border border-slate-200 bg-slate-50/60 py-1 pl-2.5")} data-testid="wait-line" data-wait={w.id}>
+            <div key={w.id} className={cn(LINE, "min-h-9 gap-y-1.5 rounded-[7px] border border-slate-200 bg-slate-50/60 py-1 pl-2.5", w.repliedOn && "pb-1.5")} data-testid="wait-line" data-wait={w.id} data-replied={w.repliedOn ? "1" : "0"}>
               <span className="min-w-0 text-sm leading-5 text-slate-900" data-testid="wait-text">
                 {w.text}
               </span>
               <span className="text-xs whitespace-nowrap text-muted-foreground" data-testid="wait-since">
                 {w.since ? `Since ${fmtDate(w.since, "MMM d")}` : ""}
               </span>
-              <button type="button" onClick={() => remove(w.id)} disabled={pending} aria-label={`Remove: ${w.text}`} title="Remove" className="inline-flex h-7 w-7 items-center justify-center rounded-[6px] text-slate-400 transition-colors hover:bg-white hover:text-slate-700 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50" data-testid="wait-remove">
-                {removing === w.id ? <span className="text-[11px]">...</span> : <X className="h-4 w-4" aria-hidden />}
-              </button>
+              {w.repliedOn ? (
+                <span aria-hidden />
+              ) : (
+                <button type="button" onClick={() => remove(w.id)} disabled={pending} aria-label={`Remove: ${w.text}`} title="Remove" className="inline-flex h-7 w-7 items-center justify-center rounded-[6px] text-slate-400 transition-colors hover:bg-white hover:text-slate-700 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50" data-testid="wait-remove">
+                  {removing === w.id ? <span className="text-[11px]">...</span> : <X className="h-4 w-4" aria-hidden />}
+                </button>
+              )}
+              {w.repliedOn ? (
+                <span className="col-span-3 flex items-center justify-end gap-2 pr-2.5">
+                  <Pill tone="green" testId="wait-replied">
+                    Replied {fmtDate(w.repliedOn, "MMM d")}
+                  </Pill>
+                  <RowButton tone="cobalt" onClick={() => remove(w.id)} disabled={pending} data-testid="wait-clear">
+                    {removing === w.id ? "Clearing..." : "Clear"}
+                  </RowButton>
+                </span>
+              ) : null}
             </div>
           ))
         ) : !adding ? (

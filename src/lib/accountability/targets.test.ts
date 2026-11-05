@@ -270,7 +270,7 @@ describe("Edit batch C: the target pill, what a target counts, exceeded reads me
     expect(n.screenedList.map((x) => `${x.name} ${x.outcome} ${x.reason ?? ""}`.trim())).toEqual(["Fri 1 passed Too small", "Fri 2 passed Retail", "Industrial Filtration Distributor interested"]);
     expect(n.contactsList.filter((c) => c.kind === "call").map((c) => c.name)).toEqual(["Priya Natarajan", "Carla Jenkins"]);
     expect(n.contactsList.filter((c) => c.kind === "email").map((c) => c.name)).toEqual(["Tom Baker", "Someone not on Contacts"]);
-    expect(n.actionsDoneList).toEqual([{ name: "Meridian Industrial Coatings", label: "Finish the model", area: "Deals" }, { name: "Dalton Services", label: "Call Carla", area: "Deals" }]);
+    expect(n.actionsDoneList).toEqual([{ name: "Meridian Industrial Coatings", label: "Finish the model", area: "Deals", href: null }, { name: "Dalton Services", label: "Call Carla", area: "Deals", href: null }]);
     const one = dayNumbers({ ...EMPTY_FACTS, comms: [{ on: FRI, method: "call", contactId: "p1", contactName: "A", broker: false }] }, FRI, [], 5);
     expect(todayStrip(one, 5).find((p) => p.key === "calls")!.words).toBe("call");
     // A wait of exactly the threshold counts in "5+ days"; one day under does not.
@@ -318,6 +318,20 @@ describe("Push E2, item 5: the Today line splits next actions done by area, adds
     expect(n.waits.map((w) => `${w.name} ${w.kind}`)).toEqual(["Summit Logistics Group deal", "Priya Natarajan person"]);
     expect(todayStrip(n, 5).find((p) => p.key === "waits")!.value).toBe(2);
     expect(n.allWaits.map((w) => w.name)).toEqual(["Summit Logistics Group", "Oakline Dental Lab"]);
+  });
+  it("edits of Nov 5: with every wait given, '5+ days' counts waits, not deals or people (a deal with two such waits counts 2)", () => {
+    const deals = [{ name: "Summit Logistics Group", days: 11, who: "Mark Reed", what: "A seller call; Three years of tax returns", since: "Oct 26" }];
+    const each = [
+      { name: "Summit Logistics Group", days: 11, who: "Mark Reed", what: "A seller call", since: "Oct 26", kind: "deal" as const, href: "/work/deals/s1" },
+      { name: "Summit Logistics Group", days: 6, who: "Mark Reed", what: "Three years of tax returns", since: "Oct 31", kind: "deal" as const, href: "/work/deals/s1" },
+      { name: "Summit Logistics Group", days: 1, who: "Mark Reed", what: "The CIM", since: "Nov 5", kind: "deal" as const, href: "/work/deals/s1" },
+      { name: "Priya Natarajan", days: 7, who: null, what: "Two intros", since: "Oct 30", kind: "person" as const, href: "/work/people/p1" },
+    ];
+    const n = dayNumbers(EMPTY_FACTS, FRI, deals, 5, [], each);
+    expect(n.waits.map((w) => `${w.name}: ${w.what} ${w.days} ${w.href}`)).toEqual(["Summit Logistics Group: A seller call 11 /work/deals/s1", "Priya Natarajan: Two intros 7 /work/people/p1", "Summit Logistics Group: Three years of tax returns 6 /work/deals/s1"]);
+    expect(todayStrip(n, 5).find((p) => p.key === "waits")!.value).toBe(3);
+    // The report's broker section still reads one entry per deal.
+    expect(n.allWaits).toHaveLength(1);
   });
 });
 
@@ -416,5 +430,39 @@ describe("Push E2, item 5: the area of each next action done, from the rows", ()
     expect(facts.actionsDone.map((a) => `${a.area}: ${a.name}, ${a.label}`)).toEqual(["Deals: Dalton Services, Review the CIM", "Consulting: A consulting item, Send the scope", "Rosara: KarmaKare, Ship it", "Job search: Harbor Home Health, Send the thank-you", "Contacts: Priya Natarajan, Ask for the intro"]);
     expect(facts.todosDone).toEqual([{ on: FRI, text: "Renew the registration" }]);
     expect(todayStrip(dayNumbers(facts, FRI, [], 5), 5).find((p) => p.key === "done")!.detail).toBe("Deals 1 · Contacts 1 · Rosara 1 · Job search 1 · Consulting 1");
+    // Edits of Nov 5 (item 4): each next action done links to its record.
+    expect(facts.actionsDone.map((a) => a.href)).toEqual(["/work/deals/d1", "/work/consulting/gone", "/work/rosara/p1", "/work/jobs/j1", "/work/people/c1"]);
+  });
+});
+
+describe("Edits of Nov 5, item 4: every End of day panel row links to its record", () => {
+  it("screened to the listing or deal, moves to the record, emails to the deal they were on or the person, calls to the person", async () => {
+    const { buildFacts } = await import("./facts");
+    const { facts } = buildFacts({
+      items: [{ id: "d1", name: "Dalton Services", pipeline_id: "acq" }, { id: "l1", name: "Lakeside Car Wash", pipeline_id: "acq", pass_reason: null }, { id: "j1", name: "Harbor Home Health", pipeline_id: "job" }],
+      history: [
+        { item_id: "l1", stage_id: "passed", entered_at: `${FRI}T10:00:00Z` },
+        { item_id: "d1", stage_id: "interested", entered_at: `${WED}T10:00:00Z` },
+        { item_id: "d1", stage_id: "nda", entered_at: `${FRI}T11:00:00Z` },
+        { item_id: "j1", stage_id: "contact", entered_at: `${WED}T10:00:00Z` },
+        { item_id: "j1", stage_id: "talk", entered_at: `${FRI}T11:00:00Z` },
+      ],
+      comms: [
+        { occurred_at: `${FRI}T12:00:00Z`, method: "email", direction: "outgoing", contact_id: "c1", pipeline_item_id: "d1" },
+        { occurred_at: `${FRI}T13:00:00Z`, method: "email", direction: "outgoing", contact_id: "c1", pipeline_item_id: "j1" },
+        { occurred_at: `${FRI}T14:00:00Z`, method: "call", direction: "outgoing", contact_id: "c1", pipeline_item_id: "d1" },
+        { occurred_at: `${FRI}T15:00:00Z`, method: "email", direction: "outgoing", contact_id: null, pipeline_item_id: null },
+      ],
+      events: [],
+      people: [{ id: "c1", name: "Rachel Kim" }],
+      stageById: { passed: { name: "Passed", outcome: "lost" }, interested: { name: "Interested", outcome: "open" }, nda: { name: "NDA signed", outcome: "open" }, contact: { name: "Contact", outcome: "open" }, talk: { name: "Conversation", outcome: "open" } },
+      laneOf: { acq: "Deals", job: "Job search" },
+      since: "2026-10-01",
+      local: (ts) => ts.slice(0, 10),
+    });
+    const n = dayNumbers(facts, FRI, [], 5);
+    expect(n.screenedList.map((x) => `${x.name} ${x.href}`)).toEqual(["Lakeside Car Wash /work/deals/l1"]);
+    expect(n.moves.map((m) => `${m.name} ${m.href}`)).toEqual(["Dalton Services /work/deals/d1", "Harbor Home Health /work/jobs/j1"]);
+    expect(n.contactsList.map((c) => `${c.kind} ${c.href}`)).toEqual(["email /work/deals/d1", "email /work/people/c1", "call /work/people/c1", "email null"]);
   });
 });

@@ -1,7 +1,8 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { todayInTz } from "@/lib/calc/dates";
 import { isMissingSchemaError } from "@/lib/schema-guard";
-import type { SavedWait } from "@/lib/work/waiting";
+import { waitRepliedAt, type SavedWait, type WaitLine } from "@/lib/work/waiting";
 import type { Row } from "@/lib/types";
 
 /**
@@ -113,4 +114,31 @@ export async function followedUpWait(sb: SupabaseClient, ownerId: string, waitId
   const before = str(w.follow_up_comm_id);
   if (before && before !== newId) await dismissNoReplyEmails(sb, ownerId, [before]);
   return { error: null, found: true };
+}
+
+/**
+ * Edits of Nov 5 (item 6): the day a reply came in for each wait made from an email, as the Waiting card reads it (a
+ * reply in the thread of the email the wait came from or of its follow-up, after that email). By wait id, as
+ * YYYY-MM-DD in the owner's time zone; waits with no reply are left out. Only stored emails are read.
+ */
+export async function loadWaitReplies(sb: SupabaseClient, ownerId: string, waits: readonly SavedWait[], tz: string): Promise<Record<string, string>> {
+  const ids = [...new Set(waits.flatMap((w) => [w.commId, w.followUpCommId]).filter(Boolean))] as string[];
+  if (!ids.length) return {};
+  const { data: sentRows } = await sb.from("communications").select("id,occurred_at,gmail_thread_id").eq("owner_id", ownerId).in("id", ids);
+  const sent = new Map(((sentRows ?? []) as Row[]).map((r) => [String(r.id), { at: String(r.occurred_at), thread: str(r.gmail_thread_id) }]));
+  const threads = [...new Set([...sent.values()].map((x) => x.thread).filter(Boolean))] as string[];
+  if (!threads.length) return {};
+  const { data: replyRows } = await sb.from("communications").select("occurred_at,gmail_thread_id").eq("owner_id", ownerId).eq("direction", "incoming").in("gmail_thread_id", threads).limit(2000);
+  const replies = ((replyRows ?? []) as Row[]).map((r) => ({ direction: "incoming", threadId: String(r.gmail_thread_id), occurredAt: String(r.occurred_at) }));
+  const out: Record<string, string> = {};
+  for (const w of waits) {
+    const at = waitRepliedAt(replies, [w.commId ? sent.get(w.commId) : null, w.followUpCommId ? sent.get(w.followUpCommId) : null]);
+    if (at) out[w.id] = todayInTz(tz, new Date(at));
+  }
+  return out;
+}
+
+/** A record's wait lines with the day a reply came in on each (edits of Nov 5, item 6). */
+export function withReplies(lines: readonly WaitLine[], replied: Readonly<Record<string, string>>): WaitLine[] {
+  return lines.map((l) => ({ ...l, repliedOn: replied[l.id] ?? null }));
 }

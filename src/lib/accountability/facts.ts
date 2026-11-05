@@ -5,9 +5,11 @@
  * order: the first stage is the screening (Passed or Interested on a deal); every later working stage is a move.
  * Outgoing emails and calls are the contacts; work events give the follow-ups, next actions done, and the focus done.
  * Push E2: tasks on records checked off count as next actions done in their record's area, and personal to-dos
- * checked off as to-dos done.
+ * checked off as to-dos done. Edits of Nov 5 (item 4): each fact carries the page it links to on End of day (the
+ * listing or deal, the person or the deal an email was on, the record a next action was done on).
  */
 import { passReasonLabel } from "@/lib/work/buy-box";
+import { recordHref } from "@/lib/work/task-records";
 import { displayName } from "@/lib/work/names";
 import { EMPTY_FACTS, type DoneArea, type Facts } from "@/lib/accountability/targets";
 
@@ -58,6 +60,20 @@ export function buildFacts(r: FactsRows): { facts: Facts; passes: Pass[] } {
     if (lane) return lane;
     return kind === "job" ? "Job search" : kind === "consulting" ? "Consulting" : "Deals";
   };
+  /** The page of a pipeline item: a deal or listing, a job, or a consulting item. */
+  const itemHref = (id: unknown, kind?: unknown): string | null => {
+    if (!id) return null;
+    const area = itemArea(id, kind);
+    return recordHref({ kind: area === "Job search" ? "job" : area === "Consulting" ? "consulting" : "deal", id: String(id) });
+  };
+  /** The page of a record a next action or task was done on. */
+  const recordPage = (type: unknown, id: unknown, kind?: unknown): string | null => {
+    if (!id) return null;
+    if (type === "projects") return recordHref({ kind: "project", id: String(id) });
+    if (type === "contacts") return recordHref({ kind: "person", id: String(id) });
+    if (type === "organizations") return recordHref({ kind: "organization", id: String(id) });
+    return itemHref(id, kind);
+  };
   const passes: Pass[] = [];
   for (const [itemId, rows] of byItem) {
     const item = itemById.get(itemId);
@@ -72,11 +88,11 @@ export function buildFacts(r: FactsRows): { facts: Facts; passes: Pass[] } {
       if (!prev) {
         if (lane === "Deals" && (stage.name === "Interested" || stage.name === "Passed") && on >= r.since) {
           const reason = stage.name === "Passed" ? passReasonLabel((item.pass_reason as string | null) ?? null) : null;
-          facts.screened.push({ on, outcome: stage.name === "Passed" ? "passed" : "interested", name: nameOf(item), reason });
+          facts.screened.push({ on, outcome: stage.name === "Passed" ? "passed" : "interested", name: nameOf(item), reason, href: itemHref(itemId) });
           if (stage.name === "Passed") passes.push({ on, name: nameOf(item), reason });
         }
       } else if (stage.name !== prev.name && on >= r.since) {
-        if (stage.outcome === "open" || stage.outcome === "won") facts.moves.push({ on, name: nameOf(item), from: prev.name, to: stage.name, keyFinding: (item.key_finding as string | null) ?? null, lane });
+        if (stage.outcome === "open" || stage.outcome === "won") facts.moves.push({ on, name: nameOf(item), from: prev.name, to: stage.name, keyFinding: (item.key_finding as string | null) ?? null, lane, href: itemHref(itemId) });
         else if (stage.name === "Passed" && lane === "Deals") passes.push({ on, name: nameOf(item), reason: passReasonLabel((item.pass_reason as string | null) ?? null) });
       }
       prev = stage;
@@ -87,7 +103,10 @@ export function buildFacts(r: FactsRows): { facts: Facts; passes: Pass[] } {
     const on = r.local(String(c.occurred_at));
     if (on < r.since) continue;
     const contact = c.contact_id ? personById.get(String(c.contact_id)) : null;
-    facts.comms.push({ on, method: String(c.method), contactId: c.contact_id ? String(c.contact_id) : null, contactName: contact?.name ? String(contact.name) : null, broker: contact?.outreach_role === "broker" });
+    // An email on a deal opens the deal; otherwise the person (or, with no person, the record it was on).
+    const onDeal = c.method === "email" && c.pipeline_item_id && itemArea(c.pipeline_item_id) === "Deals" && itemById.has(String(c.pipeline_item_id));
+    const href = onDeal ? itemHref(c.pipeline_item_id) : c.contact_id ? recordHref({ kind: "person", id: String(c.contact_id) }) : itemById.has(String(c.pipeline_item_id ?? "")) ? itemHref(c.pipeline_item_id) : null;
+    facts.comms.push({ on, method: String(c.method), contactId: c.contact_id ? String(c.contact_id) : null, contactName: contact?.name ? String(contact.name) : null, broker: contact?.outreach_role === "broker", href });
   }
   for (const e of r.events) {
     const on = String(e.happened_on).slice(0, 10);
@@ -96,7 +115,7 @@ export function buildFacts(r: FactsRows): { facts: Facts; passes: Pass[] } {
     else if (e.kind === "next_action_done") {
       const meta = (e.meta as Row | null) ?? {};
       const area: DoneArea = e.record_type === "projects" ? "Rosara" : e.record_type === "contacts" || e.record_type === "organizations" ? "Contacts" : itemArea(e.record_id, meta.kind);
-      facts.actionsDone.push({ on, name: String(e.label ?? ""), label: String(meta.action ?? ""), area });
+      facts.actionsDone.push({ on, name: String(e.label ?? ""), label: String(meta.action ?? ""), area, href: recordPage(e.record_type, e.record_id, meta.kind) });
     }
     else if (e.kind === "focus_done") facts.focusDone.push({ on, text: String(e.label ?? "") });
   }
@@ -115,7 +134,7 @@ export function buildFacts(r: FactsRows): { facts: Facts; passes: Pass[] } {
     const item = type === "pipeline_items" ? itemById.get(recordId) : undefined;
     const person = type === "contacts" ? personById.get(recordId) : undefined;
     const name = item ? nameOf(item) : person?.name ? String(person.name) : text;
-    facts.actionsDone.push({ on, name, label: text, area });
+    facts.actionsDone.push({ on, name, label: text, area, href: recordPage(type, recordId) });
   }
   return { facts, passes };
 }

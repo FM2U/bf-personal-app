@@ -67,15 +67,15 @@ function countsLine(t: Pick<Target, "key">): string {
 
 export type Facts = {
   /** A listing screened: the day it first got a stage, Passed or Interested. */
-  screened: { on: string; outcome: "passed" | "interested"; name: string; reason: string | null }[];
+  screened: { on: string; outcome: "passed" | "interested"; name: string; reason: string | null; /** The listing or deal page (edits of Nov 5). */ href?: string | null }[];
   /** A stage move of a deal, an opportunity, or a consulting item (from one working stage to the next). */
-  moves: { on: string; name: string; from: string | null; to: string; keyFinding: string | null; lane: "Deals" | "Job search" | "Consulting" }[];
+  moves: { on: string; name: string; from: string | null; to: string; keyFinding: string | null; lane: "Deals" | "Job search" | "Consulting"; href?: string | null }[];
   /** An outgoing email, call, meeting, or video call with a person. */
-  comms: { on: string; method: string; contactId: string | null; contactName: string | null; broker: boolean }[];
+  comms: { on: string; method: string; contactId: string | null; contactName: string | null; broker: boolean; /** The person, or the deal when an email was on a deal (edits of Nov 5). */ href?: string | null }[];
   /** A follow-up marked Done, with whether it was on or before its date. */
   followUps: { on: string; onTime: boolean; name: string }[];
   /** A next action marked Done, or (push E2) a task on a record checked off, with the record's area. */
-  actionsDone: { on: string; name: string; label: string; area: DoneArea }[];
+  actionsDone: { on: string; name: string; label: string; area: DoneArea; /** The record it was done on (edits of Nov 5). */ href?: string | null }[];
   /** The Rosara weekly focus marked done. */
   focusDone: { on: string; text: string }[];
   /** Push E2: a personal to-do (no record) checked off. */
@@ -520,7 +520,7 @@ export type ReportTile = { label: string; value: string; small?: string; note: s
 
 export type DayNumbers = {
   screened: Count;
-  moves: { on: string; name: string; from: string | null; to: string; keyFinding: string | null; lane: string }[];
+  moves: { on: string; name: string; from: string | null; to: string; keyFinding: string | null; lane: string; href?: string | null }[];
   calls: Count;
   emails: Count;
   outreachToday: Count;
@@ -532,24 +532,28 @@ export type DayNumbers = {
   todosDone: { value: number; list: string[] };
   /**
    * Open waits at or past the threshold, longest first: the deals ("Summit Logistics Group (11 days, Mark Reed)") and,
-   * push E2, the people waited on (End of day's Today line and its drawer).
+   * push E2, the people waited on (End of day's Today line and its drawer). Edits of Nov 5 (item 5): when the loader
+   * gives every wait (`each`), each wait is its own entry, so a deal with two waits of 5+ days counts 2.
    */
-  waits: { name: string; days: number; who: string | null; what: string | null; since: string | null; kind?: "deal" | "person" }[];
-  /** Every open wait on a deal (for the average on Reports). */
-  allWaits: { name: string; days: number; who: string | null; what: string | null; since: string | null; kind?: "deal" | "person" }[];
+  waits: DayWait[];
+  /** Every open wait on a deal, its longest (for the average on Reports). */
+  allWaits: DayWait[];
   /** What the Today strip's drawers list (Edit batch C, item 10): the listings screened with the pass reason or Interested. */
-  screenedList: { name: string; outcome: "passed" | "interested"; reason: string | null }[];
+  screenedList: { name: string; outcome: "passed" | "interested"; reason: string | null; href?: string | null }[];
   /** The calls (calls, meetings, video calls) and emails sent today, with the person's name. */
-  contactsList: { name: string; kind: "call" | "email"; method: string }[];
+  contactsList: { name: string; kind: "call" | "email"; method: string; href?: string | null }[];
   /** The next actions marked Done today (and tasks on records checked off), with the record, the action, and the area. */
-  actionsDoneList: { name: string; label: string; area: DoneArea }[];
+  actionsDoneList: { name: string; label: string; area: DoneArea; href?: string | null }[];
 };
+
+/** One open wait as End of day lists it; `href` is the deal or person page (edits of Nov 5). */
+export type DayWait = { name: string; days: number; who: string | null; what: string | null; since: string | null; kind?: "deal" | "person"; href?: string | null };
 
 /**
  * The counted facts of one day (End of day's Today strip and its drawers, and the email's Today tiles). `people` are
  * the people waited on (push E2): they count in `waits` with the deals; `allWaits` stays deals only.
  */
-export function dayNumbers(f: Facts, day: string, waits: DayNumbers["allWaits"], threshold: number, people: DayNumbers["allWaits"] = []): DayNumbers {
+export function dayNumbers(f: Facts, day: string, waits: DayNumbers["allWaits"], threshold: number, people: DayNumbers["allWaits"] = [], /** Every wait of the open deals and the people, one entry each (edits of Nov 5). */ each: DayWait[] | null = null): DayNumbers {
   const week = workWeekOf(day);
   const done = f.actionsDone.filter((x) => x.on === day);
   const todos = (f.todosDone ?? []).filter((x) => x.on === day);
@@ -563,11 +567,11 @@ export function dayNumbers(f: Facts, day: string, waits: DayNumbers["allWaits"],
     actionsDone: countIn("next_actions_done", f, day, day),
     actionsByArea: DONE_AREAS.map((area) => ({ area, count: done.filter((x) => x.area === area).length })).filter((a) => a.count > 0),
     todosDone: { value: todos.length, list: todos.map((t) => t.text) },
-    waits: [...waits.map((w) => ({ ...w, kind: w.kind ?? ("deal" as const) })), ...people.map((p) => ({ ...p, kind: "person" as const }))].filter((w) => w.days >= threshold).sort((a, b) => b.days - a.days),
+    waits: (each ?? [...waits.map((w) => ({ ...w, kind: w.kind ?? ("deal" as const) })), ...people.map((p) => ({ ...p, kind: "person" as const }))]).filter((w) => w.days >= threshold).sort((a, b) => b.days - a.days),
     allWaits: waits,
-    screenedList: f.screened.filter((x) => x.on === day).map((x) => ({ name: x.name, outcome: x.outcome, reason: x.reason })),
-    contactsList: f.comms.filter((c) => c.on === day && (c.method === "email" || isCall(c.method))).map((c) => ({ name: c.contactName ?? "Someone not on Contacts", kind: c.method === "email" ? ("email" as const) : ("call" as const), method: c.method })),
-    actionsDoneList: done.map((x) => ({ name: x.name, label: x.label, area: x.area })),
+    screenedList: f.screened.filter((x) => x.on === day).map((x) => ({ name: x.name, outcome: x.outcome, reason: x.reason, href: x.href ?? null })),
+    contactsList: f.comms.filter((c) => c.on === day && (c.method === "email" || isCall(c.method))).map((c) => ({ name: c.contactName ?? "Someone not on Contacts", kind: c.method === "email" ? ("email" as const) : ("call" as const), method: c.method, href: c.href ?? null })),
+    actionsDoneList: done.map((x) => ({ name: x.name, label: x.label, area: x.area, href: x.href ?? null })),
   };
 }
 
