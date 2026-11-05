@@ -8,6 +8,7 @@
 -- Built from the 29 old updates with the old modules cut out (see docs in the project: 2026-11-02 build plan).
 -- Push B (2026-11-03) is included: People and Organizations, partner report days and sections, Gmail replies.
 -- Push C (2026-11-03) is included: one list of tasks and to-dos with dates and Repeat, and Block time.
+-- Push D (2026-11-04) is included: an end date for Repeat, the Weekly review on Friday, and monthly reviews.
 
 -- Stops here, changing nothing, if this database already has the app's tables (for example the old project).
 do $$
@@ -203,7 +204,8 @@ declare
   v_n int;
   allowed text[] := array[
     'targets', 'record_links', 'notes', 'time_blocks', 'projects', 'deal_todos', 'organizations', 'contacts',
-    'communications', 'pipeline_items', 'deal_financials', 'consulting_details', 'work_events', 'end_of_day', 'partner_reports'];
+    'communications', 'pipeline_items', 'deal_financials', 'consulting_details', 'work_events', 'end_of_day', 'partner_reports',
+    'monthly_reviews'];
 begin
   if v_owner is null or not public.is_owner(v_owner) or not exists (select 1 from public.owner_profile where owner_id = v_owner) then
     raise exception 'Only the signed-in owner can save these records';
@@ -466,8 +468,8 @@ declare
   v_n int;
   t text;
   delete_order text[] := array[
-    'end_of_day', 'work_events', 'partner_reports', 'time_blocks', 'deal_todos', 'projects', 'notes', 'record_links',
-    'communications', 'consulting_details', 'deal_financials', 'pipeline_items', 'contacts', 'organizations'];
+    'monthly_reviews', 'end_of_day', 'work_events', 'partner_reports', 'time_blocks', 'deal_todos', 'projects', 'notes',
+    'record_links', 'communications', 'consulting_details', 'deal_financials', 'pipeline_items', 'contacts', 'organizations'];
 begin
   if v_owner is null or not public.is_owner(v_owner) or not exists (select 1 from public.owner_profile where owner_id = v_owner) then
     raise exception 'Only the signed-in owner can remove sample data';
@@ -837,6 +839,7 @@ CREATE TABLE public.deal_todos (
     due_on date,
     repeat text,
     repeat_from uuid,
+    repeat_until date,
     CONSTRAINT deal_todos_record_pair_check CHECK (((record_type IS NULL) = (record_id IS NULL))),
     CONSTRAINT deal_todos_record_type_check CHECK ((record_type = ANY (ARRAY['pipeline_items'::text, 'contacts'::text, 'projects'::text, 'organizations'::text]))),
     CONSTRAINT deal_todos_repeat_check CHECK (((repeat IS NULL) OR (repeat = ANY (ARRAY['daily'::text, 'weekdays'::text, 'weekly'::text, 'monthly'::text]))))
@@ -886,6 +889,7 @@ CREATE TABLE public.end_of_day (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     report_edits jsonb DEFAULT '{}'::jsonb NOT NULL,
+    weekly_review jsonb DEFAULT '{}'::jsonb NOT NULL,
     CONSTRAINT end_of_day_status_check CHECK ((status = ANY (ARRAY['open'::text, 'sent'::text, 'skipped'::text])))
 );
 
@@ -929,6 +933,24 @@ CREATE TABLE public.inputs (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT inputs_unit_check CHECK ((unit = ANY (ARRAY['usd'::text, 'months'::text, 'percent'::text, 'years'::text, 'number'::text, 'date'::text, 'boolean'::text, 'text'::text])))
+);
+
+
+--
+-- Name: monthly_reviews; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.monthly_reviews (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    owner_id uuid DEFAULT auth.uid() NOT NULL,
+    month date NOT NULL,
+    results jsonb DEFAULT '[]'::jsonb NOT NULL,
+    next_targets jsonb DEFAULT '[]'::jsonb NOT NULL,
+    exported_at timestamp with time zone,
+    finished_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT monthly_reviews_month_first_day CHECK ((EXTRACT(day FROM month) = (1)::numeric))
 );
 
 
@@ -1474,6 +1496,22 @@ ALTER TABLE ONLY public.inputs
 
 
 --
+-- Name: monthly_reviews monthly_reviews_owner_month_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.monthly_reviews
+    ADD CONSTRAINT monthly_reviews_owner_month_key UNIQUE (owner_id, month);
+
+
+--
+-- Name: monthly_reviews monthly_reviews_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.monthly_reviews
+    ADD CONSTRAINT monthly_reviews_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: notes notes_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1994,6 +2032,13 @@ CREATE TRIGGER log_change AFTER INSERT OR DELETE OR UPDATE ON public.inputs FOR 
 
 
 --
+-- Name: monthly_reviews log_change; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER log_change AFTER INSERT OR DELETE OR UPDATE ON public.monthly_reviews FOR EACH ROW EXECUTE FUNCTION public.log_change();
+
+
+--
 -- Name: notes log_change; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -2180,6 +2225,13 @@ CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.google_connections FOR EAC
 --
 
 CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.inputs FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: monthly_reviews set_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.monthly_reviews FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 
 --
@@ -2440,6 +2492,14 @@ ALTER TABLE ONLY public.google_connections
 
 ALTER TABLE ONLY public.inputs
     ADD CONSTRAINT inputs_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: monthly_reviews monthly_reviews_owner_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.monthly_reviews
+    ADD CONSTRAINT monthly_reviews_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES auth.users(id) ON DELETE CASCADE;
 
 
 --
@@ -2771,6 +2831,12 @@ ALTER TABLE public.google_connections ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.inputs ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: monthly_reviews; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.monthly_reviews ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: notes; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -2864,6 +2930,13 @@ CREATE POLICY owner_only ON public.google_connections TO authenticated USING (pu
 --
 
 CREATE POLICY owner_only ON public.inputs TO authenticated USING (public.is_owner(owner_id)) WITH CHECK (public.is_owner(owner_id));
+
+
+--
+-- Name: monthly_reviews owner_only; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY owner_only ON public.monthly_reviews TO authenticated USING (public.is_owner(owner_id)) WITH CHECK (public.is_owner(owner_id));
 
 
 --
@@ -3332,6 +3405,14 @@ GRANT ALL ON TABLE public.google_connections TO service_role;
 
 GRANT ALL ON TABLE public.inputs TO authenticated;
 GRANT ALL ON TABLE public.inputs TO service_role;
+
+
+--
+-- Name: TABLE monthly_reviews; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON TABLE public.monthly_reviews TO authenticated;
+GRANT ALL ON TABLE public.monthly_reviews TO service_role;
 
 
 --
