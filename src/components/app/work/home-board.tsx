@@ -237,6 +237,8 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
   );
 
   const narrowed = !!area || !!query.trim();
+  // The line under Next actions names the chosen area (or "Every area" on All).
+  const areaWord = area ? (AREAS.find((x) => x.value === area)?.label ?? "Every area") : "Every area";
   const empty = (k: LaneSectionKey | null) => (
     <div className="px-[22px] py-[22px] text-[13px] text-muted-foreground" data-testid="now-actions-empty">
       <b className="mb-0.5 block text-[13.5px] font-semibold text-heading">{narrowed ? "Nothing matches." : k ? TILE_EMPTY[k] : "Nothing is due today."}</b>
@@ -287,7 +289,7 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
                   Work through
                 </button>
             }
-            sub={byAi ? "Every area, in the AI's order; one reason under each row" : "Every area, due today or earlier, soonest first"}
+            sub={`${areaWord}, ${byAi ? "in the AI's order; one reason under each row" : "due today or earlier, soonest first"}`}
             actions={
               <>
                 <span className="inline-flex items-center gap-2 whitespace-nowrap">
