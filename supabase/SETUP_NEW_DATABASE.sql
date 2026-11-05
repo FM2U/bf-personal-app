@@ -10,6 +10,7 @@
 -- Push C (2026-11-03) is included: one list of tasks and to-dos with dates and Repeat, and Block time.
 -- Push D (2026-11-04) is included: an end date for Repeat, the Weekly review on Friday, and monthly reviews.
 -- Push E (2026-11-05) is included: No reply yet, Add to Waiting, and waiting on a person.
+-- Push E part 2 (2026-11-05) is included: several waits on one deal or person (table waits), and Follow up watches both emails.
 
 -- Stops here, changing nothing, if this database already has the app's tables (for example the old project).
 do $$
@@ -206,7 +207,7 @@ declare
   allowed text[] := array[
     'targets', 'record_links', 'notes', 'time_blocks', 'projects', 'deal_todos', 'organizations', 'contacts',
     'communications', 'pipeline_items', 'deal_financials', 'consulting_details', 'work_events', 'end_of_day', 'partner_reports',
-    'monthly_reviews'];
+    'monthly_reviews', 'waits'];
 begin
   if v_owner is null or not public.is_owner(v_owner) or not exists (select 1 from public.owner_profile where owner_id = v_owner) then
     raise exception 'Only the signed-in owner can save these records';
@@ -469,7 +470,7 @@ declare
   v_n int;
   t text;
   delete_order text[] := array[
-    'monthly_reviews', 'end_of_day', 'work_events', 'partner_reports', 'time_blocks', 'deal_todos', 'projects', 'notes',
+    'waits', 'monthly_reviews', 'end_of_day', 'work_events', 'partner_reports', 'time_blocks', 'deal_todos', 'projects', 'notes',
     'record_links', 'communications', 'consulting_details', 'deal_financials', 'pipeline_items', 'contacts', 'organizations'];
 begin
   if v_owner is null or not public.is_owner(v_owner) or not exists (select 1 from public.owner_profile where owner_id = v_owner) then
@@ -794,9 +795,6 @@ CREATE TABLE public.contacts (
     archived_at timestamp with time zone,
     report_days smallint[] DEFAULT '{}'::smallint[] NOT NULL,
     report_sections text[] DEFAULT '{}'::text[] NOT NULL,
-    waiting_on text,
-    waiting_since date,
-    waiting_comm_id uuid,
     CONSTRAINT contacts_outreach_every_days_check CHECK (((outreach_every_days IS NULL) OR ((outreach_every_days >= 1) AND (outreach_every_days <= 3650)))),
     CONSTRAINT contacts_outreach_role_check CHECK (((outreach_role IS NULL) OR (outreach_role = ANY (ARRAY['broker'::text, 'lender'::text, 'personal_network'::text, 'service_provider'::text, 'rosara_customer'::text, 'recruiter'::text, 'cofounder_candidate'::text, 'investor'::text, 'accountability_partner'::text, 'consulting_client'::text, 'other'::text])))),
     CONSTRAINT contacts_purposes_check CHECK ((purposes <@ ARRAY['off_market_deals'::text, 'job_search'::text, 'consulting'::text, 'rosara'::text])),
@@ -1092,8 +1090,6 @@ CREATE TABLE public.pipeline_items (
     why_selling text,
     key_finding text,
     open_questions text,
-    waiting_on text,
-    waiting_since date,
     pass_reason text,
     screened boolean DEFAULT true NOT NULL,
     buy_box_note text,
@@ -1111,7 +1107,6 @@ CREATE TABLE public.pipeline_items (
     risks jsonb,
     growth_paths jsonb,
     financing text DEFAULT 'equity'::text NOT NULL,
-    waiting_comm_id uuid,
     CONSTRAINT pipeline_items_deal_source_type_check CHECK (((deal_source_type IS NULL) OR (deal_source_type = ANY (ARRAY['proprietary'::text, 'brokered'::text])))),
     CONSTRAINT pipeline_items_financing_check CHECK ((financing = ANY (ARRAY['equity'::text, 'equity_plus_debt'::text]))),
     CONSTRAINT pipeline_items_growth_paths_check CHECK (((growth_paths IS NULL) OR ((jsonb_typeof(growth_paths) = 'array'::text) AND (jsonb_array_length(growth_paths) <= 3)))),
@@ -1334,6 +1329,26 @@ CREATE TABLE public.time_blocks (
     google_event_id text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT time_blocks_ends_after_start CHECK ((ends_at > starts_at))
+);
+
+
+--
+-- Name: waits; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.waits (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    owner_id uuid DEFAULT auth.uid() NOT NULL,
+    pipeline_item_id uuid,
+    contact_id uuid,
+    text text NOT NULL,
+    since date NOT NULL,
+    comm_id uuid,
+    follow_up_comm_id uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT waits_one_record CHECK ((num_nonnulls(pipeline_item_id, contact_id) = 1)),
+    CONSTRAINT waits_text_check CHECK (((length(btrim(text)) >= 1) AND (length(text) <= 120)))
 );
 
 
@@ -1694,6 +1709,14 @@ ALTER TABLE ONLY public.time_blocks
 
 
 --
+-- Name: waits waits_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.waits
+    ADD CONSTRAINT waits_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: work_events work_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1947,6 +1970,27 @@ CREATE INDEX time_blocks_record_idx ON public.time_blocks USING btree (record_id
 
 
 --
+-- Name: waits_contact_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX waits_contact_idx ON public.waits USING btree (contact_id) WHERE (contact_id IS NOT NULL);
+
+
+--
+-- Name: waits_item_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX waits_item_idx ON public.waits USING btree (pipeline_item_id) WHERE (pipeline_item_id IS NOT NULL);
+
+
+--
+-- Name: waits_owner_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX waits_owner_idx ON public.waits USING btree (owner_id);
+
+
+--
 -- Name: work_events_owner_day_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2150,6 +2194,13 @@ CREATE TRIGGER log_change AFTER INSERT OR DELETE OR UPDATE ON public.time_blocks
 
 
 --
+-- Name: waits log_change; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER log_change AFTER INSERT OR DELETE OR UPDATE ON public.waits FOR EACH ROW EXECUTE FUNCTION public.log_change();
+
+
+--
 -- Name: partner_reports partner_reports_protect; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -2245,6 +2296,13 @@ CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.inputs FOR EACH ROW EXECUT
 --
 
 CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.monthly_reviews FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: waits set_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.waits FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 
 --
@@ -2428,14 +2486,6 @@ ALTER TABLE ONLY public.contacts
 
 
 --
--- Name: contacts contacts_waiting_comm_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.contacts
-    ADD CONSTRAINT contacts_waiting_comm_id_fkey FOREIGN KEY (waiting_comm_id) REFERENCES public.communications(id) ON DELETE SET NULL;
-
-
---
 -- Name: deal_financials deal_financials_item_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2612,14 +2662,6 @@ ALTER TABLE ONLY public.pipeline_items
 
 
 --
--- Name: pipeline_items pipeline_items_waiting_comm_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.pipeline_items
-    ADD CONSTRAINT pipeline_items_waiting_comm_id_fkey FOREIGN KEY (waiting_comm_id) REFERENCES public.communications(id) ON DELETE SET NULL;
-
-
---
 -- Name: pipeline_items pipeline_items_stage_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2777,6 +2819,46 @@ ALTER TABLE ONLY public.targets
 
 ALTER TABLE ONLY public.time_blocks
     ADD CONSTRAINT time_blocks_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: waits waits_comm_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.waits
+    ADD CONSTRAINT waits_comm_id_fkey FOREIGN KEY (comm_id) REFERENCES public.communications(id) ON DELETE SET NULL;
+
+
+--
+-- Name: waits waits_contact_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.waits
+    ADD CONSTRAINT waits_contact_id_fkey FOREIGN KEY (contact_id) REFERENCES public.contacts(id) ON DELETE CASCADE;
+
+
+--
+-- Name: waits waits_follow_up_comm_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.waits
+    ADD CONSTRAINT waits_follow_up_comm_id_fkey FOREIGN KEY (follow_up_comm_id) REFERENCES public.communications(id) ON DELETE SET NULL;
+
+
+--
+-- Name: waits waits_owner_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.waits
+    ADD CONSTRAINT waits_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: waits waits_pipeline_item_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.waits
+    ADD CONSTRAINT waits_pipeline_item_id_fkey FOREIGN KEY (pipeline_item_id) REFERENCES public.pipeline_items(id) ON DELETE CASCADE;
 
 
 --
@@ -3081,6 +3163,13 @@ CREATE POLICY owner_only ON public.time_blocks TO authenticated USING (public.is
 
 
 --
+-- Name: waits owner_only; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY owner_only ON public.waits TO authenticated USING (public.is_owner(owner_id)) WITH CHECK (public.is_owner(owner_id));
+
+
+--
 -- Name: work_events owner_only; Type: POLICY; Schema: public; Owner: -
 --
 
@@ -3170,6 +3259,12 @@ ALTER TABLE public.targets ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE public.time_blocks ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: waits; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.waits ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: work_events; Type: ROW SECURITY; Schema: public; Owner: -
@@ -3570,6 +3665,14 @@ GRANT ALL ON TABLE public.targets TO service_role;
 
 GRANT ALL ON TABLE public.time_blocks TO authenticated;
 GRANT ALL ON TABLE public.time_blocks TO service_role;
+
+
+--
+-- Name: TABLE waits; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON TABLE public.waits TO authenticated;
+GRANT ALL ON TABLE public.waits TO service_role;
 
 
 --
