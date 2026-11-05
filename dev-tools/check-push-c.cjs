@@ -150,12 +150,12 @@ const until = async (fn, msg, tries = 40) => {
     await until(async () => JSON.stringify(await selectedKeys("home-tiles")) === '["needs"]', "ArrowRight selects the next tile");
     await page.keyboard.press("ArrowLeft");
     await until(async () => JSON.stringify(await selectedKeys("home-tiles")) === '["today"]', "ArrowLeft selects the one before");
-    // The right column starts level with the tiles; Waiting on someone's two groups start closed.
+    // The right column starts level with the tiles; Waiting on someone's groups start closed (push E: three, with No reply yet).
     const tb = await page.getByTestId("home-tiles").boundingBox();
     const wb = await page.getByTestId("now-wait").boundingBox();
     assert(Math.abs(tb.y - wb.y) <= 1, `tiles at ${tb.y}, Waiting at ${wb.y}`);
     const wait = await page.locator('[data-testid="home-section"][data-section^="wait-"]').evaluateAll((els) => els.map((e) => e.getAttribute("data-collapsed")));
-    assert(wait.length === 2 && wait.every((c) => c === "1"), `waiting groups ${wait}`);
+    assert(wait.length === 3 && wait.every((c) => c === "1"), `waiting groups ${wait}`);
     await shot(page, "home-tiles.png");
   });
 
