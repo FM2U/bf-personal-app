@@ -26,6 +26,11 @@ export function replyWaitText(subject: string | null | undefined, name?: string 
   return room > 0 ? `${head} "${s.slice(0, room).trimEnd()}..."` : head;
 }
 
+/** The same wait as the partner reads it in the report, which Bram writes: "your email" becomes "my email" (2026-11-05). */
+export function reportVoice(text: string): string {
+  return text.replace(/\b(reply to) your email\b/gi, "$1 my email");
+}
+
 /** A wait made from an email, read back: the person it names (or null) and the subject (or ""). Null for any other wait. */
 export function parseReplyWait(text: string | null | undefined): { name: string | null; subject: string } | null {
   const t = clean(text);

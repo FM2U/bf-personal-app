@@ -6,6 +6,7 @@
  */
 import { daysBetween } from "@/lib/calc/dates";
 import { displayName } from "@/lib/work/names";
+import { reportVoice } from "@/lib/work/reply-wait";
 import type { ReportDeal } from "@/lib/accountability/report-sections";
 
 type Row = Record<string, unknown>;
@@ -97,7 +98,7 @@ export function reportDeals(r: DealRows & { pipelineId: string; period: { start:
     const who = (i.primary_contact_id ? person.get(String(i.primary_contact_id)) : null) || brokerPerson(i.broker_name as string | null);
     // Push E2: every wait, longest first ("Waiting on Mark Reed: a seller call, since Oct 23 (11 days); the CIM, since Nov 3 (2 days)").
     const myWaits = (waitsOf.get(id) ?? [])
-      .map((w) => ({ what: String(w.text ?? "").trim(), since: w.since ? String(w.since).slice(0, 10) : null }))
+      .map((w) => ({ what: reportVoice(String(w.text ?? "").trim()), since: w.since ? String(w.since).slice(0, 10) : null }))
       .filter((w) => w.what)
       .sort((a, b) => (a.since ?? "9999").localeCompare(b.since ?? "9999"));
     let status: string;
