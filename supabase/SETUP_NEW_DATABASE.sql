@@ -893,6 +893,7 @@ CREATE TABLE public.end_of_day (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     report_edits jsonb DEFAULT '{}'::jsonb NOT NULL,
     weekly_review jsonb DEFAULT '{}'::jsonb NOT NULL,
+    skipped_partners jsonb DEFAULT '[]'::jsonb NOT NULL,
     CONSTRAINT end_of_day_status_check CHECK ((status = ANY (ARRAY['open'::text, 'sent'::text, 'skipped'::text])))
 );
 
