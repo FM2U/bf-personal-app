@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { todayInTz } from "@/lib/calc/dates";
 import type { Ctx } from "@/lib/engine/helpers";
 import type { LinkRecord } from "@/lib/work/link-picker";
-import { homeTodos, onTodoLists, todoSections, type PersonalTodo, type TodoSectionKey } from "@/lib/work/personal-todos";
+import { homeLaterTodos, homeTodos, onTodoLists, todoSections, type PersonalTodo, type TodoSectionKey } from "@/lib/work/personal-todos";
 import { loadLinkRecords, TASK_SELECT, withRecords } from "@/lib/work/tasks-data";
 import type { Row } from "@/lib/types";
 
@@ -18,6 +18,17 @@ export async function loadHomeTodos(sb: SupabaseClient, ctx: Pick<Ctx, "ownerId"
   const { data, error } = await sb.from("deal_todos").select(TASK_SELECT).eq("owner_id", ctx.ownerId).is("done_at", null).lte("due_on", ctx.today).limit(1000);
   if (error) return [];
   return homeTodos(await withRecords(sb, ctx.ownerId, (data ?? []) as Row[]), ctx.today);
+}
+
+/**
+ * Home (fix list item 3, 2026-11-06): every open dated item in one read, split into due today or earlier (Next actions
+ * and Work through) and due later (the Due later section, soonest first); both empty on an error.
+ */
+export async function loadHomeTodoLists(sb: SupabaseClient, ctx: Pick<Ctx, "ownerId" | "today">): Promise<{ due: PersonalTodo[]; later: PersonalTodo[] }> {
+  const { data, error } = await sb.from("deal_todos").select(TASK_SELECT).eq("owner_id", ctx.ownerId).is("done_at", null).not("due_on", "is", null).limit(2000);
+  if (error) return { due: [], later: [] };
+  const all = await withRecords(sb, ctx.ownerId, (data ?? []) as Row[]);
+  return { due: homeTodos(all, ctx.today), later: homeLaterTodos(all, ctx.today) };
 }
 
 export async function loadTodos(sb: SupabaseClient, ctx: Ctx): Promise<TodosData> {

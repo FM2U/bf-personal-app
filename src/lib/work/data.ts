@@ -293,7 +293,7 @@ export type WorkNowData = {
 /** Home (Work on now): the open deals in the nine stages, the newest listings to screen, and the Deals at a glance counts. */
 export async function loadWorkNow(sb: SupabaseClient, ownerId: string): Promise<WorkNowData> {
   const ctx = await loadWorkCtx(sb, ownerId);
-  const base: WorkNowData = { available: false, notice: null, today: ctx.today, tz: ctx.tz, threshold: ctx.threshold, toScreen: 0, deals: [], listingActions: [], listings: [], glance: { active: 0, early: 0, evaluate: 0, decide: 0, waitingOver: 0, needsAction: 0 }, outreach: { counter: { count: 0, target: 10, pct: 0 }, dueToday: [], due: [], overdue: 0 } };
+  const base: WorkNowData = { available: false, notice: null, today: ctx.today, tz: ctx.tz, threshold: ctx.threshold, toScreen: 0, deals: [], listingActions: [], listings: [], glance: { active: 0, early: 0, evaluate: 0, decide: 0, waitingOver: 0, needsAction: 0 }, outreach: { counter: { count: 0, target: 10, pct: 0 }, dueToday: [], due: [], later: [], overdue: 0 } };
   const notice = null;
   if (notice) return { ...base, notice };
   const [pipe, outreach] = await Promise.all([loadWorkPipeline(sb, ownerId), loadOutreachHome(sb, ctx)]);

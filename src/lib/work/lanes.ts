@@ -48,6 +48,43 @@ export function laneSectionOf(a: Pick<HomeAction, "action" | "due">, today: stri
   return null;
 }
 
+/**
+ * Home's sections (fix list items 2 and 3, approved 2026-11-06): the three above plus Due later, a next action due
+ * after today ("All means all"). The AI order and Work through keep the three sections of laneSectionOf.
+ */
+export type HomeSectionKey = LaneSectionKey | "later";
+
+export function homeSectionOf(a: Pick<HomeAction, "action" | "due">, today: string): HomeSectionKey | null {
+  const s = laneSectionOf(a, today);
+  if (s) return s;
+  return a.due && a.due.slice(0, 10) > today ? "later" : null;
+}
+
+/** Home's tiles in their order: All first, then the four sections (fix list item 2). */
+export type HomeTileKey = "all" | HomeSectionKey;
+export const HOME_SECTION_KEYS: readonly HomeSectionKey[] = ["overdue", "today", "needs", "later"];
+export const HOME_TILE_KEYS: readonly HomeTileKey[] = ["all", ...HOME_SECTION_KEYS];
+
+/** The tile picked today is remembered in this browser under this key; each day starts on All. */
+export const TILE_STORAGE_KEY = "work-home-tile";
+
+/** The saved tile, when it was picked today and is one of Home's tiles; otherwise null (All). */
+export function parseTileChoice(raw: string | null | undefined, today: string): HomeTileKey | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw) as { tile?: unknown; day?: unknown } | null;
+    if (!v || v.day !== today || typeof v.tile !== "string") return null;
+    return (HOME_TILE_KEYS as readonly string[]).includes(v.tile) ? (v.tile as HomeTileKey) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** What is saved for a tile picked today. */
+export function tileToStore(tile: HomeTileKey, today: string): string {
+  return JSON.stringify({ tile, day: today });
+}
+
 /** Within a section: soonest due first (overdue: the oldest first), then by lane order (deals first), then by name. */
 const LANE_ORDER: Lane[] = ["Deals", "People", "Rosara", "Job search", "Consulting", "To-dos"];
 

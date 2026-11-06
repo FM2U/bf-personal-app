@@ -420,11 +420,11 @@ export function Due({ text, tone, className, testId }: { text: string; tone: "to
  * buttons (`children`). Push C: with `block` (Home), "Blocked 2:00" shows under the due date and the block icon
  * (Block time) sits in its own column before the buttons.
  */
-export function ActionFigures({ due, minutes, children, testId = "next-action-due", block }: { due: { text: string; tone: "today" | "over" | "later" | "none" } | null; minutes: number | null | undefined; children?: React.ReactNode; testId?: string; /** Push C: the "Blocked 2:00" line and the block icon (blockSlots in block-time.tsx). */ block?: { note: React.ReactNode; button: React.ReactNode } }) {
+export function ActionFigures({ due, minutes, children, testId = "next-action-due", block }: { due: { text: string; tone: "today" | "over" | "later" | "none"; /** A label longer than the column ("Open since Nov 2") wraps onto two lines inside it. */ wrap?: boolean } | null; minutes: number | null | undefined; children?: React.ReactNode; testId?: string; /** Push C: the "Blocked 2:00" line and the block icon (blockSlots in block-time.tsx). */ block?: { note: React.ReactNode; button: React.ReactNode } }) {
   return (
     <>
       <span className={cn("shrink-0 text-right", ROW_COLS.due.cls)} data-col="due">
-        {due ? <Due text={due.text} tone={due.tone} testId={testId} /> : null}
+        {due ? <Due text={due.text} tone={due.tone} testId={testId} className={due.wrap ? "inline-block whitespace-normal" : undefined} /> : null}
         {block?.note}
       </span>
       <span className={cn("tabular shrink-0 text-right text-xs text-slate-400", ROW_COLS.minutes.cls)} data-col="minutes" data-testid="next-action-minutes">

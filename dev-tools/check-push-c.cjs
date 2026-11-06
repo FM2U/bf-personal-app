@@ -127,29 +127,54 @@ const until = async (fn, msg, tries = 40) => {
     await until(async () => (await bar.getAttribute("data-shown")) === "1", "and comes back");
   };
 
-  await step("Work on now: three tiles work like tabs; the first tile with items is selected; one list at a time, no collapsing", async () => {
+  // Fix list items 2, 3, 4 (approved 2026-11-06): All first and selected; under All every row in four sections.
+  const HOME_KEYS = ["all", "overdue", "today", "needs", "later"];
+  const SECTION_KEYS = ["overdue", "today", "needs", "later"];
+  const homeRowsShown = (p = page) => p.locator('[data-testid="home-all"] [data-testid="home-row"], [data-testid="home-list"] [data-testid="home-row"]').evaluateAll((els) => els.map((e) => ({ section: e.getAttribute("data-section"), area: e.getAttribute("data-area"), lane: e.getAttribute("data-lane") })));
+
+  await step("Work on now: All plus four tiles work like tabs; All is selected and shows every row in four sections with grey bands; Due later holds rows due after today; the tile is kept for the day", async () => {
     await page.goto(`${BASE}/work`);
     await page.getByTestId("home-tiles").waitFor();
     const keys = await tileKeys("home-tiles");
     const counts = await tileCounts("home-tiles");
-    assert(JSON.stringify(keys) === '["overdue","today","needs"]', `tiles ${keys}`);
-    assert(JSON.stringify(await selectedKeys("home-tiles")) === JSON.stringify([firstWithItems(keys, counts)]), `default tile ${await selectedKeys("home-tiles")} for ${counts}`);
-    const listOf = async () => ({ section: await page.getByTestId("home-list").getAttribute("data-section"), rows: await page.locator('[data-testid="home-list"] [data-testid="home-row"]').evaluateAll((els) => els.map((e) => e.getAttribute("data-section"))) });
-    let l = await listOf();
-    assert(l.section === firstWithItems(keys, counts) && l.rows.length === counts[keys.indexOf(l.section)] && l.rows.every((x) => x === l.section), `list ${JSON.stringify(l)}`);
-    assert((await page.getByTestId("home-band").evaluate((e) => e.tagName)) === "DIV" && (await page.getByTestId("home-band").locator("svg").count()) === 0, "the band is flat: no caret, not a button");
+    assert(JSON.stringify(keys) === JSON.stringify(HOME_KEYS), `tiles ${keys}`);
+    assert(counts[0] === counts.slice(1).reduce((x, y) => x + y, 0), `All counts every section ${counts}`);
+    assert(counts[4] > 0, `the sample has rows due later ${counts}`);
+    assert(JSON.stringify(await selectedKeys("home-tiles")) === '["all"]', `default tile ${await selectedKeys("home-tiles")}`);
+    // Under All: the four sections in tile order, each with its flat grey band and count badge, the rows in their section.
+    const sections = await page.locator('[data-testid="home-all-section"]').evaluateAll((els) => els.map((e) => ({ k: e.getAttribute("data-section"), badge: Number(e.querySelector('[data-testid="section-count"]')?.textContent), rows: [...e.querySelectorAll('[data-testid="home-row"]')].map((r) => r.getAttribute("data-section")) })));
+    assert(JSON.stringify(sections.map((x) => x.k)) === JSON.stringify(SECTION_KEYS), `sections ${sections.map((x) => x.k)}`);
+    sections.forEach((x, i) => assert(x.badge === counts[i + 1] && x.rows.length === counts[i + 1] && x.rows.every((r) => r === x.k), `section ${JSON.stringify(x)} for ${counts[i + 1]}`));
+    const band = page.getByTestId("home-all-band").first();
+    assert((await band.evaluate((e) => e.tagName)) === "DIV" && (await band.locator("svg").count()) === 0 && /bg-slate-50/.test(await band.getAttribute("class")), "the bands are flat and grey: no caret, not a button");
     assert((await page.getByTestId("collapse-all").count()) === 0 && (await page.getByTestId("home-filters").count()) === 0 && (await page.getByTestId("home-show").count()) === 0, "no Collapse all and no pill row");
+    // The Next actions count is the full count, and the line under the title no longer says "due today or earlier".
+    const head = (await page.getByTestId("now-actions").innerText()).split("\n").slice(0, 3).join(" ");
+    assert(new RegExp(`Next actions\\s*${counts[0]}\\b`).test(head), `Next actions counts every row: "${head}" for ${counts[0]}`);
+    assert(!/due today or earlier/.test(await page.getByTestId("now-actions").innerText()), "the line under Next actions");
+    // A tile shows only its list; Due later's rows come from more than one area.
+    await pickTile("home-tiles", "later");
+    let l = await homeRowsShown();
+    assert((await page.getByTestId("home-list").getAttribute("data-section")) === "later" && l.length === counts[4] && l.every((x) => x.section === "later"), `later list ${JSON.stringify(l)}`);
+    assert(new Set(l.map((x) => x.area)).size > 1, `Due later areas ${[...new Set(l.map((x) => x.area))]}`);
+    await shot(page, "home-due-later.png");
     await pickTile("home-tiles", "today");
-    l = await listOf();
-    assert(l.section === "today" && l.rows.length === counts[1] && l.rows.every((x) => x === "today"), `today list ${JSON.stringify(l)}`);
+    l = await homeRowsShown();
+    assert(l.length === counts[2] && l.every((x) => x.section === "today"), `today list ${JSON.stringify(l)}`);
     // A click on the selected tile does nothing; the arrow keys move between tiles.
     await page.getByTestId("home-tiles").locator('[data-key="today"]').click();
-    assert((await listOf()).section === "today", "the selected tile stays");
+    assert((await page.getByTestId("home-list").getAttribute("data-section")) === "today", "the selected tile stays");
     await page.getByTestId("home-tiles").locator('[data-key="today"]').focus();
     await page.keyboard.press("ArrowRight");
     await until(async () => JSON.stringify(await selectedKeys("home-tiles")) === '["needs"]', "ArrowRight selects the next tile");
     await page.keyboard.press("ArrowLeft");
     await until(async () => JSON.stringify(await selectedKeys("home-tiles")) === '["today"]', "ArrowLeft selects the one before");
+    // Kept for the rest of the day; another day starts on All.
+    await page.reload();
+    await until(async () => JSON.stringify(await selectedKeys("home-tiles")) === '["today"]', "the tile is kept on reload");
+    await page.evaluate(() => window.localStorage.setItem("work-home-tile", JSON.stringify({ tile: "today", day: "2000-01-01" })));
+    await page.reload();
+    await until(async () => JSON.stringify(await selectedKeys("home-tiles")) === '["all"]', "a new day starts on All");
     // The right column starts level with the tiles; Waiting on someone's groups start closed (push E: three, with No reply yet).
     const tb = await page.getByTestId("home-tiles").boundingBox();
     const wb = await page.getByTestId("now-wait").boundingBox();
@@ -174,7 +199,7 @@ const until = async (fn, msg, tries = 40) => {
     const waitBefore = await page.getByTestId("now-wait").innerText();
     let opts = await areaOpts();
     assert(JSON.stringify(opts.map((o) => o.label)) === JSON.stringify(["All", "Deals", "Contacts", "Rosara", "Job search", "Consulting", "To-dos", "Tasks"]), `areas ${opts.map((o) => o.label)}`);
-    assert(opts[0].on && opts[0].n === before.reduce((a, b) => a + b, 0), `All is picked with ${opts[0].n}`);
+    assert(opts[0].on && opts[0].n === before[0], `All is picked with ${opts[0].n} (All tile ${before[0]})`);
     assert(opts.every((o) => (o.v !== "all" && o.n === 0) === o.off), `zero areas greyed ${JSON.stringify(opts)}`);
     assert(opts.some((o) => o.off), "the sample has an empty area (Consulting)");
     // Placed above the tiles, left-aligned with them, the right column still level with the tiles.
@@ -186,10 +211,10 @@ const until = async (fn, msg, tries = 40) => {
     const contactsN = opts.find((o) => o.v === "contacts").n;
     await pickArea("contacts");
     const after = await tileCounts("home-tiles");
-    assert(after.reduce((a, b) => a + b, 0) === contactsN && after[2] === 0, `tile numbers ${after} for ${contactsN}`);
-    // Needs a next action dropped to 0, so the first tile with items is selected.
-    assert(JSON.stringify(await selectedKeys("home-tiles")) === JSON.stringify([firstWithItems(["overdue", "today", "needs"], after)]), `selected ${await selectedKeys("home-tiles")}`);
-    const areas = await page.locator('[data-testid="home-list"] [data-testid="home-row"]').evaluateAll((els) => [...new Set(els.map((e) => e.getAttribute("data-area")))]);
+    assert(after[0] === contactsN && after.slice(1).reduce((a, b) => a + b, 0) === contactsN && after[3] === 0, `tile numbers ${after} for ${contactsN}`);
+    // Needs a next action dropped to 0, so the first tile with items is selected (All).
+    assert(JSON.stringify(await selectedKeys("home-tiles")) === JSON.stringify([firstWithItems(HOME_KEYS, after)]), `selected ${await selectedKeys("home-tiles")}`);
+    const areas = [...new Set((await homeRowsShown()).map((x) => x.area))];
     assert(JSON.stringify(areas) === '["contacts"]', `areas shown ${areas}`);
     assert((await page.getByTestId("now-wait").innerText()) === waitBefore, "Waiting on someone did not change");
     // Single choice: Deals replaces Contacts; a greyed area cannot be picked.
@@ -241,7 +266,7 @@ const until = async (fn, msg, tries = 40) => {
     await page.setViewportSize({ width: 1440, height: 900 });
   });
 
-  await step("By the AI: no tile selected, the full ranked list of all three kinds; a tile click goes back to Soonest first; a new day starts on Soonest first", async () => {
+  await step("By the AI: no tile selected, the full ranked list of the three kinds due today or earlier (no Due later); a tile click goes back to Soonest first; a new day starts on Soonest first", async () => {
     await page.goto(`${BASE}/work`);
     await page.getByTestId("home-tiles").waitFor();
     const counts = await tileCounts("home-tiles");
@@ -250,11 +275,13 @@ const until = async (fn, msg, tries = 40) => {
     assert((await selectedKeys("home-tiles")).length === 0, "no tile selected");
     assert(JSON.stringify(await tileCounts("home-tiles")) === JSON.stringify(counts), "the tiles keep their numbers");
     const rows = await page.locator('[data-testid="ai-order-rows"] [data-testid="home-row"]').evaluateAll((els) => els.map((e) => e.getAttribute("data-section")));
-    const total = counts.reduce((a, b) => a + b, 0);
+    // By the AI keeps its single list of the three kinds (fix list item 2): Due later rows are not ranked.
     // Push D: the Monthly review row (from the first workday of the month until finished) shows first, unranked.
     const review = await page.locator('[data-testid="ai-order-rows"] [data-testid="home-row"][data-lane="review"]').count();
+    const total = counts[1] + counts[2] + counts[3] + review;
     assert(rows.length === total && (await page.getByTestId("ai-order-number").count()) === total - review, `${rows.length} ranked rows for ${total} (${review} review row)`);
-    assert(["overdue", "today", "needs"].every((k) => !counts[["overdue", "today", "needs"].indexOf(k)] || rows.includes(k)), `kinds ${[...new Set(rows)]}`);
+    const ranked = await page.locator('[data-testid="ai-order-rows"] [data-testid="home-row"]:not([data-lane="review"])').evaluateAll((els) => els.map((e) => e.getAttribute("data-section")));
+    assert(["overdue", "today", "needs"].every((k, i) => !counts[i + 1] || ranked.includes(k)) && !ranked.includes("later"), `kinds ${[...new Set(ranked)]}`);
     const head = await page.getByTestId("ai-order-heading").innerText();
     assert(/ordered by the ai/i.test(head) && head.includes("Order again"), head);
     await shot(page, "home-by-the-ai.png");
@@ -421,7 +448,7 @@ const until = async (fn, msg, tries = 40) => {
     await menu.locator('[data-value="deals"]').click();
     await menu.waitFor({ state: "detached" });
     await until(async () => (await chip.innerText()).trim() === "Deals", "the chip says Deals");
-    assert((await tileCounts("home-tiles", sp)).reduce((a, b) => a + b, 0) === dealsN, "the tiles follow");
+    assert((await tileCounts("home-tiles", sp))[0] === dealsN, "the tiles follow");
     assert((await sp.getByTestId("area-selector").locator('[data-value="deals"]').getAttribute("aria-checked")) === "true", "the selector above the tiles follows");
     await chip.click();
     await sp.getByTestId("slim-area-menu").locator('[data-value="all"]').click();

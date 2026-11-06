@@ -12,7 +12,7 @@ import { date as fmtDate } from "@/lib/format";
 import type { AskContext } from "@/lib/work/ask-ai";
 import type { DealRow, ListingTile, WorkNowData } from "@/lib/work/data";
 import type { HomeData } from "@/lib/work/home-data";
-import { actionKey, applyAiOrder, AREA_STORAGE_KEY, AREAS, areaOf, areaToStore, compareActions, laneSectionOf, matchesActionSearch, ORDER_STORAGE_KEY, orderedAtLabel, orderToStore, parseAreaChoice, parseOrderChoice, type AiOrder, type AreaKey, type HomeAction, type Lane, type LaneSectionKey, type OrderChoice } from "@/lib/work/lanes";
+import { actionKey, applyAiOrder, AREA_STORAGE_KEY, AREAS, areaOf, areaToStore, compareActions, HOME_SECTION_KEYS, HOME_TILE_KEYS, homeSectionOf, matchesActionSearch, ORDER_STORAGE_KEY, orderedAtLabel, orderToStore, parseAreaChoice, parseOrderChoice, parseTileChoice, TILE_STORAGE_KEY, tileToStore, type AiOrder, type AreaKey, type HomeAction, type HomeSectionKey, type HomeTileKey, type Lane, type OrderChoice } from "@/lib/work/lanes";
 import { compareNames } from "@/lib/work/names";
 import { contactKindLabel, orgRoleLine, overdueLabel } from "@/lib/work/outreach";
 import type { PersonRow as PersonRowData } from "@/lib/work/outreach-data";
@@ -50,9 +50,10 @@ import { cn } from "@/lib/utils";
 
 /**
  * Work on now (Home; the bento of mockup v6, approved 2026-10-31, with the header of 2026-11-04). The title row: the
- * title, the date, Find, Ask AI. Then three tiles that work like tabs over the Next actions column (Overdue,
- * Due today, Needs a next action; src/lib/work/tiles.ts): exactly one is selected and the card under them shows only
- * its list under one pinned band. Above the tiles the Area selector picks one area or All (Deals, Contacts, Rosara,
+ * title, the date, Find, Ask AI. Then five tiles that work like tabs over the Next actions column (All, Overdue,
+ * Due today, Needs a next action, Due later; fix list items 2 and 3, 2026-11-06): All is selected by default and shows
+ * every row in the four sections, each under its grey band; another tile shows only its list. The tile picked is kept
+ * for the rest of the day. Above the tiles the Area selector picks one area or All (Deals, Contacts, Rosara,
  * Job search, Consulting, To-dos, Tasks); it narrows Next actions and its tile numbers, and is remembered for the rest
  * of the day only (each day starts on All).
  * Next actions merges every area (a deal row has no pill; the others carry an area pill). "Order: Soonest first | By
@@ -79,11 +80,11 @@ const FIND_ID = "home-find";
 /** A desktop window tall enough for the cards to scroll on their own (the desk variant in globals.css); otherwise the page scrolls. */
 const DESK = "(min-width: 1024px) and (min-height: 720px)";
 
-type Row = { key: string; lane: Lane; area: AreaKey; section: LaneSectionKey; action: HomeAction; render: (reason: string | null) => React.ReactNode; /** Work through's view of the row (push C). */ step: WorkStep | null };
+type Row = { key: string; lane: Lane; area: AreaKey; section: HomeSectionKey; action: HomeAction; render: (reason: string | null) => React.ReactNode; /** Work through's view of the row (push C). */ step: WorkStep | null };
 
-const TILE_LABEL: Record<LaneSectionKey, string> = { overdue: "Overdue", today: "Due today", needs: "Needs a next action" };
-const TILE_KEYS: LaneSectionKey[] = ["overdue", "today", "needs"];
-const TILE_EMPTY: Record<LaneSectionKey, string> = { overdue: "Nothing is overdue.", today: "Nothing else is due today.", needs: "Every item has a next action." };
+// Fix list items 2 and 3 (approved 2026-11-06): All first and selected by default, then the four sections.
+const TILE_LABEL: Record<HomeTileKey, string> = { all: "All", overdue: "Overdue", today: "Due today", needs: "Needs a next action", later: "Due later" };
+const TILE_EMPTY: Record<HomeTileKey, string> = { all: "Nothing to do.", overdue: "Nothing is overdue.", today: "Nothing else is due today.", needs: "Every item has a next action.", later: "Nothing is due later." };
 
 export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personComposes, askCompose }: { data: HomeData; /** The date at the right of the title, long and short. */ dateLabel: { long: string; short: string }; /** Ask AI (server-rendered). */ askAi: React.ReactNode; /** The top menu row (under 1024px). */ tabs: React.ReactNode; /** The email setup of each wait's Follow up (push E2: by the wait's id). */ composes: Record<string, ComposeSetup>; /** The email setup per person on the Outreach tile. */ personComposes: Record<string, ComposeSetup>; /** The email setup for "Open in email" in the Ask AI panel (a typed address). */ askCompose?: ComposeSetup | null }) {
   const router = useRouter();
@@ -142,14 +143,15 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
   const allRows = useMemo<Row[]>(() => {
     const out: Row[] = [];
     const push = (lane: Lane, area: AreaKey, action: HomeAction, render: Row["render"], step: WorkStep | null = null) => {
-      const section = laneSectionOf(action, today);
+      const section = homeSectionOf(action, today);
       if (section) out.push({ key: action.key, lane, area, section, action, render, step });
     };
     // Edit batch C round 3: a listing to screen with a next action (optional on a listing) shows with the deals.
     for (const d of [...deals, ...(data.listingActions ?? [])]) {
       push("Deals", "deals", { key: actionKey("Deals", d.id), lane: "Deals", id: d.id, name: d.name, action: d.nextAction, due: d.nextActionDue, minutes: d.nextActionMinutes, meta: [d.stageName, d.whatItDoes, d.location].filter(Boolean).join(", ") }, (reason) => (d.nextAction ? <NextActionRow deal={d} today={today} reason={reason} /> : <NeedsActionRow deal={d} />), d.nextAction ? { kind: "deal", key: actionKey("Deals", d.id), deal: d } : null);
     }
-    for (const p of data.outreach.due) {
+    // Fix list item 3: people with a follow-up after today are Due later rows.
+    for (const p of [...data.outreach.due, ...(data.outreach.later ?? [])]) {
       push("People", "contacts", { key: actionKey("People", p.id), lane: "People", id: p.id, name: p.name, action: p.followUpFor ?? "Follow up", due: p.nextFollowUp, minutes: null, meta: orgRoleLine(p) }, (reason) => <OutreachActionRow person={p} today={today} reason={reason} />, { kind: "person", key: actionKey("People", p.id), person: p });
     }
     for (const pr of data.rosara.actions) {
@@ -160,37 +162,50 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
       push(lane, areaOf(lane), { key: actionKey(lane, i.id), lane, id: i.id, name: i.name, action: i.nextAction, due: i.nextActionDue, minutes: i.nextActionMinutes, meta: [i.stageName, i.title].filter(Boolean).join(", ") }, (reason) => <ItemActionRow item={i} today={today} reason={reason} />, i.nextAction ? { kind: "item", key: actionKey(lane, i.id), item: i } : null);
     }
     // Personal to-dos due today or earlier (the To-do pill) and dated record tasks (the Task pill and the gray record pill).
-    for (const t of data.todos) {
+    // Fix list item 3: items due after today are Due later rows.
+    for (const t of [...data.todos, ...(data.laterTodos ?? [])]) {
       push("To-dos", areaOf("To-dos", !!t.record), { key: actionKey("To-dos", t.id), lane: "To-dos", id: t.id, name: t.text, action: t.text, due: t.dueOn, minutes: null, meta: t.record ? recordPillText(t.record) : "Personal to-do" }, (reason) => <TodoActionRow todo={t} today={today} reason={reason} />, { kind: "todo", key: actionKey("To-dos", t.id), todo: t });
     }
     return out;
-  }, [deals, data.listingActions, data.outreach.due, data.rosara.actions, data.pipelines.jobs, data.pipelines.consulting, data.todos, today]);
+  }, [deals, data.listingActions, data.outreach.due, data.outreach.later, data.rosara.actions, data.pipelines.jobs, data.pipelines.consulting, data.todos, data.laterTodos, today]);
   const rows = useMemo(() => allRows.filter((r) => !area || r.area === area), [allRows, area]);
 
-  // The three lists, each sorted (Soonest first); the tile numbers follow the Area choice, not Find.
+  // The four lists, each sorted (Soonest first; Due later soonest first too); the tile numbers follow the Area choice, not Find.
   const sectionsOf = useMemo(() => {
-    const by: Record<LaneSectionKey, Row[]> = { overdue: [], today: [], needs: [] };
+    const by: Record<HomeSectionKey, Row[]> = { overdue: [], today: [], needs: [], later: [] };
     for (const r of rows) by[r.section].push(r);
     by.overdue.sort((a, b) => compareActions(a.action, b.action));
     by.today.sort((a, b) => compareActions(a.action, b.action));
     by.needs.sort((a, b) => compareNames(a.action.name, b.action.name));
+    by.later.sort((a, b) => compareActions(a.action, b.action));
     return by;
   }, [rows]);
-  // Push D: the Monthly review row, under All only (it belongs to no single area), first in Due today.
+  // Push D: the Monthly review row, under the All area only (it belongs to no single area). Fix list item 4
+  // (2026-11-06): it sits first under Due later ("Open since Nov 2") and no longer counts in Due today.
   const review = data.monthlyReview;
   const reviewShown = !!review && !area && matchesActionSearch({ name: `Monthly review: ${review.name}`, meta: "review export targets" }, query);
   const reviewCount = review && !area ? 1 : 0;
-  const tiles: Tile<LaneSectionKey>[] = TILE_KEYS.map((k) => ({ key: k, label: TILE_LABEL[k], count: sectionsOf[k].length + (k === "today" ? reviewCount : 0), red: k === "overdue" }));
+  const sectionCount = (k: HomeSectionKey) => sectionsOf[k].length + (k === "later" ? reviewCount : 0);
+  const tiles: Tile<HomeTileKey>[] = HOME_TILE_KEYS.map((k) => ({ key: k, label: TILE_LABEL[k], count: k === "all" ? HOME_SECTION_KEYS.reduce((n, x) => n + sectionCount(x), 0) : sectionCount(k), red: k === "overdue" }));
   const found = (r: Row) => matchesActionSearch(r.action, query);
 
-  // ---------- The tiles ----------
-  const [chosenTile, setChosenTile] = useState<LaneSectionKey | null>(null);
-  const selected = selectedTile(chosenTile, tiles, order);
-  const pickTile = (k: LaneSectionKey) => {
+  // ---------- The tiles: the choice is kept for the rest of the day (like Area); each day starts on All ----------
+  const savedTile = useSyncExternalStore(noSubscribe, () => parseTileChoice(readRaw(TILE_STORAGE_KEY), today), () => null);
+  const [chosenTile, setChosenTile] = useState<HomeTileKey | null>(null);
+  const selected = selectedTile(chosenTile ?? savedTile, tiles, order);
+  const keepTile = (k: HomeTileKey) => {
+    setChosenTile(k);
+    try {
+      window.localStorage.setItem(TILE_STORAGE_KEY, tileToStore(k, today));
+    } catch {
+      /* no storage: the choice holds until the page reloads */
+    }
+  };
+  const pickTile = (k: HomeTileKey) => {
     const next = clickTile({ order, selected }, k);
     if (!next.changed) return;
     if (order !== next.order) pickOrder(next.order);
-    setChosenTile(next.selected);
+    keepTile(next.selected);
     toListTop();
   };
   const pickArea = (a: AreaKey | null) => {
@@ -200,10 +215,14 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
     } catch {
       /* no storage: the choice holds until the page reloads */
     }
-    // An area that leaves the selected tile at 0 selects the first tile with items.
+    // An area that leaves the selected tile at 0 selects the first tile with items (All, while anything is left).
     const nextRows = allRows.filter((r) => !a || r.area === a);
-    const nextTiles = TILE_KEYS.map((k) => ({ key: k, count: nextRows.filter((r) => r.section === k).length + (k === "today" && review && !a ? 1 : 0) }));
-    if (selected) setChosenTile(tileAfterFilter(selected, nextTiles));
+    const nextCount = (k: HomeTileKey) => (k === "all" ? nextRows.length : nextRows.filter((r) => r.section === k).length) + ((k === "later" || k === "all") && review && !a ? 1 : 0);
+    const nextTiles = HOME_TILE_KEYS.map((k) => ({ key: k, count: nextCount(k) }));
+    if (selected) {
+      const t = tileAfterFilter(selected, nextTiles);
+      if (t !== selected) keepTile(t);
+    }
     toListTop();
   };
   // The choices with their numbers (every next action in that area, as the tiles count them).
@@ -278,13 +297,32 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
   const narrowed = !!area || !!query.trim();
   // The line under Next actions names the chosen area (or "Every area" on All).
   const areaWord = area ? (AREAS.find((x) => x.value === area)?.label ?? "Every area") : "Every area";
-  const empty = (k: LaneSectionKey | null) => (
+  const empty = (k: HomeTileKey | null) => (
     <div className="px-[22px] py-[22px] text-[13px] text-muted-foreground" data-testid="now-actions-empty">
       <b className="mb-0.5 block text-[13.5px] font-semibold text-heading">{narrowed ? "Nothing matches." : k ? TILE_EMPTY[k] : "Nothing is due today."}</b>
       {narrowed ? "Pick All above or clear the Find box." : "Pick another tile above."}
     </div>
   );
-  const list = selected ? sectionsOf[selected].filter(found) : [];
+  const list = selected && selected !== "all" ? sectionsOf[selected].filter(found) : [];
+  /** One section with its grey band and count badge; Due later starts with the Monthly review row when it is open. */
+  const sectionBlock = (k: HomeSectionKey, rowsIn: Row[], solo: boolean) => {
+    const withReview = k === "later" && reviewShown && !!review;
+    const count = rowsIn.length + (withReview ? 1 : 0);
+    return (
+      <div key={k} data-testid={solo ? "home-list" : "home-all-section"} data-section={k}>
+        <ListBand name={TILE_LABEL[k]} count={count} urgent={k === "overdue"} testId={solo ? "home-band" : "home-all-band"} />
+        {count ? (
+          <div className="-mx-[22px] flex flex-col" data-testid="section-body">
+            {withReview && review ? <MonthlyReviewRow review={review} /> : null}
+            {rowsIn.map((r) => rowBox(r))}
+          </div>
+        ) : solo ? (
+          <div className="-mx-[22px]">{empty(k)}</div>
+        ) : null}
+      </div>
+    );
+  };
+  const allFoundCount = HOME_SECTION_KEYS.reduce((n, k) => n + sectionsOf[k].filter(found).length, 0) + (reviewShown ? 1 : 0);
   const aiList = aiRows.filter(found);
 
   return (
@@ -328,7 +366,7 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
                   Work through
                 </button>
             }
-            sub={`${areaWord}, ${byAi ? "in the AI's order; one reason under each row" : "due today or earlier, soonest first"}`}
+            sub={`${areaWord}, ${byAi ? "in the AI's order; one reason under each row" : "soonest first"}`}
             actions={
               <>
                 <span className="inline-flex items-center gap-2 whitespace-nowrap">
@@ -380,7 +418,7 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
                   {byAi ? (
                     aiList.length || reviewShown ? (
                       <div className="-mx-[22px] flex flex-col" data-testid="ai-order-rows">
-                        {reviewShown && review ? <MonthlyReviewRow review={review} today={today} /> : null}
+                        {reviewShown && review ? <MonthlyReviewRow review={review} /> : null}
                         {aiList.map((r, n) => rowBox(r, n + 1))}
                       </div>
                     ) : (
@@ -388,18 +426,19 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
                     )
                   ) : null}
                 </>
+              ) : selected === "all" ? (
+                // Fix list item 2: under All, every row in four sections, in tile order, each under its grey band.
+                allFoundCount ? (
+                  <div data-testid="home-all" data-section="all">
+                    {HOME_SECTION_KEYS.map((k) => sectionBlock(k, sectionsOf[k].filter(found), false))}
+                  </div>
+                ) : (
+                  <div className="-mx-[22px]" data-testid="home-all" data-section="all">
+                    {empty("all")}
+                  </div>
+                )
               ) : selected ? (
-                <div data-testid="home-list" data-section={selected}>
-                  <ListBand name={TILE_LABEL[selected]} count={list.length + (selected === "today" && reviewShown ? 1 : 0)} urgent={selected === "overdue"} testId="home-band" />
-                  {list.length || (selected === "today" && reviewShown) ? (
-                    <div className="-mx-[22px] flex flex-col" data-testid="section-body">
-                      {selected === "today" && reviewShown && review ? <MonthlyReviewRow review={review} today={today} /> : null}
-                      {list.map((r) => rowBox(r))}
-                    </div>
-                  ) : (
-                    <div className="-mx-[22px]">{empty(selected)}</div>
-                  )}
-                </div>
+                sectionBlock(selected, list, true)
               ) : null}
             </StickySections>
           </WorkCard>
@@ -519,11 +558,12 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
  * October", the line under it, "Today" on the first workday (then "Since Nov 2"), 15 min, the block icon, and Open.
  * A click on the row opens the review too.
  */
-function MonthlyReviewRow({ review, today }: { review: MonthlyDue; today: string }) {
+function MonthlyReviewRow({ review }: { review: MonthlyDue }) {
   const href = `/work/reports/monthly/${review.slug}?from=home`;
-  const due = review.opensOn === today ? { text: "Today", tone: "today" as const } : { text: `Since ${fmtDate(review.opensOn, "MMM d")}`, tone: "today" as const };
+  // Fix list item 4 (2026-11-06): under Due later, "Open since Nov 2" (the month's first workday).
+  const due = { text: `Open since ${fmtDate(review.opensOn, "MMM d")}`, tone: "later" as const, wrap: true };
   return (
-    <div className="border-t border-slate-100 first:border-t-0" data-testid="home-row" data-lane="review" data-area="all" data-key={`review:${review.slug}`} data-section="today">
+    <div className="border-t border-slate-100 first:border-t-0" data-testid="home-row" data-lane="review" data-area="all" data-key={`review:${review.slug}`} data-section="later">
       <RowShell
         testId="monthly-review-home-row"
         dataAttrs={{ "data-month": review.slug }}

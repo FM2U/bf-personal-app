@@ -253,21 +253,28 @@ const until = async (fn, msg, tries = 60) => {
   });
 
   // ---------- Work on now: the Monthly review row ----------
-  await step("Work on now: 'Monthly review: <month>' leads Due today under All, counts in Due today, and leaves on picking an area", async () => {
+  // Fix list item 4 (approved 2026-11-06): the row moved from Due today to Due later, labeled "Open since <first workday>".
+  await step("Work on now: 'Monthly review: <month>' leads Due later ('Open since <date>'), counts in Due later and not in Due today, and leaves on picking an area", async () => {
     await page.goto(`${BASE}/work`);
-    await pickTile("today");
+    await pickTile("later");
     const row = page.getByTestId("monthly-review-home-row");
     await row.waitFor();
     const text = await row.innerText();
     const name = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][Number(slug.slice(5)) - 1];
-    assert(text.includes(`Monthly review: ${name}`) && text.includes(`See how ${name} went`) && text.includes("15 min") && /Today|Since/.test(text), text);
+    assert(text.includes(`Monthly review: ${name}`) && text.includes(`See how ${name} went`) && text.includes("15 min") && /Open since\s+[A-Z][a-z]{2} \d{1,2}/.test(text), text);
     const first = await page.locator('[data-testid="home-list"] [data-testid="home-row"]').first().getAttribute("data-lane");
     assert(first === "review", `first row ${first}`);
     const shown = await page.locator('[data-testid="home-list"] [data-testid="home-row"]').count();
-    assert((await tileCount("today")) === shown, `Due today ${await tileCount("today")} for ${shown} rows`);
+    assert((await tileCount("later")) === shown, `Due later ${await tileCount("later")} for ${shown} rows`);
     assert((await page.getByTestId("home-band").innerText()).includes(String(shown)), "the band counts it too");
     await shot(page, "work-on-now-monthly-review.png");
+    // Not in Due today any more.
+    await pickTile("today");
+    assert((await page.getByTestId("monthly-review-home-row").count()) === 0, "not under Due today");
+    const todayRows = await page.locator('[data-testid="home-list"] [data-testid="home-row"]').count();
+    assert((await tileCount("today")) === todayRows, `Due today ${await tileCount("today")} for ${todayRows} rows`);
     // An area hides it (it belongs to no single area) and the number goes down by one.
+    await pickTile("later");
     await page.getByTestId("home-area").getByTestId("area-option").filter({ hasText: "Deals" }).first().click();
     await until(async () => (await page.getByTestId("monthly-review-home-row").count()) === 0, "gone under Deals");
     await page.getByTestId("home-area").getByTestId("area-option").filter({ hasText: "All" }).first().click();
@@ -416,7 +423,7 @@ const until = async (fn, msg, tries = 60) => {
   // ---------- The Monthly review ----------
   await step("The Monthly review page: how the month went, next month's targets, Export not yet; Open from Work on now", async () => {
     await page.goto(`${BASE}/work`);
-    await pickTile("today");
+    await pickTile("later");
     await page.getByTestId("monthly-review-open").click();
     await page.waitForURL(new RegExp(`/work/reports/monthly/${slug}`));
     await page.getByTestId("monthly-went").waitFor();

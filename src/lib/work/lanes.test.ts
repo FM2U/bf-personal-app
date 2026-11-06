@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actionKey, aiOrderPrompt, applyAiOrder, AREAS, areaOf, areaSummary, areaToStore, parseAreaChoice, TODO_AREAS, todoAreaOf, laneSectionOf, matchesActionSearch, mergeLanes, orderedAtLabel, orderToStore, parseOrderChoice, validateAiOrderReply, type HomeAction } from "./lanes";
+import { actionKey, aiOrderPrompt, applyAiOrder, AREAS, HOME_TILE_KEYS, homeSectionOf, parseTileChoice, tileToStore, areaOf, areaSummary, areaToStore, parseAreaChoice, TODO_AREAS, todoAreaOf, laneSectionOf, matchesActionSearch, mergeLanes, orderedAtLabel, orderToStore, parseOrderChoice, validateAiOrderReply, type HomeAction } from "./lanes";
 
 const today = "2026-11-03";
 const a = (lane: HomeAction["lane"], id: string, over: Partial<HomeAction> = {}): HomeAction => ({ key: actionKey(lane, id), lane, id, name: id, action: "Do it", due: today, minutes: null, meta: "", ...over });
@@ -11,6 +11,17 @@ describe("the lanes of Home", () => {
     expect(laneSectionOf({ action: null, due: null }, today)).toBe("needs");
     expect(laneSectionOf({ action: "x", due: "2026-11-09" }, today)).toBeNull();
     expect(laneSectionOf({ action: "x", due: null }, today)).toBeNull();
+    // Fix list item 3 (2026-11-06): Home's own rule adds Due later; the AI order keeps the three sections.
+    expect(homeSectionOf({ action: "x", due: "2026-11-09" }, today)).toBe("later");
+    expect(homeSectionOf({ action: "x", due: today }, today)).toBe("today");
+    expect(homeSectionOf({ action: null, due: "2026-11-09" }, today)).toBe("needs");
+    expect(homeSectionOf({ action: "x", due: null }, today)).toBeNull();
+    expect(HOME_TILE_KEYS).toEqual(["all", "overdue", "today", "needs", "later"]);
+    // The tile is kept for the day it was picked; another day, or an unknown tile, starts on All (null).
+    expect(parseTileChoice(tileToStore("later", today), today)).toBe("later");
+    expect(parseTileChoice(tileToStore("later", "2026-11-04"), today)).toBeNull();
+    expect(parseTileChoice('{"tile":"waiting","day":"' + today + '"}', today)).toBeNull();
+    expect(parseTileChoice("not json", today)).toBeNull();
   });
 
   it("merges every lane into the three sections, soonest first, deals before the other lanes on the same day", () => {

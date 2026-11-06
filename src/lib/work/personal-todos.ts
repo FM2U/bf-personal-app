@@ -89,6 +89,11 @@ export function homeTodos<T extends PersonalTodo>(todos: readonly T[], today: st
   return todos.filter((t) => onTodoLists(t) && !t.doneAt && !!t.dueOn && t.dueOn.slice(0, 10) <= today).sort(compareTodos);
 }
 
+/** Home's Due later (fix list item 3, 2026-11-06): the open items due after today, soonest first. */
+export function homeLaterTodos<T extends PersonalTodo>(todos: readonly T[], today: string): T[] {
+  return todos.filter((t) => onTodoLists(t) && !t.doneAt && !!t.dueOn && t.dueOn.slice(0, 10) > today).sort(compareTodos);
+}
+
 /** A new item goes after the last one. */
 export function nextPersonalTodoPosition(todos: readonly { position: number }[]): number {
   return todos.reduce((m, t) => Math.max(m, t.position), 0) + 1;

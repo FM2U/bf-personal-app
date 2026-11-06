@@ -164,13 +164,15 @@ export type OutreachHome = {
   dueToday: PersonRow[];
   /** Everyone due today or overdue (the rows on Next actions), overdue first, then by name. */
   due: PersonRow[];
+  /** Fix list item 3 (2026-11-06): everyone with a follow-up date after today (Home's Due later), soonest first. */
+  later: PersonRow[];
   overdue: number;
 };
 
 export async function loadOutreachHome(sb: SupabaseClient, ctx: Ctx): Promise<OutreachHome> {
   const [all, counter] = await Promise.all([loadPeople(sb, ctx.ownerId, ctx.tz), loadOutreachCounter(sb, ctx)]);
   const s = outreachSections(all, ctx.today);
-  return { counter, dueToday: s.today.slice(0, 3), due: [...s.overdue, ...s.today], overdue: s.overdue.length };
+  return { counter, dueToday: s.today.slice(0, 3), due: [...s.overdue, ...s.today], later: [...s.week, ...s.later], overdue: s.overdue.length };
 }
 
 /** People due today or overdue: the amber badge on the Outreach tab. Null before update 0022. */
