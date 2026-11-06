@@ -512,6 +512,11 @@ const until = async (fn, msg, tries = 60) => {
     assert(look.current === "true" && look.border !== "rgb(226, 232, 240)", JSON.stringify(look));
     await page.locator("[data-testid=settings-section-pill][data-section=s-pipe]").click();
     await until(async () => JSON.stringify(await selected()) === '["s-pipe"]', "a click selects Pipelines and stage defaults");
+    // The section's heading shows just under the pinned title and pills, not hidden behind them.
+    await until(async () => {
+      const r = await page.evaluate(() => ({ pinned: document.querySelector("[data-testid=settings-sticky]").getBoundingClientRect().bottom, top: document.getElementById("s-pipe").getBoundingClientRect().top }));
+      return r.top >= r.pinned && r.top - r.pinned <= 24;
+    }, "the Pipelines heading sits right under the pills");
     await page.locator("[data-testid=settings-section-pill][data-section=s-prof]").click();
     await until(async () => JSON.stringify(await selected()) === '["s-prof"]', "a click selects Profile and export");
     await shot(page, "settings-pills-profile.png");

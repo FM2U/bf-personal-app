@@ -271,9 +271,20 @@ export function SettingsSectionNav({ sections }: { sections: readonly (readonly 
           <a
             key={id}
             href={`#${id}`}
-            onClick={() => {
+            onClick={(e) => {
+              // The section's heading lands just under the pinned title and pills (2026-11-06, Bram: the plain jump hid it).
+              const el = document.getElementById(id);
+              if (!el) return;
+              e.preventDefault();
               clickedAt.current = Date.now();
               setCurrent(id);
+              const pinned = document.querySelector<HTMLElement>("[data-testid=settings-sticky]")?.getBoundingClientRect().bottom ?? 0;
+              window.scrollTo({ top: Math.max(0, el.getBoundingClientRect().top + window.scrollY - pinned - 12), behavior: "smooth" });
+              try {
+                window.history.replaceState(null, "", `#${id}`);
+              } catch {
+                /* no history: the scroll still happens */
+              }
             }}
             aria-current={on ? "true" : undefined}
             className={cn("inline-flex items-center rounded-full border bg-white px-3 py-1 text-[12.5px] font-medium whitespace-nowrap", on ? "border-primary text-primary-strong shadow-[0_0_0_1px_var(--primary)]" : "border-border text-slate-600 hover:bg-slate-50")}
