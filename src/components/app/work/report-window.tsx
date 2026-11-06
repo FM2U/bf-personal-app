@@ -306,7 +306,7 @@ function CopyReview({ day, copy, startEditing, notes, onNotes }: { day: string; 
             ) : null}
           </div>
         ))}
-        <div className="mt-3" dangerouslySetInnerHTML={{ __html: closingHtml() }} />
+        <div className="mt-3" dangerouslySetInnerHTML={{ __html: closingHtml(copy.report.signName) }} />
       </div>
     </>
   );

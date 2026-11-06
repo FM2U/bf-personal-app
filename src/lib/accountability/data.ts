@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDaysISO, monthStart, todayInTz } from "@/lib/calc/dates";
 import type { Ctx } from "@/lib/engine/helpers";
 import { date as fmtDate, formatInZone } from "@/lib/format";
-import { displayName } from "@/lib/work/names";
+import { displayName, signOffName } from "@/lib/work/names";
 import { loadPipelineOfKind, loadWorkCtx, type WorkCtx, type WorkPipeline } from "@/lib/work/data";
 import { weekdayShort } from "@/lib/work/outreach";
 import { waitLines, type SavedWait } from "@/lib/work/waiting";
@@ -305,11 +305,11 @@ export type EndOfDayPage = {
 export async function loadEndOfDay(sb: SupabaseClient, ctx: Ctx, day = ctx.today): Promise<EndOfDayPage> {
   const wctx = await loadWorkCtx(sb, ctx.ownerId);
   const [targets, bundle, row, partners, owed, sent] = await Promise.all([loadTargets(sb, ctx.ownerId), loadFacts(sb, wctx, factsSince(day)), loadEodRow(sb, ctx.ownerId, day), loadPartners(sb, ctx.ownerId), loadOwedFromSkipped(sb, ctx.ownerId, day), loadSentCopies(sb, ctx.ownerId, day)]);
-  return buildEndOfDay({ targets, bundle, row, partners, sent, owed, day, tz: ctx.tz, threshold: wctx.threshold, eodTime: wctx.eodTime });
+  return buildEndOfDay({ targets, bundle, row, partners, sent, owed, day, tz: ctx.tz, threshold: wctx.threshold, eodTime: wctx.eodTime, signName: signOffName(wctx.profile?.display_name) });
 }
 
 /** Builds the End of day page from loaded rows (shared with the send action, which judges the same way). */
-export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: EodRow; partners: Partner[]; sent: SentCopy[]; owed: { day: string; items: Judged[]; reasons: Record<string, string> } | null; day: string; tz: string; threshold: number; eodTime?: string }): EndOfDayPage {
+export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: EodRow; partners: Partner[]; sent: SentCopy[]; owed: { day: string; items: Judged[]; reasons: Record<string, string> } | null; day: string; tz: string; threshold: number; eodTime?: string; /** Fix list item 10: the name under "Thank you," (Settings, Name). */ signName?: string | null }): EndOfDayPage {
   const { targets, bundle, row, partners, day } = i;
   const friday = weekdayShort(day) === "Fri";
   const weekday = !["Sat", "Sun"].includes(weekdayShort(day));
@@ -331,6 +331,7 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
   const deals = bundle.raw.acqId ? reportDeals({ ...dealArgs, pipelineId: bundle.raw.acqId }) : [];
   const jobs = bundle.raw.jobId ? reportDeals({ ...dealArgs, pipelineId: bundle.raw.jobId }) : [];
   const report: ReportData = {
+    signName: i.signName ?? null,
     partnerName: "Partner",
     partnerFirst: "there",
     dateLong: fmtDate(day, "EEEE, MMM d, yyyy"),

@@ -11,6 +11,7 @@ import { addDaysISO, daysBetween } from "@/lib/calc/dates";
 import { personHref } from "@/lib/work/people";
 import { daysWaiting, waitLevel, type WaitLevel } from "@/lib/work/stages";
 import { parseReplyWait, whoBesides } from "@/lib/work/reply-wait";
+import { signOff } from "@/lib/work/names";
 
 /** The No reply setting's default (Bram, 2026-11-05: 2, changed from 3). */
 export const DEFAULT_NO_REPLY_DAYS = 2;
@@ -266,7 +267,7 @@ export function firstReplyAfter(mail: readonly Pick<MailRow, "direction" | "thre
 }
 
 /** The drafted Follow up to a person being waited on. */
-export function personFollowUpDraft(i: { name: string; waitingOn: string | null; days: number }): { subject: string; body: string } {
+export function personFollowUpDraft(i: { name: string; waitingOn: string | null; days: number; /** Fix list item 10: Settings, Name. */ signName?: string | null }): { subject: string; body: string } {
   const first = String(i.name ?? "").trim().split(/\s+/)[0] || "there";
   const what = String(i.waitingOn ?? "").trim();
   // A wait made from an email reads as "your reply to my email about <subject>" (whatever its wording).
@@ -276,6 +277,6 @@ export function personFollowUpDraft(i: { name: string; waitingOn: string | null;
   const topic = reply ? `your reply to my email about ${reply}` : parsed ? "your reply to my email" : what ? `${what.charAt(0).toLowerCase()}${what.slice(1)}` : "your reply";
   return {
     subject: reply ? `Following up: ${reply}` : "Following up",
-    body: `Hi ${first},\n\nQuick follow-up: I am still waiting on ${topic}.${since}\n\nIs there an update? Happy to jump on a call if that is easier.\n\nThanks,\nBram`,
+    body: `Hi ${first},\n\nQuick follow-up: I am still waiting on ${topic}.${since}\n\nIs there an update? Happy to jump on a call if that is easier.\n\n${signOff("Thanks", i.signName)}`,
   };
 }

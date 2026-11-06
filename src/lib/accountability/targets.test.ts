@@ -223,6 +223,7 @@ describe("the report's numbers and the email", () => {
       week: { label: "The week, Nov 2 to 6", tiles: weekTiles(weekNumbers(targets, facts, workWeekOf(FRI), waits), null) },
       tomorrow: { label: "Monday", text: "Monday: finish the Meridian model before 10" },
     };
+    d.signName = "Bram";
     const html = reportInnerHtml(d);
     expect(html).toContain("Daily report, with the week");
     expect(html).toContain("Hello Jake,");
@@ -243,6 +244,9 @@ describe("the report's numbers and the email", () => {
     expect(text).toContain("Waiting on brokers 5+ days\n  - Summit Logistics Group: 11 days, Mark Reed");
     expect(text).toContain("MONDAY\nMonday: finish the Meridian model before 10");
     expect(text).toMatch(/Thank you,\nBram$/);
+    // Fix list item 10: with no Name in Settings, "Thank you," closes the email alone.
+    expect(reportInnerHtml({ ...d, signName: null })).toContain(">Thank you,</p>");
+    expect(reportText({ ...d, signName: null })).toMatch(/Thank you,$/);
   });
 });
 

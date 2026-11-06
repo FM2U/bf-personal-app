@@ -606,7 +606,7 @@ export function FindingsCard({ deal, compose, aiTools = true, listsReady = true,
     field.set(next);
     setListFocus(next.length > prev.length ? { kind, i: next.length - 1 } : null);
   };
-  const draft = questionsEmailDraft({ dealName: deal.name, toName: compose?.recipients.find((r) => r.email === compose.defaultTo)?.name ?? null, questions: questions.value });
+  const draft = questionsEmailDraft({ dealName: deal.name, toName: compose?.recipients.find((r) => r.email === compose.defaultTo)?.name ?? null, questions: questions.value, signName: compose?.signName });
   const emailable = questions.value.seller.some((l) => l.trim()) || questions.value.broker.some((l) => l.trim());
   const rows = 1 + Math.max(1, strengths.value.length, risks.value.length);
   return (

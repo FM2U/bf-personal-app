@@ -13,6 +13,7 @@ import { ensureDefaultTargets } from "@/lib/accountability/data";
 import { buildSampleData } from "@/lib/sample-data";
 import { countRealRecords } from "@/lib/sample-server";
 import type { Row } from "@/lib/types";
+import { signOffName } from "@/lib/work/names";
 
 const PAGE = "/settings/data";
 
@@ -54,6 +55,7 @@ export async function loadSampleData(fd: FormData) {
       jobs: jobs ? { pipelineId: jobs.id, stages: stagesOf(jobs) } : null,
       consulting: consulting ? { pipelineId: consulting.id, stages: stagesOf(consulting) } : null,
       tz: ctx.tz,
+      signName: signOffName(ctx.profile?.display_name),
     },
     () => randomUUID(),
     ctx.today,

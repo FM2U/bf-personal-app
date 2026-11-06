@@ -8,12 +8,13 @@ import { isValidEmail } from "@/lib/email-address";
 import type { Row } from "@/lib/types";
 import { loadSignature } from "@/lib/signature-store";
 import type { SignatureSetup } from "@/lib/email-signature";
+import { signOffName } from "@/lib/work/names";
 
 /** Tables whose record page shows the "Email" button. */
 const EMAIL_BUTTON_TABLES = new Set(["contacts", "organizations", "pipeline_items"]);
 
 /** Google side of the compose box: Send now permission, the From address, and whether Gmail drafts can be saved. */
-export type GmailSetup = { permission: SendPermission; fromEmail: string | null; canGmail: boolean; signature: SignatureSetup | null };
+export type GmailSetup = { permission: SendPermission; fromEmail: string | null; canGmail: boolean; signature: SignatureSetup | null; /** Fix list item 10 (2026-11-06): the name under "Thanks," in drafted emails (Settings, Name); null when not set. */ signName?: string | null };
 
 /** Everything the compose box needs, loaded on the server (plain data, passed to the client component). */
 export type ComposeSetup = GmailSetup & {
@@ -32,13 +33,15 @@ export type ComposeSetup = GmailSetup & {
 };
 
 export async function loadGmailSetup(sb: SupabaseClient, ownerId: string): Promise<GmailSetup> {
-  if (!isGoogleConfigured()) return { permission: "not_connected", fromEmail: null, canGmail: false, signature: null };
+  const signName = signOffName(((await sb.from("owner_profile").select("display_name").eq("owner_id", ownerId).maybeSingle()).data as { display_name?: string | null } | null)?.display_name);
+  if (!isGoogleConfigured()) return { permission: "not_connected", fromEmail: null, canGmail: false, signature: null, signName };
   const [google, signature] = await Promise.all([getGoogleConnection(sb, ownerId), loadSignature(sb, ownerId)]);
   return {
     permission: sendPermission(google),
     fromEmail: (google?.google_email as string | null) ?? null,
     canGmail: google?.status === "connected",
     signature,
+    signName,
   };
 }
 

@@ -111,7 +111,7 @@ describe("open questions", () => {
   });
 
   it("drafts the email with the seller and broker groups as bullets under bold headings, to the first name", () => {
-    const d = questionsEmailDraft({ dealName: "Dalton Services", toName: "Rachel Kim", questions: { seller: ["Why sell now at 58?", "Would you stay 12 months?"], broker: ["Is the asking firm?"], self: ["Local competitors?"] } });
+    const d = questionsEmailDraft({ dealName: "Dalton Services", toName: "Rachel Kim", questions: { seller: ["Why sell now at 58?", "Would you stay 12 months?"], broker: ["Is the asking firm?"], self: ["Local competitors?"] }, signName: "Bram" });
     expect(d.subject).toBe("Dalton Services, questions");
     expect(d.body).toBe(["Hi Rachel,", "", "A few questions on Dalton Services as I work through it.", "", "**Ask the seller**", "- Why sell now at 58?", "- Would you stay 12 months?", "", "**Ask the broker**", "- Is the asking firm?", "", "Thanks,", "Bram"].join("\n"));
     expect(d.body).not.toContain("Local competitors");

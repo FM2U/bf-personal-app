@@ -1031,12 +1031,14 @@ const until = async (fn, msg, tries = 60) => {
 
   // Fix list item 1: a send with one partner unticked goes to the others only, and the day still closes as sent.
   // The day is re-opened the way UPDATE_PREVIEW_PUSH_F.sql re-opens Friday Nov 6 (the sent copies removed).
-  await step("Approve and send with Sarah unticked: only Jake gets the email; the day is marked sent; tomorrow everyone is ticked again", async () => {
+  await step("Approve and send with Sarah unticked: only Jake gets the email, signed with the Name in Settings; the day is marked sent; tomorrow everyone is ticked again", async () => {
     await db.query("begin");
     await db.query("select set_config('app.bulk_delete', 'on', true)");
     await db.query("delete from partner_reports where report_kind = 'end_of_day' and period_start = $1", [today]);
     await db.query("update end_of_day set status = 'open', sent_at = null, report_id = null, report_subject = null, report_html = null, report_edited = false, skipped_partners = '[]' where day = $1", [today]);
     await db.query("commit");
+    // Fix list item 10: the email signs with the Name in Settings (its first word).
+    await db.query("update owner_profile set display_name = 'Bram Frankel'");
     await eodTop();
     const sarah = page.locator("[data-testid=eod-partner][data-partner=Sarah]");
     await sarah.getByTestId("eod-partner-check").uncheck();
@@ -1046,8 +1048,11 @@ const until = async (fn, msg, tries = 60) => {
     const anyway = page.getByTestId("send-check-anyway");
     await Promise.race([anyway.waitFor({ timeout: 15000 }).then(() => anyway.click()), page.getByTestId("sent-line").waitFor({ timeout: 15000 })]).catch(() => {});
     await page.getByTestId("sent-line").waitFor({ timeout: 30000 });
-    const to = (await g("/__sent")).slice(before).filter((m) => /Daily report/.test(m.subject)).map((m) => m.to);
+    const mails = (await g("/__sent")).slice(before).filter((m) => /Daily report/.test(m.subject));
+    const to = mails.map((m) => m.to);
     assert(to.length === 1 && to[0].includes("jake.morgan"), `sent to ${JSON.stringify(to)}`);
+    const body = String(mails[0].body).replace(/\r\n/g, "\n").trimEnd();
+    assert(/Thank you,\nBram$/.test(body) && String(mails[0].html).includes("Thank you,<br>Bram"), `the sign-off: ...${body.slice(-40)}`);
     const day = await one("select status from end_of_day where day = $1", [today]);
     assert(day.status === "sent", `the day is ${day.status}`);
     const tomorrowRow = await one("select count(*)::int n from end_of_day where day > $1 and skipped_partners <> '[]'", [today]);

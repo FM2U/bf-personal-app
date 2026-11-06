@@ -26,6 +26,7 @@ import { countable, isCountKey, noReasonText, owedReasons, reportSummary, type C
 import { loadWorkCtx } from "@/lib/work/data";
 import { loadWeeklyFocus } from "@/lib/work/projects-data";
 import type { Row } from "@/lib/types";
+import { signOffName } from "@/lib/work/names";
 
 /**
  * Targets, End of day, and Reports (batch C, database update 0025): add, edit, remove (archive) a target and its
@@ -313,7 +314,7 @@ export async function putShortReport(day: string, contactId?: string | null): Pr
 async function loadPage(sb: SupabaseClient, ctx: Ctx, day: string): Promise<EndOfDayPage> {
   const wctx = await loadWorkCtx(sb, ctx.ownerId);
   const [targets, bundle, row, partners, owed, sent] = await Promise.all([loadTargets(sb, ctx.ownerId), loadFacts(sb, wctx, factsSince(day)), loadEodRow(sb, ctx.ownerId, day), loadPartners(sb, ctx.ownerId), loadOwedFromSkipped(sb, ctx.ownerId, day), loadSentCopies(sb, ctx.ownerId, day)]);
-  return buildEndOfDay({ targets, bundle, row, partners, sent, owed, day, tz: ctx.tz, threshold: wctx.threshold, eodTime: wctx.eodTime });
+  return buildEndOfDay({ targets, bundle, row, partners, sent, owed, day, tz: ctx.tz, threshold: wctx.threshold, eodTime: wctx.eodTime, signName: signOffName(wctx.profile?.display_name) });
 }
 
 function owedCount(page: EndOfDayPage): number {

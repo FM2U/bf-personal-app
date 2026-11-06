@@ -25,6 +25,8 @@ import { replyWaitText } from "@/lib/work/reply-wait";
 import { zonedToIso } from "@/lib/work/time-blocks";
 
 export type WorkSampleSetup = {
+  /** Fix list item 10 (2026-11-06): the name under "Thank you," in the sample's sent reports (Settings, Name). */
+  signName?: string | null;
   pipelineId: string;
   stages: Record<string, string>;
   /** Database update 0022 is applied: the Outreach people, their calls, emails, and replies, tasks on people, and the personal to-dos. */
@@ -438,7 +440,7 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
     const weekdays: string[] = [];
     for (let i = 1; weekdays.length < 4 && i < 14; i++) if (isWeekday(ago(i))) weekdays.push(ago(i));
     const [d1, d2, d3, d4] = weekdays;
-    const c = buildSampleReports({ d2, d3, d4, partnerFirst: "Jake" });
+    const c = buildSampleReports({ d2, d3, d4, partnerFirst: "Jake", signName: s.signName ?? null });
     // New York clock readings (Eastern Standard Time) as UTC timestamps.
     const at = (day: string, hour: number, minute: number) => new Date(`${day}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00-05:00`).toISOString();
     // d2: sent, reviewed, with a reply. d3: sent, not opened. d4: sent and reviewed.
@@ -464,7 +466,7 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
     const own = [d2, d3, d4].includes(fri);
     const friReport = own ? (fri === d2 ? r2 : fri === d3 ? r3 : r4) : newId();
     const sarahReport = newId();
-    const friData = buildFridayReport(fri);
+    const friData = { ...buildFridayReport(fri), signName: s.signName ?? null };
     const jakeCopy = reportFor(friData, { name: "Jake Morgan", first: "Jake", sections: ["today", "targets", "top", "active", "waiting", "jobs", "week", "review", "tomorrow"] });
     const sarahCopy = reportFor(friData, { name: "Sarah Klein", first: "Sarah", sections: ["targets", "week", "review", "tomorrow"] });
     if (!own) {
@@ -532,7 +534,7 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
 }
 
 /** The three sample sent reports (batch C): the email as sent, built the way End of day builds it, from fixed numbers. */
-function buildSampleReports(i: { d2: string; d3: string; d4: string; partnerFirst: string }) {
+function buildSampleReports(i: { d2: string; d3: string; d4: string; partnerFirst: string; signName: string | null }) {
   const long = (d: string) => `${DAY_LONG[weekdayShort(d)]}, ${MONTHS[Number(d.slice(5, 7)) - 1]} ${Number(d.slice(8, 10))}, ${d.slice(0, 4)}`;
   const short = (d: string) => `${DAY_LONG[weekdayShort(d)]}, ${MONTHS[Number(d.slice(5, 7)) - 1]} ${Number(d.slice(8, 10))}`;
   const judged2 = [
@@ -544,6 +546,7 @@ function buildSampleReports(i: { d2: string; d3: string; d4: string; partnerFirs
   const tomorrow2 = "Screen the 5 listings first; Meridian seller call at 11.";
   const tomorrow3 = "Sunbelt coffee with Dana at 9; Maria Santos call at 1.";
   const data2: ReportData = {
+    signName: i.signName,
     partnerName: "Jake Morgan", partnerFirst: i.partnerFirst, dateLong: long(i.d2), dateShort: short(i.d2), withWeek: false,
     pill: { text: "Listings screened missed", status: "missed" },
     today: [
@@ -569,6 +572,7 @@ function buildSampleReports(i: { d2: string; d3: string; d4: string; partnerFirs
     tomorrow: { label: "Tomorrow", text: tomorrow2 },
   };
   const data3: ReportData = {
+    signName: i.signName,
     ...data2,
     dateLong: long(i.d3), dateShort: short(i.d3),
     pill: { text: "Listings screened met", status: "met" },
@@ -586,6 +590,7 @@ function buildSampleReports(i: { d2: string; d3: string; d4: string; partnerFirs
   const judged4 = [{ targetId: "sample-listings", name: "Listings screened", key: "listings_screened", cadence: "day", number: 5, commitment: true, value: 4, met: false, figure: "4 of 5", line: "Per weekday · target 5 · this week 4 of 5", detail: "3 passed, 1 Interested", judged: true }];
   const tomorrow4 = "Read the Summit CIM before the 2 pm broker call.";
   const data4: ReportData = {
+    signName: i.signName,
     ...data2,
     dateLong: long(i.d4), dateShort: short(i.d4),
     pill: { text: "Listings screened missed", status: "missed" },

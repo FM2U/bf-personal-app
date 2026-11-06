@@ -7,6 +7,7 @@
  */
 import { parseReplyWait } from "@/lib/work/reply-wait";
 import { daysBetween } from "@/lib/calc/dates";
+import { signOff } from "@/lib/work/names";
 
 /** The nine working stages, in order. Passed, Lost, and Closed come after them and are not part of the progress mark. */
 export const WORK_STAGES = ["Interested", "NDA signed", "CIM review", "Broker call", "Seller call", "Model", "Partner presentation", "IOI or LOI", "Diligence"] as const;
@@ -101,7 +102,7 @@ export function dueLabel(due: string | null | undefined, today: string, fmt: (d:
 }
 
 /** The email the Follow up button opens, ready to edit. */
-export function followUpDraft(i: { dealName: string; waitingOn: string | null; contactName: string | null; days: number }): { subject: string; body: string } {
+export function followUpDraft(i: { dealName: string; waitingOn: string | null; contactName: string | null; days: number; /** Fix list item 10: Settings, Name. */ signName?: string | null }): { subject: string; body: string } {
   const first = String(i.contactName ?? "").trim().split(/\s+/)[0] || "there";
   const what = String(i.waitingOn ?? "").trim();
   const since = i.days >= 2 ? ` It has been ${i.days} days, so I wanted to make sure it did not get lost.` : "";
@@ -111,7 +112,7 @@ export function followUpDraft(i: { dealName: string; waitingOn: string | null; c
   const topic = reply ? (subject ? `your reply to my email about ${subject}` : "your reply to my email") : what ? `${what.charAt(0).toLowerCase()}${what.slice(1)}` : "the next step";
   return {
     subject: `Following up on ${i.dealName}`,
-    body: `Hi ${first},\n\nQuick follow-up on ${i.dealName}: I am still waiting on ${topic}.${since}\n\nIs there an update on timing? Happy to jump on a call if that is easier.\n\nThanks,\nBram`,
+    body: `Hi ${first},\n\nQuick follow-up on ${i.dealName}: I am still waiting on ${topic}.${since}\n\nIs there an update on timing? Happy to jump on a call if that is easier.\n\n${signOff("Thanks", i.signName)}`,
   };
 }
 

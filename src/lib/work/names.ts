@@ -58,3 +58,29 @@ export function compareNames(a: string, b: string): number {
   if (pa !== pb) return pa ? -1 : 1;
   return a.localeCompare(b, "en", { sensitivity: "base" });
 }
+
+// ---------- The sign-off name (fix list item 10, approved by Bram 2026-11-06) ----------
+
+/**
+ * The name under "Thanks," in the app's emails: the first word of the Name in Settings (owner_profile.display_name),
+ * so "Bram Frankel" signs "Bram". Null when no Name is set; the email then ends with "Thanks," alone.
+ */
+export function signOffName(displayName: unknown): string | null {
+  const first = String(displayName ?? "").trim().split(/\s+/)[0] ?? "";
+  return first ? first.slice(0, 60) : null;
+}
+
+/** "Thanks,\nBram", or "Thanks," with no Name set. */
+export function signOff(word: string, name: string | null | undefined): string {
+  return name ? `${word},\n${name}` : `${word},`;
+}
+
+/**
+ * An AI-drafted email ends with "Thanks," or "Best," and no name (the prompts never name the user); the app adds the
+ * Name from Settings on the next line. A body that ends any other way is left as it is.
+ */
+export function addSignOffName(body: string, name: string | null | undefined): string {
+  const t = String(body ?? "").replace(/\s+$/, "");
+  if (!name) return t;
+  return /(?:^|\n)[ \t]*(?:Thanks|Best|Thank you|Best regards|Regards),[ \t]*$/i.test(t) ? `${t}\n${name}` : t;
+}

@@ -187,7 +187,7 @@ describe("the batch B2 sample (projects, opportunities, consulting)", () => {
 describe("the batch C sample (Jake, End of day rows, work events)", () => {
   let k = 0;
   // Friday, Oct 30, 2026: the four weekdays before it are Thu Oct 29 (skipped), Wed 28, Tue 27, Mon 26 (sent).
-  const c = buildWorkSample({ pipelineId: "p-acq", stages, batchB: true, batchB2: true, batchC: true }, () => `00000000-0000-4000-8000-${String(++k).padStart(12, "0")}`, "2026-10-30");
+  const c = buildWorkSample({ pipelineId: "p-acq", stages, batchB: true, batchB2: true, batchC: true, signName: "Bram" }, () => `00000000-0000-4000-8000-${String(++k).padStart(12, "0")}`, "2026-10-30");
 
   it("has Jake (weekdays) and Sarah (Fridays) as partners, the sent reports with their threads, one skipped day, and replies", () => {
     const partners = c.contacts.filter((p) => p.outreach_role === "accountability_partner");

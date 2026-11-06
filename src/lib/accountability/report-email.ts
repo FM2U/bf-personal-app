@@ -10,6 +10,7 @@
 import { barHtml, EMAIL_COLORS, escapeHtml, FONT, pillHtml, type TileStatus } from "@/lib/calc/partner-report";
 import { judgedMark, MARK_WORD, type Judged, type ReportTile } from "@/lib/accountability/targets";
 import { blocksText, buildSections, parseEdited, sentSections, tilesText, type Block, type BuiltSection, type Line, type ReportChoices, type ReportData } from "@/lib/accountability/report-sections";
+import { signOff } from "@/lib/work/names";
 
 export type { ReportData, ReportChoices };
 
@@ -134,8 +135,9 @@ export function greetingHtml(d: ReportData): string {
   return p(`Hello ${escapeHtml(d.partnerFirst)},`, ";margin-top:12px;margin-bottom:2px") + p(`Here is my report for ${escapeHtml(d.dateShort)}.${d.withWeek ? " It is Friday, so the week is at the end." : ""}`);
 }
 
-export function closingHtml(): string {
-  return p("Nothing is required from you. Reply to this email if you want to talk.", `;color:${C.muted};font-size:13px;margin-top:4px`) + p("Thank you,<br>Bram", ";margin-bottom:0");
+/** The closing; the name under "Thank you," is the Name in Settings (fix list item 10), none when not set. */
+export function closingHtml(signName?: string | null): string {
+  return p("Nothing is required from you. Reply to this email if you want to talk.", `;color:${C.muted};font-size:13px;margin-top:4px`) + p(signName ? `Thank you,<br>${escapeHtml(signName)}` : "Thank you,", ";margin-bottom:0");
 }
 
 /** The inner card of the email (what is sent, and what Sent reports shows): the sections this partner gets today. */
@@ -143,7 +145,7 @@ export function reportInnerHtml(d: ReportData): string {
   const row = (inner: string, pad: string) => `<tr><td style="padding:${pad}">${inner}</td></tr>`;
   const parts = [row(headerHtml(d), "16px 20px 0 20px"), row(greetingHtml(d), "0 20px 0 20px")];
   for (const s of sentSections(d)) parts.push(row(headingHtml(s.title) + sectionBodyHtml(s) + noteHtml(s.note), "8px 20px 4px 20px"));
-  parts.push(row(closingHtml(), "10px 20px 18px 20px"));
+  parts.push(row(closingHtml(d.signName), "10px 20px 18px 20px"));
   return `<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;border-collapse:separate;background-color:#ffffff;border:1px solid ${C.border};border-radius:10px">${parts.join("")}</table>`;
 }
 
@@ -162,7 +164,7 @@ export function reportText(d: ReportData): string {
     else lines.push(s.blocks.length ? blocksText(s.blocks) : (s.quiet ?? ""));
     if (s.note) lines.push("", noteText(s.note));
   }
-  lines.push("", "Nothing is required from you. Reply to this email if you want to talk.", "", "Thank you,", "Bram");
+  lines.push("", "Nothing is required from you. Reply to this email if you want to talk.", "", ...signOff("Thank you", d.signName).split("\n"));
   return lines.join("\n");
 }
 

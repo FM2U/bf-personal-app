@@ -24,6 +24,7 @@ import { loadRosaraHome } from "@/lib/work/projects-data";
 import { nextPersonalTodoPosition } from "@/lib/work/personal-todos";
 import { loadHomeTodos } from "@/lib/work/personal-todos-data";
 import type { Row } from "@/lib/types";
+import { addSignOffName, signOffName } from "@/lib/work/names";
 
 /**
  * The Ask AI panel and the AI order on Home (batch B2). Every call goes through callForJson (callClaude with the
@@ -184,7 +185,8 @@ export async function draftField(c: AskContext): Promise<{ ok: true; text: strin
   try {
     const context = await buildPageContext(sb, ctx.ownerId, c);
     const text = await callForJson<string>({ sb, ownerId: ctx.ownerId, purpose: "ask_field", prompt: fieldPrompt(context, c.field), maxTokens: c.field.key === "email_body" ? 1500 : 600, shape: "text", validate: (v) => validateFieldReply(cleanDeep(v)) });
-    return { ok: true, text };
+    // Fix list item 10: an email body gets the Name from Settings under "Thanks," (the prompt never names the user).
+    return { ok: true, text: c.field.key === "email_body" ? addSignOffName(text, signOffName(ctx.profile?.display_name)) : text };
   } catch (e) {
     return aiError(e);
   }

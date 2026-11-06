@@ -265,7 +265,7 @@ export function fieldPrompt(c: PageContext, field: AskField): string {
     key_finding: "the key finding of this deal: the one line that decides it (at most 30 words)",
     next_action: "the next action on this record: one concrete step the signed-in user can do, starting with a verb (at most 20 words)",
     email_subject: "the subject line of the email (at most 12 words)",
-    email_body: "the email message in the signed-in user's direct, friendly voice: first person, short paragraphs, a clear ask, no sign-off beyond 'Thanks,\\nBram'",
+    email_body: "the email message in the signed-in user's direct, friendly voice: first person, short paragraphs, a clear ask, ending with 'Thanks,' on its own last line and no name after it (the app adds the name)",
     project_note: "a short note for this project's timeline: what was learned or decided, from what is on the page (at most 40 words)",
     task_text: "one task for this record: a concrete thing to do, starting with a verb (at most 15 words)",
     weekly_focus: "the one thing Rosara should get this week, as one sentence starting with 'This week:' (at most 25 words)",

@@ -540,7 +540,7 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
           onOpenChange={(o) => {
             if (!o) setFollowUp(null);
           }}
-          initial={followUp.item.kind === "deal" ? followUpDraft({ dealName: followUp.item.name, waitingOn: followUp.line.waitingOn, contactName: followUp.line.contactName, days: followUp.line.days }) : personFollowUpDraft({ name: followUp.item.name, waitingOn: followUp.line.waitingOn, days: followUp.line.days })}
+          initial={followUp.item.kind === "deal" ? followUpDraft({ dealName: followUp.item.name, waitingOn: followUp.line.waitingOn, contactName: followUp.line.contactName, days: followUp.line.days, signName: composes[followUp.line.waitId]?.signName }) : personFollowUpDraft({ name: followUp.item.name, waitingOn: followUp.line.waitingOn, days: followUp.line.days, signName: composes[followUp.line.waitId]?.signName })}
           onSent={async () => {
             // Push E2: that wait starts again today and also watches the follow-up email.
             await followedUpWait(followUp.line.waitId);

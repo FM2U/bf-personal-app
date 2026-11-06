@@ -9,6 +9,7 @@
 import { buyerInstructions, financingLineFor, stageLineFor, type AiSpot } from "@/lib/ai/instructions";
 import { defaultBuyBoxSettings, type BuyBoxSettings } from "@/lib/work/buy-box";
 import { dealFactLines, listingTextBlock, NO_FALSE_GAPS_RULE, type DealFacts } from "@/lib/work/deal-facts";
+import { signOff } from "@/lib/work/names";
 
 export type QuestionGroupKey = "seller" | "broker" | "self";
 
@@ -229,7 +230,7 @@ export function validateTodosReply(value: unknown): { ok: true; value: string[] 
  * Ask the seller and Ask the broker groups as bullets under those two headings (Find out myself stays on the deal).
  * The editor turns "**...**" into bold and "- " lines into a list.
  */
-export function questionsEmailDraft(i: { dealName: string; toName: string | null; questions: QuestionGroups }): { subject: string; body: string } {
+export function questionsEmailDraft(i: { dealName: string; toName: string | null; questions: QuestionGroups; /** Fix list item 10: Settings, Name. */ signName?: string | null }): { subject: string; body: string } {
   const first = String(i.toName ?? "").trim().split(/\s+/)[0] || "there";
   const lines: string[] = [`Hi ${first},`, "", `A few questions on ${i.dealName} as I work through it.`, ""];
   for (const g of QUESTION_GROUPS.filter((x) => x.key !== "self")) {
@@ -237,6 +238,6 @@ export function questionsEmailDraft(i: { dealName: string; toName: string | null
     if (!list.length) continue;
     lines.push(`**${g.label}**`, ...list.map((q) => `- ${q}`), "");
   }
-  lines.push("Thanks,", "Bram");
+  lines.push(...signOff("Thanks", i.signName).split("\n"));
   return { subject: `${i.dealName}, questions`, body: lines.join("\n") };
 }

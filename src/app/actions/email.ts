@@ -16,6 +16,7 @@ import { prepareEmailMessage, sentEmailCommunication, type SentEmailInput } from
 import { isCheckViolation, isMissingSchemaError } from "@/lib/schema-guard";
 import { isGoogleConfigured } from "@/lib/env";
 import type { Row } from "@/lib/types";
+import { addSignOffName, signOffName } from "@/lib/work/names";
 
 /**
  * Send now: one email per confirmed click. Never called by a job and never for more than one message.
@@ -275,14 +276,16 @@ export async function writeEmailWithAI(input: ComposeInput & { instruction: stri
       messages: [
         {
           role: "user",
-          content: `TASK: compose_email\nDraft an email from the signed-in user. What the user wants the email to do: "${instruction}".\nKeep it short (under 150 words). Start with a greeting${greetName ? ` using the first name ${greetName}` : ""}. Use 2 to 4 short "- " bullets when the email lists questions, items, or next steps; otherwise short paragraphs. End with one clear ask and "Thanks," or "Best," then "Bram". Use only facts from the context below (deal_facts holds the deal's figures and findings when the email is about a deal); do not invent numbers, dates, or past conversations. Return only JSON: {"subject": "short subject line", "body": "message text"}.\nContext (JSON): ${JSON.stringify(context).slice(0, 9000)}`,
+          content: `TASK: compose_email\nDraft an email from the signed-in user. What the user wants the email to do: "${instruction}".\nKeep it short (under 150 words). Start with a greeting${greetName ? ` using the first name ${greetName}` : ""}. Use 2 to 4 short "- " bullets when the email lists questions, items, or next steps; otherwise short paragraphs. End with one clear ask, then "Thanks," or "Best," on its own last line with no name after it (the app adds the name). Use only facts from the context below (deal_facts holds the deal's figures and findings when the email is about a deal); do not invent numbers, dates, or past conversations. Return only JSON: {"subject": "short subject line", "body": "message text"}.\nContext (JSON): ${JSON.stringify(context).slice(0, 9000)}`,
         },
       ],
       maxTokens: 700,
     });
     const parsed = parseJsonFromText<{ subject?: string; body?: string }>(textOf(msg));
     if (!parsed?.body) return { ok: false, error: "The AI reply could not be read. Try again, or write the message yourself." };
-    return { ok: true, subject: cleanText(String(parsed.subject ?? "")).slice(0, 200), body: cleanText(String(parsed.body)) };
+    // Fix list item 10: the Name from Settings goes under "Thanks," (the prompt never names the user).
+    const signName = signOffName(((await supabase.from("owner_profile").select("display_name").eq("owner_id", ownerId).maybeSingle()).data as { display_name?: string | null } | null)?.display_name);
+    return { ok: true, subject: cleanText(String(parsed.subject ?? "")).slice(0, 200), body: addSignOffName(cleanText(String(parsed.body)), signName) };
   } catch (e) {
     const why = e instanceof AIUnavailable ? e.message : "The AI request failed.";
     return { ok: false, error: `${why} Write the message yourself, or try again later.` };

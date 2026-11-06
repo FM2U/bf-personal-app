@@ -33,3 +33,19 @@ describe("listing names", () => {
     expect([...names].sort(compareNames)).toEqual(["00 Fleet Repair Shop", "00 Medicaid Transport Provider", "Apex Precision Machining", "dalton services", "Summit Logistics Group"]);
   });
 });
+
+describe("the sign-off name (fix list item 10, 2026-11-06)", () => {
+  it("signs with the first word of the Name in Settings, or no name when none is set", async () => {
+    const { addSignOffName, signOff, signOffName } = await import("./names");
+    expect(signOffName("Bram Frankel")).toBe("Bram");
+    expect(signOffName("  Dana ")).toBe("Dana");
+    expect(signOffName(null)).toBeNull();
+    expect(signOffName("   ")).toBeNull();
+    expect(signOff("Thanks", "Bram")).toBe("Thanks,\nBram");
+    expect(signOff("Thanks", null)).toBe("Thanks,");
+    expect(addSignOffName("Hi Dana,\n\nAny update?\n\nThanks,", "Bram")).toBe("Hi Dana,\n\nAny update?\n\nThanks,\nBram");
+    expect(addSignOffName("Hi Dana,\n\nBest,\n", "Ann")).toBe("Hi Dana,\n\nBest,\nAnn");
+    expect(addSignOffName("Hi Dana,\n\nThanks,\nBram", "Bram")).toBe("Hi Dana,\n\nThanks,\nBram");
+    expect(addSignOffName("Hi Dana,\n\nThanks,", null)).toBe("Hi Dana,\n\nThanks,");
+  });
+});
