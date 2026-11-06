@@ -982,12 +982,75 @@ const until = async (fn, msg, tries = 60) => {
     await until(async () => !("tomorrow" in (await notesInDb())) && (await notesInDb()).top === TOP_NOTE, "removed from the saved notes only");
   });
 
+  await step("Text not saved (Bram, 2026-11-06): a typed note or Edit not saved makes Close, Escape, another partner's tab and a browser reload ask first (Save, Discard, Keep editing); Save saves it, Discard drops it", async () => {
+    const box = page.getByTestId("unsaved-warning");
+    const line = () => page.getByTestId("unsaved-line").innerText();
+    const labels = async () => [await page.getByTestId("unsaved-save").innerText(), await page.getByTestId("unsaved-discard").innerText(), await page.getByTestId("unsaved-keep").innerText()].join(" | ");
+    await wsec("tomorrow").getByTestId("section-note-open").click();
+    await wsec("tomorrow").getByTestId("section-note-text").fill("Typed, not saved.");
+    assert(await page.evaluate(() => { const e = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(e); return e.defaultPrevented; }), "a browser reload asks first");
+    await page.getByTestId("report-window-close").click();
+    await box.waitFor();
+    assert(/^Your note in the .+ section is not saved\.$/.test(await line()) && (await labels()) === "Save | Discard | Keep editing", `${await line()} / ${await labels()}`);
+    await page.getByTestId("unsaved-keep").click();
+    await box.waitFor({ state: "detached" });
+    assert((await wsec("tomorrow").getByTestId("section-note-text").inputValue()) === "Typed, not saved.", "Keep editing keeps the text");
+    await page.keyboard.press("Escape");
+    await box.waitFor();
+    assert((await box.getAttribute("data-to")) === "close", "Escape asks too");
+    await page.keyboard.press("Escape");
+    await box.waitFor({ state: "detached" });
+    assert(await win().isVisible(), "Escape on the question goes back to the box; the window stays");
+    await page.locator("[data-testid=report-tab][data-partner=Sarah]").click();
+    await box.waitFor();
+    assert((await box.innerText()).includes("before you switch to Sarah's copy"), await box.innerText());
+    await page.getByTestId("unsaved-discard").click();
+    await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hello Sarah,"));
+    await page.waitForTimeout(600);
+    assert(!("tomorrow" in (await notesInDb())), "Discard saved nothing");
+    await page.locator("[data-testid=report-tab][data-partner=Jake]").click();
+    await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hello Jake,"));
+    // An Edit typed and not saved asks the same way.
+    await wsec("targets").getByTestId("section-edit").click();
+    await wsec("targets").getByTestId("section-edit-text").fill("Targets\n  - Typed in Edit, not saved");
+    await page.getByTestId("report-window-close").click();
+    await box.waitFor();
+    assert(/^Your edit to the .+ section is not saved\.$/.test(await line()), await line());
+    await page.getByTestId("unsaved-discard").click();
+    await win().waitFor({ state: "detached" });
+    // Save from the question saves the note, then closes the window.
+    await page.getByTestId("report-view").click();
+    await win().waitFor();
+    await page.locator("[data-testid=report-tab][data-partner=Jake]").click();
+    await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hello Jake,"));
+    assert(!(await wsec("targets").innerText()).includes("Typed in Edit, not saved"), "the discarded Edit is gone");
+    await wsec("tomorrow").getByTestId("section-note-open").click();
+    await wsec("tomorrow").getByTestId("section-note-text").fill("Saved from the question.");
+    await page.getByTestId("report-window-close").click();
+    await box.waitFor();
+    if (SHOTS) await win().screenshot({ path: path.join(SHOTS, "report-unsaved-question-1440.png") });
+    await page.getByTestId("unsaved-save").click();
+    await win().waitFor({ state: "detached" });
+    await until(async () => (await notesInDb()).tomorrow === "Saved from the question.", "Save saved the note");
+  });
+
   await step("Approve and send: 'Sending…' with the spinner, grayed; the sent emails carry the notes under their sections (HTML with the left rule, plain text with '| '), and a left-out section's note is not sent", async () => {
     await page.reload();
     await page.getByTestId("report-send").waitFor();
     await watchBusy(["report-send", "report-window-send"], "Sending…");
     const before = (await g("/__sent")).length;
-    await page.getByTestId("report-send").click();
+    // Bram, 2026-11-06: Approve and send with a typed note not saved asks first; Save and send saves it, then sends it.
+    await page.getByTestId("report-view").click();
+    await win().waitFor();
+    await page.locator("[data-testid=report-tab][data-partner=Jake]").click();
+    await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hello Jake,"));
+    await wsec("tomorrow").getByTestId("section-note-open").click();
+    await wsec("tomorrow").getByTestId("section-note-text").fill("Typed just before sending.");
+    await page.getByTestId("report-window-send").click();
+    await page.getByTestId("unsaved-warning").waitFor();
+    assert((await page.getByTestId("unsaved-save").innerText()) === "Save and send" && (await page.getByTestId("unsaved-discard").innerText()) === "Send without it", "the send question's buttons");
+    assert((await g("/__sent")).length === before, "nothing is sent while the question shows");
+    await page.getByTestId("unsaved-save").click();
     const anyway = page.getByTestId("send-check-anyway");
     await Promise.race([anyway.waitFor({ timeout: 15000 }).then(() => anyway.click()), page.getByTestId("sent-line").waitFor({ timeout: 15000 })]).catch(() => {});
     await page.getByTestId("sent-line").waitFor({ timeout: 30000 });
@@ -998,6 +1061,7 @@ const until = async (fn, msg, tries = 60) => {
     assert(jake && sarah, JSON.stringify(mails.map((m) => m.to)));
     assert(/<div data-note="1" style="[^"]*border-left:3px solid #1e40af[^"]*">Pinecrest is the one to watch\.<br>Dana wants the seller-note numbers before Friday&#39;s call\.<\/div>/.test(jake.html), "Jake's HTML has the Top 3 note");
     assert(jake.html.includes("Two CIMs came in late") && jake.body.includes("| Pinecrest is the one to watch.\n| Dana wants the seller-note numbers before Friday's call.") && jake.body.includes("| Two CIMs came in late"), "Jake's text part has both notes");
+    assert(jake.html.includes("Typed just before sending."), "Save and send sent the note typed just before");
     assert(sarah.html.includes("Pinecrest is the one to watch.") && !sarah.html.includes("Two CIMs came in late") && !sarah.body.includes("Two CIMs came in late"), "Sarah gets the Top 3 note and not the left-out Targets note");
     if (SHOTS) {
       const view = await ctx.newPage();
@@ -1008,6 +1072,11 @@ const until = async (fn, msg, tries = 60) => {
     }
     const snap = await one("select snapshot from partner_reports where period_start = $1 and contact_id = (select id from contacts where email = 'jake.morgan@example.com') and report_kind = 'end_of_day'", [today]);
     assert(snap.snapshot.notes && snap.snapshot.notes.top === TOP_NOTE, "the sent copy keeps its notes");
+    // The send went through the View report window: close it (nothing is left unsaved, so no question).
+    if (await win().count()) {
+      await page.getByTestId("report-window-close").click();
+      await win().waitFor({ state: "detached" });
+    }
   });
 
   await step("A sent report re-shown on Reports (the centered sent-report window) and on End of day shows the note the same way", async () => {

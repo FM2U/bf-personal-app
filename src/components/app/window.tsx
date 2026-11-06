@@ -13,8 +13,11 @@ import { cn } from "@/lib/utils";
  *
  * `size`: "wide" (940px, the default), "report" (820px with 64px side padding, the email inside), or "work" (860px,
  * Work through on Home, push C).
+ *
+ * `overlay` (2026-11-06): a small box laid over the whole window (the window's own content behind a light veil), used
+ * by the report window to ask about text typed but not saved.
  */
-export function CenteredWindow({ open, onOpenChange, title, sub, children, footer, testId, size = "wide", bodyRef, bodyClassName }: { open: boolean; onOpenChange: (open: boolean) => void; title: React.ReactNode; sub?: React.ReactNode; children: React.ReactNode; footer?: React.ReactNode; testId?: string; size?: "wide" | "report" | "work"; bodyRef?: React.Ref<HTMLDivElement>; bodyClassName?: string }) {
+export function CenteredWindow({ open, onOpenChange, title, sub, children, footer, testId, size = "wide", bodyRef, bodyClassName, overlay }: { open: boolean; onOpenChange: (open: boolean) => void; title: React.ReactNode; sub?: React.ReactNode; children: React.ReactNode; footer?: React.ReactNode; testId?: string; size?: "wide" | "report" | "work"; bodyRef?: React.Ref<HTMLDivElement>; bodyClassName?: string; overlay?: React.ReactNode }) {
   const pad = size === "report" ? "px-4 min-[701px]:px-16" : "px-4 min-[701px]:px-8";
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
@@ -43,6 +46,7 @@ export function CenteredWindow({ open, onOpenChange, title, sub, children, foote
             {children}
           </div>
           {footer ? <div className={cn("flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-rule bg-white pt-3.5 pb-4 min-[701px]:rounded-b-[14px]", pad)} data-testid="window-footer">{footer}</div> : null}
+          {overlay ? <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/75 p-4 min-[701px]:rounded-[14px]">{overlay}</div> : null}
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>

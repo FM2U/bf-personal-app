@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { saveReportChoices, saveReportNote } from "@/app/actions/accountability";
@@ -22,6 +22,28 @@ import { cn } from "@/lib/utils";
  */
 /** The partner checkbox (fix list item 1, 2026-11-06), on the report card and in this window: cobalt when ticked. */
 export const PARTNER_BOX = "h-4 w-4 shrink-0 cursor-pointer rounded-[4px] accent-primary-strong disabled:cursor-default disabled:opacity-60";
+
+/**
+ * Text typed in a + Note box or an Edit box and not saved yet (Bram, 2026-11-06). Leaving the window (Close, the close
+ * mark, Escape, a click outside, another partner's tab, a link inside) or Approve and send first asks: Save, Discard
+ * (Send without it), or Keep editing. Reloading or closing the browser tab gets the browser's own "Leave site?" question.
+ */
+type Unsaved = { items: { kind: "note" | "edit"; title: string }[]; save: () => Promise<boolean>; discard: () => void };
+type LeaveTo = { to: "close" } | { to: "tab"; id: string; name: string } | { to: "link"; href: string } | { to: "send"; btn: HTMLButtonElement };
+
+function unsavedLine(items: Unsaved["items"]): string {
+  const parts = items.map((i) => (i.kind === "note" ? `note in the ${i.title} section` : `edit to the ${i.title} section`));
+  const joined = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(", ")} and your ${parts[parts.length - 1]}`;
+  return `Your ${joined} ${parts.length === 1 ? "is" : "are"} not saved.`;
+}
+
+function unsavedHint(to: LeaveTo, many: boolean): string {
+  const it = many ? "them" : "it";
+  if (to.to === "send") return `Save ${it} so ${many ? "they go" : "it goes"} out with the report, or send the report without ${it}.`;
+  if (to.to === "tab") return `Save ${it} before you switch to ${to.name}'s copy, or discard ${it}.`;
+  if (to.to === "link") return `Save ${it} before you leave the window, or discard ${it}.`;
+  return `Save ${it} before the window closes, or discard ${it}.`;
+}
 
 export function ReportWindow({ open, onOpenChange, day, copies, skipped, onPartner, sel, onSel, title, sub, footerNote, sendButton, startEditing, resetKey = 0 }: {
   /** Fix list item 1 (2026-11-06): the partners unticked for today, the same set as the report card's checkboxes. */
@@ -46,6 +68,62 @@ export function ReportWindow({ open, onOpenChange, day, copies, skipped, onPartn
   startEditing?: boolean;
 }) {
   const copy = copies.find((c) => c.partner.id === sel) ?? copies[0] ?? null;
+  const router = useRouter();
+  const unsaved = useRef<Unsaved | null>(null);
+  const passSend = useRef(false);
+  const [warn, setWarn] = useState<{ to: LeaveTo; items: Unsaved["items"] } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const ask = (to: LeaveTo) => {
+    const u = unsaved.current;
+    if (!u) return false;
+    setWarn({ to, items: u.items });
+    return true;
+  };
+  const go = (to: LeaveTo) => {
+    setWarn(null);
+    if (to.to === "close") onOpenChange(false);
+    else if (to.to === "tab") onSel(to.id);
+    else if (to.to === "link") router.push(to.href);
+    else {
+      passSend.current = true;
+      to.btn.click();
+      passSend.current = false;
+    }
+  };
+  const saveThenGo = async () => {
+    if (!warn || busy) return;
+    const to = warn.to;
+    setBusy(true);
+    const ok = (await unsaved.current?.save()) ?? true;
+    setBusy(false);
+    if (ok) go(to);
+    else setWarn(null);
+  };
+  const discardThenGo = () => {
+    if (!warn || busy) return;
+    unsaved.current?.discard();
+    go(warn.to);
+  };
+  const openChange = (o: boolean) => {
+    if (o) return onOpenChange(true);
+    if (busy) return;
+    // Escape or a click outside while the question shows: back to the box.
+    if (warn) return setWarn(null);
+    if (ask({ to: "close" })) return;
+    onOpenChange(false);
+  };
+  useEffect(() => {
+    if (!open) return;
+    const onLeave = (e: BeforeUnloadEvent) => {
+      if (!unsaved.current) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onLeave);
+    return () => window.removeEventListener("beforeunload", onLeave);
+  }, [open]);
+  const sending = warn?.to.to === "send";
+  const many = (warn?.items.length ?? 0) > 1;
   // Today's notes, shared by every tab: read again whenever the page brings back different ones from the server.
   const serverNotes = (copies.find((c) => !c.sentAt) ?? copies[0])?.report.notes ?? {};
   const serverKey = JSON.stringify(serverNotes);
@@ -58,25 +136,71 @@ export function ReportWindow({ open, onOpenChange, day, copies, skipped, onPartn
   return (
     <CenteredWindow
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={openChange}
       title={title}
       sub={sub}
       size="report"
       testId="report-window"
+      overlay={
+        warn ? (
+          <div role="alertdialog" aria-labelledby="unsaved-title" aria-describedby="unsaved-hint" className="w-full max-w-[440px] rounded-[12px] border border-rule bg-white p-5 shadow-[0_12px_40px_rgba(15,23,42,0.18)]" data-testid="unsaved-warning" data-to={warn.to.to}>
+            <p id="unsaved-title" className="text-[15px] font-semibold text-heading" data-testid="unsaved-line">
+              {unsavedLine(warn.items)}
+            </p>
+            <p id="unsaved-hint" className="mt-1.5 text-[13px] leading-[1.5] text-muted-foreground">
+              {unsavedHint(warn.to, many)}
+            </p>
+            <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+              <button type="button" onClick={() => setWarn(null)} disabled={busy} className="inline-flex h-8 items-center rounded-[7px] px-3 text-[13px] font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50" data-testid="unsaved-keep">
+                Keep editing
+              </button>
+              <button type="button" onClick={discardThenGo} disabled={busy} className="inline-flex h-8 items-center rounded-[7px] border border-input bg-white px-3 text-[13px] font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50" data-testid="unsaved-discard">
+                {sending ? "Send without it" : "Discard"}
+              </button>
+              <button type="button" onClick={saveThenGo} disabled={busy} autoFocus className="inline-flex h-8 items-center rounded-[7px] border border-primary-solid bg-primary-solid px-3 text-[13px] font-medium text-white hover:bg-primary-solid-hover disabled:opacity-50" data-testid="unsaved-save">
+                {busy ? "Saving…" : sending ? "Save and send" : "Save"}
+              </button>
+            </div>
+          </div>
+        ) : null
+      }
       footer={
         <>
           <span className="min-w-0 flex-1 basis-full text-[12.5px] text-muted-foreground min-[701px]:basis-[260px]" data-testid="report-window-note">
             {footerNote}
           </span>
           <span className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={() => onOpenChange(false)} className="inline-flex h-8 items-center rounded-[7px] border border-input bg-white px-3 text-[13px] font-medium text-slate-800 hover:bg-slate-50" data-testid="report-window-close">
+            <button type="button" onClick={() => openChange(false)} className="inline-flex h-8 items-center rounded-[7px] border border-input bg-white px-3 text-[13px] font-medium text-slate-800 hover:bg-slate-50" data-testid="report-window-close">
               Close
             </button>
-            {sendButton}
+            <span
+              className="contents"
+              onClickCapture={(e) => {
+                if (passSend.current) return;
+                const btn = (e.target as HTMLElement).closest("button");
+                if (btn && !btn.disabled && ask({ to: "send", btn })) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }
+              }}
+            >
+              {sendButton}
+            </span>
           </span>
         </>
       }
     >
+      <div
+        onClickCapture={(e) => {
+          // A link inside the window (the partner's page) with text not saved: ask first.
+          const a = (e.target as HTMLElement).closest("a[href]");
+          const href = a?.getAttribute("href");
+          if (href && ask({ to: "link", href })) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
+        }}
+      >
       {copies.length ? (
         <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13px] text-slate-700" data-testid="report-send-to">
           <span className="label-caps figure-label">Send to</span>
@@ -95,14 +219,15 @@ export function ReportWindow({ open, onOpenChange, day, copies, skipped, onPartn
       {copies.length > 1 ? (
         <div className="mb-4 flex gap-1 overflow-x-auto border-b border-border" role="tablist" data-testid="report-tabs">
           {copies.map((c) => (
-            <button key={c.partner.id} type="button" role="tab" aria-selected={c.partner.id === copy?.partner.id} onClick={() => onSel(c.partner.id)} className={cn("-mb-px border-b-2 px-3 py-2 text-[14px] font-medium whitespace-nowrap", c.partner.id === copy?.partner.id ? "border-primary-strong text-primary-strong" : "border-transparent text-muted-foreground hover:text-slate-800")} data-testid="report-tab" data-partner={c.partner.first}>
+            <button key={c.partner.id} type="button" role="tab" aria-selected={c.partner.id === copy?.partner.id} onClick={() => c.partner.id === copy?.partner.id || ask({ to: "tab", id: c.partner.id, name: c.partner.first }) || onSel(c.partner.id)} className={cn("-mb-px border-b-2 px-3 py-2 text-[14px] font-medium whitespace-nowrap", c.partner.id === copy?.partner.id ? "border-primary-strong text-primary-strong" : "border-transparent text-muted-foreground hover:text-slate-800")} data-testid="report-tab" data-partner={c.partner.first}>
               {c.partner.name}
               <span className="ml-1 font-normal text-muted-foreground">· {c.sentAt ? `sent ${c.sentTime}` : daysLabel(c.partner.days) === "every weekday" ? "weekdays" : daysLabel(c.partner.days)}</span>
             </button>
           ))}
         </div>
       ) : null}
-      {copy ? <CopyReview key={`${copy.partner.id}:${resetKey}`} day={day} copy={copy} startEditing={!!startEditing} notes={notes} onNotes={setNotes} /> : <p className="text-[13px] text-muted-foreground">No partner gets the report today.</p>}
+      {copy ? <CopyReview key={`${copy.partner.id}:${resetKey}`} day={day} copy={copy} startEditing={!!startEditing} notes={notes} onNotes={setNotes} unsavedRef={unsaved} /> : <p className="text-[13px] text-muted-foreground">No partner gets the report today.</p>}
+      </div>
     </CenteredWindow>
   );
 }
@@ -110,7 +235,7 @@ export function ReportWindow({ open, onOpenChange, day, copies, skipped, onPartn
 const LINK = "text-[12.5px] font-medium text-primary-strong hover:underline";
 
 /** One partner's copy: the note, then the email with the controls on each section (or the email as sent). */
-function CopyReview({ day, copy, startEditing, notes, onNotes }: { day: string; copy: PartnerCopy; startEditing: boolean; notes: ReportNotes; onNotes: (n: ReportNotes) => void }) {
+function CopyReview({ day, copy, startEditing, notes, onNotes, unsavedRef }: { day: string; copy: PartnerCopy; startEditing: boolean; notes: ReportNotes; onNotes: (n: ReportNotes) => void; unsavedRef: React.RefObject<Unsaved | null> }) {
   const router = useRouter();
   const p = copy.partner;
   const [choices, setChoices] = useState<ReportChoices>(copy.report.choices ?? {});
@@ -133,13 +258,22 @@ function CopyReview({ day, copy, startEditing, notes, onNotes }: { day: string; 
     }
   }
 
+  const persistChoices = async (next: ReportChoices) => {
+    setChoices(next);
+    setError(null);
+    const r = await saveReportChoices(day, p.id, next);
+    if (!r.ok) {
+      setError(r.error);
+      return false;
+    }
+    router.refresh();
+    return true;
+  };
   const save = (next: ReportChoices) => {
+    // Shown at once (outside the transition), so a ticked box stays ticked while it saves.
     setChoices(next);
     start(async () => {
-      setError(null);
-      const r = await saveReportChoices(day, p.id, next);
-      if (!r.ok) return setError(r.error);
-      router.refresh();
+      await persistChoices(next);
     });
   };
   const setInclude = (s: BuiltSection, on: boolean) => {
@@ -162,15 +296,36 @@ function CopyReview({ day, copy, startEditing, notes, onNotes }: { day: string; 
     const next = now.includes(id) ? now.filter((x) => x !== id) : now.length < TOP_N ? [...now, id] : now;
     save({ ...choices, top: next });
   };
-  const saveEdit = (s: BuiltSection) => {
+  const editsWith = (s: BuiltSection): ReportChoices => {
     const text = draft.replace(/\s+$/, "");
     const edits = { ...(choices.edits ?? {}) };
     if (!text.trim() || text === s.text) delete edits[s.key];
     else edits[s.key] = text;
+    return { ...choices, edits };
+  };
+  const saveEdit = (s: BuiltSection) => {
     setEditing(null);
-    save({ ...choices, edits });
+    save(editsWith(s));
+  };
+  const persistNote = async (key: SectionKey, text: string) => {
+    const t = text.trim();
+    const next = { ...notes };
+    if (t) next[key] = t;
+    else delete next[key];
+    setNoting(null);
+    onNotes(next);
+    setError(null);
+    const r = await saveReportNote(day, key, t);
+    if (!r.ok) {
+      setError(r.error);
+      return false;
+    }
+    onNotes(r.notes);
+    router.refresh();
+    return true;
   };
   const saveNote = (key: SectionKey, text: string) => {
+    // The box closes and the note shows at once, as before; the server's copy follows.
     const t = text.trim();
     const next = { ...notes };
     if (t) next[key] = t;
@@ -178,11 +333,7 @@ function CopyReview({ day, copy, startEditing, notes, onNotes }: { day: string; 
     setNoting(null);
     onNotes(next);
     start(async () => {
-      setError(null);
-      const r = await saveReportNote(day, key, t);
-      if (!r.ok) return setError(r.error);
-      onNotes(r.notes);
-      router.refresh();
+      await persistNote(key, text);
     });
   };
   const openNote = (s: BuiltSection) => {
@@ -195,6 +346,34 @@ function CopyReview({ day, copy, startEditing, notes, onNotes }: { day: string; 
     setEditing(null);
     save({ ...choices, edits });
   };
+
+  // Text typed in the open + Note or Edit box and not saved (2026-11-06): the window asks before leaving or sending.
+  const noteSec = noting && !copy.sentAt ? sections.find((s) => s.key === noting && s.included) : undefined;
+  const editSec = editing && !copy.sentAt ? sections.find((s) => s.key === editing && s.included) : undefined;
+  const noteDirty = !!noteSec && noteDraft.trim() !== (noteSec.note ?? "").trim();
+  const editDirty = !!editSec && draft.replace(/\s+$/, "") !== (editSec.edited ?? editSec.text).replace(/\s+$/, "");
+  useEffect(() => {
+    unsavedRef.current =
+      noteDirty || editDirty
+        ? {
+            items: [...(noteDirty && noteSec ? [{ kind: "note" as const, title: noteSec.title }] : []), ...(editDirty && editSec ? [{ kind: "edit" as const, title: editSec.title }] : [])],
+            save: async () => {
+              let ok = true;
+              if (noteDirty && noteSec) ok = (await persistNote(noteSec.key, noteDraft)) && ok;
+              if (editDirty && editSec) {
+                setEditing(null);
+                ok = (await persistChoices(editsWith(editSec))) && ok;
+              }
+              return ok;
+            },
+            discard: () => {
+              setNoting(null);
+              setEditing(null);
+            },
+          }
+        : null;
+  });
+  useEffect(() => () => void (unsavedRef.current = null), [unsavedRef]);
 
   if (copy.sentAt) {
     return (
