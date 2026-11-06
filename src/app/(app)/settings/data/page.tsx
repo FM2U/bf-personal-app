@@ -22,6 +22,7 @@ const SAMPLE_LABELS: Record<string, string> = {
   deal_todos: "Tasks and to-dos",
   time_blocks: "Calendar blocks",
   monthly_reviews: "Monthly reviews",
+  waits: "Waiting on",
 };
 
 /** Settings, Sample data: load realistic sample records to test the app, and remove them again. */
