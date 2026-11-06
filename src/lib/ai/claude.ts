@@ -2,7 +2,6 @@ import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { env, isAIConfigured } from "@/lib/env";
-import { WRITING_RULES } from "@/lib/ai/instructions";
 import { fixDashes } from "@/lib/markdown";
 import type { Row } from "@/lib/types";
 import { AI_REPLY_CUT_OFF, isCutOff, readAiReply, type ReplyShape } from "@/lib/ai/reply";
@@ -15,35 +14,11 @@ export class AIUnavailable extends Error {
   }
 }
 
-const AI_ROLE = `You are the AI teammate inside Bram's personal productivity and accountability app.
-Roles: assistant (categorize, draft emails, reports, reviews, deal summaries), analyst (run scenarios, explain what changed and why),
-advisor (recommendations with tradeoffs), and internal accountability partner (morning plan, evening daily close check, flag missed
-commitments, slipping milestones, spending over budget, and daily targets missed).
-${WRITING_RULES}
-No en dashes either; use periods, commas, or parentheses. No hype words.
-Never use the words "wedge" or "shape" for a kind of thing. Say "accountability partner", never a person's name, when referring to partners.
-Be specific: name the record and the number.`;
+import { AI_ROLE, AI_SYSTEM_BASE, MESSAGE_FORMAT_RULE } from "@/lib/ai/rules";
 
-/**
- * Output format used by every AI feature that shows text in the app (chat, morning plan, review drafts,
- * reduction suggestions, partner report summaries, category suggestions).
- */
-const OUTPUT_FORMAT_RULE = `Output format (required):
-- Answer first. The most important item goes in the first bullet.
-- Write a parent-child bulleted outline using "- " markdown bullets. Nest a child bullet with 2 spaces before the "- ".
-- Start every bullet with a **bold lead-in** of 1 to 4 words, then the point. Example: "- **Runway:** 7.2 months, under the 12-month target."
-- One idea per bullet. Short lines: aim for under 15 words per bullet.
-- No headings with "#". For sections, use a short bold label on its own line, for example "**Watch**".
-- Follow the writing rules above.
-- When the request asks for JSON, return only the JSON. Text values inside the JSON follow the same plain-language rules.`;
+export { AI_APP_DESCRIPTION, AI_AUDIENCE_RULE, AI_KNOWLEDGE_RULE, AI_NEXT_ACTION_RULE, AI_ROLE } from "@/lib/ai/rules";
 
-/** Format for email and message drafts: conversational, direct, professional, still easy to scan. */
-const MESSAGE_FORMAT_RULE = `Message format (required):
-- Write in Bram's normal conversational voice: direct, warm, and professional. First person ("I").
-- Short paragraphs. Use "- " bullets and short sections where they make the message easier to read.
-- Follow the writing rules above. No filler openers.
-- Never claim the message was sent. Bram reviews and sends every message himself.`;
-const AI_SYSTEM_BASE = `${AI_ROLE}\n\n${OUTPUT_FORMAT_RULE}`;
+
 export const AI_SYSTEM_MESSAGE = `${AI_ROLE}\n\n${MESSAGE_FORMAT_RULE}`;
 
 /**

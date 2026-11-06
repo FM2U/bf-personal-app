@@ -126,10 +126,10 @@ export function questionsPrompt(c: DealContext): string {
   return `TASK: open_questions
 ${dealInstructions(c, "questions")}
 
-Bram is buying a small business and this deal is at the stage below. Write the open questions that decide whether to keep going, in three groups:
+The signed-in user is buying a small business and this deal is at the stage below. Write the open questions that decide whether to keep going, in three groups:
 - "seller": questions to ask the seller (the owner) on a call or by email.
 - "broker": questions to ask the broker (documents, process, price, timing, other bidders).
-- "self": things Bram should find out himself (market, competitors, rules, comparable sales).
+- "self": things the user should find out without the seller or broker (market, competitors, rules, comparable sales).
 Rules: 2 to 5 questions per group, each one line under 25 words, specific to this deal (name the number or fact it follows from when there is one), plain English, no question already in the list below, no question the facts or the original listing text already answer, no duplicates. Fewer questions when the facts are thin; an empty list for a group with nothing worth asking.
 ${contextBlock(c)}
 Questions already on the deal (do not repeat):
@@ -198,7 +198,7 @@ export function todosPrompt(c: DealContext, existingTodos: string[]): string {
   return `TASK: deal_todos
 ${dealInstructions(c, "tasks")}
 
-Bram is buying a small business. List up to 5 other things to do on this deal besides its next action: small concrete tasks (send, ask, read, check, book, compare), each one line under 15 words, specific to this deal, in the order to do them. Do not repeat the next action or the items already listed, and do not ask for a fact the facts or the original listing text already give. Fewer items when the facts are thin.
+The signed-in user is buying a small business. List up to 5 other things to do on this deal besides its next action: small concrete tasks (send, ask, read, check, book, compare), each one line under 15 words, specific to this deal, in the order to do them. Do not repeat the next action or the items already listed, and do not ask for a fact the facts or the original listing text already give. Fewer items when the facts are thin.
 ${contextBlock(c)}
 Open questions on the deal: ${QUESTION_GROUPS.map((g) => c.existing[g.key].join("; ")).filter(Boolean).join(" | ") || "(none)"}
 Items already listed (do not repeat): ${existing}

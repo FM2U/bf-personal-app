@@ -275,7 +275,7 @@ export async function writeEmailWithAI(input: ComposeInput & { instruction: stri
       messages: [
         {
           role: "user",
-          content: `TASK: compose_email\nDraft an email from Bram. What Bram wants the email to do: "${instruction}".\nKeep it short (under 150 words). Start with a greeting${greetName ? ` using the first name ${greetName}` : ""}. Use 2 to 4 short "- " bullets when the email lists questions, items, or next steps; otherwise short paragraphs. End with one clear ask and "Thanks," or "Best," then "Bram". Use only facts from the context below (deal_facts holds the deal's figures and findings when the email is about a deal); do not invent numbers, dates, or past conversations. Return only JSON: {"subject": "short subject line", "body": "message text"}.\nContext (JSON): ${JSON.stringify(context).slice(0, 9000)}`,
+          content: `TASK: compose_email\nDraft an email from the signed-in user. What the user wants the email to do: "${instruction}".\nKeep it short (under 150 words). Start with a greeting${greetName ? ` using the first name ${greetName}` : ""}. Use 2 to 4 short "- " bullets when the email lists questions, items, or next steps; otherwise short paragraphs. End with one clear ask and "Thanks," or "Best," then "Bram". Use only facts from the context below (deal_facts holds the deal's figures and findings when the email is about a deal); do not invent numbers, dates, or past conversations. Return only JSON: {"subject": "short subject line", "body": "message text"}.\nContext (JSON): ${JSON.stringify(context).slice(0, 9000)}`,
         },
       ],
       maxTokens: 700,

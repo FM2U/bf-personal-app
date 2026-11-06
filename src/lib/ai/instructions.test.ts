@@ -147,6 +147,17 @@ describe("Set next action from an answer", () => {
   it("asks for next_action and next_action_due in the answer JSON", () => {
     const p = answerPrompt(trimContext({ title: "Home", lines: ["deal: X"] }), "What first?", true);
     expect(p).toContain('"next_action_due": "YYYY-MM-DD" | null');
-    expect(p).toContain("one clear thing");
+    expect(p).toContain("only when the page supports one clear step");
+    expect(p).toContain("2 or 3 follow-up questions");
+    expect(p).not.toContain("Bram");
+  });
+});
+
+describe("shared AI rules (fix list item 7, 2026-11-06)", () => {
+  it("every AI call gets the app description and the four rules, and no prompt names the user", async () => {
+    const { AI_ROLE, AI_APP_DESCRIPTION, AI_KNOWLEDGE_RULE, AI_AUDIENCE_RULE, AI_NEXT_ACTION_RULE } = await import("@/lib/ai/rules");
+    for (const rule of [AI_APP_DESCRIPTION, AI_KNOWLEDGE_RULE, AI_AUDIENCE_RULE, AI_NEXT_ACTION_RULE]) expect(AI_ROLE).toContain(rule);
+    expect(AI_ROLE).not.toContain("Bram");
+    expect(AI_AUDIENCE_RULE).toContain("cannot see anything inside it");
   });
 });

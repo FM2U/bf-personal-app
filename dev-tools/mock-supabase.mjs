@@ -723,7 +723,7 @@ const ai = http.createServer(async (req, res) => {
       }
       if (text.includes("TASK: compose_email")) {
         aiCalls.push("compose_email");
-        const line = (text.match(/What Bram wants the email to do: "([^"]*)"/) || [])[1] || "check in";
+        const line = (text.match(/What (?:Bram|the user) wants the email to do: "([^"]*)"/) || [])[1] || "check in";
         const first = (text.match(/using the first name ([^.\s]+)/) || [])[1] || "there";
         const reply = { subject: `Quick question: ${line}`.slice(0, 80), body: `Hi ${first},\n\nI hope things are going well. I wanted to reach out to ${line}.\n\n- What you are seeing right now\n- Anyone I should talk to\n\nWould you have 15 minutes this week?\n\nThanks,\nBram` };
         return send(res, 200, aiMessage(JSON.stringify(reply)));
@@ -790,7 +790,7 @@ const ai = http.createServer(async (req, res) => {
       }
       if (text.includes("TASK: ask_page")) {
         aiCalls.push("ask_page");
-        const q = (text.match(/Bram asks about this page: "([^"]*)"/) || [])[1] || "your question";
+        const q = (text.match(/(?:Bram|The signed-in user) asks about this page: "([^"]*)"/) || [])[1] || "your question";
         const page = (text.match(/^Page: ([^\n]+)/m) || [])[1] || "this page";
         const first = (text.match(/^- (?:deal|person|project|opportunity|consulting): ([^|]+?) \|/m) || [])[1] || "the first record";
         const canEmail = !text.includes("Set email to null");

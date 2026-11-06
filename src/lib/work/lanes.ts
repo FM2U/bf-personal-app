@@ -261,7 +261,7 @@ export function aiOrderPrompt(actions: readonly HomeAction[], today: string): st
   });
   return [
     "TASK: ai_order",
-    `Today is ${today}. Put Bram's next actions for today in the order he should do them.`,
+    `Today is ${today}. Put the signed-in user's next actions for today in the order the user should do them.`,
     "Weigh: what is due earliest (overdue first), how long a broker or contact has been quiet (a long wait goes early), the stage (a deal late in its stages matters more), and the minutes needed (short items that unblock others go before long blocks).",
     "Give one short reason per row (at most 15 words, plain English, name the specific thing that decides it).",
     "",

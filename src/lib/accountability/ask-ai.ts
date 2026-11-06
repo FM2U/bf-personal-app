@@ -53,7 +53,7 @@ export function reportsLines(p: ReportsPage): string[] {
 export function reasonsPrompt(p: EndOfDayPage, asked: readonly Judged[]): string {
   return [
     "TASK: eod_reasons",
-    "Bram's End of day asks for one reason per missed commitment. Write each reason as one plain line (at most 25 words) in his own voice, first person, naming what took the time from what the day shows (calls, deals moved, waits) and what carries to the next working day. No excuses, no apologies, no hedging words.",
+    "The signed-in user's End of day asks for one reason per missed commitment. Write each reason as one plain line (at most 25 words) in the user's own voice, first person, naming what took the time from what the day shows (calls, deals moved, waits) and what carries to the next working day. No excuses, no apologies, no hedging words.",
     "",
     `Page: End of day, ${p.dateLabel}`,
     "What is on the page (one line each):",
