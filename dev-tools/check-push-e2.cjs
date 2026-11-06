@@ -934,8 +934,8 @@ const until = async (fn, msg, tries = 60) => {
     await addNote("top", TOP_NOTE);
     const note = wsec("top").getByTestId("section-note");
     assert((await note.innerText()).replace(/\s+/g, " ").trim() === TOP_NOTE.replace(/\s+/g, " "), await note.innerText());
-    const look = await note.locator("[data-note]").evaluate((e) => ({ rule: getComputedStyle(e).borderLeftWidth, color: getComputedStyle(e).color, br: e.querySelectorAll("br").length }));
-    assert(look.rule === "2px" && look.color === "rgb(71, 85, 105)" && look.br === 1, JSON.stringify(look));
+    const look = await note.locator("[data-note]").evaluate((e) => ({ rule: getComputedStyle(e).borderLeftWidth, ruleColor: getComputedStyle(e).borderLeftColor, color: getComputedStyle(e).color, br: e.querySelectorAll("br").length }));
+    assert(look.rule === "3px" && look.color === "rgb(15, 23, 42)" && look.ruleColor === "rgb(30, 64, 175)" && look.br === 1, JSON.stringify(look));
     assert((await wsec("top").getByTestId("section-note-mark").innerText()) === "Note added", "the Note added mark");
     assert((await wsec("top").getByTestId("section-note-open").innerText()) === "Edit note" && (await wsec("top").getByTestId("section-note-remove").innerText()) === "Remove note", "Edit note and Remove note");
     await until(async () => (await notesInDb()).top === TOP_NOTE, "saved in report_edits._notes");
@@ -996,7 +996,7 @@ const until = async (fn, msg, tries = 60) => {
     const jake = mails.find((m) => m.to.includes("jake.morgan"));
     const sarah = mails.find((m) => m.to.includes("sarah.klein"));
     assert(jake && sarah, JSON.stringify(mails.map((m) => m.to)));
-    assert(/<div data-note="1" style="[^"]*border-left:2px solid #d5dbe3[^"]*">Pinecrest is the one to watch\.<br>Dana wants the seller-note numbers before Friday&#39;s call\.<\/div>/.test(jake.html), "Jake's HTML has the Top 3 note");
+    assert(/<div data-note="1" style="[^"]*border-left:3px solid #1e40af[^"]*">Pinecrest is the one to watch\.<br>Dana wants the seller-note numbers before Friday&#39;s call\.<\/div>/.test(jake.html), "Jake's HTML has the Top 3 note");
     assert(jake.html.includes("Two CIMs came in late") && jake.body.includes("| Pinecrest is the one to watch.\n| Dana wants the seller-note numbers before Friday's call.") && jake.body.includes("| Two CIMs came in late"), "Jake's text part has both notes");
     assert(sarah.html.includes("Pinecrest is the one to watch.") && !sarah.html.includes("Two CIMs came in late") && !sarah.body.includes("Two CIMs came in late"), "Sarah gets the Top 3 note and not the left-out Targets note");
     if (SHOTS) {
@@ -1024,8 +1024,8 @@ const until = async (fn, msg, tries = 60) => {
     await page.getByTestId("sent-report-drawer").waitFor();
     const n = page.getByTestId("sent-html").locator("[data-note]").filter({ hasText: "Pinecrest is the one to watch." });
     await n.waitFor();
-    const look = await n.evaluate((e) => ({ text: e.innerText, rule: getComputedStyle(e).borderLeftWidth, color: getComputedStyle(e).color }));
-    assert(look.text.includes("Pinecrest is the one to watch.") && look.rule === "2px" && look.color === "rgb(71, 85, 105)", JSON.stringify(look));
+    const look = await n.evaluate((e) => ({ text: e.innerText, rule: getComputedStyle(e).borderLeftWidth, ruleColor: getComputedStyle(e).borderLeftColor, color: getComputedStyle(e).color }));
+    assert(look.text.includes("Pinecrest is the one to watch.") && look.rule === "3px" && look.color === "rgb(15, 23, 42)" && look.ruleColor === "rgb(30, 64, 175)", JSON.stringify(look));
     await page.getByTestId("sent-close").click();
   });
 

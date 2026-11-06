@@ -53,7 +53,7 @@ describe("today's notes (+ Note, 2026-11-05)", () => {
   const withNotes: ReportData = { ...d, notes: { top: "Pinecrest is the one to watch.\nDana wants <the> numbers & a call.", tomorrow: "Short day." } };
   it("prints a note under its section with a thin left rule, escaped, line breaks kept, in HTML and plain text", () => {
     const html = reportInnerHtml(withNotes);
-    expect(html).toMatch(/Follow up with Dana, Nov 4<\/li><\/ul><\/div><div data-note="1" style="[^"]*border-left:2px solid #d5dbe3[^"]*">Pinecrest is the one to watch.<br>Dana wants &lt;the&gt; numbers &amp; a call.<\/div>/);
+    expect(html).toMatch(/Follow up with Dana, Nov 4<\/li><\/ul><\/div><div data-note="1" style="[^"]*border-left:3px solid #1e40af[^"]*">Pinecrest is the one to watch.<br>Dana wants &lt;the&gt; numbers &amp; a call.<\/div>/);
     expect(html).toContain(">Short day.</div>");
     const text = reportText(withNotes);
     expect(text).toContain("Next step: Follow up with Dana, Nov 4\n\n| Pinecrest is the one to watch.\n| Dana wants <the> numbers & a call.");
@@ -74,6 +74,9 @@ describe("today's notes (+ Note, 2026-11-05)", () => {
   it("cleans notes: known sections only, end spaces trimmed, blank notes dropped, cut at 1000", () => {
     expect(cleanNotes({ top: "  a  \r\nb   ", nope: "x", waiting: "   ", review: 3, jobs: "y".repeat(1200) })).toEqual({ top: "a\nb", jobs: "y".repeat(1000) });
     expect(noteHtml("  ")).toBe("");
+    // Fix list item 6 (2026-11-06): dark reading text and a 3px cobalt left line.
+    expect(noteHtml("a")).toContain("border-left:3px solid #1e40af");
+    expect(noteHtml("a")).toContain("color:#0f172a");
     expect(noteText("a\n\nb")).toBe("| a\n|\n| b");
   });
 });

@@ -102,17 +102,15 @@ export function sectionBodyHtml(s: BuiltSection): string {
   return muted(s.quiet ?? "Nothing shown in this section today.");
 }
 
-/** The note's text color: between the ink and the muted gray, so it reads as Bram's words and not as a label. */
-const NOTE_INK = "#475569";
-
 /**
- * Today's note under a section ("+ Note", 2026-11-05): Bram's own words, set off with a thin rule on the left and
- * slightly muted text, line breaks kept. The same HTML in the email, the report window, and every re-shown sent report.
+ * Today's note under a section ("+ Note", 2026-11-05): the user's own words, set off with a rule on the left, line
+ * breaks kept. Fix list item 6 (approved 2026-11-06): the normal dark reading color (not muted) and a cobalt left line,
+ * slightly thicker (3px). The same HTML in the email, the report window, and every re-shown sent report.
  */
 export function noteHtml(note: string | null | undefined): string {
   const t = String(note ?? "").trim();
   if (!t) return "";
-  return `<div data-note="1" style="margin:6px 0 8px 0;padding:2px 0 2px 10px;border-left:2px solid ${C.rule};font-size:13px;line-height:19px;color:${NOTE_INK};${FONT}">${escapeHtml(t).replace(/\n/g, "<br>")}</div>`;
+  return `<div data-note="1" style="margin:6px 0 8px 0;padding:2px 0 2px 10px;border-left:3px solid ${C.cobalt};font-size:13px;line-height:19px;color:${C.ink};${FONT}">${escapeHtml(t).replace(/\n/g, "<br>")}</div>`;
 }
 
 /** The note in the plain-text part: each line after "| ", the same rule on the left. */
