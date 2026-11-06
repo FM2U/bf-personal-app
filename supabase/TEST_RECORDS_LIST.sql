@@ -32,7 +32,14 @@ select kind, name, added, details from (
   select 5, 'To-do', t.text, t.created_at::date,
          concat_ws(', ', case when t.due_on is not null then 'due ' || t.due_on end, case when t.repeat is not null then 'repeats ' || t.repeat end, case when t.done_at is not null then 'done' end)
     from public.deal_todos t
-   where not exists (select 1 from sample s where s.table_name = 'deal_todos' and s.record_id = t.id)
+   -- 2026-11-06 correction: a task on a sample deal, person or project, or a repeating copy of a sample to-do, is
+   -- sample data too (Remove sample data deletes it); only to-dos typed by hand are listed.
+   where t.id not in (
+     with recursive keep as (
+       select d.id from public.deal_todos d where exists (select 1 from sample s where s.record_id in (d.id, d.deal_id, d.record_id))
+       union
+       select d.id from public.deal_todos d join keep k on d.repeat_from = k.id)
+     select id from keep)
   union all
   select 6, 'Target', tg.name, tg.created_at::date, case when tg.archived_at is not null then 'archived' end
     from public.targets tg
