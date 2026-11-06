@@ -17,12 +17,13 @@ import { AiCardStar, AiFieldStar, AskAiPill, type EodExtras } from "@/components
 import { StatusMark } from "@/components/app/work/targets-ui";
 import { Drawer } from "@/components/app/work/drawer";
 import { Confirm, Figure, Line1, Line2, Name, Pill, PinnedBlock, ROW_GRIDS, RowButton, Rows, WorkCard, WorkHeader } from "@/components/app/work/ui";
+import { eodCountdown, minutesLeftWords } from "@/lib/work/settings";
 import { cn } from "@/lib/utils";
 
 /**
  * End of day (batch C, approved 2026-10-31; Edit batch C items 9 to 12; push B edits 2026-11-03). Two columns at desktop
  * width (the right one about 40% of the width; stacked on the phone), their tops level. Left, what Bram does: the
- * Today tiles (hybrid of 2026-11-05, Option A: a small TODAY label, then white tiles, a big number over a small-caps
+ * Today tiles (hybrid of 2026-11-05, Option A: white tiles with no label above them, the TODAY label gone 2026-11-05, a big number over a small-caps
  * label, 4 a row on desktop and 2 on the phone, Next actions done two tiles wide with its area split; a zero is light
  * gray, Waiting red above 0), each tile opening a small drawer with the items behind it; the Targets card with the status mark, the Commitment
  * pill, and a one-line reason box on each missed Commitment (the field star drafts it; "Same reason for all" fills
@@ -234,12 +235,18 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
     <>
       <PinnedBlock testId="eod-sticky">
         <WorkHeader
-          title="End of day"
+          title={
+            <>
+              End of day ·{" "}
+              <span className="whitespace-nowrap" data-testid="eod-title-date">
+                {data.titleDate}
+              </span>
+            </>
+          }
+          slimTitle="End of day"
           right={
             <>
-              <span data-testid="eod-date">
-                {data.dateLabel} · report at {data.eodTime.long}
-              </span>
+              <EodTimeLine data={data} status={state.status} sentTime={state.sentTime} />
               <AskAiPill context={page} extras={extras} />
             </>
           }
@@ -579,6 +586,55 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
   );
 }
 
+/**
+ * The line at the top right of End of day (approved 2026-11-05): "Report at 5:30 pm · 1 hr 12 min left" before the
+ * End of day time (Settings), "· time passed" after it while the report is neither sent nor skipped, "Report sent 5:41
+ * pm" once sent, "Report skipped today" once skipped. A page left open into another day drops the countdown. It starts
+ * from the server's clock (no hydration mismatch), then follows the browser's, updated at each new minute.
+ */
+function EodTimeLine({ data, status, sentTime }: { data: EndOfDayPage; status: EndOfDayPage["state"]; sentTime: string | null }) {
+  const [now, setNow] = useState(data.now);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      setNow(Date.now());
+      timer = setTimeout(tick, 60_000 - (Date.now() % 60_000) + 50);
+    };
+    timer = setTimeout(tick, 0);
+    const onShow = () => {
+      if (document.visibilityState === "visible") setNow(Date.now());
+    };
+    document.addEventListener("visibilitychange", onShow);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onShow);
+    };
+  }, []);
+  const at = `Report at ${data.eodTime.long}`;
+  let parts: string[];
+  let tone: "plain" | "passed" = "plain";
+  if (status === "sent") parts = [sentTime ? `Report sent ${sentTime}` : "Report sent"];
+  else if (status === "skipped") parts = ["Report skipped today"];
+  else {
+    const c = eodCountdown(new Date(now), data.tz, data.day, data.eodTime.hhmm);
+    parts = c.kind === "left" ? [at, minutesLeftWords(c.minutes)] : c.kind === "passed" ? [at, "time passed"] : [at];
+    if (c.kind === "passed") tone = "passed";
+  }
+  return (
+    <span className="min-w-0" data-testid="eod-date" data-state={status} data-tone={tone}>
+      {parts.map((p, n) => (
+        <span key={p}>
+          {n ? " " : ""}
+          <span className="whitespace-nowrap">
+            {p}
+            {n < parts.length - 1 ? " ·" : ""}
+          </span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
 /** The status line on the report card: a dot and the words, green or amber. */
 function RStat({ tone, children }: { tone: "green" | "amber"; children: React.ReactNode }) {
   return (
@@ -590,8 +646,8 @@ function RStat({ tone, children }: { tone: "green" | "amber"; children: React.Re
 }
 
 /**
- * The Today tiles (hybrid of 2026-11-05, Option A; was the one-line Today strip of Edit batch C, item 10): a small
- * TODAY label, then a white tile per figure, a big number over a small-caps label. Four a row when the column is wide
+ * The Today tiles (hybrid of 2026-11-05, Option A; was the one-line Today strip of Edit batch C, item 10): a white
+ * tile per figure (no label above them since 2026-11-05, so their top is level with the report card's), a big number over a small-caps label. Four a row when the column is wide
  * enough (desktop), two on the phone; Next actions done is two tiles wide with its area split under the label ("Deals 2
  * · Rosara 1"; the split wraps between areas, never inside one). A zero is light gray; Waiting is red above 0. Each
  * tile opens the drawer listing its items. The tiles of a row are the same height, so numbers and labels stay level.
@@ -599,9 +655,6 @@ function RStat({ tone, children }: { tone: "green" | "amber"; children: React.Re
 function TodayTiles({ parts, onOpen }: { parts: TodayPart[]; onOpen: (p: TodayPart) => void }) {
   return (
     <section className="@container min-w-0" aria-label="Today" data-testid="eod-today">
-      <div className="label-caps mb-2 ml-0.5 leading-4" data-testid="eod-today-label">
-        Today
-      </div>
       <div className="grid grid-cols-2 gap-2 @min-[560px]:grid-cols-4" data-testid="eod-today-tiles">
         {parts.map((p) => {
           const areas = p.key === "done" && p.value && p.detail ? p.detail.split(" · ") : [];

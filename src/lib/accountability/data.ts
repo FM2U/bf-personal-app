@@ -272,8 +272,13 @@ export type EndOfDayPage = {
   metThisWeek: { met: number; total: number };
   /** Fridays (push D): the Weekly review answers and how many are written; null on other days. */
   review: (WeeklyReview & { answered: number }) | null;
-  /** The End of day time (Settings, Work settings): "5:30" and "5:30 pm". */
-  eodTime: { short: string; long: string };
+  /** The End of day time (Settings, Work settings): "5:30" and "5:30 pm", and as saved ("17:30") for the countdown. */
+  eodTime: { short: string; long: string; hhmm: string };
+  /** The page title's date (2026-11-05): "Thu, Nov 5". */
+  titleDate: string;
+  /** The owner's time zone and the time the page was built (ms), so the countdown starts from the server's clock. */
+  tz: string;
+  now: number;
 };
 
 /** The End of day data for a day (today by default). */
@@ -367,7 +372,10 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
     reportEdited: first ? first.edited : row.reportEdited,
     metThisWeek: { met: met.met, total: met.total },
     review: friday ? { ...row.weeklyReview, answered: reviewAnswered(row.weeklyReview) } : null,
-    eodTime: { short: eodShort(i.eodTime), long: eodLong(i.eodTime) },
+    eodTime: { short: eodShort(i.eodTime), long: eodLong(i.eodTime), hhmm: parseTime(i.eodTime) ?? DEFAULT_EOD_TIME },
+    titleDate: fmtDate(day, "EEE, MMM d"),
+    tz: i.tz,
+    now: Date.now(),
   };
 }
 

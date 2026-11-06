@@ -31,6 +31,29 @@ export function eodLong(hhmm: string | null | undefined): string {
   return `${eodShort(t)} ${Number(t.slice(0, 2)) < 12 ? "am" : "pm"}`;
 }
 
+/** Where the clock stands against the End of day time: minutes left (rounded up), passed, or a day other than `day`. */
+export type EodCountdown = { kind: "left"; minutes: number } | { kind: "passed" } | { kind: "other-day" };
+
+/**
+ * The countdown at the top right of End of day (approved 2026-11-05): `now` read as the wall clock in the owner's
+ * time zone, against the End of day time on `day` (YYYY-MM-DD). A page left open past midnight shows another day.
+ */
+export function eodCountdown(now: Date, tz: string, day: string, hhmm: string | null | undefined): EodCountdown {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).formatToParts(now);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  if (`${get("year")}-${get("month")}-${get("day")}` !== day) return { kind: "other-day" };
+  const [h, m] = (parseTime(hhmm) ?? DEFAULT_EOD_TIME).split(":").map(Number);
+  const left = h * 3600 + m * 60 - (Number(get("hour")) * 3600 + Number(get("minute")) * 60 + Number(get("second")));
+  return left > 0 ? { kind: "left", minutes: Math.ceil(left / 60) } : { kind: "passed" };
+}
+
+/** 72 -> "1 hr 12 min left", 45 -> "45 min left", 120 -> "2 hr left". */
+export function minutesLeftWords(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `${[h ? `${h} hr` : null, m || !h ? `${m} min` : null].filter(Boolean).join(" ")} left`;
+}
+
 /** "17:30" or "9:05" as "HH:MM"; null for anything else. */
 export function parseTime(v: unknown): string | null {
   const m = String(v ?? "").trim().match(/^(\d{1,2}):(\d{2})$/);

@@ -5548,7 +5548,10 @@ const expectText = async (page, text) => {
     // The Today tiles (2026-11-05): seven figures in order; calls and emails match the database.
     const parts = await page.getByTestId("eod-today-part").evaluateAll((els) => els.map((e) => [e.dataset.key, Number(e.dataset.count), e.innerText.trim()]));
     if (parts.map((p) => p[0]).join(",") !== "screened,moved,calls,emails,done,todos,waits") throw new Error(`the tiles: ${JSON.stringify(parts)}`);
-    if ((await page.getByTestId("eod-today-label").innerText()).trim() !== "TODAY") throw new Error("the TODAY label");
+    // 2026-11-05: no TODAY label; the tiles' top is level with the report card's.
+    if (await page.getByTestId("eod-today-label").count()) throw new Error("the TODAY label should be gone");
+    const tops = await page.evaluate(() => [document.querySelector("[data-testid=eod-today-tiles]").getBoundingClientRect().top, document.querySelector("[data-testid=report-card]").getBoundingClientRect().top].map(Math.round));
+    if (Math.abs(tops[0] - tops[1]) > 1) throw new Error(`tiles and report card tops: ${tops}`);
     const db = await one(`select count(*) filter (where method = 'email')::int emails, count(*) filter (where method in ('call','meeting','video'))::int calls from communications
       where direction <> 'incoming' and not awaiting_log and (occurred_at at time zone 'America/New_York')::date = $1`, [eodDay()]);
     if (parts[2][1] !== db.calls || parts[3][1] !== db.emails) throw new Error(`calls and emails ${parts[2][1]}, ${parts[3][1]} vs ${db.calls}, ${db.emails} in the database`);
@@ -6643,6 +6646,7 @@ const expectText = async (page, text) => {
     const demo = await one("select (select count(*)::int from accounts where name not like 'Sample %') a, (select count(*)::int from contacts c where not exists (select 1 from sample_records r where r.record_id = c.id)) c, (select count(*)::int from transactions t where not exists (select 1 from sample_records r where r.record_id = t.id)) t");
     await page.goto(`${BASE}/settings/data`);
     await page.getByTestId("sample-remove").click();
+    await page.getByTestId("sample-remove-confirm").click();
     await expectText(page, "Sample data removed:");
     const after = await one(`select (select count(*)::int from sample_records) marked,
       (select count(*)::int from accounts where name not like 'Sample %') a, (select count(*)::int from contacts) c, (select count(*)::int from transactions) t`);

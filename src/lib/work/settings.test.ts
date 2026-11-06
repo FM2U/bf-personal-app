@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanStageDefaults, cleanWorkSettings, eodLong, eodShort, parseTime } from "./settings";
+import { cleanStageDefaults, cleanWorkSettings, eodCountdown, eodLong, eodShort, minutesLeftWords, parseTime } from "./settings";
 
 describe("Work settings (push D)", () => {
   it("reads and shows the End of day time", () => {
@@ -12,6 +12,20 @@ describe("Work settings (push D)", () => {
     expect(eodLong("12:15")).toBe("12:15 pm");
     expect(eodLong("09:00")).toBe("9:00 am");
     expect(eodShort(null)).toBe("5:30");
+  });
+  it("counts down to the End of day time in the owner's time zone (2026-11-05)", () => {
+    const tz = "America/New_York";
+    // 4:18 pm in New York on Nov 5 is 21:18 UTC.
+    expect(eodCountdown(new Date("2026-11-05T21:18:00Z"), tz, "2026-11-05", "17:30")).toEqual({ kind: "left", minutes: 72 });
+    expect(eodCountdown(new Date("2026-11-05T21:18:30Z"), tz, "2026-11-05", "17:30")).toEqual({ kind: "left", minutes: 72 });
+    expect(eodCountdown(new Date("2026-11-05T22:29:59Z"), tz, "2026-11-05", "17:30")).toEqual({ kind: "left", minutes: 1 });
+    expect(eodCountdown(new Date("2026-11-05T22:30:00Z"), tz, "2026-11-05", "17:30")).toEqual({ kind: "passed" });
+    expect(eodCountdown(new Date("2026-11-06T05:01:00Z"), tz, "2026-11-05", "17:30")).toEqual({ kind: "other-day" });
+    expect(eodCountdown(new Date("2026-11-05T21:18:00Z"), tz, "2026-11-05", "16:00")).toEqual({ kind: "passed" });
+    expect(minutesLeftWords(72)).toBe("1 hr 12 min left");
+    expect(minutesLeftWords(45)).toBe("45 min left");
+    expect(minutesLeftWords(60)).toBe("1 hr left");
+    expect(minutesLeftWords(1)).toBe("1 min left");
   });
   it("checks the four values", () => {
     expect(cleanWorkSettings({ threshold: "5", noReply: "2", outreach: "10", eodTime: "17:30", blockMinutes: "60" })).toEqual({ ok: true, value: { threshold: 5, noReply: 2, outreach: 10, eodTime: "17:30", blockMinutes: 60 } });

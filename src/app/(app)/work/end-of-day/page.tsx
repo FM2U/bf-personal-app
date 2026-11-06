@@ -24,7 +24,7 @@ export default async function EndOfDayPage() {
     return (
       <WorkShell testId="work-end-of-day">
         <PinnedBlock testId="eod-sticky">
-          <WorkHeader title="End of day" right={<span>report at {END_OF_DAY_TIME} pm</span>} />
+          <WorkHeader title="End of day" right={<span>Report at {END_OF_DAY_TIME} pm</span>} />
           <AccountabilityTabs eodBadge={null} tight />
         </PinnedBlock>
         <WorkUpdateNotice notice={notice} />

@@ -574,18 +574,18 @@ export function AiButton({ busy, children, className, disabled, tone = "outline"
  * 1024px, where nothing else stays pinned; "always" at every width (record pages, where the buttons at the right move
  * into the bar while it shows); false when the page draws its own (Work on now, Contacts, To-dos).
  */
-export function WorkHeader({ title, right, crumb, under, slim = "narrow" }: { title: React.ReactNode; right?: React.ReactNode; crumb?: React.ReactNode; /** A quiet line under the title ("Listed as 00 ..."). */ under?: React.ReactNode; slim?: "narrow" | "always" | false }) {
+export function WorkHeader({ title, slimTitle, right, crumb, under, slim = "narrow" }: { title: React.ReactNode; /** A shorter title for the slim bar (End of day drops the date). */ slimTitle?: React.ReactNode; right?: React.ReactNode; crumb?: React.ReactNode; /** A quiet line under the title ("Listed as 00 ..."). */ under?: React.ReactNode; slim?: "narrow" | "always" | false }) {
   const docking = slim === "always" && !!right;
   return (
     <div className="mb-1.5">
-      {slim && !docking ? <SlimBar title={title} mode={slim} /> : null}
+      {slim && !docking ? <SlimBar title={slimTitle ?? title} mode={slim} /> : null}
       {crumb ? <div className="mb-1.5 text-[13px] text-muted-foreground">{crumb}</div> : null}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-slate-900">{title}</h1>
           {under ? <div className="mt-0.5 text-[13px] text-muted-foreground">{under}</div> : null}
         </div>
-        {docking ? <DockingActions title={title}>{right}</DockingActions> : right ? <div className="flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground">{right}</div> : null}
+        {docking ? <DockingActions title={slimTitle ?? title}>{right}</DockingActions> : right ? <div className="flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground">{right}</div> : null}
       </div>
     </div>
   );
