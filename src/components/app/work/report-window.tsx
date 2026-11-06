@@ -20,7 +20,14 @@ import { cn } from "@/lib/utils";
  * only. Every choice applies to today's report only and is saved with the day's End of day row for that partner; the
  * sent email is built from the same choices (src/lib/accountability/report-sections.ts).
  */
-export function ReportWindow({ open, onOpenChange, day, copies, sel, onSel, title, sub, footerNote, sendButton, startEditing, resetKey = 0 }: {
+/** The partner checkbox (fix list item 1, 2026-11-06), on the report card and in this window: cobalt when ticked. */
+export const PARTNER_BOX = "h-4 w-4 shrink-0 cursor-pointer rounded-[4px] accent-primary-strong disabled:cursor-default disabled:opacity-60";
+
+export function ReportWindow({ open, onOpenChange, day, copies, skipped, onPartner, sel, onSel, title, sub, footerNote, sendButton, startEditing, resetKey = 0 }: {
+  /** Fix list item 1 (2026-11-06): the partners unticked for today, the same set as the report card's checkboxes. */
+  skipped?: ReadonlySet<string>;
+  /** Ticks or unticks a partner for today; null once the day is closed. */
+  onPartner?: ((id: string, on: boolean) => void) | null;
   /** Bumped when the choices were set from outside the window (the short version), so the window reads them again. */
   resetKey?: number;
   open: boolean;
@@ -70,6 +77,21 @@ export function ReportWindow({ open, onOpenChange, day, copies, sel, onSel, titl
         </>
       }
     >
+      {copies.length ? (
+        <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13px] text-slate-700" data-testid="report-send-to">
+          <span className="label-caps figure-label">Send to</span>
+          {copies.map((c) => {
+            const on = !skipped?.has(c.partner.id);
+            return (
+              <label key={c.partner.id} className={cn("inline-flex items-center gap-2", onPartner && !c.sentAt ? "cursor-pointer" : "cursor-default", !on && "text-slate-400")} data-testid="report-send-to-partner" data-partner={c.partner.first} data-on={on ? "1" : "0"}>
+                <input type="checkbox" checked={on} disabled={!onPartner || !!c.sentAt} onChange={(e) => onPartner?.(c.partner.id, e.target.checked)} className={PARTNER_BOX} data-testid="report-send-to-check" />
+                {c.partner.name}
+                {c.sentAt ? <span className="text-muted-foreground">(sent {c.sentTime})</span> : !on ? <span>(skipped today)</span> : null}
+              </label>
+            );
+          })}
+        </div>
+      ) : null}
       {copies.length > 1 ? (
         <div className="mb-4 flex gap-1 overflow-x-auto border-b border-border" role="tablist" data-testid="report-tabs">
           {copies.map((c) => (

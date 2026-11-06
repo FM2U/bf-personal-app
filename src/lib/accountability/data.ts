@@ -197,7 +197,7 @@ export async function loadSentCopies(sb: SupabaseClient, ownerId: string, day: s
   });
 }
 
-type EodRow = { id: string | null; day: string; status: EodState; reasons: Record<string, string>; tomorrow: string; skipReason: string | null; sentAt: string | null; reportId: string | null; reportSubject: string | null; reportHtml: string | null; reportEdited: boolean; /** Push B edits: each partner's choices for today's copy (include, Change, Edit), by contact id. */ reportEdits: Record<string, ReportChoices>; /** Today's notes by section, once for the day and shared by every copy (report_edits._notes, 2026-11-05). */ reportNotes: ReportNotes; judged: Judged[]; /** Push D: the Weekly review answers (Fridays). */ weeklyReview: WeeklyReview };
+type EodRow = { id: string | null; day: string; status: EodState; reasons: Record<string, string>; tomorrow: string; skipReason: string | null; sentAt: string | null; reportId: string | null; reportSubject: string | null; reportHtml: string | null; reportEdited: boolean; /** Push B edits: each partner's choices for today's copy (include, Change, Edit), by contact id. */ reportEdits: Record<string, ReportChoices>; /** Today's notes by section, once for the day and shared by every copy (report_edits._notes, 2026-11-05). */ reportNotes: ReportNotes; judged: Judged[]; /** Push D: the Weekly review answers (Fridays). */ weeklyReview: WeeklyReview; /** Fix list item 1 (2026-11-06): the partners unticked for this day only (contact ids). */ skippedPartners: string[] };
 
 export async function loadEodRow(sb: SupabaseClient, ownerId: string, day: string): Promise<EodRow> {
   const { data } = await sb.from("end_of_day").select("*").eq("owner_id", ownerId).eq("day", day).maybeSingle();
@@ -220,6 +220,7 @@ export async function loadEodRow(sb: SupabaseClient, ownerId: string, day: strin
     reportNotes: r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? cleanNotes((r.report_edits as Record<string, unknown>)[NOTES_KEY]) : {},
     judged: Array.isArray(r?.judged) ? (r!.judged as Judged[]) : [],
     weeklyReview: cleanReview(r?.weekly_review),
+    skippedPartners: Array.isArray(r?.skipped_partners) ? (r!.skipped_partners as unknown[]).map(String) : [],
   };
 }
 
@@ -255,7 +256,7 @@ export async function loadTargetsPage(sb: SupabaseClient, ctx: Ctx): Promise<Tar
 }
 
 /** One partner's copy of the day's report (push B): their sections, the edit or the email as sent. */
-export type PartnerCopy = { partner: Partner; report: ReportData; html: string; edited: boolean; sentAt: string | null; sentTime: string | null };
+export type PartnerCopy = { partner: Partner; report: ReportData; html: string; edited: boolean; sentAt: string | null; sentTime: string | null; /** Fix list item 1 (2026-11-06): unticked, so this partner is skipped today only. */ skipped: boolean };
 
 export type EndOfDayPage = {
   day: string;
@@ -359,12 +360,12 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
     const s = sentBy.get(p.id);
     if (s) {
       const r = reportFor({ ...report, notes: s.notes }, p, s.choices);
-      return { partner: p, report: r, html: s.html ?? reportInnerHtml(r), edited: hasChoices(s.choices) || sendsNotes(r), sentAt: s.sentAt, sentTime: time(s.sentAt) };
+      return { partner: p, report: r, html: s.html ?? reportInnerHtml(r), edited: hasChoices(s.choices) || sendsNotes(r), sentAt: s.sentAt, sentTime: time(s.sentAt), skipped: false };
     }
     // Today's choices for this partner (the review window): include, Change, Edit.
     const choices = row.reportEdits[p.id] ?? null;
     const r = reportFor(report, p, choices);
-    return { partner: p, report: r, html: reportInnerHtml(r), edited: hasChoices(choices) || sendsNotes(r), sentAt: null, sentTime: null };
+    return { partner: p, report: r, html: reportInnerHtml(r), edited: hasChoices(choices) || sendsNotes(r), sentAt: null, sentTime: null, skipped: row.skippedPartners.includes(p.id) };
   });
   const first = copies[0] ?? null;
   return {

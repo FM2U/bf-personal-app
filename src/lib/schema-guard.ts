@@ -154,3 +154,9 @@ export const DB_UPDATE_NOTICE_PUSH_E = "Database update needed: paste supabase/U
  * UPDATE_PREVIEW_PUSH_E2.sql runs, nothing shows as waited on, and adding or removing a wait says so.
  */
 export const DB_UPDATE_NOTICE_PUSH_E2 = "Database update needed: paste supabase/UPDATE_PREVIEW_PUSH_E2.sql into the Supabase SQL Editor and run it.";
+
+/**
+ * Push F (fix list, 2026-11-06): the partners unticked on End of day for one day (end_of_day.skipped_partners). Before
+ * UPDATE_PREVIEW_PUSH_F.sql runs, every partner shows ticked and unticking one says so.
+ */
+export const DB_UPDATE_NOTICE_PUSH_F = "Database update needed: paste supabase/UPDATE_PREVIEW_PUSH_F.sql into the Supabase SQL Editor and run it.";

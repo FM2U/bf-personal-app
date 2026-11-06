@@ -4,12 +4,12 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Check, Eye, Loader2 } from "lucide-react";
-import { approveAndSend, saveReasons, saveTomorrow, saveWeeklyReview, skipToday, putShortReport } from "@/app/actions/accountability";
+import { approveAndSend, saveReasons, saveTomorrow, saveWeeklyReview, setPartnerToday, skipToday, putShortReport } from "@/app/actions/accountability";
 import type { ReasonDraft } from "@/lib/accountability/ask-ai";
 import type { EndOfDayPage } from "@/lib/accountability/data";
 import { dueLine, getsLabel, sendLabel } from "@/lib/accountability/partners";
 import { includesLine, REVIEW_QUESTIONS, reviewAnswered, sentSections, type WeeklyReview } from "@/lib/accountability/report-sections";
-import { ReportWindow } from "@/components/app/work/report-window";
+import { PARTNER_BOX, ReportWindow } from "@/components/app/work/report-window";
 import { DONE_AREAS, judgedMark, MARK_WORD, owedReasons, sendChecklist, todayStrip, type DayNumbers, type Judged, type TodayPart } from "@/lib/accountability/targets";
 import type { AskContext } from "@/lib/work/ask-ai";
 import { AccountabilityTabs, type EodBadge } from "@/components/app/nav-links";
@@ -18,6 +18,7 @@ import { StatusMark } from "@/components/app/work/targets-ui";
 import { Drawer } from "@/components/app/work/drawer";
 import { Confirm, Figure, Line1, Line2, Name, Pill, PinnedBlock, ROW_GRIDS, RowButton, Rows, WorkCard, WorkHeader } from "@/components/app/work/ui";
 import { eodCountdown, minutesLeftWords } from "@/lib/work/settings";
+import { personHref } from "@/lib/work/people";
 import { cn } from "@/lib/utils";
 
 /**
@@ -42,8 +43,11 @@ import { cn } from "@/lib/utils";
 const INPUT = "h-9 w-full min-w-0 rounded-[7px] border border-input bg-white px-2.5 text-[13px] text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:bg-slate-50 disabled:text-slate-500";
 const FIG = "w-[82px]";
 const GRID = ROW_GRIDS.eodTarget;
-/** The partner table on the report card: Partner | Gets | Sections | View, the columns the same on every row. */
-const PT_ROW = "grid grid-cols-[minmax(0,0.9fr)_minmax(0,1fr)_minmax(0,1fr)_44px] items-center gap-3";
+/**
+ * The partner table on the report card: the checkbox (fix list item 1, 2026-11-06), Partner | Gets | Sections | View,
+ * the columns the same on every row.
+ */
+const PT_ROW = "grid grid-cols-[16px_minmax(0,0.9fr)_minmax(0,1fr)_minmax(0,1fr)_44px] items-center gap-3";
 const BTN_LG = "inline-flex h-[38px] w-full min-w-0 shrink-0 min-[421px]:w-auto min-[421px]:flex-1 min-[421px]:basis-0 items-center justify-center gap-2 rounded-[7px] border px-4 text-sm font-medium whitespace-nowrap disabled:pointer-events-none disabled:opacity-50";
 
 const newRequestId = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID().replace(/-/g, "") : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`);
@@ -60,7 +64,17 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
   const copy = copies.find((c) => c.partner.id === sel) ?? copies[0] ?? null;
   const partner = copy?.partner ?? null;
   const first = partner?.first ?? "your partner";
-  const unsent = copies.filter((c) => !c.sentAt);
+  // Fix list item 1: the partners unticked for today (one setting for the card and the window), read again whenever
+  // the page brings back a different set from the server.
+  const serverSkipped = copies.filter((c) => c.skipped).map((c) => c.partner.id).join(",");
+  const [seenSkipped, setSeenSkipped] = useState(serverSkipped);
+  const [skippedIds, setSkippedIds] = useState<Set<string>>(() => new Set(serverSkipped ? serverSkipped.split(",") : []));
+  if (seenSkipped !== serverSkipped) {
+    setSeenSkipped(serverSkipped);
+    setSkippedIds(new Set(serverSkipped ? serverSkipped.split(",") : []));
+  }
+  const ticked = (id: string) => !skippedIds.has(id);
+  const unsent = copies.filter((c) => !c.sentAt && ticked(c.partner.id));
   const toNames = (list: typeof copies) => andNames(list.map((c) => c.partner.first));
   const [reasons, setReasons] = useState<Record<string, string>>(data.reasons);
   const [tomorrow, setTomorrow] = useState(data.tomorrow);
@@ -159,6 +173,22 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
     setResetKey((k) => k + 1);
     router.refresh();
     return r.html;
+  };
+  const togglePartner = (id: string, on: boolean) => {
+    const before = skippedIds;
+    const next = new Set(skippedIds);
+    if (on) next.delete(id);
+    else next.add(id);
+    setSkippedIds(next);
+    setError(null);
+    start(async () => {
+      const r = await setPartnerToday(day, id, on);
+      if (!r.ok) {
+        setSkippedIds(before);
+        return setError(r.error);
+      }
+      router.refresh();
+    });
   };
   const send = (force = false) =>
     startSend(async () => {
@@ -494,6 +524,7 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
               {copies.length ? (
                 <div className="mt-4 border-t border-border pt-3.5" data-testid="eod-partners">
                   <div className={cn(PT_ROW, "border-b border-rule pb-1.5")}>
+                    <span />
                     <span className="label-caps figure-label">Partner</span>
                     <span className="label-caps figure-label">Gets</span>
                     <span className="label-caps figure-label">Sections</span>
@@ -502,15 +533,19 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
                   {copies.map((c) => {
                     const open = openPartner === c.partner.id;
                     const count = sentSections(c.report).length;
+                    const on = ticked(c.partner.id);
                     return (
-                      <div key={c.partner.id} className="border-b border-slate-100 last:border-b-0" data-testid="eod-partner" data-partner={c.partner.first} data-open={open ? "1" : "0"}>
+                      <div key={c.partner.id} className="border-b border-slate-100 last:border-b-0" data-testid="eod-partner" data-partner={c.partner.first} data-open={open ? "1" : "0"} data-on={on ? "1" : "0"}>
                         <div className={cn(PT_ROW, "py-[9px] text-[13px] text-slate-700")}>
-                          <span className="min-w-0 text-sm font-semibold break-words text-slate-900">{c.partner.first}</span>
-                          <span className="min-w-0" data-testid="eod-partner-gets">
+                          <input type="checkbox" checked={on} disabled={closed || !!c.sentAt} onChange={(e) => togglePartner(c.partner.id, e.target.checked)} aria-label={`Send today's report to ${c.partner.name}`} className={PARTNER_BOX} data-testid="eod-partner-check" />
+                          <Link href={personHref(c.partner.id)} className={cn("min-w-0 text-sm font-semibold break-words hover:underline", on ? "text-slate-900" : "text-slate-400")} data-testid="eod-partner-name">
+                            {c.partner.first}
+                          </Link>
+                          <span className={cn("min-w-0", !on && "text-slate-400")} data-testid="eod-partner-gets">
                             {getsLabel(c.partner.days)}
                           </span>
-                          <span className="tabular min-w-0" data-testid="eod-partner-count">
-                            {count} {count === 1 ? "section" : "sections"}
+                          <span className={cn("tabular min-w-0", !on && "text-slate-400")} data-testid="eod-partner-count">
+                            {on ? `${count} ${count === 1 ? "section" : "sections"}` : "Skipped today"}
                           </span>
                           <button type="button" onClick={() => setOpenPartner(open ? null : c.partner.id)} aria-expanded={open} className="text-right text-[12.5px] font-medium text-primary-strong hover:underline" data-testid="eod-partner-view">
                             {open ? "Hide" : "View"}
@@ -524,6 +559,9 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
                       </div>
                     );
                   })}
+                  <Link href="/work/people?view=people" className="mt-2.5 inline-block text-[12.5px] font-medium text-primary-strong hover:underline" data-testid="eod-manage-partners">
+                    Manage partners
+                  </Link>
                 </div>
               ) : (
                 <p className="mt-4 border-t border-border pt-3.5 text-[12.5px] leading-[1.5] text-muted-foreground" data-testid="report-includes">
@@ -574,6 +612,8 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
         onOpenChange={(o) => setWindowOpen(o ? "view" : false)}
         day={day}
         copies={copies}
+        skipped={skippedIds}
+        onPartner={closed ? null : togglePartner}
         sel={copy?.partner.id ?? null}
         onSel={setSel}
         title={reportTitle}

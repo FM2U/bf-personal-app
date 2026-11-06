@@ -11,7 +11,7 @@ import { explainGoogleError } from "@/lib/google-errors";
 import { getGoogleConnection, sendGmailMessage } from "@/lib/google";
 import { sendPermission } from "@/lib/google-scopes";
 import { sentEmailCommunication } from "@/lib/calc/sent-email";
-import { DB_UPDATE_NOTICE_0025, DB_UPDATE_NOTICE_PUSH_D, isMissingSchemaError } from "@/lib/schema-guard";
+import { DB_UPDATE_NOTICE_0025, DB_UPDATE_NOTICE_PUSH_D, DB_UPDATE_NOTICE_PUSH_F, isMissingSchemaError } from "@/lib/schema-guard";
 import { recordWorkEvent } from "@/lib/accountability/events";
 import { buildEndOfDay, factsSince, loadEodRow, loadFacts, loadOwedFromSkipped, loadPartners, loadSentCopies, loadTargets, type EndOfDayPage, type PartnerCopy } from "@/lib/accountability/data";
 import { cleanPartnerSettings } from "@/lib/accountability/partners";
@@ -268,6 +268,32 @@ export async function saveReportNote(day: string, section: string, text: string)
 }
 
 /**
+ * The partner checkbox on End of day (fix list item 1, approved 2026-11-06): unticked, that partner is skipped today
+ * only; tomorrow every partner is ticked again. One setting for the day, shown on the report card and in the View
+ * report window. A partner already sent to today cannot be unticked.
+ */
+export async function setPartnerToday(day: string, contactId: string, on: boolean): Promise<{ ok: true; skipped: string[] } | Fail> {
+  const s = await setup();
+  if (isFail(s)) return s;
+  const { sb, ctx } = s;
+  if (!UUID.test(String(contactId ?? ""))) return fail("This partner was not found.");
+  const row = await ensureEod(sb, ctx, day);
+  if (isFail(row)) return row;
+  if (!("skipped_partners" in row)) return fail(DB_UPDATE_NOTICE_PUSH_F);
+  if (row.status !== "open") return fail(`Today is already ${row.status}.`);
+  const sent = await loadSentCopies(sb, ctx.ownerId, day);
+  if (!on && sent.some((c) => c.contactId === contactId)) return fail("This partner already got today's report.");
+  const now = new Set(Array.isArray(row.skipped_partners) ? (row.skipped_partners as unknown[]).map(String) : []);
+  if (on) now.delete(contactId);
+  else now.add(contactId);
+  const skipped = [...now];
+  const { error } = await sb.from("end_of_day").update({ skipped_partners: skipped }).eq("id", row.id);
+  if (error) return fail(isMissingSchemaError(error) ? DB_UPDATE_NOTICE_PUSH_F : `Not saved: ${error.message}`);
+  done();
+  return { ok: true, skipped };
+}
+
+/**
  * "Use the short version" (the Ask AI panel on the report): that partner's copy keeps Targets with the reasons, the
  * week, and the tomorrow line for today; the other sections are left out today (each can be ticked back).
  */
@@ -316,12 +342,14 @@ export async function approveAndSend(day: string, requestId: string, force = fal
   if (row.status === "sent") return { ok: true, sentAt: String(row.sent_at), sentTime: timeOf(String(row.sent_at), ctx.tz), sentTo: [], alreadySent: true };
   if (row.status === "skipped") return { ok: false, error: "Today was skipped. Nothing is sent.", reason: "invalid" };
   const page = await loadPage(sb, ctx, day);
-  const waiting = page.copies.filter((c) => !c.sentAt);
+  // Fix list item 1: an unticked partner is skipped today.
+  const waiting = page.copies.filter((c) => !c.sentAt && !c.skipped);
   // This click already sent (a double press or a retry): those partners are not sent to again.
   const { data: prior } = await sb.from("change_log").select("new_value").eq("field", "email_sent").eq("new_value->>request_id", requestId).limit(50);
   const sentThisClick = new Set(((prior ?? []) as Row[]).map((p) => String(((p.new_value as Row) ?? {}).contact_id ?? "")));
   const todo = waiting.filter((c) => !sentThisClick.has(c.partner.id));
   if (!page.copies.length) return { ok: false, error: page.partners.length ? "No partner gets the report today. Change a partner's days on their page under Contacts to send one." : "No accountability partner yet. Add a person under Contacts with the role Accountability partner and an email address.", reason: "partner" };
+  if (page.copies.every((c) => c.skipped)) return { ok: false, error: "Every partner is unticked for today. Tick at least one partner to send, or press Skip today.", reason: "partner" };
   if (!todo.length) return finishDay(sb, ctx, row, page, requestId);
   const owed = owedCount(page);
   if (owed && !force) return { ok: false, error: noReasonText(owed, todo.length > 1 ? "Your partners" : todo[0].partner.first), reason: "reasons", owed };
@@ -376,16 +404,19 @@ export async function approveAndSend(day: string, requestId: string, force = fal
 /** Marks the day sent once every copy on it went out (the first copy's email is kept on the day for older screens). */
 async function finishDay(sb: SupabaseClient, ctx: Ctx, row: Row, page: EndOfDayPage, requestId: string): Promise<SendResult> {
   void requestId;
-  const left = page.copies.filter((c) => !c.sentAt);
+  // Fix list item 1: the day is sent once every ticked partner has it; an unticked one is not waited for.
+  const left = page.copies.filter((c) => !c.sentAt && !c.skipped);
   if (left.length) return { ok: false, error: `Not sent yet to ${left.map((c) => c.partner.first).join(" and ")}. Press Approve and send again.`, reason: "partial", sentTo: page.copies.filter((c) => c.sentAt).map((c) => c.partner.first) };
-  const sentAt = page.copies.map((c) => c.sentAt!).sort().slice(-1)[0] ?? new Date().toISOString();
-  const first = page.copies[0];
+  const sentCopies = page.copies.filter((c) => c.sentAt);
+  if (!sentCopies.length) return { ok: false, error: "Every partner is unticked for today. Tick at least one partner to send, or press Skip today.", reason: "partner" };
+  const sentAt = sentCopies.map((c) => c.sentAt!).sort().slice(-1)[0] ?? new Date().toISOString();
+  const first = sentCopies[0];
   const { data: rep } = await sb.from("partner_reports").select("id,snapshot").eq("owner_id", ctx.ownerId).eq("report_kind", "end_of_day").eq("period_start", page.day).eq("contact_id", first.partner.id).order("sent_at").limit(1).maybeSingle();
   const snap = ((rep as Row | null)?.snapshot ?? {}) as Row;
   const { error } = await sb.from("end_of_day").update({ status: "sent", sent_at: sentAt, report_id: rep ? String((rep as Row).id) : null, report_subject: typeof snap.subject === "string" ? snap.subject : reportSubject(first.report), report_html: first.html, report_edited: first.edited, report_edits: {}, judged: page.judged }).eq("id", row.id);
   if (error) return { ok: false, error: `The emails were sent, but the day could not be marked sent: ${error.message}`, reason: "invalid" };
   done();
-  return { ok: true, sentAt, sentTime: timeOf(sentAt, ctx.tz), sentTo: page.copies.map((c) => c.partner.first) };
+  return { ok: true, sentAt, sentTime: timeOf(sentAt, ctx.tz), sentTo: sentCopies.map((c) => c.partner.first) };
 }
 
 function timeOf(ts: string, tz: string): string {

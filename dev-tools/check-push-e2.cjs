@@ -802,6 +802,38 @@ const until = async (fn, msg, tries = 60) => {
     assert((await jake.getByTestId("eod-partner-sections").count()) === 0, "Hide closes it");
   });
 
+  // Fix list item 1 (approved 2026-11-06): a checkbox per partner, ticked by default; unticked skips that partner today.
+  await step("End of day partner checkboxes: ticked by default; untick in the table and the View report window matches (one setting, kept on reload); the name opens the person; Manage partners opens Contacts", async () => {
+    await eodTop();
+    const table = page.getByTestId("eod-partners");
+    await table.waitFor();
+    const rowOf = (who) => table.locator(`[data-testid=eod-partner][data-partner=${who}]`);
+    const sarahId = (await one("select id from contacts where email = 'sarah.klein@example.com'")).id;
+    const checks = await table.getByTestId("eod-partner-check").evaluateAll((els) => els.map((e) => e.checked));
+    assert(checks.length >= 2 && checks.every(Boolean), `ticked by default ${checks}`);
+    assert((await rowOf("Sarah").getByTestId("eod-partner-name").getAttribute("href")) === `/work/people/${sarahId}`, "the name opens Sarah's page");
+    assert((await page.getByTestId("eod-manage-partners").getAttribute("href")) === "/work/people?view=people", "Manage partners opens Contacts");
+    const sendCount = async () => Number(await page.getByTestId("report-send").getAttribute("data-count"));
+    const n = await sendCount();
+    await rowOf("Sarah").getByTestId("eod-partner-check").uncheck();
+    await until(async () => (await rowOf("Sarah").getAttribute("data-on")) === "0" && (await sendCount()) === n - 1, "Sarah is unticked and Approve and send counts one fewer");
+    assert((await rowOf("Sarah").getByTestId("eod-partner-count").innerText()) === "Skipped today", "Skipped today");
+    await until(async () => JSON.stringify((await one("select skipped_partners from end_of_day where day = $1", [today])).skipped_partners) === JSON.stringify([sarahId]), "saved for today");
+    await shot("end-of-day-partner-unticked-1440.png", page.getByTestId("report-card"));
+    await page.reload();
+    await until(async () => (await rowOf("Sarah").getAttribute("data-on")) === "0", "kept on reload");
+    // The window shows the same setting; ticking there ticks the table too.
+    await page.getByTestId("report-view").click();
+    await page.getByTestId("report-window").waitFor();
+    const inWin = page.getByTestId("report-window").locator("[data-testid=report-send-to-partner][data-partner=Sarah]");
+    assert((await inWin.getAttribute("data-on")) === "0", "the window shows Sarah unticked");
+    await shot("report-window-send-to-1440.png", page.getByTestId("report-window"));
+    await inWin.getByTestId("report-send-to-check").check();
+    await until(async () => (await inWin.getAttribute("data-on")) === "1" && (await rowOf("Sarah").getAttribute("data-on")) === "1", "ticked in the window and in the table");
+    await page.keyboard.press("Escape");
+    await until(async () => JSON.stringify((await one("select skipped_partners from end_of_day where day = $1", [today])).skipped_partners) === "[]", "every partner ticked again");
+  });
+
   await step("Item 2: Done on a Contacts follow-up raises 'next actions done' under Contacts (the person's name, the follow-up note), and still counts toward Follow-ups on time", async () => {
     const reed = await one("select id, follow_up_note from contacts where name = 'Mark Reed'");
     await eodTop();
@@ -995,6 +1027,31 @@ const until = async (fn, msg, tries = 60) => {
     const look = await n.evaluate((e) => ({ text: e.innerText, rule: getComputedStyle(e).borderLeftWidth, color: getComputedStyle(e).color }));
     assert(look.text.includes("Pinecrest is the one to watch.") && look.rule === "2px" && look.color === "rgb(71, 85, 105)", JSON.stringify(look));
     await page.getByTestId("sent-close").click();
+  });
+
+  // Fix list item 1: a send with one partner unticked goes to the others only, and the day still closes as sent.
+  // The day is re-opened the way UPDATE_PREVIEW_PUSH_F.sql re-opens Friday Nov 6 (the sent copies removed).
+  await step("Approve and send with Sarah unticked: only Jake gets the email; the day is marked sent; tomorrow everyone is ticked again", async () => {
+    await db.query("begin");
+    await db.query("select set_config('app.bulk_delete', 'on', true)");
+    await db.query("delete from partner_reports where report_kind = 'end_of_day' and period_start = $1", [today]);
+    await db.query("update end_of_day set status = 'open', sent_at = null, report_id = null, report_subject = null, report_html = null, report_edited = false, skipped_partners = '[]' where day = $1", [today]);
+    await db.query("commit");
+    await eodTop();
+    const sarah = page.locator("[data-testid=eod-partner][data-partner=Sarah]");
+    await sarah.getByTestId("eod-partner-check").uncheck();
+    await until(async () => (await sarah.getAttribute("data-on")) === "0", "Sarah unticked");
+    const before = (await g("/__sent")).length;
+    await page.getByTestId("report-send").click();
+    const anyway = page.getByTestId("send-check-anyway");
+    await Promise.race([anyway.waitFor({ timeout: 15000 }).then(() => anyway.click()), page.getByTestId("sent-line").waitFor({ timeout: 15000 })]).catch(() => {});
+    await page.getByTestId("sent-line").waitFor({ timeout: 30000 });
+    const to = (await g("/__sent")).slice(before).filter((m) => /Daily report/.test(m.subject)).map((m) => m.to);
+    assert(to.length === 1 && to[0].includes("jake.morgan"), `sent to ${JSON.stringify(to)}`);
+    const day = await one("select status from end_of_day where day = $1", [today]);
+    assert(day.status === "sent", `the day is ${day.status}`);
+    const tomorrowRow = await one("select count(*)::int n from end_of_day where day > $1 and skipped_partners <> '[]'", [today]);
+    assert(tomorrowRow.n === 0, "no later day carries an unticked partner");
   });
 
   await step("Download the export (Monthly review) and Download full export (Settings): 'Preparing…' with a spinner and grayed until the file comes; then the button is back", async () => {
