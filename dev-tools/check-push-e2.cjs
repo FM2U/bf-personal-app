@@ -4,6 +4,10 @@
 // original email after a Follow up shows Replied); the Reports week buttons and Back to this week; and the End of day
 // Today line (next actions done by area, to-dos done, people in "waiting 5+ days", the report section deals only).
 // Replies come from the local Gmail stand-in (POST /__reply), as in check-push-b and check-push-e.
+// 2026-11-05 (approved build): End of day's first visit after loading the sample shows the 6 default targets (not "0 of
+// 0 met"); "+ Note" on the report sections (saves, shows in both partners' tabs, a left-out section does not send its
+// note, Remove note, the note in the sent email and on Reports); the pending looks of Approve and send, Download the
+// export, Finish the review, and Download full export.
 // Needs a fresh local database (dev-tools/setup-local-db.sh) and the built app with the stand-ins (dev-tools/start-local.sh).
 // Usage: NODE_PATH=$(npm root -g) node dev-tools/check-push-e2.cjs [baseUrl]   (SHOTS_DIR=<folder> saves screenshots)
 const { chromium } = require("playwright");
@@ -143,6 +147,26 @@ const until = async (fn, msg, tries = 60) => {
       (select count(*)::int from waits) waits,
       (select count(*)::int from information_schema.columns where table_schema = 'public' and column_name in ('waiting_on', 'waiting_since', 'waiting_comm_id')) old_columns`);
     assert(s.bright === 2 && s.tracked === s.waits && s.waits >= 6 && s.old_columns === 0, JSON.stringify(s));
+  });
+
+  await step("2026-11-05: the sample brings the 6 default targets, and End of day's FIRST visit shows them (not '0 of 0 met')", async () => {
+    const t = await one("select count(*)::int n from targets where counts_key is not null and archived_at is null");
+    assert(t.n === 6, `targets after the sample load ${t.n}`);
+    await page.goto(`${BASE}/work/end-of-day`);
+    await page.getByTestId("eod-targets").waitFor();
+    const rows = await page.getByTestId("eod-target").count();
+    const line = await page.getByTestId("eod-met-count").innerText();
+    assert(rows === 6 && !/^0 of 0\b/.test(line), `first visit: ${rows} rows, "${line}"`);
+  });
+
+  await step("2026-11-05: with no targets at all, the first End of day visit makes the 6 defaults and shows all 6 on that same visit (no duplicates)", async () => {
+    await db.query("delete from targets");
+    await page.goto(`${BASE}/work/end-of-day`);
+    await page.getByTestId("eod-targets").waitFor();
+    const rows = await page.getByTestId("eod-target").count();
+    const line = await page.getByTestId("eod-met-count").innerText();
+    const t = await one("select count(*)::int n from targets");
+    assert(rows === 6 && t.n === 6 && !/^0 of 0\b/.test(line), `first visit: ${rows} rows, ${t.n} in the database, "${line}"`);
   });
 
   await step("Edits of Nov 5, items 7 and 8: sample next actions are things Bram does (Pinecrest: call Dana about the seller note); the owed thing is the wait, worded '<Name>'s reply to your email \"<subject>\"' (item 3 of 2026-11-05)", async () => {
@@ -815,6 +839,189 @@ const until = async (fn, msg, tries = 60) => {
     await page.keyboard.press("Escape");
     const fu = page.locator("[data-testid=eod-target][data-target='Follow-ups done on time']");
     if (await fu.count()) assert((await fu.innerText()).includes("Mark Reed") || /\d+ of \d+/.test(await fu.innerText()), await fu.innerText());
+  });
+
+  // ---------- 2026-11-05: "+ Note" on the report sections, and the pending looks ----------
+
+  // Watches a button from before the press: whether it ever read `label` with a spinner while disabled.
+  const watchBusy = async (testIds, label) =>
+    page.evaluate(
+      ({ ids, label }) => {
+        window.__busySeen = false;
+        const look = () => {
+          for (const id of ids)
+            for (const b of document.querySelectorAll(`[data-testid="${id}"]`))
+              if (b.textContent.includes(label) && b.querySelector("svg.animate-spin") && b.disabled) window.__busySeen = true;
+        };
+        if (window.__busyObs) window.__busyObs.disconnect();
+        window.__busyObs = new MutationObserver(look);
+        window.__busyObs.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
+      },
+      { ids: testIds, label },
+    );
+  const busySeen = () => page.evaluate(() => window.__busySeen === true);
+
+  const TOP_NOTE = "Pinecrest is the one to watch.\nDana wants the seller-note numbers before Friday's call.";
+  const TARGETS_NOTE = "Two CIMs came in late, so screening picks up tomorrow.";
+  const win = () => page.getByTestId("report-window");
+  const wsec = (key) => win().locator(`[data-testid="report-section"][data-section="${key}"]`);
+  const addNote = async (key, text) => {
+    await wsec(key).getByTestId("section-note-open").click();
+    await wsec(key).getByTestId("section-note-text").fill(text);
+    await wsec(key).getByTestId("section-note-save").click();
+    await wsec(key).getByTestId("section-note").waitFor();
+  };
+  const notesInDb = async () => ((await one("select report_edits from end_of_day where day = $1", [today])) || {}).report_edits?._notes ?? {};
+
+  await step("+ Note: the box opens under the section (placeholder, Save, Cancel, no AI star); Save shows the note under Top 3 deals with a thin left rule, 'Note added' by the title, Edit note and Remove note; it is saved once for the day", async () => {
+    // Both partners get today's report (Sarah normally gets Fridays only).
+    await db.query("update contacts set report_days = '{1,2,3,4,5,6,7}' where email = 'sarah.klein@example.com'");
+    await page.goto(`${BASE}/work/end-of-day`);
+    await page.getByTestId("report-view").click();
+    await win().waitFor();
+    await page.locator("[data-testid=report-tab][data-partner=Jake]").click();
+    await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hello Jake,"));
+    // Every section with Edit has + Note, Tomorrow's line too.
+    const sections = await win().getByTestId("report-section").evaluateAll((els) => els.filter((e) => e.dataset.included === "1").map((e) => [e.dataset.section, !!e.querySelector("[data-testid=section-edit]"), e.querySelector("[data-testid=section-note-open]")?.textContent]));
+    assert(sections.length >= 5 && sections.every(([, edit, note]) => !edit || note === "+ Note"), JSON.stringify(sections));
+    assert(sections.some(([k]) => k === "tomorrow"), "tomorrow's line is a section");
+    await wsec("top").getByTestId("section-note-open").click();
+    const box = wsec("top").getByTestId("section-note-box");
+    await box.waitFor();
+    assert((await wsec("top").getByTestId("section-note-text").getAttribute("placeholder")) === "Add a few lines for your partner: context, why it matters, what to watch", "placeholder");
+    assert((await box.locator("[data-testid=ai-star], [data-testid*=ai-]").count()) === 0, "no AI star on the note box");
+    const h1 = await wsec("top").getByTestId("section-note-text").evaluate((e) => e.getBoundingClientRect().height);
+    await wsec("top").getByTestId("section-note-box").evaluate((e) => e.scrollIntoView({ block: "center" }));
+    if (SHOTS) await win().screenshot({ path: path.join(SHOTS, "report-note-box-open-1440.png") });
+    // It grows with the text, up to about 6 lines, then scrolls.
+    await wsec("top").getByTestId("section-note-text").fill(Array.from({ length: 12 }, (_, i) => `line ${i + 1}`).join("\n"));
+    const h2 = await wsec("top").getByTestId("section-note-text").evaluate((e) => e.getBoundingClientRect().height);
+    assert(h1 >= 60 && h1 <= 90 && h2 > h1 && h2 <= 140, `box heights ${h1} then ${h2}`);
+    await wsec("top").getByTestId("section-note-cancel").click();
+    assert((await wsec("top").getByTestId("section-note").count()) === 0 && (await wsec("top").getAttribute("data-note")) === "0", "Cancel saves nothing");
+    await addNote("top", TOP_NOTE);
+    const note = wsec("top").getByTestId("section-note");
+    assert((await note.innerText()).replace(/\s+/g, " ").trim() === TOP_NOTE.replace(/\s+/g, " "), await note.innerText());
+    const look = await note.locator("[data-note]").evaluate((e) => ({ rule: getComputedStyle(e).borderLeftWidth, color: getComputedStyle(e).color, br: e.querySelectorAll("br").length }));
+    assert(look.rule === "2px" && look.color === "rgb(71, 85, 105)" && look.br === 1, JSON.stringify(look));
+    assert((await wsec("top").getByTestId("section-note-mark").innerText()) === "Note added", "the Note added mark");
+    assert((await wsec("top").getByTestId("section-note-open").innerText()) === "Edit note" && (await wsec("top").getByTestId("section-note-remove").innerText()) === "Remove note", "Edit note and Remove note");
+    await until(async () => (await notesInDb()).top === TOP_NOTE, "saved in report_edits._notes");
+    const saved = (await one("select report_edits from end_of_day where day = $1", [today])).report_edits;
+    assert(Object.keys(saved).every((k) => k === "_notes" || /^[0-9a-f-]{36}$/.test(k)), JSON.stringify(Object.keys(saved)));
+    await wsec("top").getByTestId("section-note").evaluate((e) => e.scrollIntoView({ block: "center" }));
+    if (SHOTS) await win().screenshot({ path: path.join(SHOTS, "report-note-top-3-deals-1440.png") });
+  });
+
+  await step("+ Note: a note sits under Edit's text too; the Targets note shows in Sarah's tab (one note for every copy); in her tab a left-out section shows 'Left out today, note not sent'", async () => {
+    await addNote("targets", TARGETS_NOTE);
+    await page.locator("[data-testid=report-tab][data-partner=Sarah]").click();
+    await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hello Sarah,"));
+    assert((await wsec("targets").getByTestId("section-note").innerText()).includes(TARGETS_NOTE), "Sarah's tab shows the Targets note typed in Jake's tab");
+    assert((await wsec("top").getAttribute("data-included")) === "0", "Top 3 is not one of Sarah's sections");
+    assert((await wsec("top").innerText()).includes("Left out today, note not sent"), await wsec("top").innerText());
+    // Sarah today: Top 3 ticked (its note goes to her too), Targets left out (its note stays saved, not sent to her).
+    await wsec("top").getByTestId("section-include").check();
+    await until(async () => (await wsec("top").getAttribute("data-included")) === "1", "Top 3 in");
+    await wsec("targets").getByTestId("section-include").uncheck();
+    await until(async () => (await wsec("targets").getAttribute("data-included")) === "0", "Targets out");
+    await page.waitForTimeout(1200);
+    assert((await notesInDb()).targets === TARGETS_NOTE, "the Targets note is kept");
+    // A typed edit with a note: the note follows the edited text.
+    await page.locator("[data-testid=report-tab][data-partner=Jake]").click();
+    await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hello Jake,"));
+    await wsec("targets").getByTestId("section-edit").click();
+    await wsec("targets").getByTestId("section-edit-text").fill("Targets\n  - Two CIMs to screen first thing");
+    await wsec("targets").getByTestId("section-edit-save").click();
+    await until(async () => (await wsec("targets").getAttribute("data-edited")) === "1", "edited");
+    const order = await wsec("targets").evaluate((e) => {
+      const t = e.textContent;
+      return [t.indexOf("Two CIMs to screen first thing"), t.indexOf("Two CIMs came in late")];
+    });
+    assert(order[0] >= 0 && order[1] > order[0], `the note is under the edited text ${JSON.stringify(order)}`);
+  });
+
+  await step("+ Note: Remove note takes it away (the button reads + Note again; the saved notes lose it)", async () => {
+    await addNote("tomorrow", "A short one to remove.");
+    await until(async () => (await notesInDb()).tomorrow === "A short one to remove.", "saved");
+    await wsec("tomorrow").getByTestId("section-note-remove").click();
+    await until(async () => (await wsec("tomorrow").getAttribute("data-note")) === "0", "gone from the window");
+    assert((await wsec("tomorrow").getByTestId("section-note-open").innerText()) === "+ Note" && (await wsec("tomorrow").getByTestId("section-note-mark").count()) === 0, "back to + Note");
+    await until(async () => !("tomorrow" in (await notesInDb())) && (await notesInDb()).top === TOP_NOTE, "removed from the saved notes only");
+  });
+
+  await step("Approve and send: 'Sending…' with the spinner, grayed; the sent emails carry the notes under their sections (HTML with the left rule, plain text with '| '), and a left-out section's note is not sent", async () => {
+    await page.reload();
+    await page.getByTestId("report-send").waitFor();
+    await watchBusy(["report-send", "report-window-send"], "Sending…");
+    const before = (await g("/__sent")).length;
+    await page.getByTestId("report-send").click();
+    const anyway = page.getByTestId("send-check-anyway");
+    await Promise.race([anyway.waitFor({ timeout: 15000 }).then(() => anyway.click()), page.getByTestId("sent-line").waitFor({ timeout: 15000 })]).catch(() => {});
+    await page.getByTestId("sent-line").waitFor({ timeout: 30000 });
+    assert(await busySeen(), "Approve and send never showed 'Sending…' with a spinner while grayed");
+    const mails = (await g("/__sent")).slice(before).filter((m) => /Daily report/.test(m.subject)).map((m) => ({ ...m, body: String(m.body).replace(/\r\n/g, "\n") }));
+    const jake = mails.find((m) => m.to.includes("jake.morgan"));
+    const sarah = mails.find((m) => m.to.includes("sarah.klein"));
+    assert(jake && sarah, JSON.stringify(mails.map((m) => m.to)));
+    assert(/<div data-note="1" style="[^"]*border-left:2px solid #d5dbe3[^"]*">Pinecrest is the one to watch\.<br>Dana wants the seller-note numbers before Friday&#39;s call\.<\/div>/.test(jake.html), "Jake's HTML has the Top 3 note");
+    assert(jake.html.includes("Two CIMs came in late") && jake.body.includes("| Pinecrest is the one to watch.\n| Dana wants the seller-note numbers before Friday's call.") && jake.body.includes("| Two CIMs came in late"), "Jake's text part has both notes");
+    assert(sarah.html.includes("Pinecrest is the one to watch.") && !sarah.html.includes("Two CIMs came in late") && !sarah.body.includes("Two CIMs came in late"), "Sarah gets the Top 3 note and not the left-out Targets note");
+    if (SHOTS) {
+      const view = await ctx.newPage();
+      await view.setViewportSize({ width: 1440, height: 900 });
+      await view.setContent(`<!doctype html><html><body style="margin:0;background:#f8fafc">${jake.html}</body></html>`);
+      await view.screenshot({ path: path.join(SHOTS, "report-note-sent-email-1440.png"), fullPage: true });
+      await view.close();
+    }
+    const snap = await one("select snapshot from partner_reports where period_start = $1 and contact_id = (select id from contacts where email = 'jake.morgan@example.com') and report_kind = 'end_of_day'", [today]);
+    assert(snap.snapshot.notes && snap.snapshot.notes.top === TOP_NOTE, "the sent copy keeps its notes");
+  });
+
+  await step("A sent report re-shown on Reports (the centered sent-report window) and on End of day shows the note the same way", async () => {
+    await page.getByTestId("report-view").click();
+    await win().waitFor();
+    await page.locator("[data-testid=report-tab][data-partner=Jake]").click();
+    const eodNotes = await win().locator("[data-testid=report-preview] [data-note]").allInnerTexts();
+    assert(eodNotes.some((t) => t.includes("Pinecrest is the one to watch.")), `End of day's sent copy ${JSON.stringify(eodNotes)}`);
+    await page.keyboard.press("Escape");
+    await page.goto(`${BASE}/work/reports?view=sent`);
+    const row = page.locator(`[data-testid=sent-row][data-day="${today}"]`);
+    await row.waitFor();
+    await row.click();
+    await page.getByTestId("sent-report-drawer").waitFor();
+    const n = page.getByTestId("sent-html").locator("[data-note]").filter({ hasText: "Pinecrest is the one to watch." });
+    await n.waitFor();
+    const look = await n.evaluate((e) => ({ text: e.innerText, rule: getComputedStyle(e).borderLeftWidth, color: getComputedStyle(e).color }));
+    assert(look.text.includes("Pinecrest is the one to watch.") && look.rule === "2px" && look.color === "rgb(71, 85, 105)", JSON.stringify(look));
+    await page.getByTestId("sent-close").click();
+  });
+
+  await step("Download the export (Monthly review) and Download full export (Settings): 'Preparing…' with a spinner and grayed until the file comes; then the button is back", async () => {
+    const ym = today.slice(0, 7).split("-").map(Number);
+    const slug = ym[1] === 1 ? `${ym[0] - 1}-12` : `${ym[0]}-${String(ym[1] - 1).padStart(2, "0")}`;
+    await page.goto(`${BASE}/work/reports/monthly/${slug}`);
+    const btn = page.getByTestId("monthly-export-download");
+    await btn.waitFor();
+    await watchBusy(["monthly-export-download"], "Preparing…");
+    const [download] = await Promise.all([page.waitForEvent("download", { timeout: 60000 }), btn.click()]);
+    assert(/bf-personal-app-export-.*\.zip$/.test(download.suggestedFilename()), download.suggestedFilename());
+    assert(await busySeen(), "Download the export never showed 'Preparing…' with a spinner while grayed");
+    await until(async () => (await btn.isEnabled()) && (await btn.innerText()).includes("Download the export"), "the button is back");
+    await page.getByTestId("monthly-export").getByText("Downloaded just now").waitFor();
+    // Finish the review: "Saving…" with the spinner.
+    await watchBusy(["monthly-finish"], "Saving…");
+    await page.getByTestId("monthly-finish").click();
+    await page.getByTestId("monthly-finished").waitFor({ timeout: 30000 });
+    assert(await busySeen(), "Finish the review never showed 'Saving…' with a spinner while grayed");
+    await page.goto(`${BASE}/settings/export`);
+    const full = page.getByTestId("settings-export-download");
+    await full.waitFor();
+    await watchBusy(["settings-export-download"], "Preparing…");
+    const [d2] = await Promise.all([page.waitForEvent("download", { timeout: 60000 }), full.click()]);
+    assert(/bf-personal-app-export-.*\.zip$/.test(d2.suggestedFilename()), d2.suggestedFilename());
+    assert(await busySeen(), "Download full export never showed 'Preparing…' with a spinner while grayed");
+    await until(async () => (await full.isEnabled()) && (await full.innerText()) === "Download full export", "the button is back");
   });
 
   await step("Remove sample data removes the waits", async () => {

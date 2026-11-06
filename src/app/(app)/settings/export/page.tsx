@@ -1,6 +1,7 @@
 import { requireOwner } from "@/lib/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
+import { ExportDownload } from "@/components/app/export-download";
 import { PageHeader } from "@/components/app/page-header";
 import { EXPORT_TABLES } from "@/lib/export";
 
@@ -17,12 +18,11 @@ export default async function ExportPage() {
             <CardTitle>Full data export</CardTitle>
             <CardDescription>A zip file with data.json (every table) and one CSV file per table. Encrypted connection tokens are left out. Downloading marks this month&apos;s export task done.</CardDescription>
           </CardHeader>
-          <CardContent>
-            <Button asChild>
-              {/* A file download, not a page: a plain link is correct here. */}
-              {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
-              <a href="/api/export/full">Download full export</a>
-            </Button>
+          <CardContent className="flex flex-wrap items-center gap-2">
+            {/* "Preparing…" with a spinner while the zip is built (2026-11-05). */}
+            <ExportDownload href="/api/export/full" className={buttonVariants()} testId="settings-export-download">
+              Download full export
+            </ExportDownload>
           </CardContent>
         </Card>
         <Card className="lg:col-span-2">

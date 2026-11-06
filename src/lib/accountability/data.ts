@@ -11,7 +11,7 @@ import { recordHref } from "@/lib/work/task-records";
 import { loadWaitsFor } from "@/lib/work/waits-data";
 import { buildFacts } from "@/lib/accountability/facts";
 import { pillOf, reportFor, reportInnerHtml, targetGroup, targetLine, type ReportData } from "@/lib/accountability/report-email";
-import { cleanChoices, cleanReview, hasChoices, reviewAnswered, type ReportChoices, type WeeklyReview } from "@/lib/accountability/report-sections";
+import { cleanChoices, cleanNotes, cleanReview, hasChoices, NOTES_KEY, reviewAnswered, sendsNotes, type ReportChoices, type ReportNotes, type WeeklyReview } from "@/lib/accountability/report-sections";
 import { brokerPerson, reportDeals, type DealRows } from "@/lib/accountability/report-deals";
 import { firstName, partnerSettings, partnersDueOn, type ReportSectionKey } from "@/lib/accountability/partners";
 import { PAST_WEEKS, pastWeekPeriodKey, weekLine, type PeriodKey } from "@/lib/accountability/periods";
@@ -46,31 +46,49 @@ function toTarget(r: Row): Target {
   };
 }
 
-/** The owner's targets (counts_key set, not archived), by order. Seeds the six defaults the first time (no target counts yet). */
+const TARGET_COLS = "id,name,counts_key,period,minimum_count,is_commitment,sort_order,archived_at";
+
+/**
+ * The owner's targets (counts_key set, not archived), by order. Seeds the six defaults the first time (no target
+ * counts yet). The read after seeding asks a different address on purpose: inside a page render Next.js returns the
+ * answer of an identical GET from earlier in the same render, so asking the first address again gave back the empty
+ * list and End of day showed "0 of 0 met" on its first visit (fixed 2026-11-05).
+ */
 export async function loadTargets(sb: SupabaseClient, ownerId: string): Promise<Target[]> {
-  const read = async () => {
-    const { data, error } = await sb.from("targets").select("id,name,counts_key,period,minimum_count,is_commitment,sort_order,archived_at").eq("owner_id", ownerId).not("counts_key", "is", null).is("archived_at", null).order("sort_order").order("created_at");
+  const read = async (fresh = false) => {
+    let q = sb.from("targets").select(TARGET_COLS).eq("owner_id", ownerId).not("counts_key", "is", null).is("archived_at", null).order("sort_order").order("created_at");
+    if (fresh) q = q.limit(1000);
+    const { data, error } = await q;
     if (error) throw new Error(error.message);
     return (data ?? []) as Row[];
   };
   let rows = await read();
-  if (!rows.length) {
-    const { data: any } = await sb.from("targets").select("id,name,counts_key").eq("owner_id", ownerId).limit(500);
-    if (!((any ?? []) as Row[]).some((r) => r.counts_key)) {
-      await seedDefaultTargets(sb, ownerId, (any ?? []) as Row[]);
-      rows = await read();
-    }
-  }
+  if (!rows.length && (await ensureDefaultTargets(sb, ownerId))) rows = await read(true);
   return rows.map(toTarget);
 }
 
-/** The six defaults: a target of the same name from an earlier update keeps its row and counts the batch C way; the others are added. */
+/**
+ * The six default targets, made when no target counts yet (true when it made or updated any). Loading sample data
+ * calls it, so every page that reads targets finds them; loadTargets calls it too for an account without the sample.
+ */
+export async function ensureDefaultTargets(sb: SupabaseClient, ownerId: string): Promise<boolean> {
+  const { data: any, error } = await sb.from("targets").select("id,name,counts_key,archived_at").eq("owner_id", ownerId).limit(500);
+  if (error) return false;
+  const existing = (any ?? []) as Row[];
+  if (existing.some((r) => r.counts_key)) return false;
+  await seedDefaultTargets(sb, ownerId, existing);
+  return true;
+}
+
+/** The six defaults: a target of the same name from an earlier update keeps its row and counts the batch C way; the others are added in one insert. */
 async function seedDefaultTargets(sb: SupabaseClient, ownerId: string, existing: Row[]) {
+  const fresh: Row[] = [];
   for (const d of DEFAULT_TARGETS) {
     const row = existing.find((r) => String(r.name) === d.name);
     if (row) await sb.from("targets").update({ counts_key: d.key, period: d.cadence, minimum_count: d.number, is_commitment: d.commitment, active: true, archived_at: null, sort_order: d.sortOrder }).eq("id", row.id);
-    else await sb.from("targets").insert({ owner_id: ownerId, name: d.name, period: d.cadence, minimum_count: d.number, active_weekdays: [1, 2, 3, 4, 5], count_source: "manual", is_commitment: d.commitment, show_to_partners: false, active: true, sort_order: d.sortOrder, counts_key: d.key, notes: "Counted from what you do in the app (Targets, batch C)." });
+    else fresh.push({ owner_id: ownerId, name: d.name, period: d.cadence, minimum_count: d.number, active_weekdays: [1, 2, 3, 4, 5], count_source: "manual", is_commitment: d.commitment, show_to_partners: false, active: true, sort_order: d.sortOrder, counts_key: d.key, notes: "Counted from what you do in the app (Targets, batch C)." });
   }
+  if (fresh.length) await sb.from("targets").insert(fresh);
 }
 
 // ---------- The facts ----------
@@ -169,17 +187,17 @@ export async function loadPartners(sb: SupabaseClient, ownerId: string): Promise
 }
 
 /** The End of day reports already sent on a day, one per partner (push B: each partner gets their own copy). */
-export type SentCopy = { reportId: string; contactId: string; sentAt: string; html: string | null; subject: string | null; /** Today's choices it was sent with (push B edits). */ choices: ReportChoices | null };
+export type SentCopy = { reportId: string; contactId: string; sentAt: string; html: string | null; subject: string | null; /** Today's choices it was sent with (push B edits). */ choices: ReportChoices | null; /** The notes it was sent with (2026-11-05). */ notes: ReportNotes | null };
 
 export async function loadSentCopies(sb: SupabaseClient, ownerId: string, day: string): Promise<SentCopy[]> {
   const { data } = await sb.from("partner_reports").select("id,contact_id,sent_at,snapshot").eq("owner_id", ownerId).eq("report_kind", "end_of_day").eq("period_start", day).not("contact_id", "is", null).not("sent_at", "is", null).order("sent_at").limit(20);
   return ((data ?? []) as Row[]).map((r) => {
     const snap = (r.snapshot && typeof r.snapshot === "object" ? r.snapshot : {}) as Row;
-    return { reportId: String(r.id), contactId: String(r.contact_id), sentAt: String(r.sent_at), html: typeof snap.html === "string" ? snap.html : null, subject: typeof snap.subject === "string" ? snap.subject : null, choices: snap.choices && typeof snap.choices === "object" ? cleanChoices(snap.choices) : null };
+    return { reportId: String(r.id), contactId: String(r.contact_id), sentAt: String(r.sent_at), html: typeof snap.html === "string" ? snap.html : null, subject: typeof snap.subject === "string" ? snap.subject : null, choices: snap.choices && typeof snap.choices === "object" ? cleanChoices(snap.choices) : null, notes: snap.notes && typeof snap.notes === "object" ? cleanNotes(snap.notes) : null };
   });
 }
 
-type EodRow = { id: string | null; day: string; status: EodState; reasons: Record<string, string>; tomorrow: string; skipReason: string | null; sentAt: string | null; reportId: string | null; reportSubject: string | null; reportHtml: string | null; reportEdited: boolean; /** Push B edits: each partner's choices for today's copy (include, Change, Edit), by contact id. */ reportEdits: Record<string, ReportChoices>; judged: Judged[]; /** Push D: the Weekly review answers (Fridays). */ weeklyReview: WeeklyReview };
+type EodRow = { id: string | null; day: string; status: EodState; reasons: Record<string, string>; tomorrow: string; skipReason: string | null; sentAt: string | null; reportId: string | null; reportSubject: string | null; reportHtml: string | null; reportEdited: boolean; /** Push B edits: each partner's choices for today's copy (include, Change, Edit), by contact id. */ reportEdits: Record<string, ReportChoices>; /** Today's notes by section, once for the day and shared by every copy (report_edits._notes, 2026-11-05). */ reportNotes: ReportNotes; judged: Judged[]; /** Push D: the Weekly review answers (Fridays). */ weeklyReview: WeeklyReview };
 
 export async function loadEodRow(sb: SupabaseClient, ownerId: string, day: string): Promise<EodRow> {
   const { data } = await sb.from("end_of_day").select("*").eq("owner_id", ownerId).eq("day", day).maybeSingle();
@@ -198,7 +216,8 @@ export async function loadEodRow(sb: SupabaseClient, ownerId: string, day: strin
     reportHtml: (r?.report_html as string | null) ?? null,
     reportEdited: !!r?.report_edited,
     // An edit saved before the push B edits (a whole email as HTML) is not a choice; the copy is built again.
-    reportEdits: r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? Object.fromEntries(Object.entries(r.report_edits as Record<string, unknown>).filter(([, v]) => v && typeof v === "object" && !Array.isArray(v)).map(([k, v]) => [k, cleanChoices(v)])) : {},
+    reportEdits: r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? Object.fromEntries(Object.entries(r.report_edits as Record<string, unknown>).filter(([k, v]) => k !== NOTES_KEY && v && typeof v === "object" && !Array.isArray(v)).map(([k, v]) => [k, cleanChoices(v)])) : {},
+    reportNotes: r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? cleanNotes((r.report_edits as Record<string, unknown>)[NOTES_KEY]) : {},
     judged: Array.isArray(r?.judged) ? (r!.judged as Judged[]) : [],
     weeklyReview: cleanReview(r?.weekly_review),
   };
@@ -328,6 +347,7 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
     week: friday ? { label: `The week, ${fmtDate(week.start, "MMM d")} to ${fmtDate(week.end, "d")}`, tiles: weekTiles(thisWeek, lastWeek) } : null,
     review: friday ? row.weeklyReview : null,
     tomorrow: { label: tl, text: row.tomorrow.trim() || null },
+    notes: row.reportNotes,
   };
   const met = metThisWeek(targets, bundle.facts, day, bundle.skippedDays);
   // Each partner's copy (push B): the partners due today while the day is open, plus anyone it already went to.
@@ -338,13 +358,13 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
   const copies: PartnerCopy[] = onReport.map((p) => {
     const s = sentBy.get(p.id);
     if (s) {
-      const r = reportFor(report, p, s.choices);
-      return { partner: p, report: r, html: s.html ?? reportInnerHtml(r), edited: hasChoices(s.choices), sentAt: s.sentAt, sentTime: time(s.sentAt) };
+      const r = reportFor({ ...report, notes: s.notes }, p, s.choices);
+      return { partner: p, report: r, html: s.html ?? reportInnerHtml(r), edited: hasChoices(s.choices) || sendsNotes(r), sentAt: s.sentAt, sentTime: time(s.sentAt) };
     }
     // Today's choices for this partner (the review window): include, Change, Edit.
     const choices = row.reportEdits[p.id] ?? null;
     const r = reportFor(report, p, choices);
-    return { partner: p, report: r, html: reportInnerHtml(r), edited: hasChoices(choices), sentAt: null, sentTime: null };
+    return { partner: p, report: r, html: reportInnerHtml(r), edited: hasChoices(choices) || sendsNotes(r), sentAt: null, sentTime: null };
   });
   const first = copies[0] ?? null;
   return {

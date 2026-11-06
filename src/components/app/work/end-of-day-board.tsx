@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Check, Eye } from "lucide-react";
+import { Check, Eye, Loader2 } from "lucide-react";
 import { approveAndSend, saveReasons, saveTomorrow, saveWeeklyReview, skipToday, putShortReport } from "@/app/actions/accountability";
 import type { ReasonDraft } from "@/lib/accountability/ask-ai";
 import type { EndOfDayPage } from "@/lib/accountability/data";
@@ -219,7 +219,15 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
       </RowButton>
     </Confirm>
   ) : null;
-  const sendLabelNow = sending ? "Sending..." : sendLabel(unsent.length);
+  // While sending: "Sending…" with the small spinner the Sample data buttons use, grayed until the result shows.
+  const sendLabelNow = sending ? (
+    <>
+      <Loader2 className="h-[15px] w-[15px] shrink-0 animate-spin" aria-hidden />
+      <span role="status">Sending…</span>
+    </>
+  ) : (
+    sendLabel(unsent.length)
+  );
   // Sent or skipped: one line above the checklist (the mockup's Sent state).
   const statusLine =
     state.status === "sent" ? (
@@ -445,7 +453,7 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
                   <Eye className="h-[15px] w-[15px]" aria-hidden />
                   View report
                 </button>
-                <button type="button" onClick={() => send(false)} disabled={state.status !== "open" || sending || !unsent.length} className={cn(BTN_LG, "border-primary-solid bg-primary-solid text-white hover:border-primary-solid-hover hover:bg-primary-solid-hover")} data-testid="report-send" data-count={unsent.length}>
+                <button type="button" onClick={() => send(false)} disabled={state.status !== "open" || sending || !unsent.length} className={cn(BTN_LG, "border-primary-solid bg-primary-solid text-white hover:border-primary-solid-hover hover:bg-primary-solid-hover")} data-testid="report-send" data-count={unsent.length} data-busy={sending ? "1" : "0"}>
                   {sendLabelNow}
                 </button>
               </div>
@@ -575,7 +583,7 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
         footerNote={checkBox ?? (state.status === "open" && needs.length ? `${needs.join(" · ")}. Gaps go out as "(still to give)".` : state.status === "open" ? (partly ?? dueLine(data.partners, day)) : state.status === "sent" ? `Sent to ${toNames(copies)} at ${state.sentTime}.` : "Skipped today. Nothing is sent.")}
         sendButton={
           state.status === "open" ? (
-            <button type="button" onClick={() => send(false)} disabled={sending || !unsent.length} className="inline-flex h-8 items-center rounded-[7px] border border-primary-solid bg-primary-solid px-3 text-[13px] font-medium text-white hover:bg-primary-solid-hover disabled:opacity-50" data-testid="report-window-send">
+            <button type="button" onClick={() => send(false)} disabled={sending || !unsent.length} className="inline-flex h-8 items-center gap-1.5 rounded-[7px] border border-primary-solid bg-primary-solid px-3 text-[13px] font-medium text-white hover:bg-primary-solid-hover disabled:opacity-50" data-testid="report-window-send" data-busy={sending ? "1" : "0"}>
               {sendLabelNow}
             </button>
           ) : null

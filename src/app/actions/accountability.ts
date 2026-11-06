@@ -20,7 +20,7 @@ import { TODO_MAX_LENGTH } from "@/lib/work/questions";
 import { nextTodoPosition } from "@/lib/work/todos";
 import { reasonsPrompt, validateReasonsReply, type ReasonDraft } from "@/lib/accountability/ask-ai";
 import { reportInnerHtml, reportSubject, reportText } from "@/lib/accountability/report-email";
-import { cleanChoices, cleanReview, hasChoices, type ReportChoices, type WeeklyReview } from "@/lib/accountability/report-sections";
+import { cleanChoices, cleanNotes, cleanReview, hasChoices, NOTE_MAX, NOTES_KEY, SECTION_ORDER, type ReportChoices, type ReportNotes, type SectionKey, type WeeklyReview } from "@/lib/accountability/report-sections";
 import { personHref } from "@/lib/work/people";
 import { countable, isCountKey, noReasonText, owedReasons, reportSummary, type Cadence } from "@/lib/accountability/targets";
 import { loadWorkCtx } from "@/lib/work/data";
@@ -242,6 +242,32 @@ export async function saveReportChoices(day: string, contactId: string | null, c
 }
 
 /**
+ * "+ Note" on a report section (approved 2026-11-05): a few lines under that section, for today's report only. Kept
+ * once for the day by section key, in the End of day row's report_edits under "_notes" next to each partner's choices
+ * (keyed by contact id), so every partner's copy that includes the section gets the same note. An empty text removes
+ * the note. A note on a section left out of a copy stays saved but is not sent in that copy.
+ */
+export async function saveReportNote(day: string, section: string, text: string): Promise<{ ok: true; notes: ReportNotes } | Fail> {
+  const s = await setup();
+  if (isFail(s)) return s;
+  const { sb, ctx } = s;
+  if (!(SECTION_ORDER as string[]).includes(section)) return fail("This section was not found.");
+  if (String(text ?? "").length > NOTE_MAX * 2) return fail(`A note can be up to ${NOTE_MAX} characters.`);
+  const row = await ensureEod(sb, ctx, day);
+  if (isFail(row)) return row;
+  if (row.status !== "open") return fail(`Today is already ${row.status}.`);
+  const all = { ...((row.report_edits && typeof row.report_edits === "object" && !Array.isArray(row.report_edits) ? row.report_edits : {}) as Record<string, unknown>) };
+  const notes = cleanNotes({ ...cleanNotes(all[NOTES_KEY]), [section]: String(text ?? "") });
+  if (!notes[section as SectionKey]) delete notes[section as SectionKey];
+  if (Object.keys(notes).length) all[NOTES_KEY] = notes;
+  else delete all[NOTES_KEY];
+  const { error } = await sb.from("end_of_day").update({ report_edits: all, report_html: null, report_edited: false }).eq("id", row.id);
+  if (error) return notSaved(error);
+  done();
+  return { ok: true, notes };
+}
+
+/**
  * "Use the short version" (the Ask AI panel on the report): that partner's copy keeps Targets with the reasons, the
  * week, and the tomorrow line for today; the other sections are left out today (each can be ticked back).
  */
@@ -330,7 +356,7 @@ export async function approveAndSend(day: string, requestId: string, force = fal
     // The sent copy as a partner report (finalized: it never changes), with the thread its replies come in.
     const { data: report } = await sb
       .from("partner_reports")
-      .insert({ owner_id: ctx.ownerId, contact_id: p.id, period_start: day, period_end: day, status: "finalized", snapshot: { end_of_day: true, day, judged: page.judged, reasons: page.reasons, tomorrow: page.tomorrow, report: copy.report, sections: p.sections, choices: copy.report.choices ?? null, edited: !!edited, html: inner, subject }, summary, summary_source: "owner", finalized_at: sentAt, delivered_via: ["gmail_sent"], report_kind: "end_of_day", sent_at: sentAt, gmail_message_id: sent.id, gmail_thread_id: sent.threadId })
+      .insert({ owner_id: ctx.ownerId, contact_id: p.id, period_start: day, period_end: day, status: "finalized", snapshot: { end_of_day: true, day, judged: page.judged, reasons: page.reasons, tomorrow: page.tomorrow, report: copy.report, sections: p.sections, choices: copy.report.choices ?? null, notes: copy.report.notes ?? null, edited: !!edited, html: inner, subject }, summary, summary_source: "owner", finalized_at: sentAt, delivered_via: ["gmail_sent"], report_kind: "end_of_day", sent_at: sentAt, gmail_message_id: sent.id, gmail_thread_id: sent.threadId })
       .select("id")
       .single();
     const reportId = report ? String((report as Row).id) : null;

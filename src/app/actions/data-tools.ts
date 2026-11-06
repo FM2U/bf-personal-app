@@ -9,6 +9,7 @@ import { documentPath } from "@/lib/documents";
 import { loadPipelineOfKind, loadWorkPipeline } from "@/lib/work/data";
 import type { WorkSample } from "@/lib/work/sample";
 import { loadCtx } from "@/lib/engine/helpers";
+import { ensureDefaultTargets } from "@/lib/accountability/data";
 import { buildSampleData } from "@/lib/sample-data";
 import { countRealRecords } from "@/lib/sample-server";
 import type { Row } from "@/lib/types";
@@ -72,6 +73,9 @@ export async function loadSampleData(fd: FormData) {
   if (error) back(`Sample data was not loaded (nothing was saved): ${error.message}`);
   const stageIds = Object.fromEntries([deals!, jobs, consulting].filter(Boolean).flatMap((p) => p!.stages.map((st) => [st.name, st.id])));
   await finishWorkSample(supabase, ownerId, ctx.today, work, stageIds);
+  // The six default targets come with the sample (when no target counts yet), so the first End of day, Targets, or
+  // Reports visit after loading reads them instead of making them during the page.
+  await ensureDefaultTargets(supabase, ownerId);
   revalidatePath("/", "layout");
   const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
   back(`Sample data loaded: ${total} records (${counts.pipeline_items ?? 0} listings, deals, opportunities and clients, ${counts.contacts ?? 0} people, ${counts.deal_todos ?? 0} to-dos).`);

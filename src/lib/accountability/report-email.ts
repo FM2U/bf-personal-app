@@ -3,7 +3,7 @@
  * src/lib/accountability/report-email.test.ts: the email exactly as it is sent. The header (the small label, the
  * date, the status pill, the hairline), the greeting, then each section the partner gets today
  * (src/lib/accountability/report-sections.ts): number tiles for Today and The week, parent and child bullets for
- * every list section, the bold tomorrow line; then "Nothing is required from you" and "Thank you, Bram". Inline
+ * every list section, the bold tomorrow line, and today's note under a section (thin rule on the left); then "Nothing is required from you" and "Thank you, Bram". Inline
  * styles and simple ul/li only, so it reads well in Gmail. The same parts make the report window on End of day, so
  * what Bram reviews is what is sent. The same data makes the plain-text part.
  */
@@ -102,6 +102,25 @@ export function sectionBodyHtml(s: BuiltSection): string {
   return muted(s.quiet ?? "Nothing shown in this section today.");
 }
 
+/** The note's text color: between the ink and the muted gray, so it reads as Bram's words and not as a label. */
+const NOTE_INK = "#475569";
+
+/**
+ * Today's note under a section ("+ Note", 2026-11-05): Bram's own words, set off with a thin rule on the left and
+ * slightly muted text, line breaks kept. The same HTML in the email, the report window, and every re-shown sent report.
+ */
+export function noteHtml(note: string | null | undefined): string {
+  const t = String(note ?? "").trim();
+  if (!t) return "";
+  return `<div data-note="1" style="margin:6px 0 8px 0;padding:2px 0 2px 10px;border-left:2px solid ${C.rule};font-size:13px;line-height:19px;color:${NOTE_INK};${FONT}">${escapeHtml(t).replace(/\n/g, "<br>")}</div>`;
+}
+
+/** The note in the plain-text part: each line after "| ", the same rule on the left. */
+export function noteText(note: string | null | undefined): string {
+  const t = String(note ?? "").trim();
+  return t ? t.split("\n").map((l) => (l.trim() ? `| ${l}` : "|")).join("\n") : "";
+}
+
 /** The header: "Daily report" (or "Daily report, with the week"), the date, the status pill. */
 export function headerHtml(d: ReportData): string {
   return (
@@ -125,7 +144,7 @@ export function closingHtml(): string {
 export function reportInnerHtml(d: ReportData): string {
   const row = (inner: string, pad: string) => `<tr><td style="padding:${pad}">${inner}</td></tr>`;
   const parts = [row(headerHtml(d), "16px 20px 0 20px"), row(greetingHtml(d), "0 20px 0 20px")];
-  for (const s of sentSections(d)) parts.push(row(headingHtml(s.title) + sectionBodyHtml(s), "8px 20px 4px 20px"));
+  for (const s of sentSections(d)) parts.push(row(headingHtml(s.title) + sectionBodyHtml(s) + noteHtml(s.note), "8px 20px 4px 20px"));
   parts.push(row(closingHtml(), "10px 20px 18px 20px"));
   return `<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;border-collapse:separate;background-color:#ffffff;border:1px solid ${C.border};border-radius:10px">${parts.join("")}</table>`;
 }
@@ -143,6 +162,7 @@ export function reportText(d: ReportData): string {
     else if (s.kind === "tiles") lines.push(tilesText(s.tiles).split("\n").map((x) => `- ${x}`).join("\n"));
     else if (s.kind === "line") lines.push(s.line || "(no line yet)");
     else lines.push(s.blocks.length ? blocksText(s.blocks) : (s.quiet ?? ""));
+    if (s.note) lines.push("", noteText(s.note));
   }
   lines.push("", "Nothing is required from you. Reply to this email if you want to talk.", "", "Thank you,", "Bram");
   return lines.join("\n");

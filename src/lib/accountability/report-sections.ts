@@ -89,7 +89,43 @@ export type ReportData = {
   sections?: readonly string[] | null;
   /** Today's choices for this partner (the review window). */
   choices?: ReportChoices | null;
+  /**
+   * Today's notes ("+ Note", 2026-11-05): a few lines Bram adds under a section, by section key. One set for the day,
+   * shared by every partner's copy that includes the section; a note on a left-out section is kept but not sent.
+   */
+  notes?: ReportNotes | null;
 };
+
+/** Today's notes by section key (the "+ Note" box on each section of the report window). */
+export type ReportNotes = Partial<Record<SectionKey, string>>;
+
+/** The longest note kept (characters). */
+export const NOTE_MAX = 1000;
+
+/**
+ * Where today's notes are kept: the End of day row's report_edits holds each partner's choices by contact id (a
+ * UUID), and the notes under this one extra key, once for the day (no database change).
+ */
+export const NOTES_KEY = "_notes";
+
+/** Today's notes cleaned for saving and reading: known section keys, line breaks kept, end spaces trimmed, cut at NOTE_MAX. */
+export function cleanNotes(v: unknown): ReportNotes {
+  const o = (v && typeof v === "object" && !Array.isArray(v) ? v : {}) as Record<string, unknown>;
+  const out: ReportNotes = {};
+  for (const [k, val] of Object.entries(o)) {
+    if (!(SECTION_ORDER as string[]).includes(k) || typeof val !== "string") continue;
+    const t = val
+      .replace(/\r\n?/g, "\n")
+      .split("\n")
+      .map((l) => l.replace(/\s+$/, ""))
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim()
+      .slice(0, NOTE_MAX);
+    if (t) out[k as SectionKey] = t;
+  }
+  return out;
+}
 
 /**
  * Today's choices for one partner's copy (the review window on End of day), saved with the day's End of day row:
@@ -132,6 +168,8 @@ export type BuiltSection = {
   emptyAfterChange: boolean;
   /** A quiet line when the section has nothing to say ("No deal is waiting on a broker."). */
   quiet: string | null;
+  /** Today's note under the section (Bram's own words), or null. Sent only while the section is included. */
+  note: string | null;
 };
 
 export const TOP_N = 3;
@@ -241,11 +279,12 @@ export function buildSections(d: ReportData): BuiltSection[] {
   const hid = (k: SectionKey) => new Set(c.hidden?.[k] ?? []);
   const T = titles(d);
   const out: BuiltSection[] = [];
-  const push = (s: Omit<BuiltSection, "included" | "standing" | "edited" | "title"> & { title?: string }) => {
+  const notes = cleanNotes(d.notes);
+  const push = (s: Omit<BuiltSection, "included" | "standing" | "edited" | "title" | "note"> & { title?: string }) => {
     const standing = standingHas(d.sections, s.key);
     const inc = c.include?.[s.key];
     const edited = typeof c.edits?.[s.key] === "string" && c.edits[s.key]!.trim() ? c.edits[s.key]! : null;
-    out.push({ ...s, title: s.title ?? T[s.key], standing, included: inc === undefined ? standing : inc, edited });
+    out.push({ ...s, title: s.title ?? T[s.key], standing, included: inc === undefined ? standing : inc, edited, note: notes[s.key] ?? null });
   };
 
   // Today: the tiles; Change ticks which tiles show.
@@ -383,6 +422,11 @@ export function cleanChoices(v: unknown): ReportChoices {
   if (Object.keys(edits).length) out.edits = edits;
   if (top && top.length) out.top = top;
   return out;
+}
+
+/** Whether a copy sends any of today's notes (a note on a section it includes). */
+export function sendsNotes(d: ReportData): boolean {
+  return sentSections(d).some((s) => !!s.note);
 }
 
 /** Whether a copy has any choice made today (the "Edited" mark). */

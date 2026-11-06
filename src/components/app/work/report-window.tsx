@@ -3,11 +3,11 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { saveReportChoices } from "@/app/actions/accountability";
+import { saveReportChoices, saveReportNote } from "@/app/actions/accountability";
 import type { PartnerCopy } from "@/lib/accountability/data";
 import { daysLabel } from "@/lib/accountability/partners";
-import { closingHtml, greetingHtml, headerHtml, sectionBodyHtml } from "@/lib/accountability/report-email";
-import { buildSections, TOP_N, type BuiltSection, type ReportChoices, type SectionKey } from "@/lib/accountability/report-sections";
+import { closingHtml, greetingHtml, headerHtml, noteHtml, sectionBodyHtml } from "@/lib/accountability/report-email";
+import { buildSections, NOTE_MAX, TOP_N, type BuiltSection, type ReportChoices, type ReportNotes, type SectionKey } from "@/lib/accountability/report-sections";
 import { personHref } from "@/lib/work/people";
 import { CenteredWindow } from "@/components/app/window";
 import { cn } from "@/lib/utils";
@@ -39,6 +39,15 @@ export function ReportWindow({ open, onOpenChange, day, copies, sel, onSel, titl
   startEditing?: boolean;
 }) {
   const copy = copies.find((c) => c.partner.id === sel) ?? copies[0] ?? null;
+  // Today's notes, shared by every tab: read again whenever the page brings back different ones from the server.
+  const serverNotes = (copies.find((c) => !c.sentAt) ?? copies[0])?.report.notes ?? {};
+  const serverKey = JSON.stringify(serverNotes);
+  const [seenKey, setSeenKey] = useState(serverKey);
+  const [notes, setNotes] = useState<ReportNotes>(serverNotes);
+  if (seenKey !== serverKey) {
+    setSeenKey(serverKey);
+    setNotes(serverNotes);
+  }
   return (
     <CenteredWindow
       open={open}
@@ -71,7 +80,7 @@ export function ReportWindow({ open, onOpenChange, day, copies, sel, onSel, titl
           ))}
         </div>
       ) : null}
-      {copy ? <CopyReview key={`${copy.partner.id}:${resetKey}`} day={day} copy={copy} startEditing={!!startEditing} /> : <p className="text-[13px] text-muted-foreground">No partner gets the report today.</p>}
+      {copy ? <CopyReview key={`${copy.partner.id}:${resetKey}`} day={day} copy={copy} startEditing={!!startEditing} notes={notes} onNotes={setNotes} /> : <p className="text-[13px] text-muted-foreground">No partner gets the report today.</p>}
     </CenteredWindow>
   );
 }
@@ -79,16 +88,18 @@ export function ReportWindow({ open, onOpenChange, day, copies, sel, onSel, titl
 const LINK = "text-[12.5px] font-medium text-primary-strong hover:underline";
 
 /** One partner's copy: the note, then the email with the controls on each section (or the email as sent). */
-function CopyReview({ day, copy, startEditing }: { day: string; copy: PartnerCopy; startEditing: boolean }) {
+function CopyReview({ day, copy, startEditing, notes, onNotes }: { day: string; copy: PartnerCopy; startEditing: boolean; notes: ReportNotes; onNotes: (n: ReportNotes) => void }) {
   const router = useRouter();
   const p = copy.partner;
   const [choices, setChoices] = useState<ReportChoices>(copy.report.choices ?? {});
   const [picking, setPicking] = useState<SectionKey | null>(null);
   const [editing, setEditing] = useState<SectionKey | null>(null);
   const [draft, setDraft] = useState("");
+  const [noting, setNoting] = useState<SectionKey | null>(null);
+  const [noteDraft, setNoteDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [, start] = useTransition();
-  const report = { ...copy.report, choices };
+  const report = { ...copy.report, choices, notes };
   const sections = buildSections(report);
   const [opened, setOpened] = useState(false);
   if (startEditing && !opened && !copy.sentAt) {
@@ -115,6 +126,7 @@ function CopyReview({ day, copy, startEditing }: { day: string; copy: PartnerCop
     else inc[s.key] = on;
     if (!on && picking === s.key) setPicking(null);
     if (!on && editing === s.key) setEditing(null);
+    if (!on && noting === s.key) setNoting(null);
     save({ ...choices, include: inc });
   };
   const toggleItem = (s: BuiltSection, id: string) => {
@@ -135,6 +147,25 @@ function CopyReview({ day, copy, startEditing }: { day: string; copy: PartnerCop
     else edits[s.key] = text;
     setEditing(null);
     save({ ...choices, edits });
+  };
+  const saveNote = (key: SectionKey, text: string) => {
+    const t = text.trim();
+    const next = { ...notes };
+    if (t) next[key] = t;
+    else delete next[key];
+    setNoting(null);
+    onNotes(next);
+    start(async () => {
+      setError(null);
+      const r = await saveReportNote(day, key, t);
+      if (!r.ok) return setError(r.error);
+      onNotes(r.notes);
+      router.refresh();
+    });
+  };
+  const openNote = (s: BuiltSection) => {
+    setNoting(s.key);
+    setNoteDraft(s.note ?? "");
   };
   const backToAppText = (s: BuiltSection) => {
     const edits = { ...(choices.edits ?? {}) };
@@ -162,7 +193,7 @@ function CopyReview({ day, copy, startEditing }: { day: string; copy: PartnerCop
         <Link href={personHref(p.id)} className="font-medium text-primary-strong hover:underline" data-testid="report-partner-link">
           {p.first}&apos;s page
         </Link>{" "}
-        keeps the standing choice. Edit changes that section&apos;s text for today only.
+        keeps the standing choice. Edit changes that section&apos;s text for today only. + Note adds a few lines under a section, in every copy that includes it.
       </p>
       {error ? (
         <p className="mb-2 rounded-md bg-status-missed-bg px-3 py-2 text-[13px] text-status-missed" role="alert">
@@ -173,15 +204,26 @@ function CopyReview({ day, copy, startEditing }: { day: string; copy: PartnerCop
         <div dangerouslySetInnerHTML={{ __html: headerHtml(report) }} />
         <div dangerouslySetInnerHTML={{ __html: greetingHtml(report) }} />
         {sections.map((s) => (
-          <div key={s.key} className="mt-3" data-testid="report-section" data-section={s.key} data-included={s.included ? "1" : "0"} data-edited={s.edited ? "1" : "0"}>
-            <div className="mb-1.5 flex items-center justify-between gap-2.5 border-b border-slate-100 pb-1">
-              <label className="inline-flex min-w-0 cursor-pointer items-center gap-2">
+          <div key={s.key} className="mt-3" data-testid="report-section" data-section={s.key} data-included={s.included ? "1" : "0"} data-edited={s.edited ? "1" : "0"} data-note={s.note ? "1" : "0"}>
+            <div className="mb-1.5 flex flex-wrap items-center justify-between gap-x-2.5 gap-y-1 border-b border-slate-100 pb-1">
+              <label className="inline-flex min-w-0 cursor-pointer flex-wrap items-center gap-x-2 gap-y-0.5">
                 <input type="checkbox" checked={s.included} onChange={(e) => setInclude(s, e.target.checked)} className="h-[15px] w-[15px] accent-[var(--primary)]" aria-label={`Include ${s.title}`} data-testid="section-include" />
                 <span className={cn("text-[11px] font-semibold tracking-[0.09em] uppercase", s.included ? "text-heading" : "text-slate-400")}>{s.title}</span>
-                {!s.included ? <span className="text-[11.5px] font-medium text-status-soon">Left out today</span> : s.edited ? <span className="text-[11.5px] font-medium text-primary-strong">Edited</span> : null}
+                {!s.included ? (
+                  <span className="text-[11.5px] font-medium text-status-soon">{s.note ? "Left out today, note not sent" : "Left out today"}</span>
+                ) : (
+                  <>
+                    {s.edited ? <span className="text-[11.5px] font-medium text-primary-strong">Edited</span> : null}
+                    {s.note ? (
+                      <span className="text-[11.5px] font-medium text-primary-strong" data-testid="section-note-mark">
+                        Note added
+                      </span>
+                    ) : null}
+                  </>
+                )}
               </label>
               {s.included ? (
-                <span className="flex shrink-0 gap-3">
+                <span className="ml-auto flex shrink-0 gap-3">
                   {s.choices || s.pick ? (
                     <button type="button" onClick={() => setPicking((k) => (k === s.key ? null : s.key))} className={LINK} aria-expanded={picking === s.key} data-testid="section-change">
                       Change
@@ -198,6 +240,16 @@ function CopyReview({ day, copy, startEditing }: { day: string; copy: PartnerCop
                       data-testid="section-edit"
                     >
                       Edit
+                    </button>
+                  ) : null}
+                  {noting !== s.key ? (
+                    <button type="button" onClick={() => openNote(s)} className={LINK} data-testid="section-note-open">
+                      {s.note ? "Edit note" : "+ Note"}
+                    </button>
+                  ) : null}
+                  {s.note && noting !== s.key ? (
+                    <button type="button" onClick={() => saveNote(s.key, "")} className={LINK} data-testid="section-note-remove">
+                      Remove note
                     </button>
                   ) : null}
                 </span>
@@ -225,11 +277,59 @@ function CopyReview({ day, copy, startEditing }: { day: string; copy: PartnerCop
             ) : (
               <div className={cn(!s.included && "opacity-[0.38]")} dangerouslySetInnerHTML={{ __html: s.emptyAfterChange && !s.edited ? `<div style="font-size:12.5px;color:#64748b">Nothing shown in this section today. Press Change to show items again, or untick the section.</div>` : sectionBodyHtml(s) }} data-testid="section-body" />
             )}
+            {noting === s.key && s.included ? (
+              <NoteBox key={s.key} title={s.title} value={noteDraft} onChange={setNoteDraft} onSave={() => saveNote(s.key, noteDraft)} onCancel={() => setNoting(null)} />
+            ) : s.note ? (
+              <div className={cn(!s.included && "opacity-[0.38]")} dangerouslySetInnerHTML={{ __html: noteHtml(s.note) }} data-testid="section-note" />
+            ) : null}
           </div>
         ))}
         <div className="mt-3" dangerouslySetInnerHTML={{ __html: closingHtml() }} />
       </div>
     </>
+  );
+}
+
+/** The "+ Note" box: a few lines (it grows to about 6, then scrolls), Save and Cancel. No AI star here. */
+const NOTE_LINE = 19.5;
+const NOTE_PAD = 16;
+const NOTE_MIN_LINES = 3;
+const NOTE_MAX_LINES = 6;
+
+function NoteBox({ title, value, onChange, onSave, onCancel }: { title: string; value: string; onChange: (v: string) => void; onSave: () => void; onCancel: () => void }) {
+  const fit = (el: HTMLTextAreaElement | null) => {
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight + 2, NOTE_MAX_LINES * NOTE_LINE + NOTE_PAD + 2)}px`;
+  };
+  return (
+    <div className="mt-1.5 mb-2 grid gap-2" data-testid="section-note-box">
+      <textarea
+        ref={fit}
+        value={value}
+        onChange={(e) => {
+          onChange(e.target.value);
+          fit(e.target);
+        }}
+        rows={NOTE_MIN_LINES}
+        maxLength={NOTE_MAX}
+        placeholder="Add a few lines for your partner: context, why it matters, what to watch"
+        className="block w-full resize-none overflow-y-auto rounded-[7px] border border-input bg-white px-2.5 py-2 text-[13px] leading-[1.5] text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        style={{ minHeight: NOTE_MIN_LINES * NOTE_LINE + NOTE_PAD + 2, maxHeight: NOTE_MAX_LINES * NOTE_LINE + NOTE_PAD + 2 }}
+        aria-label={`Note under ${title}`}
+        data-testid="section-note-text"
+        autoFocus
+      />
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" onClick={onSave} className="inline-flex h-[30px] items-center rounded-[7px] border border-primary-solid bg-primary-solid px-3 text-[12.5px] font-medium text-white hover:bg-primary-solid-hover" data-testid="section-note-save">
+          Save
+        </button>
+        <button type="button" onClick={onCancel} className="inline-flex h-[30px] items-center rounded-[7px] border border-input bg-white px-3 text-[12.5px] font-medium text-slate-800 hover:bg-slate-50" data-testid="section-note-cancel">
+          Cancel
+        </button>
+        <span className="text-[12px] text-muted-foreground">Shows under this section in every copy that includes it. Today only.</span>
+      </div>
+    </div>
   );
 }
 

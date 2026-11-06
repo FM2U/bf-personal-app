@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { blocksHtml, editedHtml, reportInnerHtml, reportText, sectionBodyHtml } from "./report-email";
-import { buildSections, type ReportData } from "./report-sections";
+import { blocksHtml, editedHtml, noteHtml, noteText, reportInnerHtml, reportText, sectionBodyHtml } from "./report-email";
+import { buildSections, cleanNotes, sendsNotes, type ReportData } from "./report-sections";
 
 const d: ReportData = {
   partnerName: "Jake Morgan", partnerFirst: "Jake", dateLong: "Tuesday, Nov 3, 2026", dateShort: "Tuesday, Nov 3", withWeek: false,
@@ -46,5 +46,34 @@ describe("the report email's formatting", () => {
     const h = editedHtml("- a\n- b\n  - c\n- d");
     expect(h.match(/<li/g)!.length).toBe(4);
     expect(h.match(/<ul/g)!.length).toBe(2);
+  });
+});
+
+describe("today's notes (+ Note, 2026-11-05)", () => {
+  const withNotes: ReportData = { ...d, notes: { top: "Pinecrest is the one to watch.\nDana wants <the> numbers & a call.", tomorrow: "Short day." } };
+  it("prints a note under its section with a thin left rule, escaped, line breaks kept, in HTML and plain text", () => {
+    const html = reportInnerHtml(withNotes);
+    expect(html).toMatch(/Follow up with Dana, Nov 4<\/li><\/ul><\/div><div data-note="1" style="[^"]*border-left:2px solid #d5dbe3[^"]*">Pinecrest is the one to watch.<br>Dana wants &lt;the&gt; numbers &amp; a call.<\/div>/);
+    expect(html).toContain(">Short day.</div>");
+    const text = reportText(withNotes);
+    expect(text).toContain("Next step: Follow up with Dana, Nov 4\n\n| Pinecrest is the one to watch.\n| Dana wants <the> numbers & a call.");
+    expect(text).toContain("Push Mark for the Summit call & finish <Dalton>.\n\n| Short day.");
+  });
+  it("sits under the edited text when the section was rewritten with Edit", () => {
+    const html = reportInnerHtml({ ...withNotes, choices: { edits: { top: "- Pinecrest: LOI out" } } });
+    expect(html).toMatch(/Pinecrest: LOI out<\/li><\/ul><div data-note="1"[^>]*>Pinecrest is the one to watch./);
+  });
+  it("a section left out today does not send its note, but the note stays on the section", () => {
+    const out = { ...withNotes, choices: { include: { top: false } } };
+    expect(reportInnerHtml(out)).not.toContain("Pinecrest is the one to watch.");
+    expect(reportText(out)).not.toContain("Pinecrest is the one to watch.");
+    expect(buildSections(out).find((s) => s.key === "top")!.note).toContain("Pinecrest is the one to watch.");
+    expect(sendsNotes(out)).toBe(true);
+    expect(sendsNotes({ ...out, notes: { top: "x" } })).toBe(false);
+  });
+  it("cleans notes: known sections only, end spaces trimmed, blank notes dropped, cut at 1000", () => {
+    expect(cleanNotes({ top: "  a  \r\nb   ", nope: "x", waiting: "   ", review: 3, jobs: "y".repeat(1200) })).toEqual({ top: "a\nb", jobs: "y".repeat(1000) });
+    expect(noteHtml("  ")).toBe("");
+    expect(noteText("a\n\nb")).toBe("| a\n|\n| b");
   });
 });

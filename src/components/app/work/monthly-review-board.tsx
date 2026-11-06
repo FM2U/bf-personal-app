@@ -2,8 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Download } from "lucide-react";
+import { Download, Loader2 } from "lucide-react";
 import { finishMonthlyReview } from "@/app/actions/monthly";
+import { ExportDownload } from "@/components/app/export-download";
 import { useUnsavedWork } from "@/components/app/unsaved-changes";
 import { date as fmtDate } from "@/lib/format";
 import { nextTargetText, targetLineOf, type MonthResult, type NextTarget } from "@/lib/accountability/monthly";
@@ -55,8 +56,8 @@ export function MonthlyReviewBoard({ data, title, tabs }: { data: MonthlyReviewP
     });
   const download = () => {
     setDownloaded(true);
-    // The export route notes the download on the review; the page reads it again once the file is on its way.
-    setTimeout(() => router.refresh(), 4000);
+    // The export route noted the download on the review before the file came back; the page reads it again.
+    router.refresh();
   };
   const readOnly = !editable;
   const status = [
@@ -107,17 +108,15 @@ export function MonthlyReviewBoard({ data, title, tabs }: { data: MonthlyReviewP
               </p>
             ) : (
             <div className="flex flex-wrap items-center gap-x-3.5 gap-y-2 px-[22px] pt-3 pb-4">
-              {/* A file download, not a page: a plain link is correct here. */}
-              <a
+              <ExportDownload
                 href={`/api/export/full?review=${data.slug}`}
-                download
-                onClick={download}
-                className={cn("inline-flex h-[34px] items-center gap-2 rounded-[7px] border px-3.5 text-[13px] font-medium whitespace-nowrap", exported ? "border-input bg-white text-slate-800 hover:bg-slate-50" : "border-primary-strong bg-white text-primary-strong hover:bg-primary-soft")}
-                data-testid="monthly-export-download"
+                onStarted={download}
+                icon={<Download className="h-[15px] w-[15px]" aria-hidden />}
+                className={cn("inline-flex h-[34px] items-center gap-2 rounded-[7px] border px-3.5 text-[13px] font-medium whitespace-nowrap disabled:border-border disabled:bg-slate-50 disabled:text-slate-400", exported ? "border-input bg-white text-slate-800 hover:bg-slate-50" : "border-primary-strong bg-white text-primary-strong hover:bg-primary-soft")}
+                testId="monthly-export-download"
               >
-                <Download className="h-[15px] w-[15px]" aria-hidden />
                 Download the export
-              </a>
+              </ExportDownload>
               <span className="min-w-0 flex-1 basis-[240px] text-[12.5px] text-muted-foreground">Every record: a zip file with one spreadsheet (CSV) per kind of record. Keep it as the monthly backup.</span>
             </div>
             )}
@@ -152,8 +151,15 @@ export function MonthlyReviewBoard({ data, title, tabs }: { data: MonthlyReviewP
             </section>
           ) : (
             <section className="flex flex-wrap items-center gap-x-3.5 gap-y-2 rounded-xl border border-border bg-white px-[22px] py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]" data-testid="monthly-finish-card">
-              <button type="button" onClick={finish} disabled={pending || !!finished} className="inline-flex h-[38px] items-center rounded-[7px] border border-primary-solid bg-primary-solid px-4 text-sm font-medium whitespace-nowrap text-white hover:border-primary-solid-hover hover:bg-primary-solid-hover disabled:opacity-50" data-testid="monthly-finish">
-                {pending ? "Saving..." : "Finish the review"}
+              <button type="button" onClick={finish} disabled={pending || !!finished} className="inline-flex h-[38px] items-center gap-2 rounded-[7px] border border-primary-solid bg-primary-solid px-4 text-sm font-medium whitespace-nowrap text-white hover:border-primary-solid-hover hover:bg-primary-solid-hover disabled:opacity-50" data-testid="monthly-finish" data-busy={pending ? "1" : "0"}>
+                {pending ? (
+                  <>
+                    <Loader2 className="h-[15px] w-[15px] shrink-0 animate-spin" aria-hidden />
+                    <span role="status">Saving…</span>
+                  </>
+                ) : (
+                  "Finish the review"
+                )}
               </button>
               <span className={cn("min-w-0 flex-1 basis-[220px] text-[12.5px]", exported ? "text-muted-foreground" : "text-status-soon")} data-testid="monthly-finish-note">
                 {exported ? `Saves ${data.nextName} targets and commitments.` : "Export not downloaded yet. You can still finish."}
