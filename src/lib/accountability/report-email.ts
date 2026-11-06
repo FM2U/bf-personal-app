@@ -16,6 +16,8 @@ export type { ReportData, ReportChoices };
 
 const C = EMAIL_COLORS;
 const p = (html: string, extra = "") => `<p style="margin:0 0 8px 0;font-size:14px;line-height:20px;color:${C.ink};${FONT}${extra}">${html}</p>`;
+/** The note look (fix list item 6): dark text, a 3px cobalt left line. Also the tomorrow line's look (2026-11-06). */
+const NOTE_STYLE = `margin:6px 0 8px 0;padding:2px 0 2px 10px;border-left:3px solid ${C.cobalt};font-size:13px;line-height:19px;color:${C.ink};${FONT}`;
 const muted = (text: string) => `<div style="font-size:13px;line-height:18px;color:${C.muted};${FONT}">${escapeHtml(text)}</div>`;
 
 /** The small-caps heading over a section, on a hairline. */
@@ -98,7 +100,8 @@ export function editedHtml(text: string): string {
 export function sectionBodyHtml(s: BuiltSection): string {
   if (s.edited) return editedHtml(s.edited);
   if (s.kind === "tiles") return s.tiles.length ? tilesHtml(s.tiles) : muted("Nothing shown in this section today.");
-  if (s.kind === "line") return s.line ? `<div style="font-size:14px;line-height:20px;font-weight:bold;color:${C.ink};${FONT}">${escapeHtml(s.line)}</div>` : `<div style="font-size:13px;line-height:18px;color:${C.text.soon};${FONT}">(no line yet)</div>`;
+  // 2026-11-06 (Bram): the tomorrow line in the note look (dark text, cobalt left line), not bold.
+  if (s.kind === "line") return s.line ? `<div data-line="1" style="${NOTE_STYLE}">${escapeHtml(s.line)}</div>` : `<div style="font-size:13px;line-height:18px;color:${C.text.soon};${FONT}">(no line yet)</div>`;
   if (s.blocks.length) return blocksHtml(s.blocks);
   return muted(s.quiet ?? "Nothing shown in this section today.");
 }
@@ -111,7 +114,7 @@ export function sectionBodyHtml(s: BuiltSection): string {
 export function noteHtml(note: string | null | undefined): string {
   const t = String(note ?? "").trim();
   if (!t) return "";
-  return `<div data-note="1" style="margin:6px 0 8px 0;padding:2px 0 2px 10px;border-left:3px solid ${C.cobalt};font-size:13px;line-height:19px;color:${C.ink};${FONT}">${escapeHtml(t).replace(/\n/g, "<br>")}</div>`;
+  return `<div data-note="1" style="${NOTE_STYLE}">${escapeHtml(t).replace(/\n/g, "<br>")}</div>`;
 }
 
 /** The note in the plain-text part: each line after "| ", the same rule on the left. */
@@ -144,7 +147,8 @@ export function closingHtml(signName?: string | null): string {
 export function reportInnerHtml(d: ReportData): string {
   const row = (inner: string, pad: string) => `<tr><td style="padding:${pad}">${inner}</td></tr>`;
   const parts = [row(headerHtml(d), "16px 20px 0 20px"), row(greetingHtml(d), "0 20px 0 20px")];
-  for (const s of sentSections(d)) parts.push(row(headingHtml(s.title) + sectionBodyHtml(s) + noteHtml(s.note), "8px 20px 4px 20px"));
+  // 2026-11-06 (Bram): a note sits first, under the heading and above the section's items.
+  for (const s of sentSections(d)) parts.push(row(headingHtml(s.title) + noteHtml(s.note) + sectionBodyHtml(s), "8px 20px 4px 20px"));
   parts.push(row(closingHtml(d.signName), "10px 20px 18px 20px"));
   return `<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;border-collapse:separate;background-color:#ffffff;border:1px solid ${C.border};border-radius:10px">${parts.join("")}</table>`;
 }
@@ -158,11 +162,11 @@ export function reportText(d: ReportData): string {
   const lines: string[] = [`Hello ${d.partnerFirst},`, "", `Here is my report for ${d.dateShort}.${d.withWeek ? " It is Friday, so the week is at the end." : ""}`, `${d.pill.text}.`];
   for (const s of sentSections(d)) {
     lines.push("", s.title.toUpperCase());
+    if (s.note) lines.push(noteText(s.note), "");
     if (s.edited) lines.push(s.edited.trim());
     else if (s.kind === "tiles") lines.push(tilesText(s.tiles).split("\n").map((x) => `- ${x}`).join("\n"));
-    else if (s.kind === "line") lines.push(s.line || "(no line yet)");
+    else if (s.kind === "line") lines.push(s.line ? noteText(s.line) : "(no line yet)");
     else lines.push(s.blocks.length ? blocksText(s.blocks) : (s.quiet ?? ""));
-    if (s.note) lines.push("", noteText(s.note));
   }
   lines.push("", "Nothing is required from you. Reply to this email if you want to talk.", "", ...signOff("Thank you", d.signName).split("\n"));
   return lines.join("\n");

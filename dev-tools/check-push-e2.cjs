@@ -945,7 +945,7 @@ const until = async (fn, msg, tries = 60) => {
     if (SHOTS) await win().screenshot({ path: path.join(SHOTS, "report-note-top-3-deals-1440.png") });
   });
 
-  await step("+ Note: a note sits under Edit's text too; the Targets note shows in Sarah's tab (one note for every copy); in her tab a left-out section shows 'Left out today, note not sent'", async () => {
+  await step("+ Note: a note sits above Edit's text too; the Targets note shows in Sarah's tab (one note for every copy); in her tab a left-out section shows 'Left out today, note not sent'", async () => {
     await addNote("targets", TARGETS_NOTE);
     await page.locator("[data-testid=report-tab][data-partner=Sarah]").click();
     await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hello Sarah,"));
@@ -970,7 +970,7 @@ const until = async (fn, msg, tries = 60) => {
       const t = e.textContent;
       return [t.indexOf("Two CIMs to screen first thing"), t.indexOf("Two CIMs came in late")];
     });
-    assert(order[0] >= 0 && order[1] > order[0], `the note is under the edited text ${JSON.stringify(order)}`);
+    assert(order[1] >= 0 && order[0] > order[1], `the note is above the edited text (2026-11-06) ${JSON.stringify(order)}`);
   });
 
   await step("+ Note: Remove note takes it away (the button reads + Note again; the saved notes lose it)", async () => {

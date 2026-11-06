@@ -242,7 +242,7 @@ describe("the report's numbers and the email", () => {
     expect(text).toContain("TODAY\n- Listings screened: 3 of 5 (2 passed (Too small, Retail), 1 Interested: Industrial Filtration Distributor)");
     expect(text).toContain("Missed\n  - Listings screened: 3 of 5 today, 19 of 25 this week\n    - Commitment. Reason: Deal work filled the block");
     expect(text).toContain("Waiting on brokers 5+ days\n  - Summit Logistics Group: 11 days, Mark Reed");
-    expect(text).toContain("MONDAY\nMonday: finish the Meridian model before 10");
+    expect(text).toContain("MONDAY\n| Monday: finish the Meridian model before 10");
     expect(text).toMatch(/Thank you,\nBram$/);
     // Fix list item 10: with no Name in Settings, "Thank you," closes the email alone.
     expect(reportInnerHtml({ ...d, signName: null })).toContain(">Thank you,</p>");

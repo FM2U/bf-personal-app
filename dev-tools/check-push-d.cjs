@@ -502,6 +502,24 @@ const until = async (fn, msg, tries = 60) => {
     assert(/^AI this month: \$\d+\.\d\d of \$\d+\.\d\d$/.test((await page.getByTestId("ai-spend-line").innerText()).trim()), "AI line");
   });
 
+  // 2026-11-06 (Bram): the pill of the section in view looks selected; a click selects its pill.
+  await step("Settings pills: the section at the top of the window has the selected pill (cobalt outline); scrolling and clicking move it", async () => {
+    await page.goto(`${BASE}/settings`);
+    await page.getByTestId("google-card").waitFor();
+    const selected = () => page.locator("[data-testid=settings-section-pill][data-selected='1']").evaluateAll((els) => els.map((e) => e.getAttribute("data-section")));
+    await until(async () => JSON.stringify(await selected()) === '["s-conn"]', "Gmail and Google Calendar at the top");
+    const look = await page.locator("[data-testid=settings-section-pill][data-section=s-conn]").evaluate((e) => ({ border: getComputedStyle(e).borderColor, current: e.getAttribute("aria-current") }));
+    assert(look.current === "true" && look.border !== "rgb(226, 232, 240)", JSON.stringify(look));
+    await page.locator("[data-testid=settings-section-pill][data-section=s-pipe]").click();
+    await until(async () => JSON.stringify(await selected()) === '["s-pipe"]', "a click selects Pipelines and stage defaults");
+    await page.locator("[data-testid=settings-section-pill][data-section=s-prof]").click();
+    await until(async () => JSON.stringify(await selected()) === '["s-prof"]', "a click selects Profile and export");
+    await shot(page, "settings-pills-profile.png");
+    await page.waitForTimeout(1000);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await until(async () => JSON.stringify(await selected()) === '["s-conn"]', "scrolling back to the top selects the first pill");
+  });
+
   await step("Work settings save: waiting threshold, outreach target, End of day time (the badge follows), default block length", async () => {
     await page.getByTestId("work-threshold").fill("6");
     await page.getByTestId("work-outreach").fill("12");

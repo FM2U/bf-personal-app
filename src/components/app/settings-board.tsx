@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { saveAiCap, saveStageDefaults, saveWorkSettings } from "@/app/actions/settings";
 import { useUnsavedWork } from "@/components/app/unsaved-changes";
@@ -229,5 +229,62 @@ export function AiCapInput({ cap }: { cap: number }) {
       ) : null}
       <NoteLine note={note} testId="ai-cap-note" />
     </>
+  );
+}
+
+/**
+ * The section pills under the Settings title (2026-11-06, approved by Bram): the pill of the section at the top of the
+ * window looks selected, with the same cobalt outline as a selected tile on Home, and changes as the page scrolls. A
+ * click scrolls to that section and selects its pill (cards side by side share a top, so the click decides which one).
+ */
+export function SettingsSectionNav({ sections }: { sections: readonly (readonly [string, string])[] }) {
+  const [current, setCurrent] = useState<string>(sections[0]?.[0] ?? "");
+  const clickedAt = useRef(0);
+  useEffect(() => {
+    const pick = () => {
+      // A click's own smooth scroll does not change the pill the click chose.
+      if (Date.now() - clickedAt.current < 900) return;
+      const top = (document.querySelector<HTMLElement>("[data-testid=settings-sticky]")?.getBoundingClientRect().bottom ?? 0) + 12;
+      let id = sections[0]?.[0] ?? "";
+      for (const [sid] of sections) {
+        const el = document.getElementById(sid);
+        if (el && el.getBoundingClientRect().top <= top) id = sid;
+      }
+      // Cards side by side share a top: the first of that row stands for it.
+      const rowTop = document.getElementById(id)?.getBoundingClientRect().top;
+      const first = sections.find(([sid]) => document.getElementById(sid)?.getBoundingClientRect().top === rowTop);
+      setCurrent(first ? first[0] : id);
+    };
+    pick();
+    window.addEventListener("scroll", pick, { passive: true });
+    window.addEventListener("resize", pick);
+    return () => {
+      window.removeEventListener("scroll", pick);
+      window.removeEventListener("resize", pick);
+    };
+  }, [sections]);
+  return (
+    <nav className="mt-2.5 flex flex-wrap items-center gap-2" aria-label="Settings sections" data-testid="settings-sections">
+      {sections.map(([id, label]) => {
+        const on = current === id;
+        return (
+          <a
+            key={id}
+            href={`#${id}`}
+            onClick={() => {
+              clickedAt.current = Date.now();
+              setCurrent(id);
+            }}
+            aria-current={on ? "true" : undefined}
+            className={cn("inline-flex items-center rounded-full border bg-white px-3 py-1 text-[12.5px] font-medium whitespace-nowrap", on ? "border-primary text-primary-strong shadow-[0_0_0_1px_var(--primary)]" : "border-border text-slate-600 hover:bg-slate-50")}
+            data-testid="settings-section-pill"
+            data-section={id}
+            data-selected={on ? "1" : "0"}
+          >
+            {label}
+          </a>
+        );
+      })}
+    </nav>
   );
 }

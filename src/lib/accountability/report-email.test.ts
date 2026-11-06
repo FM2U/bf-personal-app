@@ -51,17 +51,22 @@ describe("the report email's formatting", () => {
 
 describe("today's notes (+ Note, 2026-11-05)", () => {
   const withNotes: ReportData = { ...d, notes: { top: "Pinecrest is the one to watch.\nDana wants <the> numbers & a call.", tomorrow: "Short day." } };
-  it("prints a note under its section with a thin left rule, escaped, line breaks kept, in HTML and plain text", () => {
+  it("prints a note first under its section heading, above the items (2026-11-06), with the cobalt left rule, escaped, line breaks kept, in HTML and plain text", () => {
     const html = reportInnerHtml(withNotes);
-    expect(html).toMatch(/Follow up with Dana, Nov 4<\/li><\/ul><\/div><div data-note="1" style="[^"]*border-left:3px solid #1e40af[^"]*">Pinecrest is the one to watch.<br>Dana wants &lt;the&gt; numbers &amp; a call.<\/div>/);
-    expect(html).toContain(">Short day.</div>");
+    expect(html).toMatch(/>Top 3 deals<\/div><div data-note="1" style="[^"]*border-left:3px solid #1e40af[^"]*">Pinecrest is the one to watch.<br>Dana wants &lt;the&gt; numbers &amp; a call.<\/div><div style="margin:0 0 8px 0">/);
+    expect(html).toMatch(/>Short day.<\/div><div data-line="1"/);
     const text = reportText(withNotes);
-    expect(text).toContain("Next step: Follow up with Dana, Nov 4\n\n| Pinecrest is the one to watch.\n| Dana wants <the> numbers & a call.");
-    expect(text).toContain("Push Mark for the Summit call & finish <Dalton>.\n\n| Short day.");
+    expect(text).toContain("TOP 3 DEALS\n| Pinecrest is the one to watch.\n| Dana wants <the> numbers & a call.\n\n");
+    expect(text).toContain("| Short day.\n\n| Push Mark for the Summit call & finish <Dalton>.");
   });
-  it("sits under the edited text when the section was rewritten with Edit", () => {
+  it("sits above the edited text when the section was rewritten with Edit", () => {
     const html = reportInnerHtml({ ...withNotes, choices: { edits: { top: "- Pinecrest: LOI out" } } });
-    expect(html).toMatch(/Pinecrest: LOI out<\/li><\/ul><div data-note="1"[^>]*>Pinecrest is the one to watch./);
+    expect(html).toMatch(/<div data-note="1"[^>]*>Pinecrest is the one to watch.[\s\S]*Pinecrest: LOI out/);
+  });
+  it("draws the tomorrow line in the note look, not bold (2026-11-06)", () => {
+    const html = reportInnerHtml(d);
+    expect(html).toMatch(/<div data-line="1" style="[^"]*border-left:3px solid #1e40af[^"]*color:#0f172a[^"]*">Push Mark for the Summit call &amp; finish &lt;Dalton&gt;.<\/div>/);
+    expect(html).not.toMatch(/font-weight:bold[^>]*>Push Mark/);
   });
   it("a section left out today does not send its note, but the note stays on the section", () => {
     const out = { ...withNotes, choices: { include: { top: false } } };

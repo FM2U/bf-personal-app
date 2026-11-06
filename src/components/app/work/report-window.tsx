@@ -278,6 +278,12 @@ function CopyReview({ day, copy, startEditing, notes, onNotes }: { day: string; 
               ) : null}
             </div>
             {picking === s.key && s.included ? <Picker s={s} onToggle={(id) => (s.pick ? toggleTop(s, id) : toggleItem(s, id))} onDone={() => setPicking(null)} /> : null}
+            {/* 2026-11-06 (Bram): a note sits first, under the heading and above the section's items. */}
+            {noting === s.key && s.included ? (
+              <NoteBox key={s.key} title={s.title} value={noteDraft} onChange={setNoteDraft} onSave={() => saveNote(s.key, noteDraft)} onCancel={() => setNoting(null)} />
+            ) : s.note ? (
+              <div className={cn(!s.included && "opacity-[0.38]")} dangerouslySetInnerHTML={{ __html: noteHtml(s.note) }} data-testid="section-note" />
+            ) : null}
             {editing === s.key && s.included ? (
               <div className="grid gap-2" data-testid="section-editor">
                 <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={Math.min(14, Math.max(4, draft.split("\n").length + 1))} className="w-full rounded-[7px] border border-input bg-white px-2.5 py-2 text-[13px] leading-[1.5] text-slate-900 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-label={`Edit ${s.title}`} data-testid="section-edit-text" autoFocus />
@@ -299,11 +305,6 @@ function CopyReview({ day, copy, startEditing, notes, onNotes }: { day: string; 
             ) : (
               <div className={cn(!s.included && "opacity-[0.38]")} dangerouslySetInnerHTML={{ __html: s.emptyAfterChange && !s.edited ? `<div style="font-size:12.5px;color:#64748b">Nothing shown in this section today. Press Change to show items again, or untick the section.</div>` : sectionBodyHtml(s) }} data-testid="section-body" />
             )}
-            {noting === s.key && s.included ? (
-              <NoteBox key={s.key} title={s.title} value={noteDraft} onChange={setNoteDraft} onSave={() => saveNote(s.key, noteDraft)} onCancel={() => setNoting(null)} />
-            ) : s.note ? (
-              <div className={cn(!s.included && "opacity-[0.38]")} dangerouslySetInnerHTML={{ __html: noteHtml(s.note) }} data-testid="section-note" />
-            ) : null}
           </div>
         ))}
         <div className="mt-3" dangerouslySetInnerHTML={{ __html: closingHtml(copy.report.signName) }} />

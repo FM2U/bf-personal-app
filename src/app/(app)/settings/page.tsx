@@ -22,7 +22,7 @@ import { JOB_PHASES } from "@/lib/work/pipelines";
 import { DEFAULT_BLOCK_MINUTES } from "@/lib/work/time-blocks";
 import { WorkShell } from "@/components/app/work/shell";
 import { Pill, PinnedBlock, RowLink, WorkCard, WorkHeader, type PillTone } from "@/components/app/work/ui";
-import { AiCapInput, KV, PipelinesCard, WorkSettingsCard, type SettingsPipeline } from "@/components/app/settings-board";
+import { AiCapInput, KV, PipelinesCard, SettingsSectionNav, WorkSettingsCard, type SettingsPipeline } from "@/components/app/settings-board";
 import type { Row } from "@/lib/types";
 
 export const metadata = { title: "Settings" };
@@ -111,13 +111,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
     <WorkShell testId="settings-page">
       <PinnedBlock testId="settings-sticky">
         <WorkHeader title="Settings" />
-        <nav className="mt-2.5 flex flex-wrap items-center gap-2" aria-label="Settings sections" data-testid="settings-sections">
-          {SECTIONS.map(([id, label]) => (
-            <a key={id} href={`#${id}`} className="inline-flex items-center rounded-full border border-border bg-white px-3 py-1 text-[12.5px] font-medium whitespace-nowrap text-slate-600 hover:bg-slate-50">
-              {label}
-            </a>
-          ))}
-        </nav>
+        <SettingsSectionNav sections={SECTIONS} />
       </PinnedBlock>
 
       {sp.google ? (

@@ -54,4 +54,7 @@ to-dos) plus Accountability (targets, End of day report to partners, weekly and 
   No metaphors, jargon, shorthand, coined phrases, hyperbole, or em-dashes.
 - Describe what Bram sees or does on screen. Give exact click paths (menu item, card, button).
   Only give steps he can do on the preview right now.
+- Every step names the thing it acts on and where it is on screen, with how to do it. Never a bare
+  verb like "reload", "refresh" or "open": write "reload the browser page (the circular arrow left of
+  the address bar, or Command+R)".
 - List the files created or changed at the end of a task.
