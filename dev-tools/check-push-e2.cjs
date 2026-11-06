@@ -818,7 +818,7 @@ const until = async (fn, msg, tries = 60) => {
     await rowOf("Sarah").getByTestId("eod-partner-check").uncheck();
     await until(async () => (await rowOf("Sarah").getAttribute("data-on")) === "0" && (await sendCount()) === n - 1, "Sarah is unticked and Approve and send counts one fewer");
     assert((await rowOf("Sarah").getByTestId("eod-partner-count").innerText()) === "Skipped today", "Skipped today");
-    await until(async () => JSON.stringify((await one("select skipped_partners from end_of_day where day = $1", [today])).skipped_partners) === JSON.stringify([sarahId]), "saved for today");
+    await until(async () => JSON.stringify((await one("select skipped_partners from end_of_day where day = $1", [today]))?.skipped_partners) === JSON.stringify([sarahId]), "saved for today");
     await shot("end-of-day-partner-unticked-1440.png", page.getByTestId("report-card"));
     await page.reload();
     await until(async () => (await rowOf("Sarah").getAttribute("data-on")) === "0", "kept on reload");
@@ -831,7 +831,7 @@ const until = async (fn, msg, tries = 60) => {
     await inWin.getByTestId("report-send-to-check").check();
     await until(async () => (await inWin.getAttribute("data-on")) === "1" && (await rowOf("Sarah").getAttribute("data-on")) === "1", "ticked in the window and in the table");
     await page.keyboard.press("Escape");
-    await until(async () => JSON.stringify((await one("select skipped_partners from end_of_day where day = $1", [today])).skipped_partners) === "[]", "every partner ticked again");
+    await until(async () => JSON.stringify((await one("select skipped_partners from end_of_day where day = $1", [today]))?.skipped_partners) === "[]", "every partner ticked again");
   });
 
   await step("Item 2: Done on a Contacts follow-up raises 'next actions done' under Contacts (the person's name, the follow-up note), and still counts toward Follow-ups on time", async () => {
