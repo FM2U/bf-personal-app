@@ -1,6 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { loadWorkCtx, loadWorkNow, type WorkNowData } from "@/lib/work/data";
+import { loadWorkCtx, loadWorkNow, type WorkNowData, prefetchPipelines } from "@/lib/work/data";
 import type { AiOrder } from "@/lib/work/lanes";
 import { loadPipelinesHome, type PipelinesHome } from "@/lib/work/pipelines-data";
 import { loadRosaraHome, type RosaraHome } from "@/lib/work/projects-data";
@@ -64,6 +64,7 @@ async function loadBlockMinutes(sb: SupabaseClient, ownerId: string): Promise<nu
 export async function loadHome(sb: SupabaseClient, ownerId: string): Promise<HomeData> {
   // Page speed (2026-11-06): the deals and the other Home parts load side by side; only the Waiting card waits for the
   // deals. Before, every part waited for the deals first.
+  prefetchPipelines(sb, ownerId);
   const ctx = await loadWorkCtx(sb, ownerId);
   const nowP = loadWorkNow(sb, ownerId);
   const restP = Promise.all([loadRosaraHome(sb, ctx), loadPipelinesHome(sb, ctx), loadAiOrder(sb, ownerId, ctx.today), loadTargetsTile(sb, ctx), loadHomeTodoLists(sb, ctx), loadDayCalendar(sb, ownerId, ctx.tz, ctx.today), loadRowBlocks(sb, ownerId, ctx.tz, ctx.today), loadBlockMinutes(sb, ownerId), loadMonthlyDue(sb, ctx)]);

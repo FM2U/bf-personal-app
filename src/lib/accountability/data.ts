@@ -101,16 +101,10 @@ type FactsBundle = { facts: Facts; waits: Wait[]; /** Push E2, item 5: the peopl
 /** The facts from `since` (YYYY-MM-DD) to today: enough for the 8-week strips, the Past weeks, and This month. */
 export async function loadFacts(sb: SupabaseClient, ctx: WorkCtx, since: string): Promise<FactsBundle> {
   const local = (ts: string) => todayInTz(ctx.tz, new Date(ts));
-  const [acq, job, con] = await Promise.all([loadPipelineOfKind(sb, ctx.ownerId, "acquisition"), loadPipelineOfKind(sb, ctx.ownerId, "job"), loadPipelineOfKind(sb, ctx.ownerId, "consulting")]);
-  const pipes = [acq, job, con].filter((p): p is WorkPipeline => !!p);
-  const laneOf: Record<string, "Deals" | "Job search" | "Consulting"> = {};
-  if (acq) laneOf[acq.id] = "Deals";
-  if (job) laneOf[job.id] = "Job search";
-  if (con) laneOf[con.id] = "Consulting";
-  const stageById: Record<string, { name: string; outcome: string; position: number }> = {};
-  for (const p of pipes) for (const s of p.stages) stageById[s.id] = { name: s.name, outcome: s.outcome, position: s.position };
-
-  const [{ data: items }, { data: hist }, { data: comms }, { data: events }, { data: eods }, { data: people }, { data: notes }, waitRows, { data: doneTasks }] = await Promise.all([
+  // Page speed (2026-11-06): the pipelines and the activity below are read side by side (the activity never needed them).
+  const pipesP = Promise.all([loadPipelineOfKind(sb, ctx.ownerId, "acquisition"), loadPipelineOfKind(sb, ctx.ownerId, "job"), loadPipelineOfKind(sb, ctx.ownerId, "consulting")]);
+  pipesP.catch(() => {});
+  const [[acq, job, con], { data: items }, { data: hist }, { data: comms }, { data: events }, { data: eods }, { data: people }, { data: notes }, waitRows, { data: doneTasks }] = await Promise.all([
     sb.from("pipeline_items").select("id,name,company_name,pipeline_id,status,stage_id,pass_reason,key_finding,next_action,next_action_due,screened,broker_name,primary_contact_id,updated_at,role_title").eq("owner_id", ctx.ownerId).limit(5000),
     sb.from("stage_history").select("id,item_id,stage_id,entered_at").eq("owner_id", ctx.ownerId).order("entered_at").limit(20000),
     sb.from("communications").select("id,occurred_at,method,direction,contact_id,awaiting_log,pipeline_item_id,subject,call_minutes").eq("owner_id", ctx.ownerId).gte("occurred_at", `${since}T00:00:00Z`).limit(5000),
@@ -122,7 +116,14 @@ export async function loadFacts(sb: SupabaseClient, ctx: WorkCtx, since: string)
     loadWaitsFor(sb, ctx.ownerId),
     // Push E2, item 5: tasks and to-dos checked off (record tasks count with their record's area; personal to-dos apart).
     sb.from("deal_todos").select("id,text,done_at,record_type,record_id,deal_id").eq("owner_id", ctx.ownerId).not("done_at", "is", null).gte("done_at", `${addDaysISO(since, -1)}T00:00:00Z`).limit(5000),
-  ]);
+  ]).then((r) => Promise.all([pipesP, ...r] as const));
+  const pipes = [acq, job, con].filter((p): p is WorkPipeline => !!p);
+  const laneOf: Record<string, "Deals" | "Job search" | "Consulting"> = {};
+  if (acq) laneOf[acq.id] = "Deals";
+  if (job) laneOf[job.id] = "Job search";
+  if (con) laneOf[con.id] = "Consulting";
+  const stageById: Record<string, { name: string; outcome: string; position: number }> = {};
+  for (const p of pipes) for (const s of p.stages) stageById[s.id] = { name: s.name, outcome: s.outcome, position: s.position };
   const personById = new Map(((people ?? []) as Row[]).map((p) => [String(p.id), p]));
   const nameOf = (i: Row) => displayName({ name: String(i.name), companyName: (i.company_name as string | null) ?? null });
   // The counting itself is pure and shared (src/lib/accountability/facts.ts).

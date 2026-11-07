@@ -134,6 +134,11 @@ export async function loadPipelineOfKind(sb: SupabaseClient, ownerId: string, ki
   return oncePerPage(`pipeline:${ownerId}:${kind}`, () => readPipelineOfKind(sb, ownerId, kind));
 }
 
+/** Page speed (2026-11-06): starts reading the three pipelines at the top of a page; later readers share the reads. */
+export function prefetchPipelines(sb: SupabaseClient, ownerId: string): void {
+  for (const kind of ["acquisition", "job", "consulting"] as const) loadPipelineOfKind(sb, ownerId, kind).catch(() => {});
+}
+
 async function readPipelineOfKind(sb: SupabaseClient, ownerId: string, kind: "acquisition" | "job" | "consulting"): Promise<WorkPipeline | null> {
   const { data: pipes } = await sb.from("pipelines").select("id,name,kind,sort_order,created_at").eq("owner_id", ownerId).eq("kind", kind).order("sort_order").order("created_at").limit(1);
   const pipe = ((pipes ?? []) as Row[])[0];
@@ -190,14 +195,22 @@ function toTodo(t: Row): DealTodo {
 
 type Loaded = { items: Row[]; financials: Record<string, Row>; contacts: Record<string, Row>; todos: Record<string, DealTodo[]>; waits: Record<string, SavedWait[]> };
 
-async function loadItems(sb: SupabaseClient, ownerId: string, pipelineId: string, screened: boolean | null): Promise<Loaded> {
+/**
+ * Page speed (2026-11-06): `pipelineId` may still be loading; then every item of the owner is read side by side with
+ * the pipeline (and their details), and only the pipeline's items are kept. Before, the items waited for the pipeline.
+ */
+async function loadItems(sb: SupabaseClient, ownerId: string, pipelineId: string | Promise<string | null>, screened: boolean | null): Promise<Loaded> {
+  const known = typeof pipelineId === "string";
   const { data, error } = await readItems((columns) => {
-    let q = sb.from("pipeline_items").select(columns).eq("owner_id", ownerId).eq("pipeline_id", pipelineId).limit(500);
+    let q = sb.from("pipeline_items").select(columns).eq("owner_id", ownerId);
+    if (known) q = q.eq("pipeline_id", pipelineId);
+    q = q.limit(known ? 500 : 3000);
     if (screened !== null) q = q.eq("screened", screened);
     return q;
   });
   if (error) throw new Error(error.message);
-  const items = (data ?? []) as Row[];
+  const pid = await pipelineId;
+  const items = ((data ?? []) as Row[]).filter((i) => known || String(i.pipeline_id) === String(pid));
   const ids = items.map((i) => i.id);
   const contactIds = [...new Set(items.map((i) => i.primary_contact_id).filter(Boolean))];
   const [{ data: fin }, { data: cs }, { data: td }, waits] = await Promise.all([
@@ -301,13 +314,17 @@ export type WorkNowData = {
 
 /** Home (Work on now): the open deals in the nine stages, the newest listings to screen, and the Deals at a glance counts. */
 export async function loadWorkNow(sb: SupabaseClient, ownerId: string): Promise<WorkNowData> {
+  // Page speed (2026-11-06): the pipeline and the deals start before the settings are in.
+  const pipeP = loadWorkPipeline(sb, ownerId);
+  const loadedP = loadItems(sb, ownerId, pipeP.then((p) => p?.id ?? null), null);
+  loadedP.catch(() => {});
   const ctx = await loadWorkCtx(sb, ownerId);
   const base: WorkNowData = { available: false, notice: null, today: ctx.today, tz: ctx.tz, threshold: ctx.threshold, toScreen: 0, deals: [], listingActions: [], listings: [], glance: { active: 0, early: 0, evaluate: 0, decide: 0, waitingOver: 0, needsAction: 0 }, outreach: { counter: { count: 0, target: 10, pct: 0 }, dueToday: [], due: [], later: [], overdue: 0 } };
   const notice = null;
   if (notice) return { ...base, notice };
-  const [pipe, outreach] = await Promise.all([loadWorkPipeline(sb, ownerId), loadOutreachHome(sb, ctx)]);
+  const [pipe, outreach] = await Promise.all([pipeP, loadOutreachHome(sb, ctx)]);
   if (!pipe) return { ...base, available: true, outreach };
-  const loaded = await loadItems(sb, ownerId, pipe.id, null);
+  const loaded = await loadedP;
   const rows = loaded.items.map((i) => toDealRow(i, loaded.financials[i.id], loaded.contacts[i.primary_contact_id], pipe, ctx, loaded.todos[i.id], loaded.waits[String(i.id)]));
   const deals = rows.filter((d, n) => loaded.items[n].screened !== false && d.status === "open" && d.stageIndex >= 0).sort((a, b) => compareNames(a.name, b.name));
   const listings = rows
@@ -374,13 +391,17 @@ type DealsData = {
 
 /** Deals: every screened item grouped by stage in the nine's order; Passed, Lost, and Closed apart. */
 export async function loadDeals(sb: SupabaseClient, ownerId: string): Promise<DealsData> {
+  // Page speed (2026-11-06): the pipeline and the deals start before the settings are in.
+  const pipeP = loadWorkPipeline(sb, ownerId);
+  const loadedP = loadItems(sb, ownerId, pipeP.then((p) => p?.id ?? null), true);
+  loadedP.catch(() => {});
   const ctx = await loadWorkCtx(sb, ownerId);
   const base: DealsData = { available: false, notice: null, today: ctx.today, threshold: ctx.threshold, groups: [], counts: {}, active: 0, waitingOver: 0, needsAction: 0, passed: [], lost: [], closed: [] };
   const notice = null;
   if (notice) return { ...base, notice };
-  const pipe = await loadWorkPipeline(sb, ownerId);
+  const pipe = await pipeP;
   if (!pipe) return { ...base, available: true };
-  const loaded = await loadItems(sb, ownerId, pipe.id, true);
+  const loaded = await loadedP;
   const deals = loaded.items.map((i) => toDealRow(i, loaded.financials[i.id], loaded.contacts[i.primary_contact_id], pipe, ctx, loaded.todos[i.id], loaded.waits[String(i.id)]));
   const byDue = (a: DealRow, b: DealRow) => (a.nextActionDue ?? "9999") < (b.nextActionDue ?? "9999") ? -1 : (a.nextActionDue ?? "9999") > (b.nextActionDue ?? "9999") ? 1 : compareNames(a.name, b.name);
   const groups: StageGroup[] = WORK_STAGES.map((name) => {

@@ -1,5 +1,5 @@
 import { requireOwner } from "@/lib/auth";
-import { loadDeals, loadTabCounts } from "@/lib/work/data";
+import { loadDeals, loadTabCounts, loadWorkCtx } from "@/lib/work/data";
 import { AskAiPill } from "@/components/app/work/ask-ai";
 import { parseDealFilter } from "@/lib/work/phases";
 import { WorkTabs } from "@/components/app/nav-links";
@@ -20,8 +20,8 @@ export const metadata = { title: "Deals" };
 export default async function DealsPage({ searchParams }: { searchParams: Promise<{ filter?: string }> }) {
   const { supabase, ownerId } = await requireOwner();
   const sp = await searchParams;
-  const d = await loadDeals(supabase, ownerId);
-  const tabs = await loadTabCounts(supabase, ownerId, d.today);
+  // Page speed (2026-11-06): the deals and the tab counts load side by side.
+  const [d, tabs] = await Promise.all([loadDeals(supabase, ownerId), loadWorkCtx(supabase, ownerId).then((c) => loadTabCounts(supabase, ownerId, c.today))]);
   const summary = d.available ? [`Acquisition`, `${d.active} active`, d.waitingOver ? `${d.waitingOver} waiting ${d.threshold}+ days` : null].filter(Boolean).join(" · ") : "";
   const header = (
     <>

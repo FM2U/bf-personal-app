@@ -6,6 +6,7 @@ import { AccountabilityTabs } from "@/components/app/nav-links";
 import { EndOfDayBoard } from "@/components/app/work/end-of-day-board";
 import { WorkShell, WorkUpdateNotice } from "@/components/app/work/shell";
 import { PinnedBlock, WorkHeader } from "@/components/app/work/ui";
+import { prefetchPipelines } from "@/lib/work/data";
 
 export const metadata = { title: "End of day" };
 
@@ -19,6 +20,8 @@ export const metadata = { title: "End of day" };
 export default async function EndOfDayPage() {
   const { supabase, ownerId } = await requireOwner();
   const notice = null;
+  // Page speed (2026-11-06): the pipelines start at once, side by side with the profile.
+  prefetchPipelines(supabase, ownerId);
   const ctx = await loadCtx(supabase, ownerId);
   if (notice) {
     return (

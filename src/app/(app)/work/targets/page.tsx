@@ -8,6 +8,7 @@ import { WorkShell, WorkUpdateNotice } from "@/components/app/work/shell";
 import { TargetsBoard } from "@/components/app/work/targets-board";
 import { PinnedBlock, WorkHeader } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
+import { prefetchPipelines } from "@/lib/work/data";
 
 export const metadata = { title: "Targets" };
 
@@ -20,9 +21,10 @@ export default async function TargetsPage({ searchParams }: { searchParams: Prom
   const { supabase, ownerId } = await requireOwner();
   const sp = await searchParams;
   const notice = null;
+  // Page speed (2026-11-06): the pipelines start at once; the badge and the page load side by side.
+  prefetchPipelines(supabase, ownerId);
   const ctx = await loadCtx(supabase, ownerId);
-  const badge = await loadEodBadge(supabase, ownerId, ctx.today);
-  const d = notice ? null : await loadTargetsPage(supabase, ctx);
+  const [badge, d] = await Promise.all([loadEodBadge(supabase, ownerId, ctx.today), notice ? null : loadTargetsPage(supabase, ctx)]);
   const adding = sp.add === "1";
   const header = (
     <PinnedBlock testId="targets-sticky">

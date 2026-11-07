@@ -269,7 +269,16 @@ const shot = async (page, name) => {
     // The check after the page has run once it stamps the time it looked.
     await poll(async () => !!(await one("select replies_checked_at from google_connections")).replies_checked_at, 20000);
     assert((await one("select count(*)::int n from communications where gmail_message_id = $1", [r.id])).n === 1, "stored twice");
-    // Throttle: a page opening within a few minutes does not ask Gmail again.
+    // Throttle: a page opening within a few minutes does not ask Gmail again. The look started by the page before
+    // runs after that page is on screen (2026-11-06), so wait until it has finished reading.
+    let prevReads = -1;
+    await poll(async () => {
+      const now = (await g("/__replies")).threadReads;
+      const same = now === prevReads;
+      prevReads = now;
+      if (!same) await new Promise((r) => setTimeout(r, 1200));
+      return same;
+    }, 20000);
     const reads = (await g("/__replies")).threadReads;
     await page.goto(`${BASE}/work`);
     await page.waitForTimeout(2500);
