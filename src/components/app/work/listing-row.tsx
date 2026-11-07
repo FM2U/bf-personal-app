@@ -1,5 +1,6 @@
 "use client";
 
+import { CONFIRM_MS } from "@/lib/confirm-timing";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { markInterested, passDeal } from "@/app/actions/work";
@@ -24,7 +25,7 @@ export function ListingRow({ listing, hidden = false, buyBox }: { listing: Listi
   const [pending, start] = useTransition();
   const [popup, setPopup] = useState(false);
   const [result, setResult] = useState<{ tone: "ok" | "warn" | "blue"; text: string } | null>(null);
-  const refresh = () => setTimeout(() => router.refresh(), 1500);
+  const refresh = () => setTimeout(() => router.refresh(), CONFIRM_MS);
 
   const pass = (reason: PassReason) =>
     start(async () => {
@@ -39,7 +40,7 @@ export function ListingRow({ listing, hidden = false, buyBox }: { listing: Listi
       setPopup(false);
       const r = await markInterested(listing.id);
       if (!r.ok) return setResult({ tone: "warn", text: r.error });
-      setResult({ tone: "ok", text: `${listing.name} is now a deal at Interested. Next action: ${r.nextAction ? r.nextAction.charAt(0).toLowerCase() + r.nextAction.slice(1) : "set it on the deal"}, due ${r.due ? fmtDate(r.due, "EEE MMM d") : "soon"}.${r.questions ? " Open questions drafted by the AI on the deal." : ""}` });
+      setResult({ tone: "ok", text: `${listing.name} is now a deal at Interested. Next action: ${r.nextAction ? r.nextAction.charAt(0).toLowerCase() + r.nextAction.slice(1) : "set it on the deal"}, due ${r.due ? fmtDate(r.due, "EEE MMM d") : "soon"}.${r.questionsComing ? " The AI is adding open questions on the deal." : ""}` });
       refresh();
     });
 

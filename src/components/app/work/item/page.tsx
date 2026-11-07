@@ -108,9 +108,10 @@ export async function ItemPage({ kind, id }: { kind: ItemKind; id: string }) {
       <RecordColumns
         left={
           <>
-          {kind === "job" ? <FindOutCard item={item} /> : null}
+          {/* Bram, 2026-11-07: action first on every record page; the record's own card comes after Next action and Tasks. */}
           <ItemNextActionCard item={item} today={d.today} waitsReady={d.waitsReady} />
           <ItemTasksCard item={item} tasks={d.todos} today={d.today} />
+          {kind === "job" ? <FindOutCard item={item} /> : null}
           </>
         }
         right={

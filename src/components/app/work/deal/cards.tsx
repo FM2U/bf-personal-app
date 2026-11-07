@@ -152,7 +152,7 @@ export function DealHeaderActions({ deal, compose, advanceTo, today, tz, listing
           </RowButton>
         ) : null}
         {open && listing ? (
-          <RowButton tone="soft" onClick={() => act(() => markInterested(deal.id))} disabled={pending} className={cn("h-9 px-3.5 text-[13px]", ROW_COLS.wideButton.cls)} data-testid="listing-interested">
+          <RowButton tone="soft" onClick={() => act(async () => { const r = await markInterested(deal.id, { questions: "caller" }); if (r.ok) void suggestQuestions(deal.id).then(() => router.refresh()); return r; })} disabled={pending} className={cn("h-9 px-3.5 text-[13px]", ROW_COLS.wideButton.cls)} data-testid="listing-interested">
             {pending ? "Saving..." : "Interested"}
           </RowButton>
         ) : null}
@@ -1206,10 +1206,12 @@ export function DecisionCard({ deal, advanceTo, listing = false }: { deal: DealR
   const interested = () =>
     start(async () => {
       setError(null);
-      const r = await markInterested(deal.id);
+      const r = await markInterested(deal.id, { questions: "caller" });
       if (!r.ok) return setError(r.error);
-      setNote(`Now a deal at Interested. Next action: ${r.nextAction ? r.nextAction.charAt(0).toLowerCase() + r.nextAction.slice(1) : "set it on this page"}, due ${r.due ? fmtDate(r.due, "EEE MMM d") : "soon"}.${r.questions ? " Open questions drafted by the AI." : ""}`);
+      setNote(`Now a deal at Interested. Next action: ${r.nextAction ? r.nextAction.charAt(0).toLowerCase() + r.nextAction.slice(1) : "set it on this page"}, due ${r.due ? fmtDate(r.due, "EEE MMM d") : "soon"}. The AI is adding open questions to Findings.`);
       router.refresh();
+      // Bram, 2026-11-07: Interested answers at once; the questions are asked for here, and Findings fills in when they come.
+      void suggestQuestions(deal.id).then(() => router.refresh());
     });
   const noteLine = note ? (
     <span className="text-[13px] font-medium text-status-met" role="status" data-testid="decision-note">

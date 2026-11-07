@@ -1,5 +1,6 @@
 "use client";
 
+import { CONFIRM_MS } from "@/lib/confirm-timing";
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -47,7 +48,7 @@ export function PersonRow({ person, today, onEmail, onCall, done: doneText, show
       const r = await completeFollowUp(person.id, { date, what });
       if (!r.ok) return setState({ kind: "error", text: r.error });
       setState({ kind: "done", text: r.date ? `Done. Next follow-up with ${person.name}: ${fmtDate(r.date, "EEE MMM d")}.` : `Done. ${person.name} has no next date and moves to No date.` });
-      setTimeout(() => router.refresh(), 1600);
+      setTimeout(() => router.refresh(), CONFIRM_MS);
     });
   const line = orgRoleLine(person);
   const asking = state.kind === "ask";
@@ -171,7 +172,7 @@ export function OutreachActionRow({ person, today, reason }: { person: PersonRow
   const [what, setWhat] = useState(person.followUpFor ?? "");
   const [typed, setTyped] = useState(addDaysISO(today, 2));
   const next = nextFollowUpLabel(person.nextFollowUp, today, (d) => fmtDate(d, "MMM d"));
-  const refresh = () => setTimeout(() => router.refresh(), 1600);
+  const refresh = () => setTimeout(() => router.refresh(), CONFIRM_MS);
   const finish = (date: string | null) =>
     start(async () => {
       const r = await completeFollowUp(person.id, { date, what });

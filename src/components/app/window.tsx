@@ -14,6 +14,9 @@ import { cn } from "@/lib/utils";
  * `size`: "wide" (940px, the default), "report" (820px with 64px side padding, the email inside), or "work" (860px,
  * Work through on Home, push C).
  *
+ * Position (Bram, 2026-11-07): the window's top sits a quarter of the way down the screen; a window too tall for that
+ * moves up just enough to end 4% above the bottom (the same rule in ui/dialog.tsx and listing-popup.tsx).
+ *
  * `overlay` (2026-11-06): a small box laid over the whole window (the window's own content behind a light veil), used
  * by the report window to ask about text typed but not saved.
  */
@@ -27,7 +30,7 @@ export function CenteredWindow({ open, onOpenChange, title, sub, children, foote
           className={cn(
             "fixed z-50 flex flex-col bg-white focus:outline-none",
             "inset-0 h-[100dvh] w-full",
-            "min-[701px]:inset-auto min-[701px]:top-1/2 min-[701px]:left-1/2 min-[701px]:h-auto min-[701px]:max-h-[88vh] min-[701px]:w-[calc(100%-48px)] min-[701px]:-translate-x-1/2 min-[701px]:-translate-y-1/2 min-[701px]:rounded-[14px] min-[701px]:shadow-[0_20px_60px_rgba(15,23,42,0.25)]",
+            "min-[701px]:inset-auto min-[701px]:top-[25vh] min-[701px]:left-1/2 min-[701px]:h-auto min-[701px]:max-h-[88vh] min-[701px]:w-[calc(100%-48px)] min-[701px]:-translate-x-1/2 min-[701px]:translate-y-[clamp(-21vh,calc(71vh_-_100%),0px)] min-[701px]:rounded-[14px] min-[701px]:shadow-[0_20px_60px_rgba(15,23,42,0.25)]",
             size === "report" ? "min-[701px]:max-w-[820px]" : size === "work" ? "min-[701px]:max-w-[860px]" : "min-[701px]:max-w-[940px]",
           )}
           data-testid={testId}

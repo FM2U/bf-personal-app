@@ -1,5 +1,6 @@
 "use client";
 
+import { CONFIRM_SHORT_MS } from "@/lib/confirm-timing";
 import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -287,7 +288,7 @@ export function PeopleBoard({ view: viewAtStart, data, orgs, adding, saved, tick
           }}
           onSaved={(r) => {
             setLogged((m) => ({ ...m, [callKey]: `Call logged, ${r.minutes} min` }));
-            setTimeout(() => router.refresh(), 1200);
+            setTimeout(() => router.refresh(), CONFIRM_SHORT_MS);
           }}
         />
       ) : null}

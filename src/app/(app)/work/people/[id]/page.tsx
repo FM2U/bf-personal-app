@@ -113,9 +113,10 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
       <RecordColumns
         left={
           <>
-          {partner ? <PartnerReportsCard personId={person.id} email={person.email} info={partner} replyNote={replyNote} /> : <WhyInTouchCard person={person} />}
+          {/* Bram, 2026-11-07: action first on every record page; the record's own card comes after Next action and Tasks. */}
           <NextFollowUpCard person={person} today={d.today} waitsReady={d.waitsReady} />
           <PersonTasksCard person={person} tasks={d.tasks} today={d.today} />
+          {partner ? <PartnerReportsCard personId={person.id} email={person.email} info={partner} replyNote={replyNote} /> : <WhyInTouchCard person={person} />}
           </>
         }
         right={

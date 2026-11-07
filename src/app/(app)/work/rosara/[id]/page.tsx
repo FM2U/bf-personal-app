@@ -87,9 +87,10 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
       <RecordColumns
         left={
           <>
-          <GoalCard project={project} />
+          {/* Bram, 2026-11-07: action first on every record page; the record's own card comes after Next action and Tasks. */}
           <ProjectNextActionCard project={project} today={d.today} />
           <ProjectTasksCard project={project} tasks={d.tasks} today={d.today} />
+          <GoalCard project={project} />
           </>
         }
         right={

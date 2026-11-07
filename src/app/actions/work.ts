@@ -1,5 +1,6 @@
 "use server";
 
+import { after } from "next/server";
 import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireOwner } from "@/lib/auth";
@@ -176,8 +177,11 @@ export async function passDeal(id: string, reason: string): Promise<{ ok: true }
 /**
  * Interested: the listing becomes a deal at Interested; the stage's default next action is set, due tomorrow. Then
  * the AI fills the open questions (silently: when that fails the card shows "Suggest questions" to try again).
+ * Bram, 2026-11-07: the answer no longer waits for the AI (several seconds). `questions: "after"` (the default) has the
+ * AI write them after the answer is sent; "caller" leaves them to the page that asked (the deal page asks for them
+ * itself, so its Findings card fills in while you look at it).
  */
-export async function markInterested(id: string): Promise<{ ok: true; nextAction: string | null; due: string | null; questions: number } | Fail> {
+export async function markInterested(id: string, opts: { questions?: "after" | "caller" } = {}): Promise<{ ok: true; nextAction: string | null; due: string | null; questions: number; questionsComing: boolean } | Fail> {
   const s = await setup();
   if (isFail(s)) return s;
   const { sb, ctx, pipe } = s;
@@ -190,9 +194,9 @@ export async function markInterested(id: string): Promise<{ ok: true; nextAction
   // The next action is written here too (the stage trigger sets the same values when it is empty).
   const { error } = await sb.from("pipeline_items").update({ stage_id: stage.id, screened: true, pass_reason: null, next_action: title, next_action_due: due, next_action_minutes: null }).eq("id", item.id);
   if (error) return notSaved(error);
-  const questions = await suggestQuestionsFor(sb, ctx, pipe, item.id).catch(() => 0);
+  if ((opts.questions ?? "after") === "after") after(() => suggestQuestionsFor(sb, ctx, pipe, item.id).catch(() => 0));
   doneQuietly();
-  return { ok: true, nextAction: title, due, questions };
+  return { ok: true, nextAction: title, due, questions: 0, questionsComing: true };
 }
 
 // ---------- The AI on a deal: open questions and to-dos ----------

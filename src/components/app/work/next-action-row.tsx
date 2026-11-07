@@ -1,5 +1,6 @@
 "use client";
 
+import { CONFIRM_MS } from "@/lib/confirm-timing";
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -28,7 +29,7 @@ export function NextActionRow({ deal, today, compact = false, reason }: { deal: 
   const [state, setState] = useState<{ kind: "idle" } | { kind: "ask" } | { kind: "later" } | { kind: "done"; text: string } | { kind: "error"; text: string }>({ kind: "idle" });
   const due = dueLabel(deal.nextActionDue, today, (d) => fmtDate(d, "MMM d"));
   // The confirmation stays readable for a moment before the list re-reads (the row then leaves Work on now).
-  const refresh = () => (compact ? router.refresh() : setTimeout(() => router.refresh(), 1600));
+  const refresh = () => (compact ? router.refresh() : setTimeout(() => router.refresh(), CONFIRM_MS));
 
   const finish = (move: boolean, todoId: string | null = null) =>
     start(async () => {

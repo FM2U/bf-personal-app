@@ -37,7 +37,7 @@ export function ListingPopup({ listing, buyBox, open, onOpenChange, onPass, onIn
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-slate-900/30" data-testid="listing-popup-overlay" />
         <DialogPrimitive.Content
-          className="fixed top-1/2 left-1/2 z-50 flex max-h-[88vh] w-[calc(100%-2rem)] max-w-[680px] -translate-x-1/2 -translate-y-1/2 flex-col overflow-y-auto rounded-xl border border-border bg-white shadow-[0_12px_40px_rgba(15,23,42,0.18)] focus:outline-none"
+          className="fixed top-[25vh] left-1/2 z-50 flex max-h-[88vh] w-[calc(100%-2rem)] max-w-[680px] -translate-x-1/2 translate-y-[clamp(-21vh,calc(71vh_-_100%),0px)] flex-col overflow-y-auto rounded-xl border border-border bg-white shadow-[0_12px_40px_rgba(15,23,42,0.18)] focus:outline-none"
           data-testid="listing-popup"
           data-listing={listing.id}
         >

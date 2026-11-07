@@ -90,9 +90,10 @@ export default async function OrganizationPage({ params }: { params: Promise<{ i
       <RecordColumns
         left={
           <>
-          <OrgPeopleCard org={org} people={d.people} others={d.others} today={d.today} />
+          {/* Bram, 2026-11-07: action first on every record page; the record's own card comes after Next action and Tasks. */}
           <OrgNextActionCard org={org} today={d.today} />
           <OrgTasksCard org={org} tasks={d.tasks} today={d.today} />
+          <OrgPeopleCard org={org} people={d.people} others={d.others} today={d.today} />
           </>
         }
         right={

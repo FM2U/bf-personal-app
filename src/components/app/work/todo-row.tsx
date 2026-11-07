@@ -1,5 +1,6 @@
 "use client";
 
+import { CONFIRM_SHORT_MS } from "@/lib/confirm-timing";
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -32,7 +33,7 @@ export function TodoActionRow({ todo, today, reason }: { todo: PersonalTodo; tod
       const r = await fn();
       if (r.ok === false) return setResult({ tone: "warn", text: (r as { error: string }).error });
       setResult({ tone: "blue", text: text(r as Extract<R, { ok: true }>) });
-      setTimeout(() => router.refresh(), 1200);
+      setTimeout(() => router.refresh(), CONFIRM_SHORT_MS);
     });
   if (result) {
     return (

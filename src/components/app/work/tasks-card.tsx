@@ -177,7 +177,7 @@ export function TasksCard({ tasks, open, record, today, actions, placeholder, em
                   <TaskChips dueOn={t.doneAt ? null : t.dueOn} today={today} repeat={t.repeat} repeatUntil={t.repeatUntil} done={!!t.doneAt} />
                 </div>
                 {!t.doneAt && open ? (
-                  <button type="button" onClick={() => act(() => actions.makeNext(t.id), (r) => setNote({ tone: "ok", text: `Next action set: ${r.nextAction ?? t.text}, due tomorrow.` }))} disabled={pending} className="col-start-2 justify-self-start pt-px text-xs font-medium whitespace-nowrap text-primary-strong hover:underline sm:col-start-auto sm:justify-self-end" data-testid="todo-make-next">
+                  <button type="button" onClick={() => act(() => actions.makeNext(t.id), (r) => setNote({ tone: "ok", text: `Next action set: ${r.nextAction ?? t.text}, due tomorrow.` }))} disabled={pending} className="col-start-2 justify-self-start text-xs leading-5 font-medium whitespace-nowrap text-primary-strong hover:underline sm:col-start-auto sm:justify-self-end" data-testid="todo-make-next">
                     Make this the next action
                   </button>
                 ) : (

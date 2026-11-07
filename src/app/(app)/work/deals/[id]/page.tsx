@@ -35,7 +35,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
  * (the company name when set, "Listed as <listing name>" under it), buttons Add a note, Email the broker, Log a
  * call, Advance, Pass, Ask AI; the status strip with the progress mark, the stage pill with the day in stage
  * (charcoal for Passed and Lost), the wait pill, what it does and where, and at the right the figures NEXT ACTION,
- * OPEN TASKS, LAST CONTACT (or WAITING). Left: Findings (the type-specific card), Next action, Tasks (was Also to
+ * OPEN TASKS, LAST CONTACT (or WAITING). Left (action first, Bram 2026-11-07): Next action, Tasks, then Findings (the type-specific card); Tasks (was Also to
  * do). Right: Facts, Timeline, Documents, Decision. Every card saves on its own.
  *
  * Edit batch C round 3: a listing (screened = false) opens this same page in the Listing state (one code path; the
@@ -157,9 +157,10 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
       <RecordColumns
         left={
           <>
-          <FindingsCard deal={deal} compose={d.questionsCompose} aiTools={state.questionsTools} listsReady={listsReady} growthReady={growthReady} />
+          {/* Bram, 2026-11-07: action first on every record page; the record's own card comes after Next action and Tasks. */}
           <NextActionCard deal={deal} today={d.today} noActionHint={state.noActionHint} waitsReady={d.waitsReady} />
           <TodosCard deal={deal} todos={d.todos} today={d.today} />
+          <FindingsCard deal={deal} compose={d.questionsCompose} aiTools={state.questionsTools} listsReady={listsReady} growthReady={growthReady} />
           </>
         }
         right={

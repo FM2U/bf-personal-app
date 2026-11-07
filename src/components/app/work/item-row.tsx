@@ -1,5 +1,6 @@
 "use client";
 
+import { CONFIRM_MS } from "@/lib/confirm-timing";
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -104,7 +105,7 @@ function useItemAction(item: ItemRow, compact: boolean) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [state, setState] = useState<State>({ kind: "idle" });
-  const refresh = () => (compact ? router.refresh() : setTimeout(() => router.refresh(), 1600));
+  const refresh = () => (compact ? router.refresh() : setTimeout(() => router.refresh(), CONFIRM_MS));
   const finish = (move: boolean, taskId: string | null = null) =>
     start(async () => {
       const r = await completeItemAction(item.kind, item.id, move, taskId);
