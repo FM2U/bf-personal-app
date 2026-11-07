@@ -22,6 +22,8 @@ to-dos) plus Accountability (targets, End of day report to partners, weekly and 
   `bash dev-tools/push-d-days.sh`, `node dev-tools/check-push-e.cjs`,
   `node dev-tools/check-push-e2.cjs`, `node dev-tools/check-pages.cjs`,
   `node dev-tools/check-speed.cjs` (app started with `SHOW_TIMING=1 BATCH_VERIFY=1`, sample data loaded),
+  `node dev-tools/check-full.cjs` (Screen listings, Rosara, Job search, Consulting, Settings; replaces the
+  old `check-flows.cjs`, which tests pages that no longer exist),
   `node dev-tools/check-ai-rules.cjs` (after any prompt change).
 - Afterwards: `git checkout -- docs/screenshots` and remove untracked images.
 - Vercel build status: `gh api repos/FM2U/bf-personal-app/commits/<sha>/statuses`.
