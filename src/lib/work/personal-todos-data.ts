@@ -6,6 +6,11 @@ import type { LinkRecord } from "@/lib/work/link-picker";
 import { homeLaterTodos, homeTodos, onTodoLists, todoSections, type PersonalTodo, type TodoSectionKey } from "@/lib/work/personal-todos";
 import { loadLinkRecords, TASK_SELECT, withRecords } from "@/lib/work/tasks-data";
 import type { Row } from "@/lib/types";
+import { ownerRecordNames } from "@/lib/work/shared-reads";
+
+function startRecordNames(sb: SupabaseClient, ownerId: string) {
+  for (const p of Object.values(ownerRecordNames(sb, ownerId))) p.catch(() => {});
+}
 
 /**
  * The To-dos page (batch B; push C): personal to-dos and dated record tasks (one table, deal_todos), open and done
@@ -15,6 +20,8 @@ export type TodosData = { today: string; sections: Record<TodoSectionKey, Person
 
 /** Home's Next actions and Work through: the open items due today or earlier (personal and record tasks); none on an error. */
 export async function loadHomeTodos(sb: SupabaseClient, ctx: Pick<Ctx, "ownerId" | "today">): Promise<PersonalTodo[]> {
+  // Speed plan (2026-11-07): the record names start now, with the tasks (one trip).
+  startRecordNames(sb, ctx.ownerId);
   const { data, error } = await sb.from("deal_todos").select(TASK_SELECT).eq("owner_id", ctx.ownerId).is("done_at", null).lte("due_on", ctx.today).limit(1000);
   if (error) return [];
   return homeTodos(await withRecords(sb, ctx.ownerId, (data ?? []) as Row[]), ctx.today);
@@ -25,6 +32,8 @@ export async function loadHomeTodos(sb: SupabaseClient, ctx: Pick<Ctx, "ownerId"
  * and Work through) and due later (the Due later section, soonest first); both empty on an error.
  */
 export async function loadHomeTodoLists(sb: SupabaseClient, ctx: Pick<Ctx, "ownerId" | "today">): Promise<{ due: PersonalTodo[]; later: PersonalTodo[] }> {
+  // Speed plan (2026-11-07): the record names start now, with the tasks (one trip).
+  startRecordNames(sb, ctx.ownerId);
   const { data, error } = await sb.from("deal_todos").select(TASK_SELECT).eq("owner_id", ctx.ownerId).is("done_at", null).not("due_on", "is", null).limit(2000);
   if (error) return { due: [], later: [] };
   const all = await withRecords(sb, ctx.ownerId, (data ?? []) as Row[]);
@@ -32,6 +41,8 @@ export async function loadHomeTodoLists(sb: SupabaseClient, ctx: Pick<Ctx, "owne
 }
 
 export async function loadTodos(sb: SupabaseClient, ctx: Ctx): Promise<TodosData> {
+  // Speed plan (2026-11-07): the record names start now, with the tasks (one trip).
+  startRecordNames(sb, ctx.ownerId);
   // Open items, plus items done in the last two days (the owner's "today" is decided below).
   const since = new Date(Date.now() - 2 * 86400 * 1000).toISOString();
   const [{ data, error }, records] = await Promise.all([

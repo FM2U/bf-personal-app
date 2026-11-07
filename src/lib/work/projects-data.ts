@@ -68,13 +68,16 @@ export async function loadWeeklyFocus(sb: SupabaseClient, ownerId: string): Prom
 
 /** Every project of the owner with its tasks counted (open and closed). */
 async function loadProjects(sb: SupabaseClient, ownerId: string): Promise<ProjectRow[]> {
+  // Speed plan (2026-11-07): the projects and every project task of the owner are read at the same moment (one trip).
+  const tasksP = Promise.resolve(sb.from("deal_todos").select(TASK_COLUMNS).eq("owner_id", ownerId).eq("record_type", "projects").limit(5000));
+  tasksP.catch(() => {});
   const { data, error } = await sb.from("projects").select(PROJECT_COLUMNS).eq("owner_id", ownerId).order("position").order("created_at").limit(500);
   if (error) throw new Error(error.message);
   const rows = (data ?? []) as Row[];
-  const ids = rows.map((r) => String(r.id));
-  const { data: tasks } = ids.length ? await sb.from("deal_todos").select(TASK_COLUMNS).eq("owner_id", ownerId).eq("record_type", "projects").in("record_id", ids).limit(5000) : { data: [] as Row[] };
+  const ids = new Set(rows.map((r) => String(r.id)));
+  const { data: tasks } = await tasksP;
   const byProject: Record<string, DealTodo[]> = {};
-  for (const t of (tasks ?? []) as Row[]) (byProject[String(t.record_id)] ??= []).push(toTask(t));
+  for (const t of ((tasks ?? []) as Row[]).filter((t) => ids.has(String(t.record_id)))) (byProject[String(t.record_id)] ??= []).push(toTask(t));
   return rows.map((r) => toProjectRow(r, byProject[String(r.id)] ?? []));
 }
 

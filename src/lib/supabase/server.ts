@@ -3,11 +3,14 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient as createPlainClient, type SupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { env } from "@/lib/env";
+import { batchingFetch } from "@/lib/supabase/batch";
 
 /** Supabase client acting as the signed-in owner. Row Level Security applies. */
 export async function createClient(): Promise<SupabaseClient> {
   const cookieStore = await cookies();
   return createServerClient(env.supabaseUrl, env.supabaseAnonKey, {
+    // One trip per page (2026-11-07): reads asked at the same moment go to the database together (batch.ts).
+    global: { fetch: batchingFetch(env.supabaseUrl) },
     cookies: {
       getAll() {
         return cookieStore.getAll();

@@ -1,4 +1,5 @@
 "use server";
+import { forgetKeptSettings } from "@/lib/kept-settings";
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -34,6 +35,8 @@ async function removeFiles(sb: SupabaseClient, paths: unknown): Promise<number> 
 
 /** Loads the Work module's sample data (one transaction), then dates the stages and adds the sample documents. */
 export async function loadSampleData(fd: FormData) {
+  // Speed plan (2026-11-07): the settings kept in the browser are read fresh on the next page.
+  await forgetKeptSettings();
   const { supabase, ownerId } = await requireOwner();
   const { count: already } = await supabase.from("sample_records").select("id", { count: "exact", head: true });
   if (already) back("Sample data is already loaded. Remove it first to load it again.");
@@ -175,6 +178,8 @@ async function testDaysToClear(sb: SupabaseClient, ownerId: string): Promise<str
 }
 
 export async function removeSampleData() {
+  // Speed plan (2026-11-07): the settings kept in the browser are read fresh on the next page.
+  await forgetKeptSettings();
   const { supabase, user } = await requireOwner();
   const clearDays = await testDaysToClear(supabase, user.id);
   const { data, error } = await supabase.rpc("remove_sample_data");

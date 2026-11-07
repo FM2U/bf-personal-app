@@ -21,6 +21,7 @@ to-dos) plus Accountability (targets, End of day report to partners, weekly and 
   `npx vitest run`, `bash dev-tools/push-b-friday.sh`, `node dev-tools/check-push-c.cjs`,
   `bash dev-tools/push-d-days.sh`, `node dev-tools/check-push-e.cjs`,
   `node dev-tools/check-push-e2.cjs`, `node dev-tools/check-pages.cjs`,
+  `node dev-tools/check-speed.cjs` (app started with `SHOW_TIMING=1 BATCH_VERIFY=1`, sample data loaded),
   `node dev-tools/check-ai-rules.cjs` (after any prompt change).
 - Afterwards: `git checkout -- docs/screenshots` and remove untracked images.
 - Vercel build status: `gh api repos/FM2U/bf-personal-app/commits/<sha>/statuses`.
@@ -64,7 +65,12 @@ to-dos) plus Accountability (targets, End of day report to partners, weekly and 
 
 ## Speed rules (Bram, 2026-11-07; plan in claude/2026-11-07-speed-plan.md)
 
-- Every page gets its data in one trip: its read plan goes to `read_batch`; a read outside the plan
-  is a miss (still correct, slower) and fails the miss check.
+- Reads asked at the same moment go to the database together in one trip (`src/lib/supabase/batch.ts`
+  to `read_batch`). A read that waits for another read's answer adds a trip: start every read of a page
+  at once, read the owner's rows and keep the ones needed (`src/lib/work/shared-reads.ts`), with
+  `pickOrRead` so a read that reached its limit falls back to reading by id.
+- Settings a page needs first (time zone, thresholds, Name, pipeline ids) come from the browser cookie
+  (`src/lib/kept-settings.ts`); a save that changes them calls `forgetKeptSettings()`.
 - Rules (due dates, groupings, counts) stay in the app's code; the database only gathers rows.
-- Target: every page opens in under 0.5 s on a click. Measure before reporting any change done.
+- Target: every page opens in under 0.5 s on a click. Measure before reporting any change done;
+  `check-speed.cjs` holds each page's trip limit.

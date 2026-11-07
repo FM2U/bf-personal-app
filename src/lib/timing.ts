@@ -10,13 +10,13 @@ import { cache } from "react";
  */
 export const TIMING_ON = process.env.VERCEL_ENV === "preview" || process.env.SHOW_TIMING === "1";
 
-type Call = { kind: "db" | "google" | "ai" | "other"; what: string; start: number; end: number | null };
-export type RequestTiming = { t0: number; calls: Call[]; inFlight: number; lastEvent: number };
+type Call = { kind: "db" | "google" | "ai" | "other"; what: string; start: number; end: number | null; /** The whole address (READ_LOG=1, local only). */ full?: string };
+export type RequestTiming = { t0: number; calls: Call[]; inFlight: number; lastEvent: number; /** Reads answered inside a read_batch trip (2026-11-07). */ batched: number };
 
 /** One record per page request (React's cache lasts for one request). */
 export const requestTiming = cache((): RequestTiming => {
   const now = performance.now();
-  return { t0: now, calls: [], inFlight: 0, lastEvent: now };
+  return { t0: now, calls: [], inFlight: 0, lastEvent: now, batched: 0 };
 });
 
 function kindOf(url: string): Call["kind"] {
@@ -52,9 +52,10 @@ export function installTiming(): void {
     } catch {
       r = null;
     }
-    if (!r) return base(input, init);
+    // The comparison's second reads (BATCH_VERIFY, local checks only) are not the page's trips.
+    if (!r || new Headers(init?.headers).get("x-bf-verify")) return base(input, init);
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    const call: Call = { kind: kindOf(url), what: whatOf(url), start: performance.now(), end: null };
+    const call: Call = { kind: kindOf(url), what: whatOf(url), start: performance.now(), end: null, full: process.env.READ_LOG === "1" ? decodeURIComponent(url) : undefined };
     r.calls.push(call);
     r.inFlight++;
     r.lastEvent = call.start;
@@ -112,6 +113,16 @@ function covered(calls: Call[]): number {
   return total;
 }
 
+/** Counts the reads answered inside one read_batch trip (src/lib/supabase/batch.ts), for the line. */
+export function noteBatchedReads(n: number): void {
+  if (!TIMING_ON || !n) return;
+  try {
+    requestTiming().batched += n;
+  } catch {
+    // Outside a page build: nothing to count.
+  }
+}
+
 /** Waits until no outside call has run for `quietMs` (the page's data is all in), up to `maxMs`. */
 export async function settled(r: RequestTiming, quietMs = 250, maxMs = 25000): Promise<void> {
   const until = performance.now() + maxMs;
@@ -130,13 +141,17 @@ export function timingLine(r: RequestTiming): string {
   // Which read it was (2026-11-06): the table, "sign-in check", or "Google".
   const slowName = !slow ? "" : slow.kind === "google" ? "Google" : slow.kind === "ai" ? "AI" : slow.what.startsWith("/auth/") ? "sign-in check" : slow.what.split(/[?/]/).filter(Boolean)[0] ?? "";
   const s = (ms: number) => `${(ms / 1000).toFixed(ms < 1000 ? 2 : 1)} s`;
-  const parts = [`Server ${s(end - r.t0)}`, `${n("db")} lookups`];
+  // 2026-11-07 (one trip per page): the trips to the database, and the reads they carried. A trip is one read_batch
+  // call or one read on its own; the sign-in check is counted with them.
+  const trips = n("db");
+  const reads = trips - done.filter((c) => c.kind === "db" && c.what.startsWith("rpc/read_batch")).length + r.batched;
+  const parts = [`Server ${s(end - r.t0)}`, `${trips} database ${trips === 1 ? "trip" : "trips"} (${reads} reads)`];
   // 2026-11-07: the Google calls with the time they took ("1 Google call 0.40 s"; side by side calls count once).
   if (n("google")) parts.push(`${n("google")} Google ${n("google") === 1 ? "call" : "calls"} ${s(covered(done.filter((c) => c.kind === "google")))}`);
   if (n("ai")) parts.push(`${n("ai")} AI calls`);
   if (done.length) parts.push(`slowest ${s(slowest)}${slowName ? ` (${slowName})` : ""}`);
   if (process.env.TIMING_LOG === "1") {
-    const rows = done.map((c) => `${String(Math.round(c.start - r.t0)).padStart(6)} → ${String(Math.round(c.end! - r.t0)).padStart(6)} ms  ${c.kind.padEnd(6)} ${c.what}`);
+    const rows = done.map((c) => `${String(Math.round(c.start - r.t0)).padStart(6)} → ${String(Math.round(c.end! - r.t0)).padStart(6)} ms  ${c.kind.padEnd(6)} ${process.env.READ_LOG === "1" ? c.full ?? c.what : c.what}`);
     console.log(`[timing] ${parts.join(" · ")}\n${rows.join("\n")}`);
   }
   return parts.join(" · ");

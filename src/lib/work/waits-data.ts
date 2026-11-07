@@ -4,6 +4,7 @@ import { todayInTz } from "@/lib/calc/dates";
 import { isMissingSchemaError } from "@/lib/schema-guard";
 import { waitRepliedAt, type SavedWait, type WaitLine } from "@/lib/work/waiting";
 import type { Row } from "@/lib/types";
+import { oncePerPage } from "@/lib/request-once";
 
 /**
  * The waits (push E2, approved 2026-11-05): table waits, one row per thing waited on, on a deal, a job or consulting
@@ -28,30 +29,40 @@ export function toSavedWait(r: Row): SavedWait {
 export type WaitsByRecord = { available: boolean; byItem: Record<string, SavedWait[]>; byContact: Record<string, SavedWait[]>; rows: Row[] };
 
 /**
- * The waits of the given deals or items and people (both left out: every wait of the owner). Missing table: none,
- * with `available` false.
+ * Every wait of the owner, read once per page build (speed plan 2026-11-07: one read shared by every part of the page,
+ * started without waiting for the deals or people it belongs to). Missing table: none, with `available` false.
  */
-export async function loadWaitsFor(sb: SupabaseClient, ownerId: string, ids: { itemIds?: readonly string[]; contactIds?: readonly string[] } = {}): Promise<WaitsByRecord> {
-  const out: WaitsByRecord = { available: true, byItem: {}, byContact: {}, rows: [] };
-  const reads: PromiseLike<{ data: unknown; error: { message: string; code?: string } | null }>[] = [];
-  const base = () => sb.from("waits").select(WAIT_COLUMNS).eq("owner_id", ownerId);
-  if (!ids.itemIds && !ids.contactIds) reads.push(base().order("created_at").limit(5000));
-  const chunks = (list: readonly string[]) => Array.from({ length: Math.ceil(list.length / 200) }, (_, n) => list.slice(n * 200, n * 200 + 200));
-  for (const c of chunks([...new Set(ids.itemIds ?? [])])) reads.push(base().in("pipeline_item_id", c).order("created_at").limit(2000));
-  for (const c of chunks([...new Set(ids.contactIds ?? [])])) reads.push(base().in("contact_id", c).order("created_at").limit(2000));
-  for (const r of await Promise.all(reads)) {
+export function loadAllWaits(sb: SupabaseClient, ownerId: string): Promise<WaitsByRecord> {
+  return oncePerPage(`waits_all:${ownerId}`, async () => {
+    const r = await sb.from("waits").select(WAIT_COLUMNS).eq("owner_id", ownerId).order("created_at").limit(5000);
     if (r.error) {
       if (isMissingSchemaError(r.error)) return { available: false, byItem: {}, byContact: {}, rows: [] };
       throw new Error(r.error.message);
     }
-    out.rows.push(...((r.data ?? []) as Row[]));
-  }
-  for (const r of out.rows) {
+    return groupWaits((r.data ?? []) as Row[]);
+  });
+}
+
+function groupWaits(rows: Row[]): WaitsByRecord {
+  const out: WaitsByRecord = { available: true, byItem: {}, byContact: {}, rows };
+  for (const r of rows) {
     const w = toSavedWait(r);
     if (r.pipeline_item_id) (out.byItem[String(r.pipeline_item_id)] ??= []).push(w);
     else if (r.contact_id) (out.byContact[String(r.contact_id)] ??= []).push(w);
   }
   return out;
+}
+
+/**
+ * The waits of the given deals or items and people (both left out: every wait of the owner). Missing table: none,
+ * with `available` false. Speed plan 2026-11-07: picked from the one shared read of every wait (loadAllWaits).
+ */
+export async function loadWaitsFor(sb: SupabaseClient, ownerId: string, ids: { itemIds?: readonly string[]; contactIds?: readonly string[] } = {}): Promise<WaitsByRecord> {
+  const all = await loadAllWaits(sb, ownerId);
+  if (!all.available || (!ids.itemIds && !ids.contactIds)) return all;
+  const items = new Set(ids.itemIds ?? []);
+  const people = new Set(ids.contactIds ?? []);
+  return groupWaits(all.rows.filter((r) => (r.pipeline_item_id && items.has(String(r.pipeline_item_id))) || (r.contact_id && people.has(String(r.contact_id)))));
 }
 
 /** Marks emails so they stay off No reply yet (the wait that watched them was cleared, removed, or moved to a newer email). */

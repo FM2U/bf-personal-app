@@ -17,12 +17,14 @@ import { parseFindingList } from "@/lib/work/deal-facts";
 import { DEFAULT_WAIT_THRESHOLD_DAYS, WORK_STAGES, dayInStage, doneOutcome, nextStageName, stageIndex, type WaitLevel } from "@/lib/work/stages";
 import { commTitle, type TimelineEvent } from "@/lib/work/timeline";
 import { DEFAULT_NO_REPLY_DAYS, waitLines, waitSummary, type SavedWait, type WaitLine } from "@/lib/work/waiting";
-import { loadWaitReplies, loadWaitsFor, withReplies } from "@/lib/work/waits-data";
+import { loadAllWaits, loadWaitReplies, loadWaitsFor, withReplies } from "@/lib/work/waits-data";
 export type { TimelineEvent } from "@/lib/work/timeline";
 import { RECORD_TASK_COLUMNS, sortTodos, toDealTodo, topTodo, type DealTodo } from "@/lib/work/todos";
 import { DEFAULT_EOD_TIME, parseTime } from "@/lib/work/settings";
 import type { Row } from "@/lib/types";
 import { oncePerPage } from "@/lib/request-once";
+import { keptSettings } from "@/lib/kept-settings";
+import { ownerContactsLite, ownerFinancials, ownerOpenTasks, pickOrRead } from "@/lib/work/shared-reads";
 
 /**
  * Everything the Work screens read (Home, Screen listings, Deals, the deal page). One pipeline: the owner's
@@ -110,17 +112,31 @@ export type DealRow = {
 /** A listing to screen with its buy box check (Fits, Near fit, or Outside; AI instructions revision 1). */
 export type ListingRow = DealRow & { buyBox: { tier: BuyBoxTier; fits: boolean; label: string } };
 
-export async function loadWorkCtx(sb: SupabaseClient, ownerId: string): Promise<WorkCtx> {
-  // Page speed (2026-11-06): the profile and these settings are read side by side, once per page build.
-  const [ctx, { data }] = await Promise.all([
-    loadCtx(sb, ownerId),
-    oncePerPage(`work_inputs:${ownerId}`, () => sb.from("inputs").select("key,value_number,value_text").eq("owner_id", ownerId).in("key", ["waiting_threshold_days", "end_of_day_time", "no_reply_after_days"])),
-  ]);
-  const rows = (data ?? []) as Row[];
+/** The waiting threshold, End of day time and no-reply days, read once per page build. */
+export function readWorkInputs(sb: SupabaseClient, ownerId: string) {
+  return oncePerPage(`work_inputs:${ownerId}`, () => sb.from("inputs").select("key,value_number,value_text").eq("owner_id", ownerId).in("key", ["waiting_threshold_days", "end_of_day_time", "no_reply_after_days"]));
+}
+
+/** The three settings from the inputs rows, with their defaults. */
+export function workInputs(rows: Row[]): { threshold: number; eodTime: string; noReplyDays: number } {
   const n = Number(rows.find((r) => r.key === "waiting_threshold_days")?.value_number);
   const eod = parseTime(rows.find((r) => r.key === "end_of_day_time")?.value_text) ?? DEFAULT_EOD_TIME;
   const nr = Number(rows.find((r) => r.key === "no_reply_after_days")?.value_number);
-  return { ...ctx, threshold: Number.isFinite(n) && n > 0 ? Math.round(n) : DEFAULT_WAIT_THRESHOLD_DAYS, eodTime: eod, noReplyDays: Number.isFinite(nr) && nr > 0 ? Math.round(nr) : DEFAULT_NO_REPLY_DAYS };
+  return { threshold: Number.isFinite(n) && n > 0 ? Math.round(n) : DEFAULT_WAIT_THRESHOLD_DAYS, eodTime: eod, noReplyDays: Number.isFinite(nr) && nr > 0 ? Math.round(nr) : DEFAULT_NO_REPLY_DAYS };
+}
+
+export async function loadWorkCtx(sb: SupabaseClient, ownerId: string): Promise<WorkCtx> {
+  const inputsP = readWorkInputs(sb, ownerId);
+  // Speed plan (2026-11-07): a page build starts at once with the settings kept in the browser; the inputs are still
+  // read in the same trip, and KeptSettingsCheck rebuilds the page if they differ (src/lib/kept-settings.ts).
+  const kept = await keptSettings(ownerId);
+  if (kept) {
+    Promise.resolve(inputsP).catch(() => {});
+    return { ...(await loadCtx(sb, ownerId)), threshold: kept.th, eodTime: kept.eod, noReplyDays: kept.nr };
+  }
+  // Page speed (2026-11-06): the profile and these settings are read side by side, once per page build.
+  const [ctx, { data }] = await Promise.all([loadCtx(sb, ownerId), inputsP]);
+  return { ...ctx, ...workInputs((data ?? []) as Row[]) };
 }
 
 /** The acquisition pipeline with its stages and each stage's default next action. Null when there is none. */
@@ -143,7 +159,7 @@ export function prefetchPipelines(sb: SupabaseClient, ownerId: string): void {
  * Page speed (2026-11-07): the pipeline's own row (its id and name), read once per page build. A part that needs only
  * the id (Home's Job search and Consulting items) starts its read as soon as this answers, beside the stages read.
  */
-function readPipelineRow(sb: SupabaseClient, ownerId: string, kind: "acquisition" | "job" | "consulting"): Promise<Row | null> {
+export function readPipelineRow(sb: SupabaseClient, ownerId: string, kind: "acquisition" | "job" | "consulting"): Promise<Row | null> {
   return oncePerPage(`pipeline_row:${ownerId}:${kind}`, async () => {
     const { data: pipes } = await sb.from("pipelines").select("id,name,kind,sort_order,created_at").eq("owner_id", ownerId).eq("kind", kind).order("sort_order").order("created_at").limit(1);
     return ((pipes ?? []) as Row[])[0] ?? null;
@@ -152,17 +168,28 @@ function readPipelineRow(sb: SupabaseClient, ownerId: string, kind: "acquisition
 
 /** The id of the pipeline of a kind, or null (shares the read with loadPipelineOfKind). */
 export async function loadPipelineIdOfKind(sb: SupabaseClient, ownerId: string, kind: "acquisition" | "job" | "consulting"): Promise<string | null> {
-  const row = await readPipelineRow(sb, ownerId, kind);
+  const rowP = readPipelineRow(sb, ownerId, kind);
+  // Speed plan (2026-11-07): the id kept in the browser lets the items start at once; the row is still read in the
+  // same trip, and KeptSettingsCheck rebuilds the page if the ids differ.
+  const kept = await keptSettings(ownerId);
+  if (kept) {
+    rowP.catch(() => {});
+    return kept.p[kind === "acquisition" ? "a" : kind === "job" ? "j" : "c"];
+  }
+  const row = await rowP;
   return row ? String(row.id) : null;
 }
 
 async function readPipelineOfKind(sb: SupabaseClient, ownerId: string, kind: "acquisition" | "job" | "consulting"): Promise<WorkPipeline | null> {
+  // Speed plan (2026-11-07): the stages of every pipeline of the owner and the default next actions are read at the
+  // same moment as the pipeline's row (one read each per page build), then this pipeline's stages are kept.
+  const stagesP = oncePerPage(`pipeline_stages:${ownerId}`, () => sb.from("pipeline_stages").select("id,name,position,outcome,pipeline_id").eq("owner_id", ownerId).order("position").limit(500));
+  const tasksP = oncePerPage(`stage_tasks_default:${ownerId}`, () => sb.from("stage_tasks").select("pipeline_stage_id,title,due_in_days,sort_order,is_next_action_default").eq("owner_id", ownerId).eq("is_next_action_default", true).order("sort_order").order("title"));
+  for (const p of [stagesP, tasksP] as Promise<unknown>[]) p.catch(() => {});
   const pipe = await readPipelineRow(sb, ownerId, kind);
   if (!pipe) return null;
-  const [{ data: stageRows }, { data: taskRows }] = await Promise.all([
-    sb.from("pipeline_stages").select("id,name,position,outcome").eq("pipeline_id", pipe.id).order("position"),
-    sb.from("stage_tasks").select("pipeline_stage_id,title,due_in_days,sort_order,is_next_action_default").eq("owner_id", ownerId).eq("is_next_action_default", true).order("sort_order").order("title"),
-  ]);
+  const [{ data: allStages }, { data: taskRows }] = await Promise.all([stagesP, tasksP]);
+  const stageRows = ((allStages ?? []) as Row[]).filter((st) => String(st.pipeline_id) === String(pipe.id));
   const defaults: Record<string, Row> = {};
   for (const t of (taskRows ?? []) as Row[]) if (!defaults[t.pipeline_stage_id]) defaults[t.pipeline_stage_id] = t;
   const stages: Stage[] = ((stageRows ?? []) as Row[]).map((s) => ({
@@ -217,6 +244,13 @@ type Loaded = { items: Row[]; financials: Record<string, Row>; contacts: Record<
  */
 async function loadItems(sb: SupabaseClient, ownerId: string, pipelineId: string | Promise<string | null>, screened: boolean | null): Promise<Loaded> {
   const known = typeof pipelineId === "string";
+  // Speed plan (2026-11-07): the financials, contacts, open tasks and waits are the owner's (shared-reads.ts), read at
+  // the same moment as the items, so the whole list arrives in one trip; then only these items' rows are kept.
+  const finP = ownerFinancials(sb, ownerId);
+  const csP = ownerContactsLite(sb, ownerId);
+  const tdP = screened !== false ? ownerOpenTasks(sb, ownerId) : Promise.resolve({ data: [] as Row[], error: null, full: false });
+  const waitsP = loadAllWaits(sb, ownerId);
+  for (const p of [finP, csP, tdP, waitsP] as Promise<unknown>[]) p.catch(() => {});
   const { data, error } = await readItems((columns) => {
     let q = sb.from("pipeline_items").select(columns).eq("owner_id", ownerId);
     if (known) q = q.eq("pipeline_id", pipelineId);
@@ -227,20 +261,20 @@ async function loadItems(sb: SupabaseClient, ownerId: string, pipelineId: string
   if (error) throw new Error(error.message);
   const pid = await pipelineId;
   const items = ((data ?? []) as Row[]).filter((i) => known || String(i.pipeline_id) === String(pid));
-  const ids = items.map((i) => i.id);
-  const contactIds = [...new Set(items.map((i) => i.primary_contact_id).filter(Boolean))];
-  const [{ data: fin }, { data: cs }, { data: td }, waits] = await Promise.all([
-    ids.length ? sb.from("deal_financials").select("item_id,revenue,ebitda,sde,asking_price").in("item_id", ids) : Promise.resolve({ data: [] as Row[] }),
-    contactIds.length ? sb.from("contacts").select("id,name,email,organization_id").in("id", contactIds) : Promise.resolve({ data: [] as Row[] }),
-    ids.length && screened !== false ? sb.from("deal_todos").select(TODO_COLUMNS).eq("owner_id", ownerId).in("deal_id", ids).is("done_at", null).limit(2000) : Promise.resolve({ data: [] as Row[] }),
-    ids.length ? loadWaitsFor(sb, ownerId, { itemIds: ids.map(String) }) : Promise.resolve({ byItem: {} as Record<string, SavedWait[]> }),
+  const ids = items.map((i) => String(i.id));
+  const contactIds = new Set(items.map((i) => i.primary_contact_id).filter(Boolean).map(String));
+  const [fin, cs, td, waits] = await Promise.all([
+    pickOrRead(finP, "item_id", ids, (m) => sb.from("deal_financials").select("item_id,revenue,ebitda,sde,asking_price").in("item_id", m)),
+    pickOrRead(csP, "id", [...contactIds], (m) => sb.from("contacts").select("id,name,email,organization_id").in("id", m)),
+    screened !== false ? pickOrRead(tdP, "deal_id", ids, (m) => sb.from("deal_todos").select(TODO_COLUMNS).eq("owner_id", ownerId).in("deal_id", m).is("done_at", null).limit(2000)) : Promise.resolve([] as Row[]),
+    loadWaitsFor(sb, ownerId, { itemIds: ids }),
   ]);
   const todos: Record<string, DealTodo[]> = {};
-  for (const t of (td ?? []) as Row[]) (todos[String(t.deal_id)] ??= []).push(toTodo(t));
+  for (const t of td) (todos[String(t.deal_id)] ??= []).push(toTodo(t));
   return {
     items,
-    financials: Object.fromEntries(((fin ?? []) as Row[]).map((f) => [f.item_id, f])),
-    contacts: Object.fromEntries(((cs ?? []) as Row[]).map((c) => [c.id, c])),
+    financials: Object.fromEntries(fin.map((f) => [f.item_id, f])),
+    contacts: Object.fromEntries(cs.map((c) => [c.id, c])),
     todos,
     waits: waits.byItem,
   };
@@ -369,9 +403,15 @@ export async function loadListings(sb: SupabaseClient, ownerId: string): Promise
   const base: ListingsData = { available: false, notice: null, today: ctx.today, listings: [], passed: [], buyBox: defaultBuyBoxSettings() };
   const notice = null;
   if (notice) return { ...base, notice };
-  const [pipe, buyBox] = await Promise.all([loadWorkPipeline(sb, ownerId), loadBuyBoxSettings(sb, ownerId)]);
+  // Speed plan (2026-11-07): with the pipeline's id kept in the browser, the listings start at once, beside the pipeline.
+  const pipeP = loadWorkPipeline(sb, ownerId);
+  const bbP = loadBuyBoxSettings(sb, ownerId);
+  const pid = await loadPipelineIdOfKind(sb, ownerId, "acquisition");
+  const earlyP = pid ? loadItems(sb, ownerId, pid, null) : null;
+  earlyP?.catch(() => {});
+  const [pipe, buyBox] = await Promise.all([pipeP, bbP]);
   if (!pipe) return { ...base, available: true, buyBox };
-  const loaded = await loadItems(sb, ownerId, pipe.id, null);
+  const loaded = earlyP && pid === pipe.id ? await earlyP : await loadItems(sb, ownerId, pipe.id, null);
   const rows = loaded.items.map((i) => toDealRow(i, loaded.financials[i.id], loaded.contacts[i.primary_contact_id], pipe, ctx, [], loaded.waits[String(i.id)]));
   const listings: ListingRow[] = rows
     .filter((d, n) => loaded.items[n].screened === false && d.status === "open")

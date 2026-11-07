@@ -8,6 +8,7 @@ import type { PersonalTodo } from "@/lib/work/personal-todos";
 import { parseRepeat } from "@/lib/work/repeat";
 import { pipelineItemKind, type TaskRecord } from "@/lib/work/task-records";
 import type { Row } from "@/lib/types";
+import { ownerRecordNames, pick } from "@/lib/work/shared-reads";
 
 /**
  * Push C (merge approved 2026-11-03): personal to-dos and record tasks are rows of one table, deal_todos. A row with
@@ -27,12 +28,24 @@ export async function resolveTaskRecords(sb: SupabaseClient, ownerId: string, ro
   const orgs = ids("organizations");
   const projects = ids("projects");
   const none = Promise.resolve({ data: [] as Row[] });
+  // Speed plan (2026-11-07): the names come from the owner-wide reads a page starts with its tasks (shared-reads.ts),
+  // so they arrive in the same trip. A record those reads do not hold (past their limit) is read by its id, as before.
+  const shared = ownerRecordNames(sb, ownerId);
+  const fill = async (list: string[], have: Promise<{ data: Row[] | null }>, byId: (missing: string[]) => PromiseLike<{ data: unknown }>) => {
+    if (!list.length) return { data: [] as Row[] };
+    const found = pick((await have).data, "id", list);
+    const got = new Set(found.map((r) => String(r.id)));
+    const missing = list.filter((id) => !got.has(id));
+    if (!missing.length) return { data: found };
+    const { data } = await byId(missing);
+    return { data: [...found, ...((data ?? []) as Row[])] };
+  };
   const [it, pp, og, pj, pipes] = await Promise.all([
-    items.length ? sb.from("pipeline_items").select("id,name,company_name,status,screened,pipeline_id").eq("owner_id", ownerId).in("id", items) : none,
-    people.length ? sb.from("contacts").select("id,name,archived_at").eq("owner_id", ownerId).in("id", people) : none,
-    orgs.length ? sb.from("organizations").select("id,name,archived_at").eq("owner_id", ownerId).in("id", orgs) : none,
-    projects.length ? sb.from("projects").select("id,name,status").eq("owner_id", ownerId).in("id", projects) : none,
-    items.length ? sb.from("pipelines").select("id,kind").eq("owner_id", ownerId) : none,
+    fill(items, shared.items, (m) => sb.from("pipeline_items").select("id,name,company_name,status,screened,pipeline_id").eq("owner_id", ownerId).in("id", m)),
+    fill(people, shared.people, (m) => sb.from("contacts").select("id,name,archived_at").eq("owner_id", ownerId).in("id", m)),
+    fill(orgs, shared.orgs, (m) => sb.from("organizations").select("id,name,archived_at").eq("owner_id", ownerId).in("id", m)),
+    fill(projects, shared.projects, (m) => sb.from("projects").select("id,name,status").eq("owner_id", ownerId).in("id", m)),
+    items.length ? shared.pipes : none,
   ]);
   const kindOf = new Map(((pipes.data ?? []) as Row[]).map((p) => [String(p.id), String(p.kind)]));
   const out = new Map<string, TaskRecord>();

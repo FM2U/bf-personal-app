@@ -10,7 +10,9 @@ import { CONSULTING_CLOSED, CONSULTING_STAGES, JOB_CLOSED, JOB_STAGES, findOutLi
 import { parseOpenQuestions } from "@/lib/work/questions";
 import { dayInStage, type WaitLevel } from "@/lib/work/stages";
 import { waitLines, waitSummary, type SavedWait, type WaitLine } from "@/lib/work/waiting";
-import { loadWaitReplies, loadWaitsFor, withReplies } from "@/lib/work/waits-data";
+import { loadAllWaits, loadWaitReplies, loadWaitsFor, withReplies } from "@/lib/work/waits-data";
+import { ownerContactsLite, ownerOpenTasks, pick, pickOrRead } from "@/lib/work/shared-reads";
+import { oncePerPage } from "@/lib/request-once";
 import { commKind, commTitle, type TimelineEvent } from "@/lib/work/timeline";
 import { RECORD_TASK_COLUMNS, sortTodos, toDealTodo, topTodo, type DealTodo } from "@/lib/work/todos";
 import type { Row } from "@/lib/types";
@@ -132,23 +134,30 @@ function toItemRow(kind: ItemKind, i: Row, pipe: WorkPipeline, ctx: WorkCtx, con
  * speed 2026-11-07): the items are read with the pipeline's id, beside its stages, and the stages are needed only at the end.
  */
 async function loadItems(sb: SupabaseClient, ctx: WorkCtx, kind: ItemKind, pipeIn: WorkPipeline | { id: string; pipe: Promise<WorkPipeline | null> }): Promise<ItemRow[]> {
+  // Speed plan (2026-11-07): the contacts, open tasks, consulting details and waits are the owner's (shared-reads.ts),
+  // read at the same moment as the items, so they arrive in the same trip; then only these items' rows are kept.
+  const csP = ownerContactsLite(sb, ctx.ownerId);
+  const tdP = ownerOpenTasks(sb, ctx.ownerId);
+  const detP = kind === "consulting" ? oncePerPage(`consulting_details:${ctx.ownerId}`, () => sb.from("consulting_details").select("item_id,scope_notes,start_date").eq("owner_id", ctx.ownerId).limit(5000)) : Promise.resolve({ data: [] as Row[] });
+  const waitsP = loadAllWaits(sb, ctx.ownerId);
+  for (const p of [csP, tdP, detP, waitsP] as Promise<unknown>[]) p.catch(() => {});
   const { data, error } = await sb.from("pipeline_items").select(ITEM_COLUMNS).eq("owner_id", ctx.ownerId).eq("pipeline_id", pipeIn.id).limit(500);
   if (error) throw new Error(error.message);
   const items = (data ?? []) as Row[];
   const ids = items.map((i) => String(i.id));
-  const contactIds = [...new Set(items.map((i) => i.primary_contact_id).filter(Boolean))];
-  const [{ data: cs }, { data: td }, { data: det }, waits] = await Promise.all([
-    contactIds.length ? sb.from("contacts").select("id,name,email").in("id", contactIds) : Promise.resolve({ data: [] as Row[] }),
-    ids.length ? sb.from("deal_todos").select(TASK_COLUMNS).eq("owner_id", ctx.ownerId).eq("record_type", "pipeline_items").in("record_id", ids).is("done_at", null).limit(2000) : Promise.resolve({ data: [] as Row[] }),
-    ids.length && kind === "consulting" ? sb.from("consulting_details").select("item_id,scope_notes,start_date").in("item_id", ids) : Promise.resolve({ data: [] as Row[] }),
-    ids.length ? loadWaitsFor(sb, ctx.ownerId, { itemIds: ids }) : Promise.resolve({ byItem: {} as Record<string, SavedWait[]> }),
+  const contactIds = new Set(items.map((i) => i.primary_contact_id).filter(Boolean).map(String));
+  const [cs, td, { data: det }, waits] = await Promise.all([
+    pickOrRead(csP, "id", [...contactIds], (m) => sb.from("contacts").select("id,name,email").in("id", m)),
+    pickOrRead(tdP, "record_id", ids, (m) => sb.from("deal_todos").select(TASK_COLUMNS).eq("owner_id", ctx.ownerId).eq("record_type", "pipeline_items").in("record_id", m).is("done_at", null).limit(2000)),
+    detP,
+    loadWaitsFor(sb, ctx.ownerId, { itemIds: ids }),
   ]);
   const pipe = "pipe" in pipeIn ? await pipeIn.pipe : pipeIn;
   if (!pipe) return [];
-  const contacts = Object.fromEntries(((cs ?? []) as Row[]).map((c) => [String(c.id), c]));
-  const details = Object.fromEntries(((det ?? []) as Row[]).map((d) => [String(d.item_id), d]));
+  const contacts = Object.fromEntries(cs.map((c) => [String(c.id), c]));
+  const details = Object.fromEntries(pick(det as Row[] | null, "item_id", ids).map((d) => [String(d.item_id), d]));
   const todos: Record<string, DealTodo[]> = {};
-  for (const t of (td ?? []) as Row[]) (todos[String(t.record_id)] ??= []).push(toTask(t));
+  for (const t of td.filter((t) => t.record_type === "pipeline_items")) (todos[String(t.record_id)] ??= []).push(toTask(t));
   return items.map((i) => toItemRow(kind, i, pipe, ctx, contacts[String(i.primary_contact_id)], details[String(i.id)], todos[String(i.id)] ?? [], waits.byItem[String(i.id)]));
 }
 
@@ -173,9 +182,14 @@ const byRecent = (a: ItemRow, b: ItemRow) => ((a.stageEnteredAt ?? "") < (b.stag
 export async function loadPipelineBoard(sb: SupabaseClient, ownerId: string, kind: ItemKind): Promise<PipelineBoardData> {
   const ctx = await loadWorkCtx(sb, ownerId);
   const base: PipelineBoardData = { available: false, today: ctx.today, threshold: ctx.threshold, pipeline: null, groups: [], closed: [], active: 0 };
-  const pipe = await loadPipelineOfKind(sb, ownerId, kind);
+  // Speed plan (2026-11-07): with the pipeline's id kept in the browser, the items start at once, beside the pipeline.
+  const pipeP = loadPipelineOfKind(sb, ownerId, kind);
+  const pid = await loadPipelineIdOfKind(sb, ownerId, kind);
+  const earlyP = pid ? loadItems(sb, ctx, kind, { id: pid, pipe: pipeP }) : null;
+  earlyP?.catch(() => {});
+  const pipe = await pipeP;
   if (!pipe) return { ...base, available: true };
-  const items = await loadItems(sb, ctx, kind, pipe);
+  const items = earlyP && pid === pipe.id ? await earlyP : await loadItems(sb, ctx, kind, pipe);
   const open: readonly string[] = kind === "job" ? JOB_STAGES : CONSULTING_STAGES;
   const groups: ItemStageGroup[] = open.map((name) => {
     const stage = pipe.byName[name] ?? { id: name, name, position: 0, outcome: "open", defaultTitle: null, defaultDueInDays: null };

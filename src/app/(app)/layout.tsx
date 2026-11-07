@@ -9,6 +9,7 @@ import { countOutreachDue } from "@/lib/work/outreach-data";
 import { todayInTz } from "@/lib/calc/dates";
 import { loadEodBadge } from "@/lib/accountability/data";
 import { installTiming, requestTiming, TIMING_ON } from "@/lib/timing";
+import { keptSettings } from "@/lib/kept-settings";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   // Page speed line, preview only (2026-11-06): start the clock before the first lookup of a full page load.
@@ -17,15 +18,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     requestTiming();
   }
   const { supabase, user, ownerId } = await requireOwner();
-  const [toScreen, { data: profile }] = await Promise.all([
-    // Listings to screen (the badge under Work).
-    countToScreen(supabase, ownerId),
-    supabase.from("owner_profile").select("timezone").eq("owner_id", ownerId).maybeSingle(),
-  ]);
-  // People due today or overdue on Outreach (the amber badge); null before database update 0022.
-  const today = todayInTz(String((profile as { timezone?: string | null } | null)?.timezone || "America/New_York"));
-  // The End of day badge under Accountability (batch C): 5:30 until the day is closed, then Sent or Skipped; null before database update 0025.
-  const [outreachDue, eodBadge] = await Promise.all([countOutreachDue(supabase, ownerId, today), loadEodBadge(supabase, ownerId, today)]);
+  // Speed plan (2026-11-07): with the time zone kept in the browser (src/lib/kept-settings.ts), the three badges are
+  // read at once; without it, the time zone is read first, as before.
+  const kept = await keptSettings(ownerId);
+  const tz = kept ? kept.tz : String(((await supabase.from("owner_profile").select("timezone").eq("owner_id", ownerId).maybeSingle()).data as { timezone?: string | null } | null)?.timezone || "America/New_York");
+  const today = todayInTz(tz);
+  // Listings to screen (the badge under Work); people due today or overdue on Outreach (the amber badge; null before
+  // database update 0022); the End of day badge under Accountability (batch C: 5:30 until the day is closed, then Sent
+  // or Skipped; null before database update 0025).
+  const [toScreen, outreachDue, eodBadge] = await Promise.all([countToScreen(supabase, ownerId), countOutreachDue(supabase, ownerId, today), loadEodBadge(supabase, ownerId, today)]);
   return (
     <div className="min-h-screen lg:pl-60">
       <aside className="no-print fixed inset-y-0 left-0 hidden w-60 flex-col border-r border-border bg-white px-3 py-4 lg:flex">

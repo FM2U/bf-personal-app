@@ -23,6 +23,7 @@ import {
 } from "@/lib/accountability/targets";
 import { DEFAULT_EOD_TIME, eodLong, eodShort, parseTime } from "@/lib/work/settings";
 import type { Row } from "@/lib/types";
+import { ownerContactsLite, pickOrRead, rowsOf } from "@/lib/work/shared-reads";
 
 /**
  * Everything Targets, End of day, Reports, and the Targets today tile read (batch C, database update 0025). One
@@ -562,21 +563,29 @@ function passedByReason(rows: FactsBundle["passes"]): PeriodView["passed"] {
  * replies read from Gmail (linked to the copy they answer); a reply recorded before push B shows the same way.
  */
 async function loadSentReports(sb: SupabaseClient, ctx: Ctx): Promise<SentRow[]> {
+  // Speed plan (2026-11-07): the days, every partner report copy, the partners and the replies to reports are read at
+  // the same moment (one trip), then matched here. A read that reaches its limit is read again by id (pickOrRead).
+  const REPORT_COLUMNS = "id,contact_id,period_start,summary,reviewed_at,partner_comment,comment_at,sent_at,snapshot,gmail_thread_id,report_kind";
+  const allReportsP = rowsOf(sb.from("partner_reports").select(REPORT_COLUMNS).eq("owner_id", ctx.ownerId).order("sent_at", { ascending: false }).limit(3000), 3000);
+  const peopleP = ownerContactsLite(sb, ctx.ownerId);
+  const repliesP = rowsOf(sb.from("communications").select("id,partner_report_id,contact_id,occurred_at,subject,summary,gmail_thread_id").eq("owner_id", ctx.ownerId).eq("direction", "incoming").not("partner_report_id", "is", null).order("occurred_at").limit(2000), 2000);
+  for (const p of [allReportsP, peopleP, repliesP] as Promise<unknown>[]) p.catch(() => {});
   const { data } = await sb.from("end_of_day").select("id,day,status,sent_at,skip_reason,report_id,report_subject,report_html,judged").eq("owner_id", ctx.ownerId).neq("status", "open").order("day", { ascending: false }).limit(400);
   const rows = (data ?? []) as Row[];
-  const days = rows.filter((r) => r.status === "sent").map((r) => String(r.day).slice(0, 10));
-  const ids = rows.map((r) => r.report_id).filter(Boolean) as string[];
-  const [{ data: byDay }, { data: byId }] = await Promise.all([
-    days.length ? sb.from("partner_reports").select("id,contact_id,period_start,summary,reviewed_at,partner_comment,comment_at,sent_at,snapshot,gmail_thread_id").eq("owner_id", ctx.ownerId).eq("report_kind", "end_of_day").in("period_start", days).limit(2000) : Promise.resolve({ data: [] as Row[] }),
-    ids.length ? sb.from("partner_reports").select("id,contact_id,period_start,summary,reviewed_at,partner_comment,comment_at,sent_at,snapshot,gmail_thread_id").in("id", ids) : Promise.resolve({ data: [] as Row[] }),
-  ]);
+  const days = new Set(rows.filter((r) => r.status === "sent").map((r) => String(r.day).slice(0, 10)));
+  const ids = rows.map((r) => r.report_id).filter(Boolean).map(String);
+  const all = await allReportsP;
+  const byDay = all.full || all.error
+    ? days.size ? (((await sb.from("partner_reports").select(REPORT_COLUMNS).eq("owner_id", ctx.ownerId).eq("report_kind", "end_of_day").in("period_start", [...days]).limit(2000)).data ?? []) as Row[]) : []
+    : (all.data ?? []).filter((r) => r.report_kind === "end_of_day" && days.has(String(r.period_start).slice(0, 10)));
+  const byId = await pickOrRead(allReportsP, "id", ids, (m) => sb.from("partner_reports").select(REPORT_COLUMNS).in("id", m));
   const reports = new Map<string, Row>();
-  for (const r of [...((byDay ?? []) as Row[]), ...((byId ?? []) as Row[])]) reports.set(String(r.id), r);
+  for (const r of [...byDay, ...byId]) reports.set(String(r.id), r);
   const reportIds = [...reports.keys()];
   const contactIds = [...new Set([...reports.values()].map((r) => r.contact_id).filter(Boolean).map(String))];
-  const [{ data: people }, { data: replyRows }] = await Promise.all([
-    contactIds.length ? sb.from("contacts").select("id,name,email").in("id", contactIds) : Promise.resolve({ data: [] as Row[] }),
-    reportIds.length ? sb.from("communications").select("id,partner_report_id,contact_id,occurred_at,subject,summary,gmail_thread_id").eq("owner_id", ctx.ownerId).eq("direction", "incoming").in("partner_report_id", reportIds).order("occurred_at").limit(2000) : Promise.resolve({ data: [] as Row[] }),
+  const [people, replyRows] = await Promise.all([
+    pickOrRead(peopleP, "id", contactIds, (m) => sb.from("contacts").select("id,name,email").in("id", m)),
+    pickOrRead(repliesP, "partner_report_id", reportIds, (m) => sb.from("communications").select("id,partner_report_id,contact_id,occurred_at,subject,summary,gmail_thread_id").eq("owner_id", ctx.ownerId).eq("direction", "incoming").in("partner_report_id", m).order("occurred_at").limit(2000)),
   ]);
   const person = new Map(((people ?? []) as Row[]).map((p) => [String(p.id), p]));
   const nameOf = (id: unknown) => String(person.get(String(id ?? ""))?.name ?? "Your partner");

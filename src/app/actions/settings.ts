@@ -1,4 +1,5 @@
 "use server";
+import { forgetKeptSettings } from "@/lib/kept-settings";
 
 import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -23,6 +24,8 @@ export async function disconnectGoogle() {
 }
 
 export async function saveProfile(fd: FormData) {
+  // Speed plan (2026-11-07): the settings kept in the browser are read fresh on the next page.
+  await forgetKeptSettings();
   const { supabase, ownerId } = await requireOwner();
   const tz = String(fd.get("timezone") ?? "America/New_York");
   try {
@@ -66,6 +69,8 @@ async function putInput(sb: SupabaseClient, ownerId: string, def: { key: string;
 
 /** Work settings: waiting turns amber at (days), No reply yet after (days; push E), the weekly outreach target, the End of day time, the default block length. */
 export async function saveWorkSettings(input: { threshold: string; noReply: string; outreach: string; eodTime: string; blockMinutes: string }): Promise<{ ok: true } | Fail> {
+  // Speed plan (2026-11-07): the settings kept in the browser are read fresh on the next page.
+  await forgetKeptSettings();
   const { supabase, ownerId } = await requireOwner();
   const c = cleanWorkSettings(input);
   if (!c.ok) return c;
