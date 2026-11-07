@@ -1,6 +1,7 @@
 import "server-only";
 import { cookies, headers } from "next/headers";
 import { cache } from "react";
+import type { KeptWorkWeek } from "@/lib/work-week";
 
 /**
  * Rarely-changing settings kept in the browser (speed plan, Bram 2026-11-07; claude/2026-11-07-speed-plan.md).
@@ -33,6 +34,8 @@ export type KeptSettings = {
   dn: string | null;
   /** The pipeline ids by kind (acquisition, job, consulting); null when there is none. */
   p: { a: string | null; j: string | null; c: string | null };
+  /** The work week (design B, 2026-11-07): [work days, week start, review day], ISO day numbers. */
+  ww?: KeptWorkWeek;
 };
 
 export function encodeKept(k: KeptSettings): string {

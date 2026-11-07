@@ -22,6 +22,7 @@ import { JOB_PHASES } from "@/lib/work/pipelines";
 import { DEFAULT_BLOCK_MINUTES } from "@/lib/work/time-blocks";
 import { WorkShell } from "@/components/app/work/shell";
 import { Pill, PinnedBlock, RowLink, WorkCard, WorkHeader, type PillTone } from "@/components/app/work/ui";
+import { workWeekNow } from "@/lib/work-week";
 import { AiCapInput, KV, PipelinesCard, SettingsSectionNav, WorkSettingsCard, type SettingsPipeline } from "@/components/app/settings-board";
 import type { Row } from "@/lib/types";
 
@@ -177,7 +178,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           </div>
         </WorkCard>
 
-        <WorkSettingsCard initial={{ threshold: wctx.threshold, noReply: wctx.noReplyDays, outreach: Number.isFinite(outreach) && outreach > 0 ? Math.round(outreach) : 10, eodTime: wctx.eodTime, blockMinutes: Number.isFinite(blockMinutes) && blockMinutes >= 5 ? blockMinutes : DEFAULT_BLOCK_MINUTES }} />
+        <WorkSettingsCard initial={{ threshold: wctx.threshold, noReply: wctx.noReplyDays, outreach: Number.isFinite(outreach) && outreach > 0 ? Math.round(outreach) : 10, eodTime: wctx.eodTime, blockMinutes: Number.isFinite(blockMinutes) && blockMinutes >= 5 ? blockMinutes : DEFAULT_BLOCK_MINUTES, workWeek: workWeekNow() }} />
       </div>
 
       <div className="mt-4">

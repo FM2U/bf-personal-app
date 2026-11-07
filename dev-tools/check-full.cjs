@@ -313,6 +313,55 @@ const until = async (fn, msg, tries = 80) => {
     assert(kept.n === 1, "the resend is not kept as a copy");
   });
 
+  // ---------- The work week (Bram, 2026-11-07, design B). The app runs on a Thursday clock. ----------
+  const workWeek = async (days, review) => {
+    await open("/settings");
+    const card = page.getByTestId("work-settings");
+    await card.waitFor();
+    for (let n = 1; n <= 7; n++) {
+      const box = card.locator(`[data-testid=work-day][data-day="${n}"] input`);
+      if ((await box.isChecked()) !== days.includes(n)) await box.click();
+    }
+    await card.getByTestId("work-review-day").selectOption(String(review));
+    await card.getByTestId("work-settings-save").click();
+    await card.getByTestId("work-settings-note").waitFor({ timeout: 15000 });
+    assert((await card.getByTestId("work-settings-note").innerText()).includes("Saved"), await card.getByTestId("work-settings-note").innerText());
+  };
+  await step("Settings, Work settings: Work days (Mon to Fri ticked), Week starts on Monday, Weekly review day Friday; Profile no longer has the review day", async () => {
+    await open("/settings");
+    const card = page.getByTestId("work-settings");
+    await card.waitFor();
+    const ticked = [];
+    for (let n = 1; n <= 7; n++) if (await card.locator(`[data-testid=work-day][data-day="${n}"] input`).isChecked()) ticked.push(n);
+    assert(JSON.stringify(ticked) === "[1,2,3,4,5]", `ticked ${ticked}`);
+    assert((await card.getByTestId("work-week-start").inputValue()) === "1", "the week does not start Monday");
+    assert((await card.getByTestId("work-review-day").inputValue()) === "5", "the review day is not Friday");
+    await open("/settings/profile");
+    assert(!(await page.locator("select[name=weekly_review_weekday]").count()), "Profile still has the review day");
+  });
+
+  await step("Work week Mon to Sat with the review on Thursday: today (Thursday) shows the Weekly review, the week is judged Saturday, the strip reads Mon to Sat, a new partner day can be Saturday", async () => {
+    await workWeek([1, 2, 3, 4, 5, 6], 4);
+    const p = await one("select work_days::text d, weekly_review_weekday r, week_start s from owner_profile limit 1");
+    assert(p.d === "{1,2,3,4,5,6}" && p.r === 4 && p.s === 1, JSON.stringify(p));
+    await open("/work/end-of-day");
+    await page.getByTestId("eod-review").waitFor({ timeout: 15000 });
+    assert((await page.getByTestId("eod-review").innerText()).includes("Thursdays. Goes into Thursday's report."), "the review card does not name Thursday");
+    assert((await page.getByTestId("eod-targets-note").innerText()).includes("judged on Saturday"), await page.getByTestId("eod-targets-note").innerText());
+    await open("/work/targets");
+    assert((await page.getByTestId("target-strip").first().innerText()).includes("Mon to Sat"), await page.getByTestId("target-strip").first().innerText());
+  });
+
+  await step("Back to Mon to Fri with the review on Friday: no Weekly review on Thursday, the week is judged Friday", async () => {
+    await workWeek([1, 2, 3, 4, 5], 5);
+    await open("/work/end-of-day");
+    await page.getByTestId("eod-targets-note").waitFor();
+    assert(!(await page.getByTestId("eod-review").count()), "the review card still shows on Thursday");
+    assert((await page.getByTestId("eod-targets-note").innerText()).includes("judged on Friday"), await page.getByTestId("eod-targets-note").innerText());
+    await open("/work/targets");
+    assert((await page.getByTestId("target-strip").first().innerText()).includes("Mon to Fri"), "the strip does not read Mon to Fri");
+  });
+
   await step("No page showed an error in the browser", async () => {
     assert(errors.length === 0, errors.slice(0, 3).join("\n"));
   });

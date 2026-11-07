@@ -4,6 +4,7 @@ import { encodeKept, keptCookieRaw, keptSettings, type KeptSettings } from "@/li
 import { oncePerPage } from "@/lib/request-once";
 import { readPipelineRow, readWorkInputs, workInputs } from "@/lib/work/data";
 import type { Row } from "@/lib/types";
+import { keepWorkWeek, workWeekFromProfile } from "@/lib/work-week";
 import { KeptSettingsSync } from "@/components/app/kept-settings-sync";
 
 /**
@@ -36,6 +37,7 @@ export async function KeptSettingsCheck() {
     nr: w.noReplyDays,
     dn: p.display_name ? String(p.display_name) : null,
     p: { a: a ? String(a.id) : null, j: j ? String(j.id) : null, c: c ? String(c.id) : null },
+    ww: keepWorkWeek(workWeekFromProfile(p)),
   };
   const value = encodeKept(fresh);
   if (process.env.READ_LOG === "1" && used && raw !== value) console.log(`[kept] rebuild: ${raw} -> ${value}`);

@@ -159,11 +159,11 @@ describe("the Home tile lines", () => {
     expect(tileTargetLine(byName("Network outreach"), 4, FRI)).toBe("Commitment · judged tonight, it is Friday");
     expect(tileTargetLine(byName("Network outreach"), 4, WED)).toBe("Commitment · 6 to go this week");
     expect(tileTargetLine(byName("Deals moved a stage"), 3, WED)).toBe("met");
-    expect(tileEodLine(2, "", "open", null, true)).toBe("Reasons (2 left), then approve and send");
-    expect(tileEodLine(0, "", "open", null, false)).toBe("Tomorrow's line is empty; then approve and send");
-    expect(tileEodLine(0, "x", "open", null, false)).toBe("Reasons done; approve and send");
-    expect(tileEodLine(0, "x", "sent", null, true)).toBe("Approved by you. Next report Monday at 5:30.");
-    expect(tileEodLine(1, "x", "skipped", "travel day", false)).toBe("Skipped: travel day. Any reason still owed is asked tomorrow.");
+    expect(tileEodLine(2, "", "open", null, "Monday")).toBe("Reasons (2 left), then approve and send");
+    expect(tileEodLine(0, "", "open", null, "Tomorrow")).toBe("Tomorrow's line is empty; then approve and send");
+    expect(tileEodLine(0, "x", "open", null, "Tomorrow")).toBe("Reasons done; approve and send");
+    expect(tileEodLine(0, "x", "sent", null, "Monday")).toBe("Approved by you. Next report Monday at 5:30.");
+    expect(tileEodLine(1, "x", "skipped", "travel day", "Tomorrow")).toBe("Skipped: travel day. Any reason still owed is asked tomorrow.");
     expect(tomorrowLabel(FRI)).toBe("Monday");
     expect(tomorrowLabel(WED)).toBe("Tomorrow");
   });

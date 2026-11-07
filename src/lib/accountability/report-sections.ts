@@ -88,7 +88,7 @@ export type ReportData = {
   week: { label: string; tiles: ReportTile[] } | null;
   /** Fridays (push D): the Weekly review answers; null on other days. */
   review?: WeeklyReview | null;
-  tomorrow: { label: "Tomorrow" | "Monday"; text: string | null };
+  tomorrow: { label: string; text: string | null };
   /** The sections this partner gets as a standing choice (their page). Null or missing: every section. */
   sections?: readonly string[] | null;
   /** Today's choices for this partner (the review window). */

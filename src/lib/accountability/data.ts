@@ -6,6 +6,7 @@ import { date as fmtDate, formatInZone } from "@/lib/format";
 import { displayName, signOffName } from "@/lib/work/names";
 import { loadPipelineOfKind, loadWorkCtx, type WorkCtx, type WorkPipeline } from "@/lib/work/data";
 import { weekdayShort } from "@/lib/work/outreach";
+import { isReviewDay, isWeekJudgedOn, isWorkDay, workWeekNow } from "@/lib/work-week";
 import { waitLines, type SavedWait } from "@/lib/work/waiting";
 import { recordHref } from "@/lib/work/task-records";
 import { loadWaitsFor } from "@/lib/work/waits-data";
@@ -87,7 +88,7 @@ async function seedDefaultTargets(sb: SupabaseClient, ownerId: string, existing:
   for (const d of DEFAULT_TARGETS) {
     const row = existing.find((r) => String(r.name) === d.name);
     if (row) await sb.from("targets").update({ counts_key: d.key, period: d.cadence, minimum_count: d.number, is_commitment: d.commitment, active: true, archived_at: null, sort_order: d.sortOrder }).eq("id", row.id);
-    else fresh.push({ owner_id: ownerId, name: d.name, period: d.cadence, minimum_count: d.number, active_weekdays: [1, 2, 3, 4, 5], count_source: "manual", is_commitment: d.commitment, show_to_partners: false, active: true, sort_order: d.sortOrder, counts_key: d.key, notes: "Counted from what you do in the app (Targets, batch C)." });
+    else fresh.push({ owner_id: ownerId, name: d.name, period: d.cadence, minimum_count: d.number, active_weekdays: workWeekNow().days.map((d) => d % 7), count_source: "manual", is_commitment: d.commitment, show_to_partners: false, active: true, sort_order: d.sortOrder, counts_key: d.key, notes: "Counted from what you do in the app (Targets, batch C)." });
   }
   if (fresh.length) await sb.from("targets").insert(fresh);
 }
@@ -265,8 +266,14 @@ export type PartnerCopy = { partner: Partner; report: ReportData; html: string; 
 export type EndOfDayPage = {
   day: string;
   dateLabel: string;
+  /** The weekly review day (Friday unless changed in Settings): the Weekly review and The week in the report. */
   friday: boolean;
+  /** A work day (Settings, Work settings): daily targets are judged. */
   weekday: boolean;
+  /** The week's last work day: the per-week targets are judged. */
+  weekJudged: boolean;
+  /** The name of the week's last work day ("Friday"). */
+  weekEndName: string;
   /** The first partner on today's report (or the first partner), for the lines that name one. */
   partner: Partner | null;
   /** Every accountability partner. */
@@ -280,7 +287,7 @@ export type EndOfDayPage = {
   weekSums: Record<string, number>;
   reasons: Record<string, string>;
   tomorrow: string;
-  tomorrowLabel: "Tomorrow" | "Monday";
+  tomorrowLabel: string;
   state: EodState;
   sentAt: string | null;
   sentTime: string | null;
@@ -315,8 +322,10 @@ export async function loadEndOfDay(sb: SupabaseClient, ctx: Ctx, day = ctx.today
 /** Builds the End of day page from loaded rows (shared with the send action, which judges the same way). */
 export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: EodRow; partners: Partner[]; sent: SentCopy[]; owed: { day: string; items: Judged[]; reasons: Record<string, string> } | null; day: string; tz: string; threshold: number; eodTime?: string; /** Fix list item 10: the name under "Thank you," (Settings, Name). */ signName?: string | null }): EndOfDayPage {
   const { targets, bundle, row, partners, day } = i;
-  const friday = weekdayShort(day) === "Fri";
-  const weekday = !["Sat", "Sun"].includes(weekdayShort(day));
+  // The work week (Settings, Work settings; design B, 2026-11-07): the review day shows the week; a work day is judged.
+  const friday = isReviewDay(day);
+  const weekday = isWorkDay(day);
+  const weekJudged = isWeekJudgedOn(day);
   // A sent or skipped day keeps the judgment it was closed with; an open day is judged live.
   const judged = row.status !== "open" && row.judged.length ? row.judged : judgeDay(targets, bundle.facts, day, bundle.skippedDays);
   const numbers = dayNumbers(bundle.facts, day, bundle.waits, i.threshold, bundle.personWaits, bundle.eachWait);
@@ -325,7 +334,7 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
   for (const t of targets) if (t.cadence === "day") weekSums[t.id] = countIn(t.key, bundle.facts, week.start, day).value;
   const tl = tomorrowLabel(day);
   const thisWeek = weekNumbers(targets, bundle.facts, week, bundle.waits, bundle.skippedDays, day);
-  const lastWeek = weekNumbers(targets, bundle.facts, { start: addDaysISO(week.start, -7), end: addDaysISO(week.start, -3) }, bundle.waits, bundle.skippedDays);
+  const lastWeek = weekNumbers(targets, bundle.facts, workWeekOf(addDaysISO(week.start, -7)), bundle.waits, bundle.skippedDays);
   const owedPrev = i.owed;
   const owed: ReportData["owed"] = owedPrev && owedPrev.items.length ? { dayWord: fmtDate(owedPrev.day, "EEEE"), items: owedPrev.items.map((j) => ({ id: j.targetId, text: `${j.name}: ${j.figure}`, reason: String(owedPrev.reasons[j.targetId] ?? row.reasons[`owed:${owedPrev.day}:${j.targetId}`] ?? "").trim() || null })) } : null;
   // The report's period: the day, or the week on Friday (Active this week).
@@ -378,6 +387,8 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
     dateLabel: fmtDate(day, "EEEE, MMM d"),
     friday,
     weekday,
+    weekJudged,
+    weekEndName: fmtDate(workWeekOf(day).end, "EEEE"),
     partner: first?.partner ?? partners[0] ?? null,
     partners,
     copies,
@@ -474,17 +485,17 @@ export async function loadReportsPage(sb: SupabaseClient, ctx: Ctx): Promise<Rep
   const week = workWeekOf(ctx.today);
   // This week stays open until Friday's End of day is sent or skipped (the month too, since it holds this week).
   const weekOpen = ctx.today < week.end || (ctx.today === week.end && todayRow.status === "open");
-  const last = { start: addDaysISO(week.start, -7), end: addDaysISO(week.start, -3) };
+  const last = workWeekOf(addDaysISO(week.start, -7));
   const month = { start: monthStart(ctx.today), end: ctx.today };
   const monthName = fmtDate(ctx.today, "MMMM");
   const defs: { key: PeriodKey; label: string; period: { start: string; end: string }; lead: string; words: string; last: { start: string; end: string } | null }[] = [
     { key: "this", label: "This week", period: week, lead: weekLine(week, { thisWeek: true, open: weekOpen, today: ctx.today }), words: "this week", last },
-    { key: "last", label: "Last week", period: last, lead: weekLine(last, { thisWeek: false }), words: "last week", last: { start: addDaysISO(last.start, -7), end: addDaysISO(last.start, -3) } },
+    { key: "last", label: "Last week", period: last, lead: weekLine(last, { thisWeek: false }), words: "last week", last: workWeekOf(addDaysISO(last.start, -7)) },
     // The older weeks of Past weeks (opened from Targets or a tile; their pill shows only while one is open).
     ...Array.from({ length: PAST_WEEKS - 1 }, (_, i) => {
       const start = addDaysISO(week.start, -7 * (i + 2));
-      const period = { start, end: addDaysISO(start, 4) };
-      return { key: pastWeekPeriodKey(i + 2), label: `Week of ${fmtDate(start, "MMM d")}`, period, lead: weekLine(period, { thisWeek: false }), words: `the week of ${fmtDate(start, "MMM d")}`, last: { start: addDaysISO(start, -7), end: addDaysISO(start, -3) } };
+      const period = workWeekOf(start);
+      return { key: pastWeekPeriodKey(i + 2), label: `Week of ${fmtDate(start, "MMM d")}`, period, lead: weekLine(period, { thisWeek: false }), words: `the week of ${fmtDate(start, "MMM d")}`, last: workWeekOf(addDaysISO(start, -7)) };
     }),
     { key: "month", label: monthName, period: month, lead: `${monthName} · ${fmtDate(month.start, "MMM d")} to ${fmtDate(ctx.today, "MMM d")} · this week counted so far`, words: `in ${monthName}`, last: null },
   ];
@@ -526,7 +537,7 @@ function targetRow(t: Target, bundle: FactsBundle, p: { start: string; end: stri
     let metDays = 0;
     let counted = 0;
     for (let d = p.start; d <= p.end && d <= today; d = addDaysISO(d, 1)) {
-      if (["Sat", "Sun"].includes(weekdayShort(d)) || bundle.skippedDays.includes(d)) continue;
+      if (!isWorkDay(d) || bundle.skippedDays.includes(d)) continue;
       counted++;
       const v = countIn(t.key, bundle.facts, d, d).value;
       if (v >= t.number) metDays++;
@@ -541,7 +552,7 @@ function targetRow(t: Target, bundle: FactsBundle, p: { start: string; end: stri
     let weeks = 0;
     let metWeeks = 0;
     for (let s = workWeekOf(p.start).start; s <= today; s = addDaysISO(s, 7)) {
-      const end = addDaysISO(s, 4);
+      const end = workWeekOf(s).end;
       if (end >= today) continue;
       weeks++;
       if (countIn(t.key, bundle.facts, s, end).value >= t.number) metWeeks++;
@@ -606,7 +617,7 @@ async function loadSentReports(sb: SupabaseClient, ctx: Ctx): Promise<SentRow[]>
   }
   return rows.map((r) => {
     const day = String(r.day).slice(0, 10);
-    const withWeek = weekdayShort(day) === "Fri";
+    const withWeek = isReviewDay(day);
     const skipped = r.status === "skipped";
     const mine = [...reports.values()].filter((x) => String(x.period_start).slice(0, 10) === day || String(x.id) === String(r.report_id ?? "")).filter((x, i, a) => a.findIndex((y) => y.id === x.id) === i);
     mine.sort((a, b) => String(a.sent_at ?? "").localeCompare(String(b.sent_at ?? "")));
@@ -660,7 +671,7 @@ function htmlWords(html: string): string {
 /** The sent rows by week: This week, Last week, Earlier in <month>, Earlier (collapsed). */
 function groupSent(rows: SentRow[], today: string): SentSection[] {
   const week = workWeekOf(today);
-  const last = { start: addDaysISO(week.start, -7), end: addDaysISO(week.start, -3) };
+  const last = workWeekOf(addDaysISO(week.start, -7));
   const month = monthStart(today);
   const hint = (p: { start: string; end: string }) => `${fmtDate(p.start, "EEE MMM d")} to ${fmtDate(p.end, "EEE MMM d")}`;
   const sections: SentSection[] = [
@@ -691,11 +702,12 @@ export async function loadTargetsTile(sb: SupabaseClient, ctx: Ctx): Promise<Tar
   const judged = row.status !== "open" && row.judged.length ? row.judged : judgeDay(targets, bundle.facts, ctx.today, bundle.skippedDays);
   const owed = owedReasons(judged, row.reasons).length + (owedPrev?.items.filter((j) => !String(row.reasons[`owed:${owedPrev.day}:${j.targetId}`] ?? "").trim()).length ?? 0);
   const week = workWeekOf(ctx.today);
-  const friday = weekdayShort(ctx.today) === "Fri";
+  const friday = isReviewDay(ctx.today);
+  const weekJudged = isWeekJudgedOn(ctx.today);
   const lines = tileTargets(targets).map((t) => {
     const p = t.cadence === "day" ? { start: ctx.today, end: ctx.today } : week;
     const v = countIn(t.key, bundle.facts, p.start, p.end).value;
-    return { id: t.id, name: t.name, sub: tileTargetLine(t, v, ctx.today, eodShort(wctx.eodTime)), figure: figure(t, v), label: t.cadence === "day" ? "Today" : "This week", tone: (v >= t.number ? "met" : t.cadence === "week" && friday && !v ? "missed" : "plain") as "plain" | "met" | "missed" };
+    return { id: t.id, name: t.name, sub: tileTargetLine(t, v, ctx.today, eodShort(wctx.eodTime)), figure: figure(t, v), label: t.cadence === "day" ? "Today" : "This week", tone: (v >= t.number ? "met" : t.cadence === "week" && weekJudged && !v ? "missed" : "plain") as "plain" | "met" | "missed" };
   });
   const met = metThisWeek(targets, bundle.facts, ctx.today, bundle.skippedDays);
   return {
@@ -704,7 +716,7 @@ export async function loadTargetsTile(sb: SupabaseClient, ctx: Ctx): Promise<Tar
     today: ctx.today,
     lines,
     met: { met: met.met, total: met.total, names: listNames(met.names, 2) || "none yet" },
-    eod: { state: row.status, badge: row.status === "sent" ? "Sent" : row.status === "skipped" ? "Skipped" : eodShort(wctx.eodTime), line: tileEodLine(owed, row.tomorrow, row.status, row.skipReason, friday, eodShort(wctx.eodTime)) },
+    eod: { state: row.status, badge: row.status === "sent" ? "Sent" : row.status === "skipped" ? "Skipped" : eodShort(wctx.eodTime), line: tileEodLine(owed, row.tomorrow, row.status, row.skipReason, tomorrowLabel(ctx.today), eodShort(wctx.eodTime)) },
   };
 }
 

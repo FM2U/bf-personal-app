@@ -3,6 +3,7 @@
  * report on the weekdays chosen on their page, with only the sections ticked there. Several partners can be due on
  * the same day; each gets their own copy. Pure and tested in src/lib/accountability/partners.test.ts.
  */
+import { workWeekNow } from "@/lib/work-week";
 
 /**
  * The report's sections, as the End of day report has them (src/lib/accountability/report-sections.ts), in the
@@ -27,13 +28,15 @@ export const ALL_SECTIONS: ReportSectionKey[] = REPORT_SECTIONS.map((s) => s.key
 const RENAMED_SECTIONS: Record<string, ReportSectionKey> = { moved: "active" };
 const readSections = (v: unknown[]): unknown[] => v.map((k) => RENAMED_SECTIONS[String(k)] ?? k);
 
-/** Monday to Friday as stored (ISO weekday numbers). */
+/** Monday to Sunday as stored (ISO weekday numbers); the weekend days since the work week setting (2026-11-07). */
 export const REPORT_WEEKDAYS = [
   { n: 1, label: "Mon" },
   { n: 2, label: "Tue" },
   { n: 3, label: "Wed" },
   { n: 4, label: "Thu" },
   { n: 5, label: "Fri" },
+  { n: 6, label: "Sat" },
+  { n: 7, label: "Sun" },
 ] as const;
 const WEEKDAY_NUMBERS: number[] = REPORT_WEEKDAYS.map((d) => d.n);
 
@@ -53,7 +56,8 @@ export function partnerSettings(row: { report_days?: unknown; report_sections?: 
   const reviewOn = raw.length > 0 && !raw.includes(REVIEW_OFF);
   const sections = ALL_SECTIONS.filter((k) => raw.includes(k) || (k === "review" && reviewOn));
   const rawEmpty = (!Array.isArray(row.report_days) || !row.report_days.length) && (!Array.isArray(row.report_sections) || !row.report_sections.length);
-  if (rawEmpty) return { days: [...WEEKDAY_NUMBERS], sections: [...ALL_SECTIONS] };
+  // Never set: your work days (Settings, Work settings; Monday to Friday unless changed).
+  if (rawEmpty) return { days: [...workWeekNow().days], sections: [...ALL_SECTIONS] };
   return { days, sections };
 }
 
@@ -87,16 +91,17 @@ export function partnersDueOn<T extends { days: readonly number[] }>(partners: r
 /** "every weekday", "Fridays", "Mon, Wed, Fri", or "no days". */
 export function daysLabel(days: readonly number[]): string {
   const list = REPORT_WEEKDAYS.filter((d) => days.includes(d.n));
-  if (list.length === 5) return "every weekday";
+  if (list.length === 7) return "every day";
+  if (list.length === 5 && list.every((d) => d.n <= 5)) return "every weekday";
   if (!list.length) return "no days";
-  if (list.length === 1) return { 1: "Mondays", 2: "Tuesdays", 3: "Wednesdays", 4: "Thursdays", 5: "Fridays" }[list[0].n] ?? list[0].label;
+  if (list.length === 1) return { 1: "Mondays", 2: "Tuesdays", 3: "Wednesdays", 4: "Thursdays", 5: "Fridays", 6: "Saturdays", 7: "Sundays" }[list[0].n] ?? list[0].label;
   return list.map((d) => d.label).join(", ");
 }
 
 /** The short form for a sentence: "weekdays", "Fridays", "Mon, Wed, Fri", "no days". */
 function daysShort(days: readonly number[]): string {
   const l = daysLabel(days);
-  return l === "every weekday" ? "weekdays" : l;
+  return l === "every weekday" ? "weekdays" : l === "every day" ? "every day" : l;
 }
 
 /** The Gets column of the partner table on End of day: "Weekdays", "Fridays", "Mon, Wed, Fri", "No days". */

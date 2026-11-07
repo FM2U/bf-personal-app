@@ -11,6 +11,8 @@
 -- Push D (2026-11-04) is included: an end date for Repeat, the Weekly review on Friday, and monthly reviews.
 -- Push E (2026-11-05) is included: No reply yet, Add to Waiting, and waiting on a person.
 -- Push E part 2 (2026-11-05) is included: several waits on one deal or person (table waits), and Follow up watches both emails.
+-- Push F (2026-11-06) and push G (2026-11-07, read_batch) are included.
+-- Push H (2026-11-07) is included: the work week (work days, the week's start day, the weekly review day, Friday to start).
 
 -- Stops here, changing nothing, if this database already has the app's tables (for example the old project).
 do $$
@@ -1009,7 +1011,7 @@ CREATE TABLE public.owner_profile (
     timezone text DEFAULT 'America/New_York'::text NOT NULL,
     morning_hour integer DEFAULT 7 NOT NULL,
     evening_hour integer DEFAULT 20 NOT NULL,
-    weekly_review_weekday integer DEFAULT 0 NOT NULL,
+    weekly_review_weekday integer DEFAULT 5 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     commitment_rule_applied_at timestamp with time zone,
@@ -1018,6 +1020,10 @@ CREATE TABLE public.owner_profile (
     email_signature_enabled boolean,
     email_signature_updated_at timestamp with time zone,
     default_block_minutes integer DEFAULT 60 NOT NULL,
+    work_days smallint[] DEFAULT '{1,2,3,4,5}'::smallint[] NOT NULL,
+    week_start smallint DEFAULT 1 NOT NULL,
+    CONSTRAINT owner_profile_work_days_check CHECK (((cardinality(work_days) >= 1) AND (work_days <@ '{1,2,3,4,5,6,7}'::smallint[]))),
+    CONSTRAINT owner_profile_week_start_check CHECK ((week_start = ANY (ARRAY[1, 7]))),
     CONSTRAINT owner_profile_default_block_minutes_check CHECK (((default_block_minutes >= 5) AND (default_block_minutes <= 480))),
     CONSTRAINT owner_profile_evening_hour_check CHECK (((evening_hour >= 0) AND (evening_hour <= 23))),
     CONSTRAINT owner_profile_morning_hour_check CHECK (((morning_hour >= 0) AND (morning_hour <= 23))),

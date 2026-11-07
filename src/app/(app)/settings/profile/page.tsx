@@ -1,6 +1,6 @@
 import { requireOwner } from "@/lib/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input, NativeSelect } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 import { DetailGrid, PageHeader } from "@/components/app/page-header";
 import { SubmitButton } from "@/components/app/submit-button";
 import { saveProfile } from "@/app/actions/settings";
@@ -8,8 +8,6 @@ import { dateTime } from "@/lib/format";
 import { GuardedForm } from "@/components/app/unsaved-changes";
 
 export const metadata = { title: "Profile and security" };
-
-const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 export default async function ProfilePage() {
   const { supabase, user } = await requireOwner();
@@ -41,16 +39,6 @@ export default async function ProfilePage() {
               <label className="flex flex-col gap-1.5 text-sm font-medium">
                 <span className="field-label"><span>Daily close hour (evening)</span></span>
                 <Input name="evening_hour" type="number" min={0} max={23} defaultValue={profile?.evening_hour ?? 20} />
-              </label>
-              <label className="flex flex-col gap-1.5 text-sm font-medium">
-                <span className="field-label"><span>Weekly review day</span></span>
-                <NativeSelect name="weekly_review_weekday" defaultValue={String(profile?.weekly_review_weekday ?? 0)}>
-                  {DAYS.map((d, i) => (
-                    <option key={d} value={i}>
-                      {d}
-                    </option>
-                  ))}
-                </NativeSelect>
               </label>
               <div className="flex items-end">
                 <SubmitButton>Save</SubmitButton>

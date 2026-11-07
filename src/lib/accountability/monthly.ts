@@ -14,7 +14,8 @@
  * over the same weeks: per counted weekday for a per-weekday target, per week otherwise; a percent target averages
  * its weekly percentages.
  */
-import { addDaysISO, isWeekday } from "@/lib/calc/dates";
+import { addDaysISO } from "@/lib/calc/dates";
+import { isWorkDay, weekOf, weekStartOf } from "@/lib/work-week";
 import { countable, countIn, type Cadence, type Facts, type Target } from "@/lib/accountability/targets";
 
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -64,10 +65,10 @@ export function parseMonthSlug(v: unknown): string | null {
   return m ? `${m[1]}-${m[2]}-01` : null;
 }
 
-/** The first Monday-to-Friday day of a month. */
+/** The first work day of a month (Monday to Friday unless changed in Settings). */
 export function firstWorkday(month: string): string {
   let d = month;
-  while (!isWeekday(d)) d = addDaysISO(d, 1);
+  for (let i = 0; i < 7 && !isWorkDay(d); i++) d = addDaysISO(d, 1);
   return d;
 }
 
@@ -77,13 +78,13 @@ export function reviewMonthFor(today: string): { month: string; opensOn: string 
   return today >= opensOn ? { month: previousMonthStart(today), opensOn } : null;
 }
 
-/** The full work weeks of a month (Monday to Friday all inside it), in order. */
+/** The full work weeks of a month (from the week's start day to its last work day, all inside it), in order. */
 export function fullWeeks(month: string): { start: string; end: string }[] {
   const end = monthEnd(month);
-  let d = month;
-  while (new Date(`${d}T12:00:00Z`).getUTCDay() !== 1) d = addDaysISO(d, 1);
+  let d = weekStartOf(month);
+  if (d < month) d = addDaysISO(d, 7);
   const out: { start: string; end: string }[] = [];
-  for (; addDaysISO(d, 4) <= end; d = addDaysISO(d, 7)) out.push({ start: d, end: addDaysISO(d, 4) });
+  for (; weekOf(d).end <= end; d = addDaysISO(d, 7)) out.push(weekOf(d));
   return out;
 }
 

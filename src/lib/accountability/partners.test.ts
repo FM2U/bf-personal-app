@@ -52,7 +52,12 @@ describe("a partner's sections", () => {
     expect(partnerSettings({ report_days: [], report_sections: ["targets", "review_off"] })).toEqual({ days: [], sections: ["targets"] });
   });
   it("Save: weekdays in order, at least one section, unknown saved keys kept", () => {
-    expect(cleanPartnerSettings({ days: [5, 1, 1, 6], sections: ["week", "today", "nope"] }, ["today", "later_section"])).toEqual({ ok: true, days: [1, 5], sections: ["today", "week", "review_off", "later_section"] });
+    expect(cleanPartnerSettings({ days: [5, 1, 1, 8], sections: ["week", "today", "nope"] }, ["today", "later_section"])).toEqual({ ok: true, days: [1, 5], sections: ["today", "week", "review_off", "later_section"] });
+    // The work week (2026-11-07): Saturday and Sunday can be report days too.
+    expect(cleanPartnerSettings({ days: [7, 6], sections: ["today"] }, [])).toMatchObject({ ok: true, days: [6, 7] });
+    expect(daysLabel([6])).toBe("Saturdays");
+    expect(daysLabel([1, 2, 3, 4, 5, 6, 7])).toBe("every day");
+    expect(daysLabel([1, 2, 3, 4, 5])).toBe("every weekday");
   });
   it("Weekly review (push D): on by default, off only when unticked, and ticking it again clears the mark", () => {
     expect(partnerSettings({ report_days: [5], report_sections: ["targets"] }).sections).toEqual(["targets", "review"]);

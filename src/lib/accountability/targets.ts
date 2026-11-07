@@ -7,7 +7,8 @@
  * weeks tiles and "Most missed", the reasons-left logic of End of day, the report's numbers, and the Home tile lines.
  * Nothing here reads the database: src/lib/accountability/data.ts loads the facts and calls these.
  */
-import { addDaysISO, isWeekday, weekBounds } from "@/lib/calc/dates";
+import { addDaysISO } from "@/lib/calc/dates";
+import { dayLong, isWeekJudgedOn, isWorkDay, nextWorkDay, weekOf, workDaysIn, workDaysLabel } from "@/lib/work-week";
 import { weekdayShort } from "@/lib/work/outreach";
 
 // ---------- What a target counts ----------
@@ -23,7 +24,7 @@ export const COUNTABLES: readonly Countable[] = [
   { key: "brokers_contacted", label: "Brokers contacted", counts: "emails sent and calls logged to people with the role Broker, each person once", unit: "count" },
   { key: "emails_sent", label: "Emails sent", counts: "emails sent from the app or logged on a person", unit: "count" },
   { key: "calls_logged", label: "Calls logged", counts: "calls, meetings, and video calls logged", unit: "count" },
-  { key: "outreach_contacts", label: "Outreach contacts", counts: "emails sent and calls logged to people, Mon to Fri", unit: "count" },
+  { key: "outreach_contacts", label: "Outreach contacts", counts: "emails sent and calls logged to people, on work days", unit: "count" },
   { key: "follow_ups_on_time", label: "Follow-ups on time", counts: "outreach follow-ups done on or before their date", unit: "percent" },
   { key: "deals_moved", label: "Deals moved", counts: "stage moves on Deals, Job search and Consulting", unit: "count" },
   { key: "next_actions_done", label: "Next actions done", counts: "next actions marked Done on deals, projects, and opportunities, follow-ups marked Done on Contacts, and tasks checked off on records", unit: "count" },
@@ -127,7 +128,7 @@ export function countIn(key: CountKey, f: Facts, start: string, end: string): Co
       return { value: rows.length, detail: listNames(names), names };
     }
     case "outreach_contacts": {
-      const rows = f.comms.filter((c) => !!c.contactId && isContact(c.method) && inRange(c.on, start, end) && isWeekday(c.on));
+      const rows = f.comms.filter((c) => !!c.contactId && isContact(c.method) && inRange(c.on, start, end) && isWorkDay(c.on));
       const names = [...new Set(rows.map((r) => r.contactName ?? "").filter(Boolean))];
       return { value: rows.length, detail: listNames(names), names };
     }
@@ -177,10 +178,9 @@ function dayName(date: string): string {
 
 type Period = { start: string; end: string };
 
-/** Monday to Friday of the week that holds the date. */
+/** The week that holds the date, from its start day to its last work day (Monday to Friday unless changed in Settings). */
 export function workWeekOf(date: string): Period {
-  const { start } = weekBounds(date);
-  return { start, end: addDaysISO(start, 4) };
+  return weekOf(date);
 }
 
 /** The period a target is judged on for a date: that day, or Monday to Friday of its week. */
@@ -202,7 +202,7 @@ export function figure(t: Pick<Target, "key" | "number">, value: number, require
 
 /** Does End of day judge this target on this date? Per weekday: every weekday. Per week: Friday. */
 function judgedOn(t: Pick<Target, "cadence">, date: string): boolean {
-  return t.cadence === "day" ? isWeekday(date) : weekdayShort(date) === "Fri";
+  return t.cadence === "day" ? isWorkDay(date) : isWeekJudgedOn(date);
 }
 
 export type Mark = "met" | "missed" | "now";
@@ -245,8 +245,7 @@ function stripOf(t: Target, f: Facts, today: string, opts: { skippedDays?: reado
   let judged = 0;
   if (t.cadence === "day") {
     const week = workWeekOf(today);
-    for (let i = 0; i < 5; i++) {
-      const d = addDaysISO(week.start, i);
+    for (const d of workDaysIn(week.start, week.end)) {
       const name = weekdayShort(d);
       const v = countIn(t.key, f, d, d).value;
       if (d > today) cells.push({ state: "future", title: `${name}: to come`, period: { start: d, end: d } });
@@ -259,14 +258,14 @@ function stripOf(t: Target, f: Facts, today: string, opts: { skippedDays?: reado
         cells.push({ state: m ? "met" : "missed", title: `${name}: ${figure(t, v)}`, period: { start: d, end: d } });
       }
     }
-    const text = `Mon to Fri · met ${met} of ${judged} ${judged === 1 ? "day" : "days"}${today <= week.end ? " so far" : ""}`;
+    const text = `${workDaysLabel()} · met ${met} of ${judged} ${judged === 1 ? "day" : "days"}${today <= week.end ? " so far" : ""}`;
     return { cells, text, met, judged, streak: null };
   }
   const thisWeek = workWeekOf(today);
   const results: boolean[] = [];
   for (let i = 7; i >= 1; i--) {
     const start = addDaysISO(thisWeek.start, -7 * i);
-    const p = { start, end: addDaysISO(start, 4) };
+    const p = weekOf(start);
     const v = countIn(t.key, f, p.start, p.end).value;
     const m = isMet(t, v);
     results.push(m);
@@ -276,7 +275,7 @@ function stripOf(t: Target, f: Facts, today: string, opts: { skippedDays?: reado
   }
   const v = countIn(t.key, f, thisWeek.start, thisWeek.end).value;
   // Met as soon as the week's count reaches the target (Edit batch C round 2); missed only after Friday's End of day.
-  cells.push({ state: isMet(t, v) ? "met" : (opts.judgedToday && weekdayShort(today) === "Fri") || today > thisWeek.end ? "missed" : "now", title: `This week so far: ${figure(t, v)}`, period: thisWeek });
+  cells.push({ state: isMet(t, v) ? "met" : (opts.judgedToday && isWeekJudgedOn(today)) || today > thisWeek.end ? "missed" : "now", title: `This week so far: ${figure(t, v)}`, period: thisWeek });
   let run = 0;
   for (let i = results.length - 1; i >= 0 && results[i]; i--) run++;
   let miss = 0;
@@ -317,7 +316,7 @@ export function targetView(t: Target, f: Facts, today: string, opts: { skippedDa
       line: countsLine(t),
       pill: targetPill(t),
       strip,
-      mark: isWeekday(today) ? mark : markOf(t, weekSum, week.end, today),
+      mark: isWorkDay(today) ? mark : markOf(t, weekSum, week.end, today),
       figures: [
         { value: figure(t, todayCount), label: "Today", tone: isMet(t, todayCount) ? "met" : mark === "missed" ? "missed" : "plain" },
         { value: `${weekSum} of ${required}`, label: "This week", tone: weekSum >= required && counted > 0 ? "met" : "plain" },
@@ -326,9 +325,9 @@ export function targetView(t: Target, f: Facts, today: string, opts: { skippedDa
     };
   }
   const cur = countIn(t.key, f, week.start, week.end);
-  const lastWeek = { start: addDaysISO(week.start, -7), end: addDaysISO(week.start, -3) };
+  const lastWeek = weekOf(addDaysISO(week.start, -7));
   const last = countIn(t.key, f, lastWeek.start, lastWeek.end);
-  const mark = markOf(t, cur.value, week.end, today, opts.judgedToday && weekdayShort(today) === "Fri");
+  const mark = markOf(t, cur.value, week.end, today, opts.judgedToday && isWeekJudgedOn(today));
   return {
     ...t,
     line: countsLine(t),
@@ -343,16 +342,10 @@ export function targetView(t: Target, f: Facts, today: string, opts: { skippedDa
   };
 }
 
-/** The weekdays of this week up to and including today, less the skipped ones (the "of 25" of a per-weekday target shrinks on a travel day). */
+/** The work days of this week up to and including today, less the skipped ones (the "of 25" of a per-weekday target shrinks on a travel day). */
 export function countedDays(today: string, skipped: readonly string[]): number {
   const week = workWeekOf(today);
-  let n = 0;
-  for (let i = 0; i < 5; i++) {
-    const d = addDaysISO(week.start, i);
-    if (d <= today && !skipped.includes(d)) n++;
-  }
-  // Before the week's Monday (a weekend) the whole week counts.
-  return today < week.start ? 5 : n;
+  return workDaysIn(week.start, week.end).filter((d) => d <= today && !skipped.includes(d)).length;
 }
 
 /** Targets met this week so far, of N: a per-week target by its week figure, a per-weekday one by its week sum. */
@@ -373,8 +366,8 @@ export type WeekTile = { weekStart: string; met: number; total: number; missed: 
 
 /** A week's judgment of every target (a per-weekday target: its sum against number times 5 counted days). */
 export function judgeWeek(targets: readonly Target[], f: Facts, weekStart: string, skipped: readonly string[] = []): WeekTile {
-  const end = addDaysISO(weekStart, 4);
-  const days = 5 - skipped.filter((d) => d >= weekStart && d <= end).length;
+  const end = weekOf(weekStart).end;
+  const days = workDaysIn(weekStart, end).filter((d) => !skipped.includes(d)).length;
   const missed: { name: string; figure: string }[] = [];
   let met = 0;
   for (const t of targets) {
@@ -469,7 +462,7 @@ export type EodState = "open" | "sent" | "skipped";
  * "Done"), on Fridays (push D) Weekly review ("2 of 3" or "Done"), and the next working day's line ("Empty" or "Done",
  * named "Monday's line" on Friday). `reviewAnswered` is null on other days.
  */
-export function sendChecklist(owed: number, tomorrow: string, tomorrowWord: "Tomorrow" | "Monday", reviewAnswered: number | null = null): { key: "reasons" | "review" | "tomorrow"; label: string; state: string; done: boolean }[] {
+export function sendChecklist(owed: number, tomorrow: string, tomorrowWord: string, reviewAnswered: number | null = null): { key: "reasons" | "review" | "tomorrow"; label: string; state: string; done: boolean }[] {
   return [
     { key: "reasons", label: "Reasons", state: owed ? `${owed} left` : "Done", done: !owed },
     ...(reviewAnswered === null ? [] : [{ key: "review" as const, label: "Weekly review", state: reviewAnswered >= 3 ? "Done" : `${reviewAnswered} of 3`, done: reviewAnswered >= 3 }]),
@@ -478,9 +471,10 @@ export function sendChecklist(owed: number, tomorrow: string, tomorrowWord: "Tom
 }
 
 /** The End of day line on the Home tile. */
-export function tileEodLine(owed: number, tomorrow: string, state: EodState, skipReason: string | null, friday: boolean, time: string = END_OF_DAY_TIME): string {
-  if (state === "sent") return `Approved by you. Next report ${friday ? "Monday" : "tomorrow"} at ${time}.`;
-  if (state === "skipped") return `Skipped${skipReason ? `: ${skipReason}` : ""}. Any reason still owed is asked ${friday ? "Monday" : "tomorrow"}.`;
+export function tileEodLine(owed: number, tomorrow: string, state: EodState, skipReason: string | null, nextWord: string, time: string = END_OF_DAY_TIME): string {
+  const next = nextWord === "Tomorrow" ? "tomorrow" : nextWord;
+  if (state === "sent") return `Approved by you. Next report ${next} at ${time}.`;
+  if (state === "skipped") return `Skipped${skipReason ? `: ${skipReason}` : ""}. Any reason still owed is asked ${next}.`;
   if (owed) return `Reasons (${owed} left), then approve and send`;
   if (!tomorrow.trim()) return "Tomorrow's line is empty; then approve and send";
   return "Reasons done; approve and send";
@@ -489,10 +483,10 @@ export function tileEodLine(owed: number, tomorrow: string, state: EodState, ski
 /** The report time shown on the End of day badge and the Home tile. */
 export const END_OF_DAY_TIME = "5:30";
 
-/** The next working day's name for the tomorrow card: "Tomorrow" Monday to Thursday, "Monday" on Friday (and the weekend). */
-export function tomorrowLabel(day: string): "Tomorrow" | "Monday" {
-  const w = weekdayShort(day);
-  return w === "Fri" || w === "Sat" || w === "Sun" ? "Monday" : "Tomorrow";
+/** The next work day's name for the tomorrow card: "Tomorrow" when it is the next day, else its name ("Monday" on a Friday by default). */
+export function tomorrowLabel(day: string): string {
+  const next = nextWorkDay(day);
+  return next === addDaysISO(day, 1) ? "Tomorrow" : dayLong(next);
 }
 
 /** The tile line under a target on Home: "Commitment · 2 to go before 5:30", "judged tonight, it is Friday". */
@@ -501,7 +495,7 @@ export function tileTargetLine(t: Target, value: number, today: string, time: st
   if (t.commitment) parts.push("Commitment");
   if (isMet(t, value)) parts.push("met");
   else if (t.cadence === "day") parts.push(`${t.number - value} to go before ${time}`);
-  else if (weekdayShort(today) === "Fri") parts.push("judged tonight, it is Friday");
+  else if (isWeekJudgedOn(today)) parts.push(`judged tonight, it is ${dayLong(today)}`);
   else parts.push(`${t.number - value} to go this week`);
   return parts.join(" · ");
 }
@@ -648,11 +642,9 @@ export function weekNumbers(targets: readonly Target[], f: Facts, p: Period, wai
   };
 }
 
-/** The weekdays (Mon to Fri) in a period. */
+/** The work days in a period. */
 function weekdaysIn(p: Period): number {
-  let n = 0;
-  for (let d = p.start; d <= p.end; d = addDaysISO(d, 1)) if (isWeekday(d)) n++;
-  return n;
+  return workDaysIn(p.start, p.end).length;
 }
 
 /** The six figure tiles of "The week" (Reports) and the Friday section of the email. */
@@ -686,7 +678,7 @@ export function mostMissedIn(targets: readonly Target[], f: Facts, p: Period, to
     const misses = new Map<string, number>();
     let weeks = 0;
     for (let s = workWeekOf(p.start).start; s <= today; s = addDaysISO(s, 7)) {
-      const end = addDaysISO(s, 4);
+      const end = weekOf(s).end;
       if (end >= today) continue;
       weeks++;
       for (const m of judgeWeek(targets, f, s, skipped).missed) misses.set(m.name, (misses.get(m.name) ?? 0) + 1);

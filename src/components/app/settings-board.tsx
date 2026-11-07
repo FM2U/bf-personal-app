@@ -6,6 +6,7 @@ import { saveAiCap, saveStageDefaults, saveWorkSettings } from "@/app/actions/se
 import { useUnsavedWork } from "@/components/app/unsaved-changes";
 import { RowButton, WorkCard } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
+import { WEEK_DAYS, type WorkWeek } from "@/lib/work-week";
 
 /**
  * The parts of the one Settings page (push D, approved mockup 2026-11-02 V.setup) that are typed into: Work settings,
@@ -36,18 +37,26 @@ export function KV({ label, children, testId }: { label: React.ReactNode; childr
   );
 }
 
-export type WorkSettingsValues = { threshold: number; noReply: number; outreach: number; eodTime: string; blockMinutes: number };
+export type WorkSettingsValues = { threshold: number; noReply: number; outreach: number; eodTime: string; blockMinutes: number; workWeek: WorkWeek };
 
 export function WorkSettingsCard({ initial }: { initial: WorkSettingsValues }) {
   const router = useRouter();
-  const start0 = { threshold: String(initial.threshold), noReply: String(initial.noReply), outreach: String(initial.outreach), eodTime: initial.eodTime, blockMinutes: String(initial.blockMinutes) };
+  const start0 = { threshold: String(initial.threshold), noReply: String(initial.noReply), outreach: String(initial.outreach), eodTime: initial.eodTime, blockMinutes: String(initial.blockMinutes), workDays: [...initial.workWeek.days], weekStart: String(initial.workWeek.start), reviewDay: String(initial.workWeek.review) };
   const [v, setV] = useState(start0);
   const [saved, setSaved] = useState(start0);
   const [note, setNote] = useState<Note>(null);
   const [pending, start] = useTransition();
   const dirty = JSON.stringify(v) !== JSON.stringify(saved);
   useUnsavedWork(dirty, "Your Work settings are not saved yet.");
-  const set = (k: keyof typeof v) => (e: React.ChangeEvent<HTMLInputElement>) => {
+  const toggleDay = (n: number, on: boolean) => {
+    setNote(null);
+    setV((x) => ({ ...x, workDays: on ? [...new Set([...x.workDays, n])].sort((a, b) => a - b) : x.workDays.filter((d) => d !== n) }));
+  };
+  const pick = (k: "weekStart" | "reviewDay") => (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setNote(null);
+    setV((x) => ({ ...x, [k]: e.target.value }));
+  };
+  const set = (k: "threshold" | "noReply" | "outreach" | "eodTime" | "blockMinutes") => (e: React.ChangeEvent<HTMLInputElement>) => {
     setNote(null);
     setV((x) => ({ ...x, [k]: e.target.value }));
   };
@@ -64,7 +73,7 @@ export function WorkSettingsCard({ initial }: { initial: WorkSettingsValues }) {
     <WorkCard
       id="s-work"
       title="Work settings"
-      sub="Waiting colors, No reply yet, the outreach target, End of day, Block time"
+      sub="Waiting colors, No reply yet, the outreach target, End of day, your work week, Block time"
       actions={
         <RowButton tone={dirty ? "primary" : "outline"} onClick={save} disabled={pending || !dirty} className="h-7 px-3 text-xs" data-testid="work-settings-save">
           {pending ? "Saving" : "Save"}
@@ -103,7 +112,35 @@ export function WorkSettingsCard({ initial }: { initial: WorkSettingsValues }) {
         </KV>
         <KV label="End of day" testId="work-settings-eod">
           <input type="time" value={v.eodTime} onChange={set("eodTime")} step={300} className={cn(INPUT, "w-[120px]")} aria-label="End of day time" data-testid="work-eod-time" />
-          <span>weekdays</span>
+          <span>on work days</span>
+        </KV>
+        {/* The work week (Bram, 2026-11-07, design B): the work days, the week's first day, and the weekly review day
+            (its own setting: it does not follow the work days). */}
+        <KV label="Work days" testId="work-settings-days">
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            {WEEK_DAYS.map((d) => (
+              <label key={d.n} className="flex cursor-pointer items-center gap-1.5" data-testid="work-day" data-day={d.n}>
+                <input type="checkbox" checked={v.workDays.includes(d.n)} onChange={(e) => toggleDay(d.n, e.target.checked)} className="h-4 w-4 shrink-0 cursor-pointer rounded-[4px] accent-primary-strong" aria-label={d.long} />
+                <span>{d.short}</span>
+              </label>
+            ))}
+          </span>
+        </KV>
+        <KV label="Week starts on" testId="work-settings-week-start">
+          <select value={v.weekStart} onChange={pick("weekStart")} className={cn(INPUT, "w-[120px]")} aria-label="Week starts on" data-testid="work-week-start">
+            <option value="1">Monday</option>
+            <option value="7">Sunday</option>
+          </select>
+        </KV>
+        <KV label="Weekly review day" testId="work-settings-review">
+          <select value={v.reviewDay} onChange={pick("reviewDay")} className={cn(INPUT, "w-[140px]")} aria-label="Weekly review day" data-testid="work-review-day">
+            {WEEK_DAYS.map((d) => (
+              <option key={d.n} value={String(d.n)}>
+                {d.long}
+              </option>
+            ))}
+          </select>
+          <span className="text-muted-foreground">the Weekly review and The week in that day&apos;s report</span>
         </KV>
         <KV label="Default block length" testId="work-settings-block">
           <input value={v.blockMinutes} onChange={set("blockMinutes")} inputMode="numeric" className={NUM} aria-label="Default block length (minutes)" data-testid="work-block-minutes" />

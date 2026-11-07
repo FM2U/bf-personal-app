@@ -202,7 +202,9 @@ const until = async (fn, msg, tries = 40) => {
     assert(opts[0].on && opts[0].n === before[0], `All is picked with ${opts[0].n} (All tile ${before[0]})`);
     assert(opts.every((o) => (o.v !== "all" && o.n === 0) === o.off), `zero areas greyed ${JSON.stringify(opts)}`);
     assert(opts.some((o) => o.off), "the sample has an empty area (Consulting)");
-    // Placed above the tiles, left-aligned with them, the right column still level with the tiles.
+    // Placed above the tiles, left-aligned with them, the right column still level with the tiles. The Waiting card
+    // arrives after the list (Home list first, 2026-11-07), so the check waits for it.
+    await page.getByTestId("now-wait").waitFor({ timeout: 15000 });
     const sb = await page.getByTestId("area-selector").boundingBox();
     const tb = await page.getByTestId("home-tiles").boundingBox();
     const wb = await page.getByTestId("now-wait").boundingBox();

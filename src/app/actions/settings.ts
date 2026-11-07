@@ -8,6 +8,8 @@ import { connectionChecks } from "@/lib/jobs";
 import { oauthClient } from "@/lib/google";
 import { decrypt } from "@/lib/crypto";
 import { cleanStageDefaults, cleanWorkSettings, WORK_SETTING_KEYS, type StageDefaultInput } from "@/lib/work/settings";
+import { cleanWorkWeek, setWorkWeek, workWeekFromProfile } from "@/lib/work-week";
+import type { Row } from "@/lib/types";
 
 export async function disconnectGoogle() {
   const { supabase, ownerId } = await requireOwner();
@@ -40,7 +42,6 @@ export async function saveProfile(fd: FormData) {
       timezone: tz,
       morning_hour: Number(fd.get("morning_hour") ?? 7),
       evening_hour: Number(fd.get("evening_hour") ?? 20),
-      weekly_review_weekday: Number(fd.get("weekly_review_weekday") ?? 0),
     })
     .eq("owner_id", ownerId);
   revalidatePath("/", "layout");
@@ -68,7 +69,7 @@ async function putInput(sb: SupabaseClient, ownerId: string, def: { key: string;
 }
 
 /** Work settings: waiting turns amber at (days), No reply yet after (days; push E), the weekly outreach target, the End of day time, the default block length. */
-export async function saveWorkSettings(input: { threshold: string; noReply: string; outreach: string; eodTime: string; blockMinutes: string }): Promise<{ ok: true } | Fail> {
+export async function saveWorkSettings(input: { threshold: string; noReply: string; outreach: string; eodTime: string; blockMinutes: string; workDays?: number[]; weekStart?: string; reviewDay?: string }): Promise<{ ok: true } | Fail> {
   // Speed plan (2026-11-07): the settings kept in the browser are read fresh on the next page.
   await forgetKeptSettings();
   const { supabase, ownerId } = await requireOwner();
@@ -86,6 +87,20 @@ export async function saveWorkSettings(input: { threshold: string; noReply: stri
   }
   const { error } = await supabase.from("owner_profile").update({ default_block_minutes: v.blockMinutes }).eq("owner_id", ownerId);
   if (error) return { ok: false, error: `Not saved: ${error.message}` };
+  // The work week (design B, 2026-11-07): saved only when it changed, so the other fields save before the database update.
+  if (input.workDays) {
+    const days = [...new Set(input.workDays.map(Number).filter((n) => Number.isInteger(n) && n >= 1 && n <= 7))].sort((a, b) => a - b);
+    if (!days.length) return { ok: false, error: "Tick at least one work day." };
+    const ww = cleanWorkWeek({ days, start: input.weekStart, review: input.reviewDay });
+    const { data: before } = await supabase.from("owner_profile").select("*").eq("owner_id", ownerId).maybeSingle();
+    const was = workWeekFromProfile(before as Row | null);
+    if (JSON.stringify(was) !== JSON.stringify(ww)) {
+      if (before && !("work_days" in (before as Row))) return { ok: false, error: "The other settings are saved. The work week needs the database update first: run supabase/UPDATE_PREVIEW_PUSH_H.sql in Supabase, then Save again." };
+      const { error: e2 } = await supabase.from("owner_profile").update({ work_days: ww.days, week_start: ww.start, weekly_review_weekday: ww.review % 7 }).eq("owner_id", ownerId);
+      if (e2) return { ok: false, error: `The work week was not saved: ${e2.message}` };
+      setWorkWeek(ww);
+    }
+  }
   revalidatePath("/", "layout");
   return { ok: true };
 }

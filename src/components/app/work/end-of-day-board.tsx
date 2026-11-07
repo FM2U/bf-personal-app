@@ -106,13 +106,15 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
   const met = judged.filter((j) => j.judged && j.met).length;
   const judgedCount = judged.filter((j) => j.judged).length;
   const badge: EodBadge = state.status === "sent" ? "Sent" : state.status === "skipped" ? "Skipped" : data.eodTime.short;
+  /** The weekly review day's name (the review card shows on that day only; Friday unless changed in Settings). */
+  const dayWord = data.dateLabel.split(",")[0];
   const checks = sendChecklist(owedLeft, tomorrow, data.tomorrowLabel, data.review ? reviewAnswered(review) : null);
   const checksDone = checks.filter((c) => c.done).length;
   /** The partner whose sections show under the table (View). */
   const [openPartner, setOpenPartner] = useState<string | null>(null);
   const page: AskContext = { page: "end_of_day", label: `End of day, ${data.dateLabel}` };
   // What is still missing before sending: the reasons and the tomorrow line.
-  const needs = [owedLeft ? `${owedLeft} ${owedLeft === 1 ? "reason" : "reasons"} still needed` : null, data.review && reviewAnswered(review) < 3 ? `Weekly review ${reviewAnswered(review)} of 3` : null, !tomorrow.trim() ? `${data.tomorrowLabel === "Monday" ? "Monday's" : "Tomorrow's"} line still empty` : null].filter((x): x is string => !!x);
+  const needs = [owedLeft ? `${owedLeft} ${owedLeft === 1 ? "reason" : "reasons"} still needed` : null, data.review && reviewAnswered(review) < 3 ? `Weekly review ${reviewAnswered(review)} of 3` : null, !tomorrow.trim() ? `${data.tomorrowLabel}'s line still empty` : null].filter((x): x is string => !!x);
   const reportTitle = copies.length > 1 ? `Reports to ${toNames(copies)}` : partner ? `Report to ${first}` : "Report";
   const kind = data.friday ? "Daily and week report" : "Daily report";
   // Sent to one partner and not yet to another (a failed send): said under the buttons.
@@ -398,13 +400,13 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
               </div>
             ) : null}
             <p className="px-[22px] pt-1 pb-4 text-[12.5px] text-muted-foreground" data-testid="eod-targets-note">
-              {data.friday ? "It is Friday, so the per-week targets are judged today. " : data.weekday ? "The per-week targets are judged on Friday; today judges the per-weekday ones. " : "No targets are judged on a weekend. "}
+              {data.weekJudged ? `It is ${data.weekEndName}, so the per-week targets are judged today. ` : data.weekday ? `The per-week targets are judged on ${data.weekEndName}; today judges the per-weekday ones. ` : "No targets are judged today: it is not one of your work days (Settings, Work settings). "}
               Only commitments ask for a reason; the reason goes into the report as written.
             </p>
           </WorkCard>
 
           {data.review ? (
-            <WorkCard id="eod-review" title="Weekly review" sub="Fridays. Goes into Friday's report." actions={<span className="tabular rounded-full bg-status-neutral-bg px-2 py-px text-[11px] font-semibold leading-4 text-status-neutral" data-testid="eod-review-count">{reviewAnswered(review)} of 3 written</span>} testId="eod-review">
+            <WorkCard id="eod-review" title="Weekly review" sub={`${dayWord}s. Goes into ${dayWord}'s report.`} actions={<span className="tabular rounded-full bg-status-neutral-bg px-2 py-px text-[11px] font-semibold leading-4 text-status-neutral" data-testid="eod-review-count">{reviewAnswered(review)} of 3 written</span>} testId="eod-review">
               <div className="flex flex-col gap-3.5 px-[22px] pt-3 pb-4">
                 {REVIEW_QUESTIONS.map((q) => {
                   const value = review[q.key];
@@ -446,7 +448,7 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
                     </div>
                   );
                 })}
-                <p className="text-[12.5px] text-muted-foreground">Each answer saves when you leave the box. Partners who get the Weekly review section see it in Friday&apos;s report; an empty answer goes out as &ldquo;(still to write)&rdquo;.</p>
+                <p className="text-[12.5px] text-muted-foreground">Each answer saves when you leave the box. Partners who get the Weekly review section see it in {dayWord}&apos;s report; an empty answer goes out as &ldquo;(still to write)&rdquo;.</p>
               </div>
             </WorkCard>
           ) : null}
@@ -586,7 +588,7 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
             </div>
           </WorkCard>
 
-          <WorkCard id="eod-tomorrow" title={data.tomorrowLabel === "Monday" ? "What matters Monday" : "What matters tomorrow"} actions={<AiCardStar context={{ ...page, card: "What matters tomorrow" }} extras={extras} />} testId="eod-tomorrow">
+          <WorkCard id="eod-tomorrow" title={data.tomorrowLabel === "Tomorrow" ? "What matters tomorrow" : `What matters ${data.tomorrowLabel}`} actions={<AiCardStar context={{ ...page, card: "What matters tomorrow" }} extras={extras} />} testId="eod-tomorrow">
             <div className="px-[22px] pt-3 pb-4">
               <div className="relative">
                 <textarea
@@ -607,7 +609,7 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
                 />
                 {!closed ? <AiFieldStar context={{ ...page, card: "What matters tomorrow" }} field={{ key: "tomorrow_line", label: "What matters tomorrow", current: tomorrow }} visible={!tomorrow.trim() || focused === "tomorrow"} onUse={useLine} className="top-5 translate-y-0" /> : null}
               </div>
-              <p className="mt-2 text-[12.5px] text-muted-foreground">{data.tomorrowLabel === "Monday" ? "Monday's line. Ends the report and opens Home on Monday." : "Tomorrow's line. Ends the report and opens Home tomorrow."}</p>
+              <p className="mt-2 text-[12.5px] text-muted-foreground">{data.tomorrowLabel === "Tomorrow" ? "Tomorrow's line. Ends the report and opens Home tomorrow." : `${data.tomorrowLabel}'s line. Ends the report and opens Home on ${data.tomorrowLabel}.`}</p>
             </div>
           </WorkCard>
         </div>

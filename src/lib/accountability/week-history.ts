@@ -5,6 +5,7 @@
  * met (done) each week.
  */
 import { addDaysISO, daysBetween } from "@/lib/calc/dates";
+import { weekOf } from "@/lib/work-week";
 import { countable, judgeWeek, weekNumbers, type Facts, type Target } from "@/lib/accountability/targets";
 
 export type HistoryWeek = { weekStart: string; /** Bar height share, 0 to 1. */ share: number; value: string; red: boolean };
@@ -27,7 +28,7 @@ const bars = (rows: { weekStart: string; v: number | null; label: string; red: b
  */
 export function tileHistories(i: { targets: readonly Target[]; facts: Facts; weekStart: string; waits: readonly { sinceDate: string | null }[]; skipped?: readonly string[]; mostLabel: string; mostName: string | null }): Record<string, TileHistory> {
   const weeks = fourWeeksBefore(i.weekStart);
-  const nums = weeks.map((s) => ({ s, w: weekNumbers(i.targets, i.facts, { start: s, end: addDaysISO(s, 4) }, [], i.skipped ?? []) }));
+  const nums = weeks.map((s) => ({ s, w: weekNumbers(i.targets, i.facts, weekOf(s), [], i.skipped ?? []) }));
   const out: Record<string, TileHistory> = {
     "Deals moved": bars(nums.map(({ s, w }) => ({ weekStart: s, v: w.deals.value, label: String(w.deals.value), red: false }))),
     "Listings screened": bars(nums.map(({ s, w }) => ({ weekStart: s, v: w.screened.value, label: String(w.screened.value), red: false }))),
@@ -35,7 +36,7 @@ export function tileHistories(i: { targets: readonly Target[]; facts: Facts; wee
     "Follow-ups on time": bars(nums.map(({ s, w }) => (w.followUps.parts?.done ? { weekStart: s, v: w.followUps.value, label: `${w.followUps.value}%`, red: w.followUps.value < 100 } : { weekStart: s, v: null, label: "none", red: false }))),
     "Days waiting on brokers": bars(
       weeks.map((s) => {
-        const end = addDaysISO(s, 4);
+        const end = weekOf(s).end;
         const open = i.waits.filter((w) => w.sinceDate && w.sinceDate <= end).map((w) => daysBetween(w.sinceDate!, end));
         const avg = open.length ? Math.round((open.reduce((a, b) => a + b, 0) / open.length) * 10) / 10 : 0;
         return { weekStart: s, v: avg, label: avg.toFixed(1), red: false };
