@@ -473,7 +473,11 @@ function decodeRaw(raw) {
   return { to: headers.to, subject, body, html: null, contentType, parts: [], headers };
 }
 
+// Page speed (2026-11-06): MOCK_GOOGLE_DELAY_MS adds that many milliseconds before every Gmail or Calendar answer.
+const GOOGLE_DELAY_MS = Number(process.env.MOCK_GOOGLE_DELAY_MS) || 0;
+
 const google = http.createServer(async (req, res) => {
+  if (GOOGLE_DELAY_MS > 0 && !req.url.startsWith("/__")) await new Promise((r) => setTimeout(r, GOOGLE_DELAY_MS));
   const url = new URL(req.url, `http://localhost:${GOOGLE_PORT}`);
   const p = url.pathname;
   try {
