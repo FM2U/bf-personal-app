@@ -10,6 +10,7 @@ import { sanitizeSignatureHtml, signatureHtmlToText } from "@/lib/email-signatur
 
 export { GOOGLE_SCOPES, GMAIL_SEND_SCOPE, GMAIL_SETTINGS_SCOPE } from "@/lib/google-scopes";
 import type { GmailThreadMessage } from "@/lib/gmail-replies";
+import { oncePerPage } from "@/lib/request-once";
 
 /** An email the app sends or drafts. includeSignature: true or false from the checkbox; omitted uses the setting. */
 /** body: the plain text; bodyHtml: the formatted editor's HTML when the message was written there (see gmail-mime). */
@@ -51,7 +52,8 @@ export function oauthClient() {
 }
 
 export async function getGoogleConnection(sb: SupabaseClient, ownerId: string): Promise<Row | null> {
-  const { data } = await sb.from("google_connections").select("*").eq("owner_id", ownerId).maybeSingle();
+  // Page speed (2026-11-06): once per page build (Home asks from several parts).
+  const { data } = await oncePerPage(`google_connection:${ownerId}`, () => sb.from("google_connections").select("*").eq("owner_id", ownerId).maybeSingle());
   return (data as Row | null) ?? null;
 }
 

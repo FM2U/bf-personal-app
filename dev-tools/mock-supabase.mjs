@@ -252,8 +252,13 @@ async function storage(req, res, url) {
   return out(400, { message: "Not supported by the local storage stand-in" });
 }
 
+// Page speed (2026-11-06): MOCK_DB_DELAY_MS adds that many milliseconds before every database or sign-in answer, to
+// imitate the trip from Vercel to Supabase (about 70 ms on the preview), so local timings show the waiting chains.
+const DB_DELAY_MS = Number(process.env.MOCK_DB_DELAY_MS) || 0;
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
+  if (DB_DELAY_MS > 0 && !url.pathname.startsWith("/__")) await new Promise((r) => setTimeout(r, DB_DELAY_MS));
   try {
     // Auth
     if (url.pathname === "/auth/v1/user") {

@@ -33,9 +33,15 @@ export type ComposeSetup = GmailSetup & {
 };
 
 export async function loadGmailSetup(sb: SupabaseClient, ownerId: string): Promise<GmailSetup> {
-  const signName = signOffName(((await sb.from("owner_profile").select("display_name").eq("owner_id", ownerId).maybeSingle()).data as { display_name?: string | null } | null)?.display_name);
-  if (!isGoogleConfigured()) return { permission: "not_connected", fromEmail: null, canGmail: false, signature: null, signName };
-  const [google, signature] = await Promise.all([getGoogleConnection(sb, ownerId), loadSignature(sb, ownerId)]);
+  // Page speed (2026-11-06): the name, the Google connection and the signature are read side by side.
+  const google0 = isGoogleConfigured();
+  const [{ data: nameRow }, google, signature] = await Promise.all([
+    sb.from("owner_profile").select("display_name").eq("owner_id", ownerId).maybeSingle(),
+    google0 ? getGoogleConnection(sb, ownerId) : Promise.resolve(null),
+    google0 ? loadSignature(sb, ownerId) : Promise.resolve(null),
+  ]);
+  const signName = signOffName((nameRow as { display_name?: string | null } | null)?.display_name);
+  if (!google0) return { permission: "not_connected", fromEmail: null, canGmail: false, signature: null, signName };
   return {
     permission: sendPermission(google),
     fromEmail: (google?.google_email as string | null) ?? null,

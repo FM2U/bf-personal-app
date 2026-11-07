@@ -2,7 +2,7 @@ import { requireOwner } from "@/lib/auth";
 import { loadGmailSetup, type ComposeSetup, type GmailSetup } from "@/lib/compose-email";
 import { date as fmtDate } from "@/lib/format";
 import { isValidEmail } from "@/lib/email-address";
-import { loadTabCounts } from "@/lib/work/data";
+import { loadTabCounts, loadWorkCtx } from "@/lib/work/data";
 import type { WaitItem, WaitItemLine } from "@/lib/work/waiting";
 import { loadHome } from "@/lib/work/home-data";
 import { composeForPerson } from "@/lib/work/outreach-data";
@@ -26,11 +26,11 @@ export default async function WorkNowPage() {
   const { supabase, ownerId } = await requireOwner();
   // Push B: opening Home looks for new replies to the reports and emails the app sent (at most once every few minutes).
   await syncRepliesQuietly(supabase, ownerId);
-  const d = await loadHome(supabase, ownerId);
+  // Page speed (2026-11-06): Home's data, the email setup and the tab counts load side by side.
+  const [d, gmail0, tabs0] = await Promise.all([loadHome(supabase, ownerId), loadGmailSetup(supabase, ownerId), loadWorkCtx(supabase, ownerId).then((c) => loadTabCounts(supabase, ownerId, c.today))]);
   const waiting = d.available ? d.waiting.items : [];
   const tilePeople = d.available ? d.outreach.dueToday : [];
-  const gmail: GmailSetup = d.available ? await loadGmailSetup(supabase, ownerId) : { permission: "not_connected", fromEmail: null, canGmail: false, signature: null };
-  const tabs0 = await loadTabCounts(supabase, ownerId, d.today);
+  const gmail: GmailSetup = d.available ? gmail0 : { permission: "not_connected", fromEmail: null, canGmail: false, signature: null };
   /**
    * Follow up on a line of a waiting row (push E2: each wait has its own Follow up): to the person the email of an
    * added wait went to, a deal's main contact, or the person waited on, logged on the deal or the person.

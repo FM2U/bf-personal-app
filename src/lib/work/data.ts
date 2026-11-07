@@ -22,6 +22,7 @@ export type { TimelineEvent } from "@/lib/work/timeline";
 import { RECORD_TASK_COLUMNS, sortTodos, toDealTodo, topTodo, type DealTodo } from "@/lib/work/todos";
 import { DEFAULT_EOD_TIME, parseTime } from "@/lib/work/settings";
 import type { Row } from "@/lib/types";
+import { oncePerPage } from "@/lib/request-once";
 
 /**
  * Everything the Work screens read (Home, Screen listings, Deals, the deal page). One pipeline: the owner's
@@ -110,8 +111,11 @@ export type DealRow = {
 export type ListingRow = DealRow & { buyBox: { tier: BuyBoxTier; fits: boolean; label: string } };
 
 export async function loadWorkCtx(sb: SupabaseClient, ownerId: string): Promise<WorkCtx> {
-  const ctx = await loadCtx(sb, ownerId);
-  const { data } = await sb.from("inputs").select("key,value_number,value_text").eq("owner_id", ownerId).in("key", ["waiting_threshold_days", "end_of_day_time", "no_reply_after_days"]);
+  // Page speed (2026-11-06): the profile and these settings are read side by side, once per page build.
+  const [ctx, { data }] = await Promise.all([
+    loadCtx(sb, ownerId),
+    oncePerPage(`work_inputs:${ownerId}`, () => sb.from("inputs").select("key,value_number,value_text").eq("owner_id", ownerId).in("key", ["waiting_threshold_days", "end_of_day_time", "no_reply_after_days"])),
+  ]);
   const rows = (data ?? []) as Row[];
   const n = Number(rows.find((r) => r.key === "waiting_threshold_days")?.value_number);
   const eod = parseTime(rows.find((r) => r.key === "end_of_day_time")?.value_text) ?? DEFAULT_EOD_TIME;
@@ -126,6 +130,11 @@ export async function loadWorkPipeline(sb: SupabaseClient, ownerId: string): Pro
 
 /** A pipeline by kind (acquisition, job, consulting) with its stages and each stage's default next action. Null when there is none. */
 export async function loadPipelineOfKind(sb: SupabaseClient, ownerId: string, kind: "acquisition" | "job" | "consulting"): Promise<WorkPipeline | null> {
+  // Page speed (2026-11-06): read once per page build; several parts of Home ask for the same pipeline.
+  return oncePerPage(`pipeline:${ownerId}:${kind}`, () => readPipelineOfKind(sb, ownerId, kind));
+}
+
+async function readPipelineOfKind(sb: SupabaseClient, ownerId: string, kind: "acquisition" | "job" | "consulting"): Promise<WorkPipeline | null> {
   const { data: pipes } = await sb.from("pipelines").select("id,name,kind,sort_order,created_at").eq("owner_id", ownerId).eq("kind", kind).order("sort_order").order("created_at").limit(1);
   const pipe = ((pipes ?? []) as Row[])[0];
   if (!pipe) return null;
@@ -431,18 +440,13 @@ type DealPageData = {
 
 /** The deal page: the deal, its timeline (notes, communications, stage moves; newest first), documents, and the email setup. */
 export async function loadDealPage(sb: SupabaseClient, ownerId: string, id: string): Promise<DealPageData> {
-  const ctx = await loadWorkCtx(sb, ownerId);
-  const base: DealPageData = { available: false, notice: null, today: ctx.today, tz: ctx.tz, threshold: ctx.threshold, deal: null, timeline: [], documents: [], todos: [], listingText: null, listingTextReady: false, findingListsReady: false, growthPathsReady: false, buyBox: defaultBuyBoxSettings(), lastContact: null, compose: null, questionsCompose: null, advanceTo: null, passedStageId: null, lostStageId: null, waitsReady: false };
-  const notice = null;
-  if (notice) return { ...base, notice };
-  const pipe = await loadWorkPipeline(sb, ownerId);
-  if (!pipe) return { ...base, available: true };
-  const { data: row } = await readItems((columns) => sb.from("pipeline_items").select(columns).eq("owner_id", ownerId).eq("id", id).eq("pipeline_id", pipe.id).maybeSingle());
-  const item = row as Row | null;
-  if (!item) return { ...base, available: true };
-  const [{ data: fin }, { data: contact }, { data: notes }, { data: comms }, { data: links }, { data: history }, documents, { data: full }, { data: todoRows }, buyBox] = await Promise.all([
+  // Page speed (2026-11-06): every read that needs only the deal's id starts at once, side by side; only the main
+  // contact, the wait replies and the email setup wait for an earlier answer. Before, about 13 reads ran one after another.
+  const ctxP = loadWorkCtx(sb, ownerId);
+  const pipeP = loadWorkPipeline(sb, ownerId);
+  const rowP = readItems((columns) => sb.from("pipeline_items").select(columns).eq("owner_id", ownerId).eq("id", id).maybeSingle());
+  const restP = Promise.all([
     sb.from("deal_financials").select("item_id,revenue,ebitda,sde,asking_price").eq("item_id", id).maybeSingle(),
-    item.primary_contact_id ? sb.from("contacts").select("id,name,email,organization_id").eq("id", item.primary_contact_id).maybeSingle() : Promise.resolve({ data: null }),
     sb.from("notes").select("id,body,created_at").eq("record_type", "pipeline_items").eq("record_id", id).order("created_at", { ascending: false }).limit(50),
     sb.from("communications").select("id,occurred_at,method,direction,subject,summary,call_minutes,awaiting_log").eq("pipeline_item_id", id).order("occurred_at", { ascending: false }).limit(50),
     sb.from("record_links").select("from_id").eq("from_type", "communications").eq("to_type", "pipeline_items").eq("to_id", id),
@@ -452,13 +456,33 @@ export async function loadDealPage(sb: SupabaseClient, ownerId: string, id: stri
     sb.from("deal_todos").select(TODO_COLUMNS).eq("owner_id", ownerId).eq("deal_id", id).limit(500),
     loadBuyBoxSettings(sb, ownerId),
   ]);
-  const waits = await loadWaitsFor(sb, ownerId, { itemIds: [id] });
+  const waitsP = loadWaitsFor(sb, ownerId, { itemIds: [id] });
+  const repliesP = Promise.all([waitsP, ctxP]).then(([w, c]) => loadWaitReplies(sb, ownerId, w.byItem[id] ?? [], c.tz));
+  const contactP = rowP.then(async ({ data }): Promise<{ data: unknown }> => {
+    const cid = (data as Row | null)?.primary_contact_id;
+    return cid ? await sb.from("contacts").select("id,name,email,organization_id").eq("id", cid).maybeSingle() : { data: null };
+  });
+  const composeP = restP.then(([, , , , , , { data: full }]) => (full ? loadComposeSetup(sb, ownerId, "pipeline_items", full as Row).catch(() => null) : null));
+  // Started early; when the page returns before using one, its failure is dropped, as the read never ran before.
+  for (const p of [rowP, restP, waitsP, repliesP, contactP, composeP]) Promise.resolve(p).catch(() => {});
+
+  const ctx = await ctxP;
+  const base: DealPageData = { available: false, notice: null, today: ctx.today, tz: ctx.tz, threshold: ctx.threshold, deal: null, timeline: [], documents: [], todos: [], listingText: null, listingTextReady: false, findingListsReady: false, growthPathsReady: false, buyBox: defaultBuyBoxSettings(), lastContact: null, compose: null, questionsCompose: null, advanceTo: null, passedStageId: null, lostStageId: null, waitsReady: false };
+  const notice = null;
+  if (notice) return { ...base, notice };
+  const pipe = await pipeP;
+  if (!pipe) return { ...base, available: true };
+  const { data: row } = await rowP;
+  const item = row as Row | null;
+  // Only a deal of the acquisition pipeline opens here (the read above no longer filters by pipeline).
+  if (!item || String(item.pipeline_id) !== String(pipe.id)) return { ...base, available: true };
+  const [{ data: contact }, [{ data: fin }, { data: notes }, { data: comms }, { data: links }, { data: history }, documents, { data: full }, { data: todoRows }, buyBox], waits, replies, compose] = await Promise.all([contactP, restP, waitsP, repliesP, composeP]);
   const todos = sortTodos(((todoRows ?? []) as Row[]).map(toTodo));
   // Strengths and risks (database update 0028), growth paths and financing (0029) come with the row read with "*".
   const fullRow = (full as Row | null) ?? {};
   const dealRow = toDealRow({ ...item, strengths: fullRow.strengths, risks: fullRow.risks, growth_paths: fullRow.growth_paths, ...(Object.prototype.hasOwnProperty.call(fullRow, "financing") ? { financing: fullRow.financing } : {}) }, (fin as Row | null) ?? undefined, (contact as Row | null) ?? undefined, pipe, ctx, todos, waits.byItem[id]);
   // Edits of Nov 5 (item 6): a wait whose email has a reply shows Replied and Clear on the Next action card.
-  const deal: DealRow = { ...dealRow, waits: withReplies(dealRow.waits, await loadWaitReplies(sb, ownerId, waits.byItem[id] ?? [], ctx.tz)) };
+  const deal: DealRow = { ...dealRow, waits: withReplies(dealRow.waits, replies) };
   // Communications linked through record_links but not stamped with the item (older rows).
   const commRows = ((comms ?? []) as Row[]).filter((c) => !c.awaiting_log);
   const linkedIds = ((links ?? []) as Row[]).map((l) => l.from_id).filter((x) => !commRows.some((c) => c.id === x));
@@ -485,7 +509,6 @@ export async function loadDealPage(sb: SupabaseClient, ownerId: string, id: stri
   ].sort((a, b) => (a.when < b.when ? 1 : a.when > b.when ? -1 : 0));
   const current = deal.stageId ? pipe.byId[deal.stageId] : null;
   const advanceTo = current ? pipe.stages.find((s) => s.outcome === "open" && s.position > current.position) ?? null : pipe.stages.find((s) => s.outcome === "open") ?? null;
-  const compose = full ? await loadComposeSetup(sb, ownerId, "pipeline_items", full as Row).catch(() => null) : null;
   return {
     ...base,
     available: true,

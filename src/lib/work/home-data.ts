@@ -62,7 +62,17 @@ async function loadBlockMinutes(sb: SupabaseClient, ownerId: string): Promise<nu
 }
 
 export async function loadHome(sb: SupabaseClient, ownerId: string): Promise<HomeData> {
-  const now = await loadWorkNow(sb, ownerId);
+  // Page speed (2026-11-06): the deals and the other Home parts load side by side; only the Waiting card waits for the
+  // deals. Before, every part waited for the deals first.
+  const ctx = await loadWorkCtx(sb, ownerId);
+  const nowP = loadWorkNow(sb, ownerId);
+  const restP = Promise.all([loadRosaraHome(sb, ctx), loadPipelinesHome(sb, ctx), loadAiOrder(sb, ownerId, ctx.today), loadTargetsTile(sb, ctx), loadHomeTodoLists(sb, ctx), loadDayCalendar(sb, ownerId, ctx.tz, ctx.today), loadRowBlocks(sb, ownerId, ctx.tz, ctx.today), loadBlockMinutes(sb, ownerId), loadMonthlyDue(sb, ctx)]);
+  // A failure in the other parts surfaces where it did before (after the deals), never as an unhandled rejection.
+  restP.catch(() => {});
+  // The Waiting card's own reads start now too; it waits for the deals only to put them together.
+  const waitingP = loadWaitingBoard(sb, ctx, nowP.then((n) => n.deals));
+  waitingP.catch(() => {});
+  const now = await nowP;
   const empty: HomeData = {
     ...now,
     rosara: { focus: "", next: null, open: 0, dueThisWeek: 0, actions: [] },
@@ -80,8 +90,7 @@ export async function loadHome(sb: SupabaseClient, ownerId: string): Promise<Hom
     waiting: { available: false, items: [], noReply: [], noReplyDays: DEFAULT_NO_REPLY_DAYS },
   };
   if (!now.available) return empty;
-  const ctx = await loadWorkCtx(sb, ownerId);
-  const [rosara, pipelines, aiOrder, targets, todos, calendar, rowBlocks, blockMinutes, monthlyReview, waiting] = await Promise.all([loadRosaraHome(sb, ctx), loadPipelinesHome(sb, ctx), loadAiOrder(sb, ownerId, ctx.today), loadTargetsTile(sb, ctx), loadHomeTodoLists(sb, ctx), loadDayCalendar(sb, ownerId, ctx.tz, ctx.today), loadRowBlocks(sb, ownerId, ctx.tz, ctx.today), loadBlockMinutes(sb, ownerId), loadMonthlyDue(sb, ctx), loadWaitingBoard(sb, ctx, now.deals)]);
+  const [[rosara, pipelines, aiOrder, targets, todos, calendar, rowBlocks, blockMinutes, monthlyReview], waiting] = await Promise.all([restP, waitingP]);
   const hourLocal = Number(new Intl.DateTimeFormat("en-US", { timeZone: ctx.tz, hour: "numeric", hour12: false }).format(new Date())) || 0;
   const nowLocal = new Intl.DateTimeFormat("en-GB", { timeZone: ctx.tz, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date());
   return { ...empty, rosara, pipelines, aiOrder, hourLocal: hourLocal % 24, targets, todos: todos.due, laterTodos: todos.later, calendar, rowBlocks, blockMinutes, nowLocal, monthlyReview, waiting };

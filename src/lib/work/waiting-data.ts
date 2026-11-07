@@ -44,7 +44,8 @@ const toMail = (c: Row): MailRow => ({
   dismissed: !!c.no_reply_dismissed_at,
 });
 
-export async function loadWaitingBoard(sb: SupabaseClient, ctx: WorkCtx, deals: readonly DealRow[]): Promise<WaitingBoard> {
+/** `deals` may still be loading (Home starts this card's reads before the deals are in; page speed, 2026-11-06). */
+export async function loadWaitingBoard(sb: SupabaseClient, ctx: WorkCtx, dealsIn: readonly DealRow[] | Promise<readonly DealRow[]>): Promise<WaitingBoard> {
   const plain: WaitingBoard = { available: false, items: [], noReply: [], noReplyDays: ctx.noReplyDays };
   const owner = ctx.ownerId;
   const local = (ts: string) => todayInTz(ctx.tz, new Date(ts));
@@ -62,10 +63,29 @@ export async function loadWaitingBoard(sb: SupabaseClient, ctx: WorkCtx, deals: 
   // The emails waits came from and their follow-ups (they may be older than the window), and the replies in their threads.
   const all = [...Object.values(waits.byItem), ...Object.values(waits.byContact)].flat();
   const linkIds = [...new Set(all.flatMap((w) => [w.commId, w.followUpCommId]).filter(Boolean))] as string[];
-  const { data: linkedRows } = linkIds.length ? await sb.from("communications").select("id,occurred_at,gmail_thread_id,contact_id").in("id", linkIds) : { data: [] as Row[] };
+  // The people waited on (not archived), read side by side with the linked emails (page speed, 2026-11-06).
+  const personIds = Object.keys(waits.byContact);
+  const [{ data: linkedRows }, { data: peopleRows }] = await Promise.all([
+    linkIds.length ? sb.from("communications").select("id,occurred_at,gmail_thread_id,contact_id").in("id", linkIds) : Promise.resolve({ data: [] as Row[] }),
+    personIds.length ? sb.from("contacts").select("id,name,email,organization_id,outreach_role,archived_at").eq("owner_id", owner).in("id", personIds).is("archived_at", null) : Promise.resolve({ data: [] as Row[] }),
+  ]);
+  const personRows = (peopleRows ?? []) as Row[];
   const linked = new Map(((linkedRows ?? []) as Row[]).map((r) => [String(r.id), { at: String(r.occurred_at), thread: str(r.gmail_thread_id), contactId: str(r.contact_id) }]));
   const linkedThreads = [...new Set([...linked.values()].map((l) => l.thread).filter(Boolean))] as string[];
-  const { data: replyRows } = linkedThreads.length ? await sb.from("communications").select("occurred_at,gmail_thread_id,direction").eq("owner_id", owner).eq("direction", "incoming").in("gmail_thread_id", linkedThreads).limit(2000) : { data: [] as Row[] };
+  // The replies in the waited threads and the names below are read side by side (page speed, 2026-11-06).
+  const repliesP = linkedThreads.length ? sb.from("communications").select("occurred_at,gmail_thread_id,direction").eq("owner_id", owner).eq("direction", "incoming").in("gmail_thread_id", linkedThreads).limit(2000) : Promise.resolve({ data: [] as Row[] });
+
+  // Names: the people emails went to, the records they are about, the organizations.
+  const contactIds = [...new Set([...mail.map((m) => m.contactId), ...[...linked.values()].map((l) => l.contactId)].filter(Boolean))] as string[];
+  const itemIds = [...new Set(mail.map((m) => m.itemId).filter(Boolean))] as string[];
+  const orgIds = [...new Set([...mail.map((m) => m.organizationId), ...personRows.map((p) => str(p.organization_id))].filter(Boolean))] as string[];
+  const [{ data: replyRows }, { data: cs }, { data: its }, { data: orgs }, deals] = await Promise.all([
+    repliesP,
+    contactIds.length ? sb.from("contacts").select("id,name,email").in("id", contactIds) : Promise.resolve({ data: [] as Row[] }),
+    itemIds.length ? sb.from("pipeline_items").select("id,name,company_name,status").in("id", itemIds) : Promise.resolve({ data: [] as Row[] }),
+    orgIds.length ? sb.from("organizations").select("id,name").in("id", orgIds) : Promise.resolve({ data: [] as Row[] }),
+    dealsIn,
+  ]);
   const replies = ((replyRows ?? []) as Row[]).map((r) => ({ direction: "incoming", threadId: String(r.gmail_thread_id), occurredAt: String(r.occurred_at) }));
   /** Push E2, item 3: a reply to the email a wait came from or to its follow-up shows Replied. */
   const repliedOn = (w: SavedWait): string | null => {
@@ -73,20 +93,6 @@ export async function loadWaitingBoard(sb: SupabaseClient, ctx: WorkCtx, deals: 
     return at ? local(at) : null;
   };
 
-  // The people waited on (not archived).
-  const personIds = Object.keys(waits.byContact);
-  const { data: peopleRows } = personIds.length ? await sb.from("contacts").select("id,name,email,organization_id,outreach_role,archived_at").eq("owner_id", owner).in("id", personIds).is("archived_at", null) : { data: [] as Row[] };
-  const personRows = (peopleRows ?? []) as Row[];
-
-  // Names: the people emails went to, the records they are about, the organizations.
-  const contactIds = [...new Set([...mail.map((m) => m.contactId), ...[...linked.values()].map((l) => l.contactId)].filter(Boolean))] as string[];
-  const itemIds = [...new Set(mail.map((m) => m.itemId).filter(Boolean))] as string[];
-  const orgIds = [...new Set([...mail.map((m) => m.organizationId), ...personRows.map((p) => str(p.organization_id))].filter(Boolean))] as string[];
-  const [{ data: cs }, { data: its }, { data: orgs }] = await Promise.all([
-    contactIds.length ? sb.from("contacts").select("id,name,email").in("id", contactIds) : Promise.resolve({ data: [] as Row[] }),
-    itemIds.length ? sb.from("pipeline_items").select("id,name,company_name,status").in("id", itemIds) : Promise.resolve({ data: [] as Row[] }),
-    orgIds.length ? sb.from("organizations").select("id,name").in("id", orgIds) : Promise.resolve({ data: [] as Row[] }),
-  ]);
   const contactRows = new Map(((cs ?? []) as Row[]).map((c) => [String(c.id), { id: String(c.id), name: String(c.name ?? ""), email: str(c.email) }]));
   const dealById = new Map(deals.map((d) => [d.id, d]));
   const items: Record<string, ItemInfo> = Object.fromEntries(
