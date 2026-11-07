@@ -26,7 +26,9 @@ export async function proxy(request: NextRequest) {
     },
   });
 
+  const t0 = performance.now();
   const { data } = await supabase.auth.getUser();
+  const signInMs = performance.now() - t0;
   if (!data.user && !isPublic && path !== "/mfa") {
     if (path.startsWith("/api/")) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
     const login = request.nextUrl.clone();
@@ -34,6 +36,8 @@ export async function proxy(request: NextRequest) {
     login.search = "";
     return NextResponse.redirect(login);
   }
+  // Page speed (2026-11-06), preview only: how long this sign-in check took, read by the speed line in the browser.
+  if (process.env.VERCEL_ENV === "preview" || process.env.SHOW_TIMING === "1") response.headers.set("Server-Timing", `signin;dur=${signInMs.toFixed(1)}`);
   return response;
 }
 

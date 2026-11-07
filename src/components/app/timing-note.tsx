@@ -5,6 +5,12 @@ import { usePathname } from "next/navigation";
 
 const secs = (ms: number) => `${(ms / 1000).toFixed(ms < 1000 ? 2 : 1)} s`;
 
+/** The sign-in check's time, sent by src/proxy.ts on the preview (2026-11-06). */
+function signInOf(e: PerformanceResourceTiming | PerformanceNavigationTiming | undefined): string | null {
+  const t = e?.serverTiming?.find((x) => x.name === "signin");
+  return t ? `sign-in check ${secs(t.duration)}` : null;
+}
+
 // Kept outside the line itself, because some clicks (Work to Settings) build a new line: the click time and whether
 // the full page load was already shown live for the whole visit.
 let clickAt: number | null = null;
@@ -33,6 +39,7 @@ export function TimingNote({ text }: { text: string }) {
   // A full load: when the first byte of the page came back (2026-11-06); with "Server", it shows time spent before the
   // page's own build (Vercel starting up, the sign-in check before the page).
   const [answer, setAnswer] = useState<number | null>(null);
+  const [signIn, setSignIn] = useState<string | null>(null);
   const [click, setClick] = useState<{ path: string; ms: number; parts: string | null } | null>(null);
   // True only for the line built by the full page load; a line built after a click shows the click time instead.
   const [isFullLoad] = useState(claimFullLoad);
@@ -46,6 +53,7 @@ export function TimingNote({ text }: { text: string }) {
         if (last) setDrawn(last.startTime);
         const nav = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
         if (nav && nav.responseStart > 0) setAnswer(nav.responseStart - nav.startTime);
+        setSignIn(signInOf(nav));
       });
       po.observe({ type: "largest-contentful-paint", buffered: true });
       return () => po.disconnect();
@@ -92,7 +100,7 @@ export function TimingNote({ text }: { text: string }) {
             // is mostly the server building the page); "drawing": the rest, the browser putting it on screen.
             const kb = page.encodedBodySize || page.transferSize;
             const dataMs = page.responseEnd - t0;
-            const parts = [`page data ${secs(dataMs)}${kb ? ` (${Math.max(1, Math.round(kb / 1024))} KB)` : ""}`, `drawing ${secs(Math.max(0, ms - dataMs))}`].join(" · ");
+            const parts = [`page data ${secs(dataMs)}${kb ? ` (${Math.max(1, Math.round(kb / 1024))} KB)` : ""}`, signInOf(page) ? `of which ${signInOf(page)}` : null, `drawing ${secs(Math.max(0, ms - dataMs))}`].filter(Boolean).join(" · ");
             setClick({ path, ms, parts });
           } else if (tries++ < 20) timer = setTimeout(look, 250);
         };
@@ -108,7 +116,7 @@ export function TimingNote({ text }: { text: string }) {
   const line =
     // After any click the line shows click times only, also back on the page first loaded (2026-11-06).
     path === first && isFullLoad && !click
-      ? [drawn !== null ? `Page drawn ${secs(drawn)}` : null, answer !== null ? `first answer ${secs(answer)}` : null, text].filter(Boolean).join(" · ")
+      ? [drawn !== null ? `Page drawn ${secs(drawn)}` : null, answer !== null ? `first answer ${secs(answer)}` : null, signIn, text].filter(Boolean).join(" · ")
       : click && click.path === path
         ? [`Click to page ${secs(click.ms)}`, click.parts, "reload the browser page (Command+R) for the server numbers"].filter(Boolean).join(" · ")
         : "Speed line: reload the browser page (Command+R) to measure this page.";
