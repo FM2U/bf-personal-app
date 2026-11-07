@@ -100,7 +100,10 @@ export function TimingNote({ text }: { text: string }) {
             // is mostly the server building the page); "drawing": the rest, the browser putting it on screen.
             const kb = page.encodedBodySize || page.transferSize;
             const dataMs = page.responseEnd - t0;
-            const parts = [`page data ${secs(dataMs)}${kb ? ` (${Math.max(1, Math.round(kb / 1024))} KB)` : ""}`, signInOf(page) ? `of which ${signInOf(page)}` : null, `drawing ${secs(Math.max(0, ms - dataMs))}`].filter(Boolean).join(" · ");
+            // 2026-11-07: Home is on screen before its last cards arrive, so its page data can end after the page is
+            // drawn; the line then says when the last card came in instead of a drawing time.
+            const late = dataMs > ms;
+            const parts = [`${late ? "last cards in at" : "page data"} ${secs(dataMs)}${kb ? ` (${Math.max(1, Math.round(kb / 1024))} KB)` : ""}`, signInOf(page) ? `of which ${signInOf(page)}` : null, late ? null : `drawing ${secs(Math.max(0, ms - dataMs))}`].filter(Boolean).join(" · ");
             setClick({ path, ms, parts });
           } else if (tries++ < 20) timer = setTimeout(look, 250);
         };

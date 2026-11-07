@@ -11,6 +11,7 @@ import { sanitizeSignatureHtml, signatureHtmlToText } from "@/lib/email-signatur
 export { GOOGLE_SCOPES, GMAIL_SEND_SCOPE, GMAIL_SETTINGS_SCOPE } from "@/lib/google-scopes";
 import type { GmailThreadMessage } from "@/lib/gmail-replies";
 import { oncePerPage } from "@/lib/request-once";
+import { TIMING_ON, timeGoogle } from "@/lib/timing";
 
 /** An email the app sends or drafts. includeSignature: true or false from the checkbox; omitted uses the setting. */
 /** body: the plain text; bodyHtml: the formatted editor's HTML when the message was written there (see gmail-mime). */
@@ -63,6 +64,9 @@ async function authed(sb: SupabaseClient, ownerId: string) {
   if (!conn?.refresh_token_enc || conn.status === "disconnected") return null;
   const client = oauthClient();
   client.setCredentials({ refresh_token: decrypt(conn.refresh_token_enc) });
+  // Speed line (2026-11-07, preview only): every app call to Google first fetches a new access token. The library
+  // does that inside the first request anyway; fetching it here first times it on its own ("token" in the log).
+  if (TIMING_ON) await timeGoogle("token", () => client.getAccessToken());
   return client;
 }
 
@@ -74,10 +78,10 @@ export async function createGmailDraft(sb: SupabaseClient, ownerId: string, msg:
   if (!auth) return null;
   const gmail = google.gmail({ version: "v1", auth, ...apiOptions() });
   const signature = await signatureFor(sb, ownerId, msg.includeSignature);
-  const res = await gmail.users.drafts.create({
+  const res = await timeGoogle("gmail draft", () => gmail.users.drafts.create({
     userId: "me",
     requestBody: { message: { raw: gmailRaw({ to: msg.to, subject: msg.subject, body: msg.body, bodyHtml: msg.bodyHtml ?? null, html: msg.html ?? null, attachments: msg.attachments ?? null, signature }, { requireValidTo: false }) } },
-  });
+  }));
   return res.data.id ?? null;
 }
 
@@ -95,10 +99,10 @@ export async function sendGmailMessage(
   if (!auth) return null;
   const gmail = google.gmail({ version: "v1", auth, ...apiOptions() });
   const signature = await signatureFor(sb, ownerId, msg.includeSignature);
-  const res = await gmail.users.messages.send({
+  const res = await timeGoogle("gmail send", () => gmail.users.messages.send({
     userId: "me",
     requestBody: { raw: gmailRaw({ to: msg.to, subject: msg.subject, body: msg.body, bodyHtml: msg.bodyHtml ?? null, html: msg.html ?? null, attachments: msg.attachments ?? null, inReplyTo: msg.inReplyTo, signature }), ...(msg.threadId ? { threadId: msg.threadId } : {}) },
-  });
+  }));
   if (!res.data.id) throw new Error("Gmail did not return a message id.");
   return { id: res.data.id, threadId: res.data.threadId ?? null };
 }
@@ -114,7 +118,7 @@ export async function fetchGmailSignature(sb: SupabaseClient, ownerId: string): 
   const conn = await getGoogleConnection(sb, ownerId);
   const connected = String(conn?.google_email ?? "").trim().toLowerCase();
   const gmail = google.gmail({ version: "v1", auth, ...apiOptions() });
-  const res = await gmail.users.settings.sendAs.list({ userId: "me" });
+  const res = await timeGoogle("gmail signature", () => gmail.users.settings.sendAs.list({ userId: "me" }));
   const list = res.data.sendAs ?? [];
   const pick =
     (connected ? list.find((s) => String(s.sendAsEmail ?? "").toLowerCase() === connected) : undefined) ??
@@ -136,7 +140,7 @@ export async function getGmailThread(sb: SupabaseClient, ownerId: string, thread
   if (!auth) return null;
   const gmail = google.gmail({ version: "v1", auth, ...apiOptions() });
   try {
-    const res = await gmail.users.threads.get({ userId: "me", id: threadId, format: "full" });
+    const res = await timeGoogle("gmail thread", () => gmail.users.threads.get({ userId: "me", id: threadId, format: "full" }));
     return (res.data.messages ?? []) as GmailThreadMessage[];
   } catch (e) {
     const status = Number((e as { code?: unknown; response?: { status?: unknown } })?.response?.status ?? (e as { code?: unknown })?.code);
@@ -156,7 +160,7 @@ export async function listCalendarEvents(sb: SupabaseClient, ownerId: string, ti
   const auth = await authed(sb, ownerId);
   if (!auth) return null;
   const calendar = google.calendar({ version: "v3", auth, ...apiOptions() });
-  const res = await calendar.events.list({ calendarId: "primary", timeMin, timeMax, singleEvents: true, orderBy: "startTime", maxResults: 100 });
+  const res = await timeGoogle("calendar events", () => calendar.events.list({ calendarId: "primary", timeMin, timeMax, singleEvents: true, orderBy: "startTime", maxResults: 100 }));
   return (res.data.items ?? [])
     .filter((e) => e.status !== "cancelled" && !!e.start?.dateTime && !!e.end?.dateTime)
     .map((e) => ({ id: String(e.id ?? ""), title: String(e.summary ?? "(No title)"), start: String(e.start!.dateTime), end: String(e.end!.dateTime) }));
@@ -167,7 +171,7 @@ export async function insertCalendarEvent(sb: SupabaseClient, ownerId: string, e
   const auth = await authed(sb, ownerId);
   if (!auth) return null;
   const calendar = google.calendar({ version: "v3", auth, ...apiOptions() });
-  const res = await calendar.events.insert({ calendarId: "primary", requestBody: { summary: ev.title, description: ev.description ?? undefined, start: { dateTime: ev.start, timeZone: ev.timeZone }, end: { dateTime: ev.end, timeZone: ev.timeZone } } });
+  const res = await timeGoogle("calendar insert", () => calendar.events.insert({ calendarId: "primary", requestBody: { summary: ev.title, description: ev.description ?? undefined, start: { dateTime: ev.start, timeZone: ev.timeZone }, end: { dateTime: ev.end, timeZone: ev.timeZone } } }));
   if (!res.data.id) throw new Error("Google Calendar did not return an event id.");
   return res.data.id;
 }
@@ -180,9 +184,9 @@ export async function checkGoogle(sb: SupabaseClient, ownerId: string): Promise<
   try {
     const auth = await authed(sb, ownerId);
     if (!auth) return { ok: false, error: "No saved Google access." };
-    await auth.getAccessToken();
+    if (!TIMING_ON) await auth.getAccessToken();
     const calendar = google.calendar({ version: "v3", auth, ...apiOptions() });
-    await calendar.calendarList.list({ maxResults: 1 });
+    await timeGoogle("calendar check", () => calendar.calendarList.list({ maxResults: 1 }));
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };

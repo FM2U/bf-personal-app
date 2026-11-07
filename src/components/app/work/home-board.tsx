@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition } from "react";
+import { Suspense, use, useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { aiOrderToday } from "@/app/actions/ask-ai";
@@ -12,6 +12,8 @@ import { date as fmtDate } from "@/lib/format";
 import type { AskContext } from "@/lib/work/ask-ai";
 import type { DealRow, ListingTile, WorkNowData } from "@/lib/work/data";
 import type { HomeData } from "@/lib/work/home-data";
+import type { WaitingBoard } from "@/lib/work/waiting-data";
+import type { TargetsTile } from "@/lib/accountability/data";
 import { actionKey, applyAiOrder, AREA_STORAGE_KEY, AREAS, areaOf, areaToStore, compareActions, HOME_SECTION_KEYS, HOME_TILE_KEYS, homeSectionOf, matchesActionSearch, ORDER_STORAGE_KEY, orderedAtLabel, orderToStore, parseAreaChoice, parseOrderChoice, parseTileChoice, TILE_STORAGE_KEY, tileToStore, type AiOrder, type AreaKey, type HomeAction, type HomeSectionKey, type HomeTileKey, type Lane, type OrderChoice } from "@/lib/work/lanes";
 import { compareNames } from "@/lib/work/names";
 import { contactKindLabel, orgRoleLine, overdueLabel } from "@/lib/work/outreach";
@@ -86,16 +88,15 @@ type Row = { key: string; lane: Lane; area: AreaKey; section: HomeSectionKey; ac
 const TILE_LABEL: Record<HomeTileKey, string> = { all: "All", overdue: "Overdue", today: "Due today", needs: "Needs a next action", later: "Due later" };
 const TILE_EMPTY: Record<HomeTileKey, string> = { all: "Nothing to do.", overdue: "Nothing is overdue.", today: "Nothing else is due today.", needs: "Every item has a next action.", later: "Nothing is due later." };
 
-export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personComposes, askCompose }: { data: HomeData; /** The date at the right of the title, long and short. */ dateLabel: { long: string; short: string }; /** Ask AI (server-rendered). */ askAi: React.ReactNode; /** The top menu row (under 1024px). */ tabs: React.ReactNode; /** The email setup of each wait's Follow up (push E2: by the wait's id). */ composes: Record<string, ComposeSetup>; /** The email setup per person on the Outreach tile. */ personComposes: Record<string, ComposeSetup>; /** The email setup for "Open in email" in the Ask AI panel (a typed address). */ askCompose?: ComposeSetup | null }) {
+/** The Waiting card's data with each wait's Follow up email setup (push E2: by the wait's id); arrives after the page (2026-11-07). */
+export type WaitingCardData = { board: WaitingBoard; composes: Record<string, ComposeSetup> };
+
+export function HomeBoard({ data, dateLabel, askAi, tabs, waitingCard, personComposes, askCompose }: { data: HomeData; /** The date at the right of the title, long and short. */ dateLabel: { long: string; short: string }; /** Ask AI (server-rendered). */ askAi: React.ReactNode; /** The top menu row (under 1024px). */ tabs: React.ReactNode; /** Waiting on someone, on its way when the page is first sent (page speed 2026-11-07). */ waitingCard: Promise<WaitingCardData>; /** The email setup per person on the Outreach tile. */ personComposes: Record<string, ComposeSetup>; /** The email setup for "Open in email" in the Ask AI panel (a typed address). */ askCompose?: ComposeSetup | null }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [personEmail, setPersonEmail] = useState<PersonRowData | null>(null);
   const [personCall, setPersonCall] = useState<PersonRowData | null>(null);
   const [personLogged, setPersonLogged] = useState<Record<string, string>>({});
-  /** Deals and people followed up on this visit (by row key): the row keeps its "Followed up" line after it moves under the threshold. */
-  const [followedUp, setFollowedUp] = useState<Record<string, boolean>>({});
-  /** The waiting row whose Follow up editor is open (held here, so the editor survives the row moving after the send). */
-  const [followUp, setFollowUp] = useState<{ item: WaitItem; line: WaitItemLine } | null>(null);
   const { deals, today, threshold } = data;
 
   // ---------- The AI order: By the AI is remembered for the rest of the day it was picked (read once, without an effect) ----------
@@ -227,35 +228,6 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
   };
   // The choices with their numbers (every next action in that area, as the tiles count them).
   const areaOptions: AreaOption<AreaKey>[] = [{ value: null, label: "All", count: allRows.length + (review ? 1 : 0) }, ...AREAS.map((x) => ({ value: x.value, label: x.label, count: allRows.filter((r) => r.area === x.value).length }))];
-
-  // ---------- Waiting on someone: never filtered (push E: deals and people, and No reply yet) ----------
-  /** No reply rows and wait lines saved away on this visit (Add to Waiting, Dismiss, Clear): gone at once, before the page re-reads. */
-  const [gone, setGone] = useState<Record<string, boolean>>({});
-  const [waitBusy, setWaitBusy] = useState<string | null>(null);
-  const [waitError, setWaitError] = useState<string | null>(null);
-  // A row whose last line was cleared goes; a row with lines left keeps its place by its longest remaining wait.
-  const waitItems = useMemo(() => data.waiting.items.map((w) => waitItem({ key: w.key, kind: w.kind, id: w.id, name: w.name, href: w.href, context: w.context }, w.lines.filter((l) => !gone[l.waitId]))).filter((w): w is WaitItem => !!w), [data.waiting.items, gone]);
-  const noReply = useMemo(() => data.waiting.noReply.filter((r) => !gone[r.commId]), [data.waiting.noReply, gone]);
-  const waiting = useMemo(() => waitGroups(waitItems, threshold), [waitItems, threshold]);
-  // Edits of Nov 5: the card and each group count the waits (a deal with two waits counts 2), not the rows.
-  const waitsIn = (list: readonly WaitItem[]) => list.reduce((n, w) => n + w.lines.length, 0);
-  const waitCount = waitsIn(waitItems);
-  const [waitOpen, setWaitOpen] = useState<Record<string, boolean>>({});
-  const waitSave = (key: string, save: () => Promise<{ ok: true } | { ok: false; error: string }>) => {
-    setWaitError(null);
-    setWaitBusy(key);
-    void save().then((r) => {
-      setWaitBusy(null);
-      if (!r.ok) return setWaitError(r.error);
-      setGone((m) => ({ ...m, [key]: true }));
-      router.refresh();
-    });
-  };
-  type WaitLine = { key: string; item: WaitItem | null; mail: NoReplyData | null };
-  const waitGroupList: { key: string; label: string; count: number; rows: WaitLine[] }[] = [
-    ...waiting.map((w) => ({ key: w.key, label: w.label, count: waitsIn(w.items), rows: w.items.map((it) => ({ key: it.key, item: it, mail: null })) })),
-    { key: "no-reply", label: "No reply yet", count: noReply.length, rows: noReply.map((r) => ({ key: r.commId, item: null, mail: r })) },
-  ];
 
   const shownCount = rows.filter(found).length + (reviewShown ? 1 : 0);
   const aiRows = useMemo(() => (aiOrder ? applyAiOrder([...sectionsOf.overdue, ...sectionsOf.today, ...sectionsOf.needs], aiOrder.order) : []), [aiOrder, sectionsOf]);
@@ -445,55 +417,16 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
         </div>
 
         <div className="flex min-w-0 flex-col gap-[18px] desk:h-full desk:overflow-y-auto desk:overscroll-contain desk:pb-0.5" data-testid="home-right">
-          <WorkCard id="now-wait" title="Waiting on someone" count={waitCount} sub="Items waiting on external parties" testId="now-wait" pinned headerClassName="sticky top-0 z-[2]" className="max-h-[340px] shrink-0 overflow-y-auto overscroll-contain">
-            {waitError ? (
-              <p className="border-b border-status-missed-border bg-status-missed-bg px-[22px] py-2 text-[13px] text-status-missed" role="alert" data-testid="now-wait-error">
-                {waitError}
-              </p>
-            ) : null}
-            {waitCount || noReply.length ? (
-              <StickySections under="card" always className="px-[22px] pb-3">
-                {waitGroupList.map((w) => {
-                  const closed = !waitOpen[w.key];
-                  return (
-                    <div key={w.key} data-testid="home-section" data-section={`wait-${w.key}`} data-collapsed={closed ? "1" : "0"}>
-                      <SectionHeading name={w.label} count={w.count} collapsed={closed} onToggle={() => setWaitOpen((m) => ({ ...m, [w.key]: !m[w.key] }))} band />
-                      {w.count && !closed ? (
-                        <ShowAll
-                          items={w.rows}
-                          testId={`wait-${w.key}-all`}
-                          title={`Waiting on someone · ${w.label}`}
-                          sub={w.key === "no-reply" ? `Emails the app sent with no reply after ${data.waiting.noReplyDays} ${data.waiting.noReplyDays === 1 ? "day" : "days"}` : undefined}
-                          text={(r) => (r.item ? `${r.item.name} ${r.item.lines.map((l) => `${l.waitingOn} ${l.who ?? ""}`).join(" ")}` : `${r.mail?.subject ?? ""} ${r.mail?.to ?? ""} ${r.mail?.recordName ?? ""}`)}
-                          wrap={(rows) => (
-                            <div className="-mx-[22px] flex flex-col" data-testid="section-body">
-                              {rows}
-                            </div>
-                          )}
-                          render={(r) => (
-                            <div key={r.key} className="border-t border-slate-100 first:border-t-0" data-testid="home-row">
-                              {r.item ? (
-                                <WaitingRow item={r.item} followedUp={followedUp} onFollowUp={(line) => setFollowUp({ item: r.item!, line })} onClear={(line) => waitSave(line.waitId, () => removeWait(line.waitId))} clearing={waitBusy} />
-                              ) : r.mail ? (
-                                <NoReplyRow row={r.mail} busy={waitBusy === r.mail.commId} onAdd={() => waitSave(r.mail!.commId, () => addToWaiting(r.mail!.commId))} onDismiss={() => waitSave(r.mail!.commId, () => dismissNoReply(r.mail!.commId))} />
-                              ) : null}
-                            </div>
-                          )}
-                        />
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </StickySections>
-            ) : (
-              <p className="px-[22px] py-4 text-[13px] text-muted-foreground" data-testid="now-wait-empty">
-                Nobody is keeping you waiting.
-              </p>
-            )}
-          </WorkCard>
-
-          <CalendarTile calendar={data.calendar} />
-          <TargetsTodayTile tile={data.targets} />
+          {/* Page speed (2026-11-07): these three cards fill in after the page is on screen, each behind a grey placeholder. */}
+          <Suspense fallback={<CardPlaceholder title="Waiting on someone" sub="Items waiting on external parties" height={112} card="wait" className="max-h-[340px] shrink-0" />}>
+            <WaitingCard data={waitingCard} threshold={threshold} />
+          </Suspense>
+          <Suspense fallback={<CardPlaceholder title="Today's calendar" sub="From Google Calendar · your blocks are marked" height={190} card="calendar" />}>
+            <Arrived value={data.calendar} render={(c) => <CalendarTile calendar={c} />} />
+          </Suspense>
+          <Suspense fallback={<CardPlaceholder title="Targets today" height={244} card="targets" pinAt="desk" />}>
+            <Arrived value={data.targets} render={(t) => <TargetsTodayTile tile={t} />} />
+          </Suspense>
           <OutreachTile outreach={data.outreach} today={today} logged={personLogged} onEmail={setPersonEmail} onCall={setPersonCall} />
           <RosaraTile rosara={data.rosara} today={today} />
           <JobSearchTile pipelines={data.pipelines} today={today} />
@@ -531,6 +464,119 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
           }}
         />
       ) : null}
+      {working ? <WorkThrough steps={steps} today={today} onClose={() => setWorking(false)} /> : null}
+    </BlockTimeProvider>
+  );
+}
+
+/** Shows a part of Home once its data has arrived (page speed 2026-11-07); until then the Suspense placeholder shows. */
+function Arrived<T>({ value, render }: { value: Promise<T>; render: (v: T) => React.ReactNode }) {
+  return <>{render(use(value))}</>;
+}
+
+/**
+ * A light grey placeholder with the card's own title, about the card's usual height, while its data is on its way
+ * (page speed 2026-11-07). The real card takes its place; nothing else on the page moves sideways.
+ */
+function CardPlaceholder({ title, sub, height, card, className, pinAt }: { title: string; sub?: string; height: number; card: string; className?: string; pinAt?: "desk" }) {
+  return (
+    <WorkCard title={title} sub={sub} testId="home-card-loading" pinned pinAt={pinAt} className={className}>
+      <div className="px-[22px] pt-1 pb-4" data-card={card} aria-busy="true" aria-label={`${title} is loading`}>
+        <div className="rounded-lg bg-slate-100" style={{ height }} />
+      </div>
+    </WorkCard>
+  );
+}
+
+/**
+ * Waiting on someone (push E; never filtered): deals and people in "N+ days" and "< N days", then "No reply yet".
+ * Page speed (2026-11-07): its own part, filled in after the page is on screen.
+ */
+function WaitingCard({ data, threshold }: { data: Promise<WaitingCardData>; threshold: number }) {
+  const { board, composes } = use(data);
+  const router = useRouter();
+  /** Deals and people followed up on this visit (by row key): the row keeps its "Followed up" line after it moves under the threshold. */
+  const [followedUp, setFollowedUp] = useState<Record<string, boolean>>({});
+  /** The waiting row whose Follow up editor is open (held here, so the editor survives the row moving after the send). */
+  const [followUp, setFollowUp] = useState<{ item: WaitItem; line: WaitItemLine } | null>(null);
+  // ---------- Waiting on someone: never filtered (push E: deals and people, and No reply yet) ----------
+  /** No reply rows and wait lines saved away on this visit (Add to Waiting, Dismiss, Clear): gone at once, before the page re-reads. */
+  const [gone, setGone] = useState<Record<string, boolean>>({});
+  const [waitBusy, setWaitBusy] = useState<string | null>(null);
+  const [waitError, setWaitError] = useState<string | null>(null);
+  // A row whose last line was cleared goes; a row with lines left keeps its place by its longest remaining wait.
+  const waitItems = useMemo(() => board.items.map((w) => waitItem({ key: w.key, kind: w.kind, id: w.id, name: w.name, href: w.href, context: w.context }, w.lines.filter((l) => !gone[l.waitId]))).filter((w): w is WaitItem => !!w), [board.items, gone]);
+  const noReply = useMemo(() => board.noReply.filter((r) => !gone[r.commId]), [board.noReply, gone]);
+  const waiting = useMemo(() => waitGroups(waitItems, threshold), [waitItems, threshold]);
+  // Edits of Nov 5: the card and each group count the waits (a deal with two waits counts 2), not the rows.
+  const waitsIn = (list: readonly WaitItem[]) => list.reduce((n, w) => n + w.lines.length, 0);
+  const waitCount = waitsIn(waitItems);
+  const [waitOpen, setWaitOpen] = useState<Record<string, boolean>>({});
+  const waitSave = (key: string, save: () => Promise<{ ok: true } | { ok: false; error: string }>) => {
+    setWaitError(null);
+    setWaitBusy(key);
+    void save().then((r) => {
+      setWaitBusy(null);
+      if (!r.ok) return setWaitError(r.error);
+      setGone((m) => ({ ...m, [key]: true }));
+      router.refresh();
+    });
+  };
+  type WaitLine = { key: string; item: WaitItem | null; mail: NoReplyData | null };
+  const waitGroupList: { key: string; label: string; count: number; rows: WaitLine[] }[] = [
+    ...waiting.map((w) => ({ key: w.key, label: w.label, count: waitsIn(w.items), rows: w.items.map((it) => ({ key: it.key, item: it, mail: null })) })),
+    { key: "no-reply", label: "No reply yet", count: noReply.length, rows: noReply.map((r) => ({ key: r.commId, item: null, mail: r })) },
+  ];
+
+  return (
+    <>
+          <WorkCard id="now-wait" title="Waiting on someone" count={waitCount} sub="Items waiting on external parties" testId="now-wait" pinned headerClassName="sticky top-0 z-[2]" className="max-h-[340px] shrink-0 overflow-y-auto overscroll-contain">
+            {waitError ? (
+              <p className="border-b border-status-missed-border bg-status-missed-bg px-[22px] py-2 text-[13px] text-status-missed" role="alert" data-testid="now-wait-error">
+                {waitError}
+              </p>
+            ) : null}
+            {waitCount || noReply.length ? (
+              <StickySections under="card" always className="px-[22px] pb-3">
+                {waitGroupList.map((w) => {
+                  const closed = !waitOpen[w.key];
+                  return (
+                    <div key={w.key} data-testid="home-section" data-section={`wait-${w.key}`} data-collapsed={closed ? "1" : "0"}>
+                      <SectionHeading name={w.label} count={w.count} collapsed={closed} onToggle={() => setWaitOpen((m) => ({ ...m, [w.key]: !m[w.key] }))} band />
+                      {w.count && !closed ? (
+                        <ShowAll
+                          items={w.rows}
+                          testId={`wait-${w.key}-all`}
+                          title={`Waiting on someone · ${w.label}`}
+                          sub={w.key === "no-reply" ? `Emails the app sent with no reply after ${board.noReplyDays} ${board.noReplyDays === 1 ? "day" : "days"}` : undefined}
+                          text={(r) => (r.item ? `${r.item.name} ${r.item.lines.map((l) => `${l.waitingOn} ${l.who ?? ""}`).join(" ")}` : `${r.mail?.subject ?? ""} ${r.mail?.to ?? ""} ${r.mail?.recordName ?? ""}`)}
+                          wrap={(rows) => (
+                            <div className="-mx-[22px] flex flex-col" data-testid="section-body">
+                              {rows}
+                            </div>
+                          )}
+                          render={(r) => (
+                            <div key={r.key} className="border-t border-slate-100 first:border-t-0" data-testid="home-row">
+                              {r.item ? (
+                                <WaitingRow item={r.item} followedUp={followedUp} onFollowUp={(line) => setFollowUp({ item: r.item!, line })} onClear={(line) => waitSave(line.waitId, () => removeWait(line.waitId))} clearing={waitBusy} />
+                              ) : r.mail ? (
+                                <NoReplyRow row={r.mail} busy={waitBusy === r.mail.commId} onAdd={() => waitSave(r.mail!.commId, () => addToWaiting(r.mail!.commId))} onDismiss={() => waitSave(r.mail!.commId, () => dismissNoReply(r.mail!.commId))} />
+                              ) : null}
+                            </div>
+                          )}
+                        />
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </StickySections>
+            ) : (
+              <p className="px-[22px] py-4 text-[13px] text-muted-foreground" data-testid="now-wait-empty">
+                Nobody is keeping you waiting.
+              </p>
+            )}
+          </WorkCard>
+
       {followUp && composes[followUp.line.waitId] ? (
         <ComposeEmailDialog
           key={followUp.line.waitId}
@@ -548,8 +594,7 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, composes, personCompos
           }}
         />
       ) : null}
-      {working ? <WorkThrough steps={steps} today={today} onClose={() => setWorking(false)} /> : null}
-    </BlockTimeProvider>
+    </>
   );
 }
 
@@ -691,7 +736,7 @@ function OutreachTile({ outreach, today, logged, onEmail, onCall }: { outreach: 
  * figure, Targets met this week, and End of day with its badge (5:30, Sent, Skipped) and the reasons-left line, then
  * Open End of day. Before database update 0025 it shows the update notice line.
  */
-function TargetsTodayTile({ tile }: { tile: HomeData["targets"] }) {
+function TargetsTodayTile({ tile }: { tile: TargetsTile }) {
   const eodTone: PillTone = tile.eod.state === "sent" ? "green" : tile.eod.state === "skipped" ? "gray" : "amber";
   return (
     <WorkCard title="Targets today" hint={tile.available ? (tile.lines.length ? "Counted from the app" : "No targets yet") : "Update needed"} testId="home-targets" pinned pinAt="desk">

@@ -20,7 +20,7 @@ for day in ${DAYS:-monday friday}; do
   sleep 1
   bash dev-tools/setup-local-db.sh | tail -1
   OFFSET=$(( $(TZ=America/New_York date -d "$AT" +%s) - $(date +%s) ))
-  FAKE="LD_PRELOAD=$LIB FAKETIME=+${OFFSET} FAKETIME_DONT_FAKE_MONOTONIC=1"
+  FAKE="LD_PRELOAD=$LIB FAKETIME=$( [ "$OFFSET" -lt 0 ] && echo "$OFFSET" || echo "+$OFFSET" ) FAKETIME_DONT_FAKE_MONOTONIC=1"
   env $FAKE MOCK_DEBUG=1 nohup node dev-tools/mock-supabase.mjs > "$LOGS/mock-$day.log" 2>&1 &
   env $FAKE nohup npx next start -p 3000 > "$LOGS/next-$day.log" 2>&1 &
   for i in $(seq 1 60); do curl -s -o /dev/null http://localhost:3000/login && break; sleep 1; done

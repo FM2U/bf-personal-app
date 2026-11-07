@@ -139,9 +139,25 @@ export function prefetchPipelines(sb: SupabaseClient, ownerId: string): void {
   for (const kind of ["acquisition", "job", "consulting"] as const) loadPipelineOfKind(sb, ownerId, kind).catch(() => {});
 }
 
+/**
+ * Page speed (2026-11-07): the pipeline's own row (its id and name), read once per page build. A part that needs only
+ * the id (Home's Job search and Consulting items) starts its read as soon as this answers, beside the stages read.
+ */
+function readPipelineRow(sb: SupabaseClient, ownerId: string, kind: "acquisition" | "job" | "consulting"): Promise<Row | null> {
+  return oncePerPage(`pipeline_row:${ownerId}:${kind}`, async () => {
+    const { data: pipes } = await sb.from("pipelines").select("id,name,kind,sort_order,created_at").eq("owner_id", ownerId).eq("kind", kind).order("sort_order").order("created_at").limit(1);
+    return ((pipes ?? []) as Row[])[0] ?? null;
+  });
+}
+
+/** The id of the pipeline of a kind, or null (shares the read with loadPipelineOfKind). */
+export async function loadPipelineIdOfKind(sb: SupabaseClient, ownerId: string, kind: "acquisition" | "job" | "consulting"): Promise<string | null> {
+  const row = await readPipelineRow(sb, ownerId, kind);
+  return row ? String(row.id) : null;
+}
+
 async function readPipelineOfKind(sb: SupabaseClient, ownerId: string, kind: "acquisition" | "job" | "consulting"): Promise<WorkPipeline | null> {
-  const { data: pipes } = await sb.from("pipelines").select("id,name,kind,sort_order,created_at").eq("owner_id", ownerId).eq("kind", kind).order("sort_order").order("created_at").limit(1);
-  const pipe = ((pipes ?? []) as Row[])[0];
+  const pipe = await readPipelineRow(sb, ownerId, kind);
   if (!pipe) return null;
   const [{ data: stageRows }, { data: taskRows }] = await Promise.all([
     sb.from("pipeline_stages").select("id,name,position,outcome").eq("pipeline_id", pipe.id).order("position"),

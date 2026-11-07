@@ -4,7 +4,7 @@ import { todayInTz } from "@/lib/calc/dates";
 import { loadComposeSetup, loadGmailSetup, type ComposeSetup, type GmailSetup } from "@/lib/compose-email";
 import { date as fmtDate } from "@/lib/format";
 import { isValidEmail } from "@/lib/email-address";
-import { loadPipelineOfKind, loadWorkCtx, type Stage, type WorkCtx, type WorkPipeline } from "@/lib/work/data";
+import { loadPipelineIdOfKind, loadPipelineOfKind, loadWorkCtx, type Stage, type WorkCtx, type WorkPipeline } from "@/lib/work/data";
 import { compareNames } from "@/lib/work/names";
 import { CONSULTING_CLOSED, CONSULTING_STAGES, JOB_CLOSED, JOB_STAGES, findOutLines, noteLine, openStageIndex } from "@/lib/work/pipelines";
 import { parseOpenQuestions } from "@/lib/work/questions";
@@ -127,8 +127,12 @@ function toItemRow(kind: ItemKind, i: Row, pipe: WorkPipeline, ctx: WorkCtx, con
   };
 }
 
-async function loadItems(sb: SupabaseClient, ctx: WorkCtx, kind: ItemKind, pipe: WorkPipeline): Promise<ItemRow[]> {
-  const { data, error } = await sb.from("pipeline_items").select(ITEM_COLUMNS).eq("owner_id", ctx.ownerId).eq("pipeline_id", pipe.id).limit(500);
+/**
+ * The items of one pipeline with their contacts, tasks, details and waits. `pipe` may still be loading (Home, page
+ * speed 2026-11-07): the items are read with the pipeline's id, beside its stages, and the stages are needed only at the end.
+ */
+async function loadItems(sb: SupabaseClient, ctx: WorkCtx, kind: ItemKind, pipeIn: WorkPipeline | { id: string; pipe: Promise<WorkPipeline | null> }): Promise<ItemRow[]> {
+  const { data, error } = await sb.from("pipeline_items").select(ITEM_COLUMNS).eq("owner_id", ctx.ownerId).eq("pipeline_id", pipeIn.id).limit(500);
   if (error) throw new Error(error.message);
   const items = (data ?? []) as Row[];
   const ids = items.map((i) => String(i.id));
@@ -139,6 +143,8 @@ async function loadItems(sb: SupabaseClient, ctx: WorkCtx, kind: ItemKind, pipe:
     ids.length && kind === "consulting" ? sb.from("consulting_details").select("item_id,scope_notes,start_date").in("item_id", ids) : Promise.resolve({ data: [] as Row[] }),
     ids.length ? loadWaitsFor(sb, ctx.ownerId, { itemIds: ids }) : Promise.resolve({ byItem: {} as Record<string, SavedWait[]> }),
   ]);
+  const pipe = "pipe" in pipeIn ? await pipeIn.pipe : pipeIn;
+  if (!pipe) return [];
   const contacts = Object.fromEntries(((cs ?? []) as Row[]).map((c) => [String(c.id), c]));
   const details = Object.fromEntries(((det ?? []) as Row[]).map((d) => [String(d.item_id), d]));
   const todos: Record<string, DealTodo[]> = {};
@@ -308,8 +314,12 @@ export type PipelinesHome = {
 };
 
 export async function loadPipelinesHome(sb: SupabaseClient, ctx: WorkCtx): Promise<PipelinesHome> {
-  const [jobPipe, conPipe] = await Promise.all([loadPipelineOfKind(sb, ctx.ownerId, "job"), loadPipelineOfKind(sb, ctx.ownerId, "consulting")]);
-  const [jobs, consulting] = await Promise.all([jobPipe ? loadItems(sb, ctx, "job", jobPipe) : Promise.resolve([]), conPipe ? loadItems(sb, ctx, "consulting", conPipe) : Promise.resolve([])]);
+  // Page speed (2026-11-07): each kind's items start once the pipeline's id is known, beside its stages read.
+  const itemsOf = async (kind: ItemKind): Promise<ItemRow[]> => {
+    const id = await loadPipelineIdOfKind(sb, ctx.ownerId, kind);
+    return id ? loadItems(sb, ctx, kind, { id, pipe: loadPipelineOfKind(sb, ctx.ownerId, kind) }) : [];
+  };
+  const [jobs, consulting] = await Promise.all([itemsOf("job"), itemsOf("consulting")]);
   const openJobs = jobs.filter((i) => i.status === "open" && i.stageIndex >= 0);
   const openCon = consulting.filter((i) => i.status === "open" && i.stageIndex >= 0);
   const due = (i: ItemRow) => !i.nextAction || (!!i.nextActionDue && i.nextActionDue <= ctx.today);

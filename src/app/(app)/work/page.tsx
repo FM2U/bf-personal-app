@@ -4,6 +4,7 @@ import { date as fmtDate } from "@/lib/format";
 import { isValidEmail } from "@/lib/email-address";
 import { loadTabCounts, loadWorkCtx } from "@/lib/work/data";
 import type { WaitItem, WaitItemLine } from "@/lib/work/waiting";
+import type { WaitingCardData } from "@/components/app/work/home-board";
 import { loadHome } from "@/lib/work/home-data";
 import { composeForPerson } from "@/lib/work/outreach-data";
 import { ReplyCheck } from "@/components/app/reply-check";
@@ -28,7 +29,6 @@ export default async function WorkNowPage() {
   // Page speed (2026-11-06): after the page is on screen (ReplyCheck below), no longer before it.
   // Page speed (2026-11-06): Home's data, the email setup and the tab counts load side by side.
   const [d, gmail0, tabs0] = await Promise.all([loadHome(supabase, ownerId), loadGmailSetup(supabase, ownerId), loadWorkCtx(supabase, ownerId).then((c) => loadTabCounts(supabase, ownerId, c.today))]);
-  const waiting = d.available ? d.waiting.items : [];
   const tilePeople = d.available ? d.outreach.dueToday : [];
   const gmail: GmailSetup = d.available ? gmail0 : { permission: "not_connected", fromEmail: null, canGmail: false, signature: null };
   /**
@@ -49,6 +49,8 @@ export default async function WorkNowPage() {
     };
   };
   /** "Open in email" from the Ask AI panel on Home: a typed address, logged as an email sent. */
+  // Page speed (2026-11-07): the Waiting card arrives after the page is on screen, with each wait's Follow up setup.
+  const waitingCard: Promise<WaitingCardData> = d.waiting.then((board) => ({ board, composes: Object.fromEntries(board.items.flatMap((w) => w.lines.map((l) => [l.waitId, composeFor(w, l)]))) }));
   const askCompose: ComposeSetup = { ...gmail, title: "Email", recipients: [], defaultTo: "", contactId: null, pipelineItemId: null, organizationId: null, toNote: "Type the address." };
   const askAi = <AskAiPill context={{ page: "home", label: "Work on now" }} compose={askCompose} />;
   const tabs = <WorkTabs toScreen={tabs0.toScreen} outreachDue={tabs0.outreachDue} className="mt-3 mb-0 border-b border-border" />;
@@ -76,7 +78,7 @@ export default async function WorkNowPage() {
           <WorkUpdateNotice notice={d.notice} />
         </>
       ) : (
-        <HomeBoard data={d} dateLabel={dateLabel} askAi={askAi} tabs={tabs} composes={Object.fromEntries(waiting.flatMap((w) => w.lines.map((l) => [l.waitId, composeFor(w, l)])))} personComposes={Object.fromEntries(tilePeople.map((p) => [p.id, composeForPerson(gmail, p)]))} askCompose={askCompose} />
+        <HomeBoard data={d} dateLabel={dateLabel} askAi={askAi} tabs={tabs} waitingCard={waitingCard} personComposes={Object.fromEntries(tilePeople.map((p) => [p.id, composeForPerson(gmail, p)]))} askCompose={askCompose} />
       )}
     </WorkShell>
   );

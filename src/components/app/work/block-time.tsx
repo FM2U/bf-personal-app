@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useMemo, useState, useTransition } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarPlus } from "lucide-react";
 import { addTimeBlock, dayCalendar } from "@/app/actions/calendar";
@@ -40,8 +40,29 @@ export function useBlockTime(): BlockCtx | null {
   return useContext(Ctx);
 }
 
-export function BlockTimeProvider({ children, today, nowLocal, blockMinutes, rowBlocks, calendar }: { children: React.ReactNode; today: string; nowLocal: string; blockMinutes: number; rowBlocks: Record<string, { date: string; start: string }>; calendar: DayCalendar }) {
+/** A value still on its way from the server (React sends it as a promise). */
+export function isThenable<T>(v: T | Promise<T>): v is Promise<T> {
+  return !!v && typeof (v as { then?: unknown }).then === "function";
+}
+
+/**
+ * `calendar` (today's, for "Already on" in the drawer) may still be on its way (Home, page speed 2026-11-07): Home is
+ * on screen before Google Calendar answers. The rows need only `rowBlocks`, which come with the page.
+ */
+export function BlockTimeProvider({ children, today, nowLocal, blockMinutes, rowBlocks, calendar }: { children: React.ReactNode; today: string; nowLocal: string; blockMinutes: number; rowBlocks: Record<string, { date: string; start: string }>; calendar: DayCalendar | Promise<DayCalendar> }) {
   const [target, setTarget] = useState<BlockTarget | null>(null);
+  const [arrived, setArrived] = useState<{ from: Promise<DayCalendar>; cal: DayCalendar } | null>(null);
+  const waiting = isThenable(calendar);
+  useEffect(() => {
+    if (!isThenable(calendar)) return;
+    let live = true;
+    Promise.resolve(calendar).then((cal) => live && setArrived({ from: calendar, cal }), () => {});
+    return () => {
+      live = false;
+    };
+  }, [calendar]);
+  // After a page refresh the last calendar stays until the new one arrives.
+  const todayCal: DayCalendar | null = waiting ? (arrived?.cal ?? null) : (calendar as DayCalendar);
   const value = useMemo<BlockCtx>(
     () => ({
       open: setTarget,
@@ -55,7 +76,7 @@ export function BlockTimeProvider({ children, today, nowLocal, blockMinutes, row
   return (
     <Ctx.Provider value={value}>
       {children}
-      {target ? <BlockTimeDrawer key={target.rowKey} target={target} today={today} nowLocal={nowLocal} blockMinutes={blockMinutes} todayCalendar={calendar} onClose={() => setTarget(null)} /> : null}
+      {target ? <BlockTimeDrawer key={target.rowKey} target={target} today={today} nowLocal={nowLocal} blockMinutes={blockMinutes} todayCalendar={todayCal} onClose={() => setTarget(null)} /> : null}
     </Ctx.Provider>
   );
 }
@@ -93,30 +114,29 @@ export function BlockedNote({ rowKey }: { rowKey: string }) {
 const INPUT = "h-9 w-full min-w-0 rounded-[7px] border border-input bg-white px-2.5 text-sm text-slate-900 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
 const LABEL = "mb-1 block text-[12.5px] font-medium text-slate-700";
 
-function BlockTimeDrawer({ target, today, nowLocal, blockMinutes, todayCalendar, onClose }: { target: BlockTarget; today: string; nowLocal: string; blockMinutes: number; todayCalendar: DayCalendar; onClose: () => void }) {
+function BlockTimeDrawer({ target, today, nowLocal, blockMinutes, todayCalendar, onClose }: { target: BlockTarget; today: string; nowLocal: string; blockMinutes: number; todayCalendar: DayCalendar | null; onClose: () => void }) {
   const router = useRouter();
   const [date, setDate] = useState(today);
   const [start, setStart] = useState(defaultStart(today, today, nowLocal));
   const def = defaultLength(target.minutes, blockMinutes);
   const [minutes, setMinutes] = useState(def);
   const [title, setTitle] = useState(target.action ? `${target.name}: ${target.action}` : target.name);
-  const [day, setDay] = useState<DayCalendar>(todayCalendar);
+  // Today's calendar comes from Home (null until Google Calendar answers); another day is read when picked.
+  const [other, setOther] = useState<DayCalendar | null>(null);
+  const day: DayCalendar | null = date === today ? todayCalendar : other;
   const [loading, startLoading] = useTransition();
   const [pending, startSave] = useTransition();
   const [result, setResult] = useState<{ tone: "ok" | "warn"; text: string } | null>(null);
-  const hit = firstOverlap(start, minutes, day.items);
+  const hit = day ? firstOverlap(start, minutes, day.items) : null;
   const dayName = fmtDate(date, "EEE MMM d");
   const pickDate = (d: string) => {
     setDate(d);
     setResult(null);
     if (!d) return;
-    if (d === today) {
-      setDay(todayCalendar);
-      return;
-    }
+    if (d === today) return;
     startLoading(async () => {
       const r = await dayCalendar(d);
-      if (r.ok) setDay(r.calendar);
+      if (r.ok) setOther(r.calendar);
     });
   };
   const add = () =>
@@ -189,18 +209,23 @@ function BlockTimeDrawer({ target, today, nowLocal, blockMinutes, todayCalendar,
         <div>
           <span className={LABEL}>Already on {dayName}</span>
           <div className={cn("overflow-hidden rounded-[9px] border border-border", loading && "opacity-60")} data-testid="block-day">
-            {day.status !== "ok" ? (
+            {!day ? (
+              <p className="px-3 py-2.5 text-[13px] text-muted-foreground" data-testid="block-day-loading">
+                Reading your calendar...
+              </p>
+            ) : null}
+            {day && day.status !== "ok" ? (
               <p className="px-3 py-2.5 text-[13px] text-muted-foreground" data-testid="block-day-note">
                 {day.status === "unavailable" ? "Google Calendar did not answer. Your blocks still show here." : "Reconnect Google to see your calendar."}
               </p>
             ) : null}
-            {day.items.map((it) => (
+            {(day?.items ?? []).map((it) => (
               <div key={it.id} className="grid grid-cols-[108px_minmax(0,1fr)] gap-3 border-t border-slate-100 px-3 py-2 text-[13px] first:border-t-0" data-testid="block-day-item" data-kind={it.kind}>
                 <span className={cn("tabular", it.kind === "block" ? "font-semibold text-slate-900" : "text-slate-500")}>{rangeLabel(it)}</span>
                 <span className="min-w-0 text-slate-800">{it.title}</span>
               </div>
             ))}
-            {day.status === "ok" && !day.items.length ? <p className="px-3 py-2.5 text-[13px] text-muted-foreground">Nothing on the calendar yet.</p> : null}
+            {day?.status === "ok" && !day.items.length ? <p className="px-3 py-2.5 text-[13px] text-muted-foreground">Nothing on the calendar yet.</p> : null}
           </div>
         </div>
         <div>
@@ -209,7 +234,7 @@ function BlockTimeDrawer({ target, today, nowLocal, blockMinutes, todayCalendar,
           </label>
           <input id="bt-title" value={title} onChange={(e) => setTitle(e.target.value)} className={INPUT} data-testid="block-title" />
         </div>
-        <p className="text-[12.5px] text-muted-foreground">Goes on the Google Calendar of {todayCalendar.email ?? "your Google account"}, with a link back to this record.</p>
+        <p className="text-[12.5px] text-muted-foreground">Goes on the Google Calendar of {todayCalendar?.email ?? "your Google account"}, with a link back to this record.</p>
         <div className="flex gap-2">
           {added ? (
             <RowButton tone="primary" onClick={onClose} className="h-9 px-4 text-[13px]" data-testid="block-close">

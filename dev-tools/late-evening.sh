@@ -13,7 +13,7 @@ LIB=$(ls /usr/lib/*/faketime/libfaketime.so.1 2>/dev/null | head -1)
 [ -n "$LIB" ] || { echo "libfaketime not found: apt-get install faketime"; exit 1; }
 TARGET=$(TZ=America/New_York date -d "$AT" +%s)
 OFFSET=$((TARGET - $(date +%s)))
-FAKE="LD_PRELOAD=$LIB FAKETIME=+${OFFSET} FAKETIME_DONT_FAKE_MONOTONIC=1"
+FAKE="LD_PRELOAD=$LIB FAKETIME=$( [ "$OFFSET" -lt 0 ] && echo "$OFFSET" || echo "+$OFFSET" ) FAKETIME_DONT_FAKE_MONOTONIC=1"
 LOGS=${LOG_DIR:-/tmp}
 echo "Fake time: $(TZ=America/New_York date -d "@$TARGET") (offset ${OFFSET}s)"
 
