@@ -58,3 +58,13 @@ to-dos) plus Accountability (targets, End of day report to partners, weekly and 
   verb like "reload", "refresh" or "open": write "reload the browser page (the circular arrow left of
   the address bar, or Command+R)".
 - List the files created or changed at the end of a task.
+- Label every description with where it happens (Bram, 2026-11-07): "In the live app (while you use it)"
+  for what Bram sees and does in the app, or "While building (in Claude, before release)" for what
+  Claude does to write, test or fix the code. Never mix the two in one bullet.
+
+## Speed rules (Bram, 2026-11-07; plan in claude/2026-11-07-speed-plan.md)
+
+- Every page gets its data in one trip: its read plan goes to `read_batch`; a read outside the plan
+  is a miss (still correct, slower) and fails the miss check.
+- Rules (due dates, groupings, counts) stay in the app's code; the database only gathers rows.
+- Target: every page opens in under 0.5 s on a click. Measure before reporting any change done.

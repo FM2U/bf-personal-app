@@ -428,9 +428,10 @@ const until = async (fn, msg, tries = 60) => {
     await page.waitForURL(new RegExp(`/work/reports/monthly/${slug}`));
     await page.getByTestId("monthly-went").waitFor();
     assert((await page.getByTestId("monthly-crumb").innerText()) === "Work on now", "crumb from Home");
-    // The left menu follows the crumb: Work open with Home current, Accountability closed (2026-11-05).
+    // The left menu follows the crumb: Home is the current page (2026-11-05).
     assert((await page.getByTestId("work-subnav").locator("a.font-semibold").innerText()).startsWith("Home"), "the menu shows Work > Home");
-    assert((await page.getByTestId("accountability-subnav").count()) === 0, "Accountability is not open");
+    // Left menu edits (Bram, 2026-11-07): both lists always show; nothing under Accountability is the current page.
+    assert((await page.getByTestId("accountability-subnav").locator("a.font-semibold").count()) === 0, "no Accountability page is current");
     assert((await page.title()).startsWith("Monthly review:"), await page.title());
     assert((await page.getByTestId("monthly-went-row").count()) === 6 && (await page.getByTestId("monthly-next-row").count()) === 6, "six targets");
     const wentGaps = await markGaps("[data-testid=monthly-went-row]");

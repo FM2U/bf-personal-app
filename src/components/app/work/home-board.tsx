@@ -418,13 +418,13 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, waitingCard, personCom
 
         <div className="flex min-w-0 flex-col gap-[18px] desk:h-full desk:overflow-y-auto desk:overscroll-contain desk:pb-0.5" data-testid="home-right">
           {/* Page speed (2026-11-07): these three cards fill in after the page is on screen, each behind a grey placeholder. */}
-          <Suspense fallback={<CardPlaceholder title="Waiting on someone" sub="Items waiting on external parties" height={112} card="wait" className="max-h-[340px] shrink-0" />}>
+          <Suspense fallback={<CardPlaceholder title="Waiting on someone" sub="Items waiting on external parties" rows={3} card="wait" className="max-h-[340px] shrink-0" />}>
             <WaitingCard data={waitingCard} threshold={threshold} />
           </Suspense>
-          <Suspense fallback={<CardPlaceholder title="Today's calendar" sub="From Google Calendar · your blocks are marked" height={190} card="calendar" />}>
+          <Suspense fallback={<CardPlaceholder title="Today's calendar" sub="From Google Calendar · your blocks are marked" rows={3} card="calendar" />}>
             <Arrived value={data.calendar} render={(c) => <CalendarTile calendar={c} />} />
           </Suspense>
-          <Suspense fallback={<CardPlaceholder title="Targets today" height={244} card="targets" pinAt="desk" />}>
+          <Suspense fallback={<CardPlaceholder title="Targets today" rows={4} card="targets" pinAt="desk" />}>
             <Arrived value={data.targets} render={(t) => <TargetsTodayTile tile={t} />} />
           </Suspense>
           <OutreachTile outreach={data.outreach} today={today} logged={personLogged} onEmail={setPersonEmail} onCall={setPersonCall} />
@@ -475,14 +475,19 @@ function Arrived<T>({ value, render }: { value: Promise<T>; render: (v: T) => Re
 }
 
 /**
- * A light grey placeholder with the card's own title, about the card's usual height, while its data is on its way
- * (page speed 2026-11-07). The real card takes its place; nothing else on the page moves sideways.
+ * While a card's data is on its way (page speed 2026-11-07): the card's own title over a few thin grey lines, each
+ * the height of one row (Bram, 2026-11-07: lighter than one tall grey block). The real card takes its place.
  */
-function CardPlaceholder({ title, sub, height, card, className, pinAt }: { title: string; sub?: string; height: number; card: string; className?: string; pinAt?: "desk" }) {
+function CardPlaceholder({ title, sub, rows, card, className, pinAt }: { title: string; sub?: string; rows: number; card: string; className?: string; pinAt?: "desk" }) {
   return (
     <WorkCard title={title} sub={sub} testId="home-card-loading" pinned pinAt={pinAt} className={className}>
-      <div className="px-[22px] pt-1 pb-4" data-card={card} aria-busy="true" aria-label={`${title} is loading`}>
-        <div className="rounded-lg bg-slate-100" style={{ height }} />
+      <div className="flex flex-col pt-1 pb-2" data-card={card} aria-busy="true" aria-label={`${title} is loading`}>
+        {Array.from({ length: rows }, (_, i) => (
+          <div key={i} className="border-t border-slate-100 px-[22px] py-[11px] first:border-t-0">
+            <div className="h-[9px] rounded-full bg-slate-100" style={{ width: `${[46, 58, 40, 52][i % 4]}%` }} />
+            <div className="mt-[9px] h-[7px] rounded-full bg-slate-100/70" style={{ width: `${[68, 54, 74, 62][i % 4]}%` }} />
+          </div>
+        ))}
       </div>
     </WorkCard>
   );

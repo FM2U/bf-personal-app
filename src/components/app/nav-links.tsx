@@ -60,19 +60,21 @@ export function SidebarLinks({ toScreen, outreachDue, eodBadge }: { toScreen?: n
               href={m.href}
               className={cn(
                 "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900",
-                active === m.key && "bg-primary-soft text-primary-strong hover:bg-primary-soft",
+                // Left menu edits (Bram, 2026-11-07): the open section shows in blue text only, no fill behind it.
+                active === m.key && "text-primary-strong",
               )}
             >
               <ModuleIcon module={m.key} />
               {m.label}
             </Link>
-            {m.key === "work" && active === "work" ? (
-              <div className="mt-0.5 mb-1.5 ml-3.5 flex flex-col border-l-2 border-rule pl-1.5" data-testid="work-subnav">
+            {/* Left menu edits (Bram, 2026-11-07): both lists of sub-items always show, indented, with no line beside them. */}
+            {m.key === "work" ? (
+              <div className="mt-0.5 mb-1.5 ml-3.5 flex flex-col pl-2" data-testid="work-subnav">
                 {WORK_TABS.map((t) => (
                   <Link
                     key={t.href}
                     href={t.href}
-                    className={cn("flex items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-slate-600 hover:bg-slate-100", tab?.href === t.href && "font-semibold text-primary-strong")}
+                    className={cn("flex items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-slate-600 hover:bg-slate-100", active === "work" && tab?.href === t.href && "font-semibold text-primary-strong")}
                   >
                     {t.label}
                     {tabBadge(t.href, toScreen, outreachDue, "subnav")}
@@ -80,13 +82,13 @@ export function SidebarLinks({ toScreen, outreachDue, eodBadge }: { toScreen?: n
                 ))}
               </div>
             ) : null}
-            {m.key === "accountability" && active === "accountability" ? (
-              <div className="mt-0.5 mb-1.5 ml-3.5 flex flex-col border-l-2 border-rule pl-1.5" data-testid="accountability-subnav">
+            {m.key === "accountability" ? (
+              <div className="mt-0.5 mb-1.5 ml-3.5 flex flex-col pl-2" data-testid="accountability-subnav">
                 {ACCOUNTABILITY_TABS.map((t) => (
                   <Link
                     key={t.href}
                     href={t.href}
-                    className={cn("flex items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-slate-600 hover:bg-slate-100", accTab?.href === t.href && "font-semibold text-primary-strong")}
+                    className={cn("flex items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-slate-600 hover:bg-slate-100", active === "accountability" && accTab?.href === t.href && "font-semibold text-primary-strong")}
                   >
                     {t.label}
                     {t.href === "/work/end-of-day" ? <EodBadgeChip badge={eodBadge} testId="subnav-eod-badge" /> : null}
