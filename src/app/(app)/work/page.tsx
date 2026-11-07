@@ -6,7 +6,7 @@ import { loadTabCounts, loadWorkCtx } from "@/lib/work/data";
 import type { WaitItem, WaitItemLine } from "@/lib/work/waiting";
 import { loadHome } from "@/lib/work/home-data";
 import { composeForPerson } from "@/lib/work/outreach-data";
-import { syncRepliesQuietly } from "@/lib/replies-sync";
+import { ReplyCheck } from "@/components/app/reply-check";
 import { AskAiPill } from "@/components/app/work/ask-ai";
 import { WorkTabs } from "@/components/app/nav-links";
 import { HomeBoard } from "@/components/app/work/home-board";
@@ -25,7 +25,7 @@ export const metadata = { title: "Work on now" };
 export default async function WorkNowPage() {
   const { supabase, ownerId } = await requireOwner();
   // Push B: opening Home looks for new replies to the reports and emails the app sent (at most once every few minutes).
-  await syncRepliesQuietly(supabase, ownerId);
+  // Page speed (2026-11-06): after the page is on screen (ReplyCheck below), no longer before it.
   // Page speed (2026-11-06): Home's data, the email setup and the tab counts load side by side.
   const [d, gmail0, tabs0] = await Promise.all([loadHome(supabase, ownerId), loadGmailSetup(supabase, ownerId), loadWorkCtx(supabase, ownerId).then((c) => loadTabCounts(supabase, ownerId, c.today))]);
   const waiting = d.available ? d.waiting.items : [];
@@ -69,6 +69,7 @@ export default async function WorkNowPage() {
   );
   return (
     <WorkShell testId="work-now">
+      <ReplyCheck />
       {!d.available ? (
         <>
           {header}

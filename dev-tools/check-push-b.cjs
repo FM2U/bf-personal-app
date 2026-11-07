@@ -2,6 +2,16 @@
 // the local stand-ins. Best run on a Friday clock, so both sample partners are due (dev-tools/push-b-friday.sh does
 // that); on another weekday the checks that need two partners are skipped with a note.
 // Usage: NODE_PATH=$(npm root -g) node dev-tools/check-push-b.cjs [baseUrl]   (SHOTS_DIR=<folder> saves screenshots)
+/** Waits until `ok()` is true or `ms` pass (the assert after it reports a miss). */
+const poll = async (ok, ms) => {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    try {
+      if (await ok()) return;
+    } catch {}
+    await new Promise((r) => setTimeout(r, 300));
+  }
+};
 const { chromium } = require("playwright");
 const path = require("node:path");
 const fs = require("node:fs");
@@ -246,6 +256,8 @@ const shot = async (page, name) => {
     await page.goto(`${BASE}/work/reports?view=sent`);
     const row = page.locator("[data-testid=sent-row]").first();
     await row.waitFor();
+    // Page speed (2026-11-06): the page shows first; the reply check runs after and the reply shows a moment later.
+    await poll(async () => (await row.innerText()).includes("What is the plan if Summit stalls again?"), 20000);
     assert((await row.innerText()).includes("What is the plan if Summit stalls again?"), `row: ${await row.innerText()}`);
     assert((await row.getByTestId("sent-pill").innerText()) === "Replied", "pill");
     const stored = await all("select contact_id, partner_report_id, awaiting_log from communications where gmail_message_id = $1", [r.id]);
@@ -254,10 +266,13 @@ const shot = async (page, name) => {
     await db.query("update google_connections set replies_checked_at = null");
     await page.goto(`${BASE}/work/reports?view=sent`);
     await page.locator("[data-testid=sent-row]").first().waitFor();
+    // The check after the page has run once it stamps the time it looked.
+    await poll(async () => !!(await one("select replies_checked_at from google_connections")).replies_checked_at, 20000);
     assert((await one("select count(*)::int n from communications where gmail_message_id = $1", [r.id])).n === 1, "stored twice");
     // Throttle: a page opening within a few minutes does not ask Gmail again.
     const reads = (await g("/__replies")).threadReads;
     await page.goto(`${BASE}/work`);
+    await page.waitForTimeout(2500);
     assert((await g("/__replies")).threadReads === reads, "Gmail was asked again within five minutes");
     await page.goto(`${BASE}/work/reports?view=sent`);
     await page.locator("[data-testid=sent-row]").first().click();
@@ -292,6 +307,8 @@ const shot = async (page, name) => {
     const r = await g("/__reply", { to: "dana.whitfield@example.com", text: "Two landscaping owners. Call me." });
     await db.query("update google_connections set replies_checked_at = null");
     await page.goto(`${BASE}/work`);
+    // Page speed (2026-11-06): Home looks for replies after it is on screen; the reply is stored a moment later.
+    await poll(async () => !!(await one("select id from communications where gmail_message_id = $1", [r.id])), 20000);
     await page.goto(`${BASE}/work/people/${dana.id}`);
     const inc = await page.getByTestId("person-incoming").innerText();
     assert(inc.includes("Two landscaping owners"), inc);

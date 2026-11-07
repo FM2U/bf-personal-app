@@ -3,7 +3,7 @@ import { loadGmailSetup, type ComposeSetup } from "@/lib/compose-email";
 import { isGoogleConfigured } from "@/lib/env";
 import { getGoogleConnection } from "@/lib/google";
 import { RECONNECT_FOR_REPLIES, replyPermission } from "@/lib/google-scopes";
-import { syncRepliesQuietly } from "@/lib/replies-sync";
+import { ReplyCheck } from "@/components/app/reply-check";
 import { isValidEmail } from "@/lib/email-address";
 import { loadCtx } from "@/lib/engine/helpers";
 import { loadEodBadge, loadReportsPage } from "@/lib/accountability/data";
@@ -28,8 +28,8 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
   const sp = await searchParams;
   const notice = null;
   const ctx = await loadCtx(supabase, ownerId);
-  // Push B: opening Reports looks for new replies (at most once every few minutes).
-  await syncRepliesQuietly(supabase, ownerId);
+  // Push B: opening Reports looks for new replies (at most once every few minutes); page speed (2026-11-06): after the
+  // page is on screen (ReplyCheck below), no longer before it.
   const [badge, d, gmail, conn, monthly] = await Promise.all([loadEodBadge(supabase, ownerId, ctx.today), notice ? null : loadReportsPage(supabase, ctx), loadGmailSetup(supabase, ownerId), getGoogleConnection(supabase, ownerId), loadMonthlyList(supabase, ctx)]);
   const replyNote = isGoogleConfigured() && replyPermission(conn) === "reconnect" ? RECONNECT_FOR_REPLIES : null;
   // Reply under a reply: the email box to that partner (only people with an address).
@@ -66,6 +66,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
   }
   return (
     <WorkShell testId="work-reports">
+      <ReplyCheck />
       <ReportsBoard data={d} title={title} tabs={<AccountabilityTabs eodBadge={badge} tight />} view={sp.view === "monthly" ? "monthly" : sp.view === "sent" || sp.day ? "sent" : "week"} monthly={monthly.items} period={parsePeriodKey(sp.period)} openDay={sp.day ?? null} partnerAtStart={sp.partner ?? null} composes={composes} replyNote={replyNote} />
     </WorkShell>
   );

@@ -81,12 +81,15 @@ export function timingLine(r: RequestTiming): string {
   const done = r.calls.filter((c) => c.end !== null);
   const end = done.length ? Math.max(...done.map((c) => c.end!)) : r.t0;
   const n = (k: Call["kind"]) => done.filter((c) => c.kind === k).length;
-  const slowest = done.length ? Math.max(...done.map((c) => c.end! - c.start)) : 0;
+  const slow = done.length ? done.reduce((a, c) => (c.end! - c.start > a.end! - a.start ? c : a)) : null;
+  const slowest = slow ? slow.end! - slow.start : 0;
+  // Which read it was (2026-11-06): the table, "sign-in check", or "Google".
+  const slowName = !slow ? "" : slow.kind === "google" ? "Google" : slow.kind === "ai" ? "AI" : slow.what.startsWith("/auth/") ? "sign-in check" : slow.what.split(/[?/]/).filter(Boolean)[0] ?? "";
   const s = (ms: number) => `${(ms / 1000).toFixed(ms < 1000 ? 2 : 1)} s`;
   const parts = [`Server ${s(end - r.t0)}`, `${n("db")} lookups`];
   if (n("google")) parts.push(`${n("google")} Google calls`);
   if (n("ai")) parts.push(`${n("ai")} AI calls`);
-  if (done.length) parts.push(`slowest ${s(slowest)}`);
+  if (done.length) parts.push(`slowest ${s(slowest)}${slowName ? ` (${slowName})` : ""}`);
   if (process.env.TIMING_LOG === "1") {
     const rows = done.map((c) => `${String(Math.round(c.start - r.t0)).padStart(6)} → ${String(Math.round(c.end! - r.t0)).padStart(6)} ms  ${c.kind.padEnd(6)} ${c.what}`);
     console.log(`[timing] ${parts.join(" · ")}\n${rows.join("\n")}`);

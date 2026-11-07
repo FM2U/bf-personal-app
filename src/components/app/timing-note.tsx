@@ -65,7 +65,7 @@ export function TimingNote({ text }: { text: string }) {
 
   // The new page is on screen: stop the clock after the browser has drawn it.
   useEffect(() => {
-    if ((path === first && isFullLoad) || clickAt === null) return;
+    if (clickAt === null) return;
     const t0 = clickAt;
     clickAt = null;
     let id = requestAnimationFrame(() => {
@@ -75,7 +75,8 @@ export function TimingNote({ text }: { text: string }) {
   }, [path, first, isFullLoad]);
 
   const line =
-    path === first && isFullLoad
+    // After any click the line shows click times only, also back on the page first loaded (2026-11-06).
+    path === first && isFullLoad && !click
       ? [drawn !== null ? `Page drawn ${secs(drawn)}` : null, text].filter(Boolean).join(" · ")
       : click && click.path === path
         ? `Click to page ${secs(click.ms)} · reload the browser page (Command+R) for the server numbers`

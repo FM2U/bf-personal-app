@@ -12,7 +12,7 @@ import { loadPersonPage } from "@/lib/work/outreach-data";
 import { onFollowUps, PEOPLE_HREF, peopleViewHref } from "@/lib/work/people";
 import { headerFigures, type HeaderFigure } from "@/lib/work/record-page";
 import { openTodos } from "@/lib/work/todos";
-import { syncRepliesQuietly } from "@/lib/replies-sync";
+import { ReplyCheck } from "@/components/app/reply-check";
 import { AskAiPill } from "@/components/app/work/ask-ai";
 import { personAsk } from "@/lib/work/ask-ai";
 import { IncomingCard, NextFollowUpCard, PersonDecisionCard, PersonFactsCard, PersonHeaderActions, PersonTasksCard, PersonTimelineCard, WhyInTouchCard } from "@/components/app/work/person/cards";
@@ -45,7 +45,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
   const ctx = await loadCtx(supabase, ownerId);
   const { data: role } = await supabase.from("contacts").select("outreach_role").eq("owner_id", ownerId).eq("id", id).maybeSingle();
   const partnerPage = (role as { outreach_role?: string } | null)?.outreach_role === "accountability_partner";
-  if (partnerPage) await syncRepliesQuietly(supabase, ownerId);
+  // Page speed (2026-11-06): a partner's page looks for new replies after it is on screen (ReplyCheck below).
   const d = await loadPersonPage(supabase, ctx, id);
   const person = d.person;
   if (!person) {
@@ -82,6 +82,7 @@ export default async function PersonPage({ params }: { params: Promise<{ id: str
   const line = orgRoleLine(person);
   return (
     <WorkShell testId="work-person">
+      {partnerPage ? <ReplyCheck /> : null}
       <RecordHeader
         title={person.name}
         crumb={
