@@ -58,6 +58,8 @@ export type ReportDeal = {
 export type ReportTarget = { id: string; group: "missed" | "now" | "met"; /** "Listings screened: 3 of 5 today, 8 of 10 this week". */ text: string; commitment: boolean; /** A missed commitment asks a reason; null while not given. */ asks: boolean; reason: string | null };
 
 export type ReportData = {
+  /** Send a report (Bram, 2026-11-07): a short note of your own under the greeting, for that send only. */
+  intro?: string | null;
   /** Fix list item 10 (2026-11-06): the name under "Thank you," (the first word of the Name in Settings); none when not set. */
   signName?: string | null;
   partnerName: string;

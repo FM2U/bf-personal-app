@@ -12,6 +12,7 @@ import { parsePeriodKey } from "@/lib/accountability/periods";
 import { AccountabilityTabs } from "@/components/app/nav-links";
 import { AskAiPill } from "@/components/app/work/ask-ai";
 import { ReportsBoard } from "@/components/app/work/reports-board";
+import { SendReportButton } from "@/components/app/work/send-report";
 import { WorkShell, WorkUpdateNotice } from "@/components/app/work/shell";
 import { PinnedBlock, WorkHeader } from "@/components/app/work/ui";
 
@@ -48,6 +49,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
           <span className="hidden sm:inline" data-testid="reports-summary">
             To {partnerFirst} by email · replies come from your Gmail
           </span>
+          <SendReportButton className="inline-flex h-8 items-center rounded-full border border-primary-strong bg-white px-3.5 text-[13px] font-medium text-primary-strong hover:bg-primary-soft" />
           <AskAiPill context={{ page: "reports", label: d ? `Reports, ${d.periods[0].label.toLowerCase()}` : "Reports" }} />
         </>
       }

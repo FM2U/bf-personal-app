@@ -193,7 +193,9 @@ export type SentCopy = { reportId: string; contactId: string; sentAt: string; ht
 
 export async function loadSentCopies(sb: SupabaseClient, ownerId: string, day: string): Promise<SentCopy[]> {
   const { data } = await sb.from("partner_reports").select("id,contact_id,sent_at,snapshot").eq("owner_id", ownerId).eq("report_kind", "end_of_day").eq("period_start", day).not("contact_id", "is", null).not("sent_at", "is", null).order("sent_at").limit(20);
-  return ((data ?? []) as Row[]).map((r) => {
+  // Send a report (2026-11-07): an earlier day sent again later is not one of that day's copies (the day stays as it was).
+  const rows = ((data ?? []) as Row[]).filter((r) => !((r.snapshot ?? {}) as Row).resend);
+  return rows.map((r) => {
     const snap = (r.snapshot && typeof r.snapshot === "object" ? r.snapshot : {}) as Row;
     return { reportId: String(r.id), contactId: String(r.contact_id), sentAt: String(r.sent_at), html: typeof snap.html === "string" ? snap.html : null, subject: typeof snap.subject === "string" ? snap.subject : null, choices: snap.choices && typeof snap.choices === "object" ? cleanChoices(snap.choices) : null, notes: snap.notes && typeof snap.notes === "object" ? cleanNotes(snap.notes) : null };
   });

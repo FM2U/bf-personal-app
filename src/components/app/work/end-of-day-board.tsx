@@ -10,6 +10,7 @@ import type { EndOfDayPage } from "@/lib/accountability/data";
 import { dueLine, getsLabel, sendLabel } from "@/lib/accountability/partners";
 import { includesLine, REVIEW_QUESTIONS, reviewAnswered, sentSections, type WeeklyReview } from "@/lib/accountability/report-sections";
 import { PARTNER_BOX, ReportWindow } from "@/components/app/work/report-window";
+import { SendReportButton } from "@/components/app/work/send-report";
 import { DONE_AREAS, judgedMark, MARK_WORD, owedReasons, sendChecklist, todayStrip, type DayNumbers, type Judged, type TodayPart } from "@/lib/accountability/targets";
 import type { AskContext } from "@/lib/work/ask-ai";
 import { AccountabilityTabs, type EodBadge } from "@/components/app/nav-links";
@@ -506,21 +507,25 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
                   <RowButton onClick={() => setSkipOpen(false)}>Cancel</RowButton>
                 </div>
               ) : null}
-              {state.status === "open" ? (
-                <div className="mt-2.5 flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[13px]">
-                  <button type="button" onClick={() => setWindowOpen("edit")} disabled={!copies.length} className="font-medium text-muted-foreground hover:text-primary-strong" data-testid="report-edit">
-                    Edit
-                  </button>
-                  <button type="button" onClick={() => setSkipOpen(true)} className="font-medium text-muted-foreground hover:text-primary-strong" data-testid="skip-today">
-                    Skip today
-                  </button>
-                  {partly ? (
-                    <span className="min-w-0 text-[12.5px] text-muted-foreground sm:ml-auto sm:text-right" data-testid="report-due-line">
-                      {partly}
-                    </span>
-                  ) : null}
-                </div>
-              ) : null}
+              <div className="mt-2.5 flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[13px]">
+                {state.status === "open" ? (
+                  <>
+                    <button type="button" onClick={() => setWindowOpen("edit")} disabled={!copies.length} className="font-medium text-muted-foreground hover:text-primary-strong" data-testid="report-edit">
+                      Edit
+                    </button>
+                    <button type="button" onClick={() => setSkipOpen(true)} className="font-medium text-muted-foreground hover:text-primary-strong" data-testid="skip-today">
+                      Skip today
+                    </button>
+                  </>
+                ) : null}
+                {/* Send a report (Bram, 2026-11-07): today's or an earlier report, to anyone with an email address. */}
+                <SendReportButton className="font-medium text-muted-foreground hover:text-primary-strong" />
+                {state.status === "open" && partly ? (
+                  <span className="min-w-0 text-[12.5px] text-muted-foreground sm:ml-auto sm:text-right" data-testid="report-due-line">
+                    {partly}
+                  </span>
+                ) : null}
+              </div>
               {copies.length ? (
                 <div className="mt-4 border-t border-border pt-3.5" data-testid="eod-partners">
                   <div className={cn(PT_ROW, "border-b border-rule pb-1.5")}>
@@ -566,7 +571,7 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
               ) : (
                 <p className="mt-4 border-t border-border pt-3.5 text-[12.5px] leading-[1.5] text-muted-foreground" data-testid="report-includes">
                   {data.partners.length ? (
-                    <>No partner gets the report today. Each partner&apos;s days are on their page under Contacts.</>
+                    <>No partner gets the report today. Each partner&apos;s days are on their page under Contacts. To send today&apos;s report anyway, click Send a report above.</>
                   ) : (
                     <>
                       No accountability partner yet. Add a person under{" "}

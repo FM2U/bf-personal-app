@@ -12,6 +12,8 @@ const pg = require(path.join(__dirname, "..", "node_modules", "pg"));
 const BASE = process.argv[2] || "http://localhost:3000";
 const db = new pg.Client({ connectionString: process.env.DATABASE_URL || "postgres://postgres:postgres@127.0.0.1:5432/bf_dev" });
 const one = async (sql, args = []) => (await db.query(sql, args)).rows[0];
+const GOOGLE = process.env.GOOGLE_API_MOCK_URL || "http://localhost:54329";
+const g = (p, body) => fetch(`${GOOGLE}${p}`, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}).then((r) => r.json());
 
 let failed = 0;
 async function step(name, fn) {
@@ -225,6 +227,90 @@ const until = async (fn, msg, tries = 80) => {
     assert(await page.getByTestId("ai-cap-input").count(), "no AI limit field in Settings");
     await open("/settings/export");
     assert(await page.getByTestId("settings-export-download").count(), "no Download full export");
+  });
+
+  // ---------- Send a report (Bram, 2026-11-07, design A) ----------
+  const win = () => page.getByTestId("send-report-window");
+  const pressSend = async () => {
+    await win().getByTestId("send-report-send").click();
+    await until(async () => (await win().getByTestId("send-report-sent").count()) || (await win().getByTestId("send-report-owed").count()) || (await win().getByTestId("send-report-error").count()), "Send gave no answer", 120);
+    if (await win().getByTestId("send-report-owed").count()) {
+      await win().getByTestId("send-report-anyway").click();
+      await until(async () => (await win().getByTestId("send-report-sent").count()) || (await win().getByTestId("send-report-error").count()), "Send anyway gave no answer", 120);
+    }
+    if (await win().getByTestId("send-report-error").count()) throw new Error(await win().getByTestId("send-report-error").innerText());
+  };
+  await step("Send a report on End of day: the window opens with today chosen, every section ticked, and the preview", async () => {
+    await open("/work/end-of-day");
+    await page.getByTestId("send-a-report").first().click();
+    await win().getByTestId("send-report-day-select").waitFor({ timeout: 20000 });
+    const today = await win().getByTestId("send-report-day-select").inputValue();
+    assert(/^\d{4}-\d{2}-\d{2}$/.test(today), `the day is ${today}`);
+    const boxes = win().getByTestId("send-report-section").locator("input");
+    const n = await boxes.count();
+    assert(n >= 5, `${n} sections`);
+    for (let i = 0; i < n; i++) assert(await boxes.nth(i).isChecked(), `section ${i} is not ticked`);
+    await win().getByTestId("send-report-preview").waitFor({ timeout: 20000 });
+    assert((await win().getByTestId("send-report-preview").innerText()).includes("Hello"), "the preview has no greeting");
+    assert((await win().getByTestId("send-report-send").isDisabled()), "Send is enabled with nobody chosen");
+  });
+
+  let saved = "";
+  await step("Send a report: a contact found by search, a new address saved as a contact and one sent only, a section left out and a note; three emails go out with the note, today counts as sent", async () => {
+    const before = (await g("/__sent")).length;
+    const someone = await one("select id, name, email from contacts where email like '%@%.%' and archived_at is null and coalesce(outreach_role, '') <> 'accountability_partner' order by name limit 1");
+    assert(someone, "no contact with an email address in the sample");
+    await win().getByTestId("send-report-search").fill(someone.name.split(" ")[0]);
+    await win().getByTestId("send-report-match").filter({ hasText: someone.email }).first().click();
+    saved = `advisor-${Date.now()}@example.com`;
+    await win().getByTestId("send-report-new-email").fill(saved);
+    await win().getByTestId("send-report-new-name").fill("Avery Advisor");
+    await win().getByTestId("send-report-new-add").click();
+    await win().getByTestId("send-report-new-save").uncheck();
+    await win().getByTestId("send-report-new-email").fill("just-once@example.com");
+    await win().getByTestId("send-report-new-add").click();
+    assert((await win().getByTestId("send-report-chip").count()) === 3, `${await win().getByTestId("send-report-chip").count()} people chosen`);
+    await win().locator("[data-testid=send-report-section][data-key=jobs] input").uncheck();
+    await win().getByTestId("send-report-intro").fill("Avery, this is the daily report I mentioned.");
+    await until(async () => (await win().getByTestId("send-report-preview").innerText()).includes("this is the daily report I mentioned"), "the preview does not show the note");
+    await pressSend();
+    const mails = (await g("/__sent")).slice(before);
+    assert(mails.length === 3, `${mails.length} emails sent`);
+    const to = mails.map((m) => String(m.to)).join(" ");
+    for (const a of [someone.email, saved, "just-once@example.com"]) assert(to.includes(a), `no email to ${a}: ${to}`);
+    for (const m of mails) assert(String(m.body).includes("this is the daily report I mentioned") && String(m.html).includes("this is the daily report I mentioned"), "an email has no note");
+    const avery = mails.find((m) => String(m.to).includes(saved));
+    assert(/Hello Avery,/.test(String(avery.body)), "the greeting does not use the new person's first name");
+    const c = await one("select count(*)::int n from contacts where email = $1", [saved]);
+    assert(c.n === 1, "the new address was not saved as a contact");
+    const o = await one("select count(*)::int n from contacts where email = 'just-once@example.com'");
+    assert(o.n === 0, "the address sent only was saved as a contact");
+    const r = await one("select count(*)::int n from partner_reports where snapshot->>'sent_by' = 'send_a_report' and contact_id in (select id from contacts where email in ($1, $2))", [saved, someone.email]);
+    assert(r.n === 2, `${r.n} report copies kept`);
+    const t = await one("select count(*)::int n from communications where direction = 'outgoing' and contact_id = (select id from contacts where email = $1)", [saved]);
+    assert(t.n >= 1, "the send is not on the new contact's timeline");
+    const day = await one("select status from end_of_day where day = (select max(day) from end_of_day)");
+    assert(day.status === "sent", `today is ${day.status}`);
+    await win().getByTestId("send-report-close").click();
+  });
+
+  await step("Send a report on Reports: an earlier day sent again goes out and changes nothing about that day", async () => {
+    const earlier = await one("select day::text as d, sent_at::text as sent_at, report_id from end_of_day where status = 'sent' and day < (select max(day) from end_of_day) order by day desc limit 1");
+    assert(earlier, "no earlier sent day in the sample");
+    await open("/work/reports");
+    await page.getByTestId("send-a-report").first().click();
+    await win().getByTestId("send-report-day-select").waitFor({ timeout: 20000 });
+    await win().getByTestId("send-report-day-select").selectOption(earlier.d);
+    await win().getByTestId("send-report-new-email").fill(saved);
+    await win().getByTestId("send-report-new-add").click();
+    await win().getByTestId("send-report-preview").waitFor({ timeout: 20000 });
+    const before = (await g("/__sent")).length;
+    await pressSend();
+    assert((await g("/__sent")).length === before + 1, "the earlier report was not sent");
+    const after = await one("select day::text as d, sent_at::text as sent_at, report_id from end_of_day where day = $1", [earlier.d]);
+    assert(after.sent_at === earlier.sent_at && after.report_id === earlier.report_id, "the earlier day changed");
+    const kept = await one("select count(*)::int n from partner_reports where period_start = $1 and (snapshot->>'resend')::boolean", [earlier.d]);
+    assert(kept.n === 1, "the resend is not kept as a copy");
   });
 
   await step("No page showed an error in the browser", async () => {
