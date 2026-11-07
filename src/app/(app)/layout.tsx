@@ -8,8 +8,14 @@ import { countToScreen } from "@/lib/work/data";
 import { countOutreachDue } from "@/lib/work/outreach-data";
 import { todayInTz } from "@/lib/calc/dates";
 import { loadEodBadge } from "@/lib/accountability/data";
+import { installTiming, requestTiming, TIMING_ON } from "@/lib/timing";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
+  // Page speed line, preview only (2026-11-06): start the clock before the first lookup of a full page load.
+  if (TIMING_ON) {
+    installTiming();
+    requestTiming();
+  }
   const { supabase, user, ownerId } = await requireOwner();
   const [toScreen, { data: profile }] = await Promise.all([
     // Listings to screen (the badge under Work).
