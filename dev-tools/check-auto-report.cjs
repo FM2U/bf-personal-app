@@ -82,13 +82,14 @@ const auto = async (day) => ((await one("select report_edits from end_of_day whe
     await g("/__reset", {});
   });
 
-  await step("Settings: 'Report goes out at' 6:00 pm and 'Send automatically' on; Follow up after 5 and Stalled after 10 as two rows", async () => {
+  await step("Settings: 'Report goes out at' 6:00 pm and 'Send automatically' on; Amber after 5 and Red after 10, the four groups, no Network outreach row", async () => {
     await open("/settings");
     assert((await page.getByTestId("work-eod-time").inputValue()) === "18:00", `the time is ${await page.getByTestId("work-eod-time").inputValue()}`);
     assert(await page.getByTestId("work-auto-send").isChecked(), "Send automatically is off");
     assert((await page.getByTestId("work-threshold").inputValue()) === "5" && (await page.getByTestId("work-stalled").inputValue()) === "10", "Follow up / Stalled numbers");
     const t = (await page.getByTestId("work-settings").innerText()).replace(/\s+/g, " ");
-    assert(t.includes("Follow up after") && t.includes("days with no answer · the wait turns amber") && t.includes("Stalled after") && t.includes("the wait turns red"), t);
+    assert(t.includes("Amber after") && t.includes("days with no answer (time to nudge)") && t.includes("Red after") && t.includes("days with no answer (stalled)") && t.includes("Unanswered email after") && !t.includes("Network outreach"), t);
+    for (const h of ["WAITING ON SOMEONE", "DAILY REPORT", "WORK WEEK", "CALENDAR"]) assert(t.toUpperCase().includes(h), `no group ${h}`);
   });
 
   await step("End of day: no Skip today; the card says the report goes out by itself at 6:00 pm", async () => {

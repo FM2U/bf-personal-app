@@ -37,6 +37,11 @@ export function KV({ label, children, testId }: { label: React.ReactNode; childr
   );
 }
 
+/** A small group label inside a settings card (Bram, 2026-11-08). */
+function GroupHead({ children, first = false }: { children: React.ReactNode; first?: boolean }) {
+  return <p className={cn("label-caps figure-label pb-1", first ? "pt-3" : "pt-5")}>{children}</p>;
+}
+
 export type WorkSettingsValues = { threshold: number; stalled: number; noReply: number; outreach: number; eodTime: string; blockMinutes: number; autoSend: boolean; workWeek: WorkWeek };
 
 export function WorkSettingsCard({ initial }: { initial: WorkSettingsValues }) {
@@ -81,33 +86,29 @@ export function WorkSettingsCard({ initial }: { initial: WorkSettingsValues }) {
       testId="work-settings"
     >
       <div className="px-[22px] pt-1 pb-3">
-        {/* Bram, 2026-11-08: two rows with their own numbers, laid out like "No reply yet after". */}
-        <KV label="Follow up after" testId="work-settings-threshold">
-          <input value={v.threshold} onChange={set("threshold")} inputMode="numeric" className={NUM} aria-label="Follow up after (days)" data-testid="work-threshold" />
+        {/* Bram, 2026-11-08: four labeled groups; Network outreach moved to Targets (one number). */}
+        <GroupHead first>Waiting on someone</GroupHead>
+        <KV label={<><span className="font-medium text-status-soon">Amber</span> after</>} testId="work-settings-threshold">
+          <input value={v.threshold} onChange={set("threshold")} inputMode="numeric" className={NUM} aria-label="Amber after (days)" data-testid="work-threshold" />
           <span>
-            days with no answer · the wait turns <span className="font-medium text-status-soon">amber</span>
+            days with no answer (time to nudge)
           </span>
         </KV>
-        <KV label="Stalled after" testId="work-settings-stalled">
-          <input value={v.stalled} onChange={set("stalled")} inputMode="numeric" className={NUM} aria-label="Stalled after (days)" data-testid="work-stalled" />
+        <KV label={<><span className="font-medium text-status-missed">Red</span> after</>} testId="work-settings-stalled">
+          <input value={v.stalled} onChange={set("stalled")} inputMode="numeric" className={NUM} aria-label="Red after (days)" data-testid="work-stalled" />
           <span>
-            days with no answer · the wait turns <span className="font-medium text-status-missed">red</span>
+            days with no answer (stalled)
           </span>
         </KV>
-        {/* Push E: "No reply yet after [2] days", under the waiting field it belongs with; the box lines up with the others. */}
-        <KV label="No reply yet after" testId="work-settings-no-reply">
-          <input value={v.noReply} onChange={set("noReply")} inputMode="numeric" className={NUM} aria-label="No reply yet after (days)" data-testid="work-no-reply" />
-          <span>days</span>
+        <KV label="Unanswered email after" testId="work-settings-no-reply">
+          <input value={v.noReply} onChange={set("noReply")} inputMode="numeric" className={NUM} aria-label="Unanswered email after (days)" data-testid="work-no-reply" />
+          <span>days: listed under &ldquo;No reply yet&rdquo;</span>
         </KV>
-        <KV label="Network outreach" testId="work-settings-outreach">
-          <input value={v.outreach} onChange={set("outreach")} inputMode="numeric" className={NUM} aria-label="Network outreach per week" data-testid="work-outreach" />
-          <span>per week</span>
-        </KV>
+        <GroupHead>Daily report</GroupHead>
         <KV label="Report goes out at" testId="work-settings-eod">
           <input type="time" value={v.eodTime} onChange={set("eodTime")} step={300} className={cn(INPUT, "w-[120px]")} aria-label="Report goes out at" data-testid="work-eod-time" />
           <span>on your partners&apos; days</span>
         </KV>
-        {/* Bram, 2026-11-08: the report sends itself at that time; reminder emails 2 hours and 30 minutes before either way. */}
         <KV label="Send automatically" testId="work-settings-auto">
           <label className="flex cursor-pointer items-center gap-2">
             <input
@@ -123,8 +124,17 @@ export function WorkSettingsCard({ initial }: { initial: WorkSettingsValues }) {
             <span>{v.autoSend ? "On: the report goes out at that time" : "Off: only the reminder emails"}</span>
           </label>
         </KV>
-        {/* The work week (Bram, 2026-11-07, design B): the work days, the week's first day, and the weekly review day
-            (its own setting: it does not follow the work days). */}
+        <KV label="Weekly review day" testId="work-settings-review">
+          <select value={v.reviewDay} onChange={pick("reviewDay")} className={cn(INPUT, "w-[140px]")} aria-label="Weekly review day" data-testid="work-review-day">
+            {WEEK_DAYS.map((d) => (
+              <option key={d.n} value={String(d.n)}>
+                {d.long}
+              </option>
+            ))}
+          </select>
+          <span className="text-muted-foreground">adds the Weekly review to that day&apos;s report</span>
+        </KV>
+        <GroupHead>Work week</GroupHead>
         <KV label="Work days" testId="work-settings-days">
           {/* Bram, 2026-11-08: one row of seven columns, the day on top and its box centered under it. */}
           <span className="grid grid-cols-7 gap-x-2.5">
@@ -142,16 +152,7 @@ export function WorkSettingsCard({ initial }: { initial: WorkSettingsValues }) {
             <option value="7">Sunday</option>
           </select>
         </KV>
-        <KV label="Weekly review day" testId="work-settings-review">
-          <select value={v.reviewDay} onChange={pick("reviewDay")} className={cn(INPUT, "w-[140px]")} aria-label="Weekly review day" data-testid="work-review-day">
-            {WEEK_DAYS.map((d) => (
-              <option key={d.n} value={String(d.n)}>
-                {d.long}
-              </option>
-            ))}
-          </select>
-          <span className="text-muted-foreground">the Weekly review and The week in that day&apos;s report</span>
-        </KV>
+        <GroupHead>Calendar</GroupHead>
         <KV label="Default block length" testId="work-settings-block">
           <input value={v.blockMinutes} onChange={set("blockMinutes")} inputMode="numeric" className={NUM} aria-label="Default block length (minutes)" data-testid="work-block-minutes" />
           <span>minutes</span>

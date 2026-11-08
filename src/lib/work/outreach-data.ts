@@ -1,6 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { addDaysISO, todayInTz } from "@/lib/calc/dates";
+import { todayInTz } from "@/lib/calc/dates";
 import { buildFacts } from "@/lib/accountability/facts";
 import { countIn } from "@/lib/accountability/targets";
 import { loadComposeSetup, loadGmailSetup, type ComposeSetup, type GmailSetup } from "@/lib/compose-email";
@@ -16,6 +16,7 @@ import { DEFAULT_WAIT_THRESHOLD_DAYS } from "@/lib/work/stages";
 import { waitLines, type WaitLine } from "@/lib/work/waiting";
 import { loadWaitReplies, loadWaitsFor, withReplies } from "@/lib/work/waits-data";
 import type { Row } from "@/lib/types";
+import { workWeekNow } from "@/lib/work-week";
 
 /**
  * What the Outreach page, the person page, and the Outreach tile on Home read (batch B, database update 0022).
@@ -84,18 +85,27 @@ export function toPersonRow(c: Row, orgName: string | null, tz: string, waits: W
   };
 }
 
-/** The weekly outreach target (the setting outreach_weekly_target, default 10). */
+/**
+ * The weekly outreach target (Bram, 2026-11-08: one number): the Network outreach target on Targets (per week, or per
+ * work day times the work days), else the older setting outreach_weekly_target, else 10.
+ */
 async function loadOutreachTarget(sb: SupabaseClient, ownerId: string): Promise<number> {
-  const { data } = await sb.from("inputs").select("value_number").eq("owner_id", ownerId).eq("key", "outreach_weekly_target").maybeSingle();
+  const [{ data: t }, { data }] = await Promise.all([
+    sb.from("targets").select("period,minimum_count").eq("owner_id", ownerId).eq("counts_key", "outreach_contacts").is("archived_at", null).order("sort_order").limit(1),
+    sb.from("inputs").select("value_number").eq("owner_id", ownerId).eq("key", "outreach_weekly_target").maybeSingle(),
+  ]);
+  const row = ((t ?? []) as Row[])[0];
+  const fromTarget = Number(row?.minimum_count);
+  if (row && Number.isFinite(fromTarget) && fromTarget > 0) return Math.round(row.period === "day" ? fromTarget * workWeekNow().days.length : fromTarget);
   const n = Number((data as Row | null)?.value_number);
   return Number.isFinite(n) && n > 0 ? Math.round(n) : DEFAULT_OUTREACH_TARGET;
 }
 
 type OutreachCounter = { count: number; target: number; pct: number };
 
-/** The weekly counter: emails sent and calls logged to people, Monday to Friday of this week (the owner's dates). */
+/** The weekly counter: emails sent and calls logged to people, on the work days of this week (the owner's dates). */
 async function loadOutreachCounter(sb: SupabaseClient, ctx: Ctx): Promise<OutreachCounter> {
-  const { start } = workWeek(ctx.today);
+  const { start, end } = workWeek(ctx.today);
   const [{ data }, target] = await Promise.all([
     sb.from("communications").select("occurred_at,method,direction,contact_id,awaiting_log").eq("owner_id", ctx.ownerId).gte("occurred_at", `${start}T00:00:00Z`).limit(2000),
     loadOutreachTarget(sb, ctx.ownerId),
@@ -104,7 +114,7 @@ async function loadOutreachCounter(sb: SupabaseClient, ctx: Ctx): Promise<Outrea
   // End of day always agree.
   const { facts } = buildFacts({ items: [], history: [], comms: (data ?? []) as Row[], events: [], people: [], stageById: {}, laneOf: {}, since: start, local: (ts) => todayInTz(ctx.tz, new Date(ts)) });
   const t = Number.isFinite(target) && target > 0 ? Math.round(target) : DEFAULT_OUTREACH_TARGET;
-  const count = countIn("outreach_contacts", facts, start, addDaysISO(start, 4)).value;
+  const count = countIn("outreach_contacts", facts, start, end).value;
   return { count, target: t, pct: Math.min(100, Math.round((count / t) * 100)) };
 }
 

@@ -528,36 +528,34 @@ const until = async (fn, msg, tries = 60) => {
 
   await step("Work settings save: waiting threshold, outreach target, End of day time (the badge follows), default block length", async () => {
     await page.getByTestId("work-threshold").fill("6");
-    await page.getByTestId("work-outreach").fill("12");
     await page.getByTestId("work-eod-time").fill("17:45");
     await page.getByTestId("work-block-minutes").fill("45");
-    // The waiting rows (Bram, 2026-11-08): "Follow up after [6] days with no answer · the wait turns amber" and
-    // "Stalled after [10] days with no answer · the wait turns red", each with its own number.
+    // The waiting rows (Bram, 2026-11-08): "Amber after [6] days with no answer: the wait shows amber (time to nudge)"
+    // and "Red after [10] days with no answer: the wait shows red (stalled)", each with its own number.
     const wt = (await page.getByTestId("work-settings-threshold").innerText()).replace(/\s+/g, " ");
     const ws = (await page.getByTestId("work-settings-stalled").innerText()).replace(/\s+/g, " ");
-    assert(wt.includes("Follow up after") && wt.includes("days with no answer · the wait turns amber") && ws.includes("Stalled after") && ws.includes("the wait turns red"), `${wt} | ${ws}`);
+    assert(wt.includes("Amber after") && wt.includes("days with no answer (time to nudge)") && ws.includes("Red after") && ws.includes("days with no answer (stalled)"), `${wt} | ${ws}`);
     await page.locator("#s-work").scrollIntoViewIfNeeded();
     await shot(page, "settings-work-settings.png");
     await page.getByTestId("work-settings-save").click();
     await until(async () => (await page.getByTestId("work-settings-note").count()) && (await page.getByTestId("work-settings-note").innerText()) === "Saved", "saved");
     const v = await all("select key, value_number::float n, value_text t from inputs where key in ('waiting_threshold_days', 'outreach_weekly_target', 'end_of_day_time') order by key");
     const b = await one("select default_block_minutes m from owner_profile");
-    assert(JSON.stringify(v.map((x) => x.n ?? x.t)) === JSON.stringify(["17:45", 12, 6]) && b.m === 45, JSON.stringify([v, b]));
+    assert(JSON.stringify(v.map((x) => x.n ?? x.t)) === JSON.stringify(["17:45", 10, 6]) && b.m === 45, JSON.stringify([v, b]));
     await page.goto(`${BASE}/work`);
     // The Waiting on someone card: the fixed subtitle, and the two groups named from the threshold.
-    const waitText = await page.getByTestId("now-wait").innerText();
+    const waitText = await page.getByTestId("home-right").getByTestId("now-wait").innerText();
     assert(waitText.includes("Items waiting on external parties"), "the waiting subtitle");
     const waitHeads = await page.locator("[data-testid=now-wait] [data-testid=home-section] [data-testid=section-heading]").allInnerTexts();
     assert(/6\+ days/i.test(waitHeads[0] ?? "") && /< 6 days/i.test(waitHeads[1] ?? ""), `the waiting groups follow: ${waitHeads}`);
     await page.goto(`${BASE}/work/reports`);
-    assert((await page.getByTestId("report-waits").innerText()).includes("Follow up at 6+ days (amber), stalled at 10+ (red)"), "the Reports waiting hint follows");
+    assert((await page.getByTestId("report-waits").innerText()).includes("Amber at 6+ days (time to nudge), red at 10+ (stalled)"), "the Reports waiting hint follows");
     await page.goto(`${BASE}/work/targets`);
     const badge = await page.getByTestId("subnav-eod-badge").getAttribute("data-badge");
     assert(badge === "Sent" || badge === "5:45", `badge ${badge}`);
     // Back to the defaults.
     await page.goto(`${BASE}/settings`);
     await page.getByTestId("work-threshold").fill("5");
-    await page.getByTestId("work-outreach").fill("10");
     await page.getByTestId("work-eod-time").fill("17:30");
     await page.getByTestId("work-block-minutes").fill("60");
     await page.getByTestId("work-settings-save").click();

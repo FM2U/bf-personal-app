@@ -281,7 +281,7 @@ function WeekView({ p, first, past, mostMissed, threshold, stalled, active, onOp
               {!p.targets.length ? <p className="px-[22px] py-3 text-[13px] text-muted-foreground">No targets yet.</p> : !needs.length ? <p className="px-[22px] py-3 text-[13px] text-status-met" data-testid="report-targets-all-met">Every target is met {p.words}.</p> : null}
             </Rows>
           </WorkCard>
-          <WorkCard title={`Waiting on brokers ${p.key === "this" ? "" : "now"}`.trim()} hint={`Follow up at ${threshold}+ days (amber), stalled at ${stalled}+ (red)`} testId="report-waits">
+          <WorkCard title={`Waiting on brokers ${p.key === "this" ? "" : "now"}`.trim()} hint={`Amber at ${threshold}+ days (time to nudge), red at ${stalled}+ (stalled)`} testId="report-waits">
             <Rows>
               {p.waits.map((w) => (
                 <Row key={w.dealId} name={w.who ?? w.name} line={`${w.who ? `${w.name} · ` : ""}${w.what}${w.since ? ` · since ${w.since}` : ""}`} figure={String(w.days)} label="Days" tone={w.days >= stalled ? "missed" : w.days >= threshold ? "amber" : "plain"} />

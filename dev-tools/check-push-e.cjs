@@ -138,16 +138,17 @@ const until = async (fn, msg, tries = 60) => {
     await page.goto(`${BASE}/settings`);
     const row = page.getByTestId("work-settings-no-reply");
     await row.waitFor();
-    assert((await row.innerText()).replace(/\s+/g, " ").trim() === "No reply yet after days", await row.innerText());
+    // 2026-11-08: renamed "Unanswered email after [2] days: it shows under "No reply yet" on Home".
+    assert((await row.innerText()).replace(/\s+/g, " ").trim() === "Unanswered email after days: listed under “No reply yet”", await row.innerText());
     assert((await page.getByTestId("work-no-reply").inputValue()) === "2", "2 by default");
     const rows = await page.getByTestId("work-settings").locator("[data-testid^=work-settings-]").evaluateAll((els) => els.map((e) => e.dataset.testid));
-    // 2026-11-08: Follow up after, then Stalled after, then No reply yet after.
+    // 2026-11-08: Amber after, then Red after, then Unanswered email after.
     assert(rows.indexOf("work-settings-no-reply") === rows.indexOf("work-settings-stalled") + 1 && rows.indexOf("work-settings-stalled") === rows.indexOf("work-settings-threshold") + 1, `order ${rows}`);
     // The label column stays aligned.
     const xs = await page.getByTestId("work-settings").locator("[data-testid^=work-settings-] > span:first-child").evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().left)));
     assert(new Set(xs).size === 1, `labels at ${xs}`);
     // The number boxes line up in one column too.
-    const boxes = await Promise.all(["work-threshold", "work-no-reply", "work-outreach", "work-block-minutes"].map(async (t) => Math.round((await page.getByTestId(t).boundingBox()).x)));
+    const boxes = await Promise.all(["work-threshold", "work-stalled", "work-no-reply", "work-block-minutes"].map(async (t) => Math.round((await page.getByTestId(t).boundingBox()).x)));
     assert(new Set(boxes).size === 1, `boxes at ${boxes}`);
     // The two cards side by side still line up at the top.
     const a = await page.getByTestId("google-card").boundingBox();

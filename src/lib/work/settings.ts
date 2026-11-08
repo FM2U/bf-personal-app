@@ -7,9 +7,9 @@
 
 /** The settings rows the Work settings card writes, with their labels for the inputs table. */
 export const WORK_SETTING_KEYS = {
-  threshold: { key: "waiting_threshold_days", label: "Follow up after (days)", unit: "number", description: "Waiting on someone: at this many days with no answer, the wait turns amber (time to follow up)." },
+  threshold: { key: "waiting_threshold_days", label: "Amber after (days)", unit: "number", description: "Waiting on someone: at this many days with no answer, the wait turns amber (time to follow up)." },
   /** Bram, 2026-11-08: its own number (it was double the follow-up number). */
-  stalled: { key: "waiting_stalled_days", label: "Stalled after (days)", unit: "number", description: "Waiting on someone: at this many days with no answer, the wait turns red (stalled)." },
+  stalled: { key: "waiting_stalled_days", label: "Red after (days)", unit: "number", description: "Waiting on someone: at this many days with no answer, the wait turns red (stalled)." },
   /** Bram, 2026-11-08: the report goes out by itself at the send time on the partners' days (1 on, 0 off; on unless set). */
   autoSend: { key: "report_auto_send", label: "Send the report automatically", unit: "number", description: "End of day: the report goes to the partners due at the send time, with reminders 2 hours and 30 minutes before." },
   /** Push E: an email the app sent shows under No reply yet when no reply has come after this many days (default 2). */
@@ -77,9 +77,9 @@ const whole = (v: unknown) => {
 /** The Work settings card's values checked for Save; the first problem as one plain sentence. */
 export function cleanWorkSettings(input: { threshold: unknown; stalled?: unknown; noReply: unknown; outreach: unknown; eodTime: unknown; blockMinutes: unknown; autoSend?: unknown }): { ok: true; value: WorkSettings } | { ok: false; error: string } {
   const threshold = whole(input.threshold);
-  if (!(threshold >= 1 && threshold <= 60)) return { ok: false, error: "Follow up after: a whole number of days from 1 to 60." };
+  if (!(threshold >= 1 && threshold <= 60)) return { ok: false, error: "Amber after: a whole number of days from 1 to 60." };
   const stalled = input.stalled === undefined || String(input.stalled).trim() === "" ? threshold * 2 : whole(input.stalled);
-  if (!(stalled > threshold && stalled <= 120)) return { ok: false, error: `Stalled after: a whole number of days more than ${threshold} (Follow up after), up to 120.` };
+  if (!(stalled > threshold && stalled <= 120)) return { ok: false, error: `Red after: a whole number of days more than ${threshold} (Amber after), up to 120.` };
   // Push E: up to 29, inside the 30 days replies are read for.
   const noReply = whole(input.noReply);
   if (!(noReply >= 1 && noReply <= 29)) return { ok: false, error: "No reply yet: a whole number of days from 1 to 29." };
