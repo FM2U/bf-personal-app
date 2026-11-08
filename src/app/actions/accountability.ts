@@ -13,7 +13,7 @@ import { sendPermission } from "@/lib/google-scopes";
 import { sentEmailCommunication } from "@/lib/calc/sent-email";
 import { DB_UPDATE_NOTICE_0025, DB_UPDATE_NOTICE_PUSH_D, DB_UPDATE_NOTICE_PUSH_F, isMissingSchemaError } from "@/lib/schema-guard";
 import { recordWorkEvent } from "@/lib/accountability/events";
-import { buildEndOfDay, factsSince, loadEodRow, loadFacts, loadOwedFromSkipped, loadPartners, loadSentCopies, loadTargets, type EndOfDayPage, type PartnerCopy } from "@/lib/accountability/data";
+import { buildEndOfDay, factsSince, loadEodRow, loadFacts, loadOwedFromSkipped, loadPartners, loadSentCopies, loadTargets, cleanEditedAt, EDITED_AT_KEY, GENERAL_COPY, type EndOfDayPage, type PartnerCopy } from "@/lib/accountability/data";
 import { cleanPartnerSettings } from "@/lib/accountability/partners";
 import { replyTaskText } from "@/lib/gmail-replies";
 import { TODO_MAX_LENGTH } from "@/lib/work/questions";
@@ -211,6 +211,7 @@ export async function saveWeeklyReview(day: string, patch: Partial<WeeklyReview>
 
 /** The copy a per-partner action is about: that partner's, or the first one when none is named. */
 function copyOf(page: EndOfDayPage, contactId: string | null | undefined): PartnerCopy | null {
+  if (contactId === GENERAL_COPY) return page.general;
   return page.copies.find((c) => c.partner.id === contactId) ?? (contactId ? null : page.copies[0] ?? null);
 }
 
@@ -232,6 +233,17 @@ export async function saveReportChoices(day: string, contactId: string | null, c
   if (copy.sentAt) return fail(`The report to ${copy.partner.first} was already sent. A sent report never changes.`);
   const cleaned = cleanChoices(choices);
   const all = { ...((row.report_edits && typeof row.report_edits === "object" && !Array.isArray(row.report_edits) ? row.report_edits : {}) as Record<string, unknown>) };
+  // When each section's Edit was saved (2026-11-08): an Edit saved before a send today is marked in the window.
+  const was = cleanChoices(all[copy.partner.id]).edits ?? {};
+  const at = cleanEditedAt(all[EDITED_AT_KEY]);
+  const now = new Date().toISOString();
+  for (const k of new Set([...Object.keys(was), ...Object.keys(cleaned.edits ?? {})]) as Set<SectionKey>) {
+    const v = cleaned.edits?.[k];
+    if (!v) delete at[`${copy.partner.id}:${k}`];
+    else if (v !== was[k]) at[`${copy.partner.id}:${k}`] = now;
+  }
+  if (Object.keys(at).length) all[EDITED_AT_KEY] = at;
+  else delete all[EDITED_AT_KEY];
   if (hasChoices(cleaned)) all[copy.partner.id] = cleaned;
   else delete all[copy.partner.id];
   const { error } = await sb.from("end_of_day").update({ report_edits: all, report_html: null, report_edited: false }).eq("id", row.id);
@@ -262,6 +274,11 @@ export async function saveReportNote(day: string, section: string, text: string)
   if (!notes[section as SectionKey]) delete notes[section as SectionKey];
   if (Object.keys(notes).length) all[NOTES_KEY] = notes;
   else delete all[NOTES_KEY];
+  const at = cleanEditedAt(all[EDITED_AT_KEY]);
+  if (notes[section as SectionKey]) at[`note:${section}`] = new Date().toISOString();
+  else delete at[`note:${section}`];
+  if (Object.keys(at).length) all[EDITED_AT_KEY] = at;
+  else delete all[EDITED_AT_KEY];
   const { error } = await sb.from("end_of_day").update({ report_edits: all, report_html: null, report_edited: false }).eq("id", row.id);
   if (error) return notSaved(error);
   done();
@@ -333,7 +350,7 @@ type SendResult = { ok: true; sentAt: string; sentTime: string; sentTo: string[]
  * already got today's report; the day is marked sent once every partner due has it. With reasons still owed and
  * `force` false it stops with "N commitments have no reason yet".
  */
-export async function approveAndSend(day: string, requestId: string, force = false): Promise<SendResult> {
+export async function approveAndSend(day: string, requestId: string, force = false, intro: string | null = null): Promise<SendResult> {
   const s = await setup();
   if (isFail(s)) return { ok: false, error: s.error, reason: "invalid" };
   const { sb, ctx } = s;
@@ -366,6 +383,9 @@ export async function approveAndSend(day: string, requestId: string, force = fal
     const p = copy.partner;
     // The copy as the review window shows it: this partner's sections with today's include, Change, and Edit.
     const edited = copy.edited;
+    // The note under the greeting (one report window, 2026-11-08): for this send only, in every copy.
+    const note = String(intro ?? "").replace(/\r/g, "").trim().slice(0, 1200);
+    if (note) copy.report = { ...copy.report, intro: note };
     const inner = reportInnerHtml(copy.report);
     const html = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;background-color:#f8fafc"><tr><td align="center" style="padding:12px 6px">${inner}</td></tr></table>`;
     const body = reportText(copy.report);

@@ -17,7 +17,8 @@ export const metadata = { title: "End of day" };
  * the partner exactly as it will be sent, with Edit, Approve and send, and Skip today on the right
  * (src/components/app/work/end-of-day-board.tsx).
  */
-export default async function EndOfDayPage() {
+export default async function EndOfDayPage({ searchParams }: { searchParams: Promise<{ send?: string }> }) {
+  const sp = await searchParams;
   const { supabase, ownerId } = await requireOwner();
   const notice = null;
   // Page speed (2026-11-06): the pipelines start at once, side by side with the profile.
@@ -37,7 +38,7 @@ export default async function EndOfDayPage() {
   const d = await loadEndOfDay(supabase, ctx);
   return (
     <WorkShell testId="work-end-of-day">
-      <EndOfDayBoard data={d} />
+      <EndOfDayBoard data={d} openSend={sp.send === "1"} />
     </WorkShell>
   );
 }

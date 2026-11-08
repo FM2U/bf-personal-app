@@ -45,9 +45,21 @@ function unsavedHint(to: LeaveTo, many: boolean): string {
   return `Save ${it} before the window closes, or discard ${it}.`;
 }
 
-export function ReportWindow({ open, onOpenChange, day, copies, skipped, onPartner, sel, onSel, title, sub, footerNote, sendButton, startEditing, resetKey = 0, alsoTo }: {
+export type PastReview = { key: string; copy: PartnerCopy | null; html: string | null; notes: ReportNotes; onNotes: (n: ReportNotes) => void; onChoices: (c: ReportChoices) => void; to: React.ReactNode; loading: string | null };
+
+export function ReportWindow({ open, onOpenChange, day, copies, skipped, onPartner, sel, onSel, title, sub, footerNote, sendButton, startEditing, resetKey = 0, alsoTo, top, general, past, localDirty = false, stale }: {
   /** "Also send to" (Bram, 2026-11-08): more people for today's send, under the partner boxes; absent once the day is closed. */
   alsoTo?: React.ReactNode;
+  /** One report window (Bram, 2026-11-08): which report and the note under the greeting, above everything else. */
+  top?: React.ReactNode;
+  /** The copy reviewed when no partner gets the report today (sent only to the people under Also send to). */
+  general?: PartnerCopy | null;
+  /** An earlier day: who gets it and its review, for that send only (nothing is saved to the day). */
+  past?: PastReview | null;
+  /** Something chosen or typed in the window that is not kept (Close asks "Discard your changes to this report?"). */
+  localDirty?: boolean;
+  /** The line on a section whose Edit or note was saved before today's last send (null when it was not). */
+  stale?: (copyId: string, section: SectionKey, kind: "edit" | "note") => string | null;
   /** Fix list item 1 (2026-11-06): the partners unticked for today, the same set as the report card's checkboxes. */
   skipped?: ReadonlySet<string>;
   /** Ticks or unticks a partner for today; null once the day is closed. */
@@ -106,12 +118,16 @@ export function ReportWindow({ open, onOpenChange, day, copies, skipped, onPartn
     unsaved.current?.discard();
     go(warn.to);
   };
+  const [discardAsk, setDiscardAsk] = useState(false);
   const openChange = (o: boolean) => {
     if (o) return onOpenChange(true);
     if (busy) return;
     // Escape or a click outside while the question shows: back to the box.
     if (warn) return setWarn(null);
+    if (discardAsk) return setDiscardAsk(false);
     if (ask({ to: "close" })) return;
+    // One report window (2026-11-08): people chosen, a note under the greeting, or an earlier day's changes are not kept.
+    if (localDirty) return setDiscardAsk(true);
     onOpenChange(false);
   };
   useEffect(() => {
@@ -144,7 +160,30 @@ export function ReportWindow({ open, onOpenChange, day, copies, skipped, onPartn
       size="report"
       testId="report-window"
       overlay={
-        warn ? (
+        discardAsk && !warn ? (
+          <div role="alertdialog" aria-labelledby="discard-title" className="w-full max-w-[440px] rounded-[12px] border border-rule bg-white p-5 shadow-[0_12px_40px_rgba(15,23,42,0.18)]" data-testid="discard-warning">
+            <p id="discard-title" className="text-[15px] font-semibold text-heading">
+              Discard your changes to this report?
+            </p>
+            <p className="mt-1.5 text-[13px] leading-[1.5] text-muted-foreground">The people you added, your note under the greeting and any changes to an earlier day&apos;s report are not kept when the window closes.</p>
+            <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+              <button type="button" onClick={() => setDiscardAsk(false)} autoFocus className="inline-flex h-8 items-center rounded-[7px] px-3 text-[13px] font-medium text-slate-700 hover:bg-slate-100" data-testid="discard-keep">
+                Keep editing
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDiscardAsk(false);
+                  onOpenChange(false);
+                }}
+                className="inline-flex h-8 items-center rounded-[7px] border border-status-missed bg-white px-3 text-[13px] font-medium text-status-missed hover:bg-status-missed-bg"
+                data-testid="discard-yes"
+              >
+                Discard
+              </button>
+            </div>
+          </div>
+        ) : warn ? (
           <div role="alertdialog" aria-labelledby="unsaved-title" aria-describedby="unsaved-hint" className="w-full max-w-[440px] rounded-[12px] border border-rule bg-white p-5 shadow-[0_12px_40px_rgba(15,23,42,0.18)]" data-testid="unsaved-warning" data-to={warn.to.to}>
             <p id="unsaved-title" className="text-[15px] font-semibold text-heading" data-testid="unsaved-line">
               {unsavedLine(warn.items)}
@@ -203,6 +242,37 @@ export function ReportWindow({ open, onOpenChange, day, copies, skipped, onPartn
           }
         }}
       >
+      {top ?? null}
+      {past ? (
+        <>
+          {past.to}
+          {past.loading ? (
+            <p className="flex items-center gap-2 text-[13px] text-muted-foreground">{past.loading}</p>
+          ) : past.copy ? (
+            <CopyReview
+              key={past.key}
+              day={day}
+              copy={past.copy}
+              startEditing={false}
+              notes={past.notes}
+              onNotes={past.onNotes}
+              unsavedRef={unsaved}
+              local={{ onChoices: past.onChoices }}
+              meta={
+                <p className="mb-2.5 text-[12.5px] leading-[1.5] text-muted-foreground" data-testid="report-meta">
+                  An earlier day&apos;s report, as it was then. Untick a section, Change, Edit or + Note: everything here goes out with this send only, and that day stays as it is.
+                </p>
+              }
+            />
+          ) : past.html ? (
+            <div data-testid="report-preview">
+              <p className="mb-2 text-[12.5px] text-muted-foreground">This day was kept only as the email that went out, so it is sent as it was, with your note above it.</p>
+              <div className="report-preview report-window report-sent min-w-0 overflow-x-auto text-[13px] text-slate-900" dangerouslySetInnerHTML={{ __html: past.html }} />
+            </div>
+          ) : null}
+        </>
+      ) : (
+      <>
       {copies.length ? (
         <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13px] text-slate-700" data-testid="report-send-to">
           <span className="label-caps figure-label">Send to</span>
@@ -229,7 +299,29 @@ export function ReportWindow({ open, onOpenChange, day, copies, skipped, onPartn
           ))}
         </div>
       ) : null}
-      {copy ? <CopyReview key={`${copy.partner.id}:${resetKey}`} day={day} copy={copy} startEditing={!!startEditing} notes={notes} onNotes={setNotes} unsavedRef={unsaved} /> : <p className="text-[13px] text-muted-foreground">No partner gets the report today.</p>}
+      {copy ? (
+        <CopyReview key={`${copy.partner.id}:${resetKey}`} day={day} copy={copy} startEditing={!!startEditing} notes={notes} onNotes={setNotes} unsavedRef={unsaved} stale={stale ? (k, kind) => stale(copy.partner.id, k, kind) : undefined} />
+      ) : general ? (
+        <CopyReview
+          key={`${general.partner.id}:${resetKey}`}
+          day={day}
+          copy={general}
+          startEditing={!!startEditing}
+          notes={notes}
+          onNotes={setNotes}
+          unsavedRef={unsaved}
+          stale={stale ? (k, kind) => stale(general.partner.id, k, kind) : undefined}
+          meta={
+            <p className="mb-2.5 text-[12.5px] leading-[1.5] text-muted-foreground" data-testid="report-meta">
+              No partner gets the report today. Add people under Also send to; sending to them does not close the day. Edit and + Note are saved to today&apos;s report.
+            </p>
+          }
+        />
+      ) : (
+        <p className="text-[13px] text-muted-foreground">No partner gets the report today.</p>
+      )}
+      </>
+      )}
       </div>
     </CenteredWindow>
   );
@@ -242,7 +334,7 @@ const LINK = "text-[12.5px] font-medium text-primary-strong hover:underline";
  * `local` (Send a report, Bram 2026-11-08): the include box, Change, Edit and + Note work the same way, but nothing is
  * saved to the day; the choices stay in the window and go out with that one send. `meta` replaces the line on top.
  */
-export function CopyReview({ day, copy, startEditing, notes, onNotes, unsavedRef, local, meta }: { day: string; copy: PartnerCopy; startEditing: boolean; notes: ReportNotes; onNotes: (n: ReportNotes) => void; unsavedRef: React.RefObject<Unsaved | null>; local?: { onChoices: (c: ReportChoices) => void }; meta?: React.ReactNode }) {
+export function CopyReview({ day, copy, startEditing, notes, onNotes, unsavedRef, local, meta, stale }: { day: string; copy: PartnerCopy; startEditing: boolean; notes: ReportNotes; onNotes: (n: ReportNotes) => void; unsavedRef: React.RefObject<Unsaved | null>; local?: { onChoices: (c: ReportChoices) => void }; meta?: React.ReactNode; stale?: (section: SectionKey, kind: "edit" | "note") => string | null }) {
   const router = useRouter();
   const p = copy.partner;
   const [choices, setChoices] = useState<ReportChoices>(copy.report.choices ?? {});
@@ -359,6 +451,8 @@ export function CopyReview({ day, copy, startEditing, notes, onNotes, unsavedRef
     save({ ...choices, edits });
   };
 
+  // Carried over (2026-11-08): an Edit or note saved before today's last send, so its words may be behind the numbers.
+  const staleLine = (s: BuiltSection): string | null => (stale && s.included ? (s.edited ? stale(s.key, "edit") : null) ?? (s.note ? stale(s.key, "note") : null) : null);
   // Text typed in the open + Note or Edit box and not saved (2026-11-06): the window asks before leaving or sending.
   const noteSec = noting && !copy.sentAt ? sections.find((s) => s.key === noting && s.included) : undefined;
   const editSec = editing && !copy.sentAt ? sections.find((s) => s.key === editing && s.included) : undefined;
@@ -419,7 +513,12 @@ export function CopyReview({ day, copy, startEditing, notes, onNotes, unsavedRef
         <div dangerouslySetInnerHTML={{ __html: headerHtml(report) }} />
         <div dangerouslySetInnerHTML={{ __html: greetingHtml(report) }} />
         {sections.map((s) => (
-          <div key={s.key} className="mt-3" data-testid="report-section" data-section={s.key} data-included={s.included ? "1" : "0"} data-edited={s.edited ? "1" : "0"} data-note={s.note ? "1" : "0"}>
+          <div key={s.key} className={cn("mt-3", staleLine(s) && "-mx-2 rounded-[8px] px-2 pb-1 outline-2 outline-status-soon-border outline-solid")} data-testid="report-section" data-section={s.key} data-included={s.included ? "1" : "0"} data-edited={s.edited ? "1" : "0"} data-note={s.note ? "1" : "0"} data-stale={staleLine(s) ? "1" : "0"}>
+            {staleLine(s) ? (
+              <p className="mt-1.5 mb-1 rounded-[6px] bg-status-soon-bg px-2.5 py-1.5 text-[12.5px] text-status-soon" data-testid="section-stale">
+                {staleLine(s)}
+              </p>
+            ) : null}
             <div className="mb-1.5 flex flex-wrap items-center justify-between gap-x-2.5 gap-y-1 border-b border-slate-100 pb-1">
               <label className="inline-flex min-w-0 cursor-pointer flex-wrap items-center gap-x-2 gap-y-0.5">
                 <input type="checkbox" checked={s.included} onChange={(e) => setInclude(s, e.target.checked)} className="h-[15px] w-[15px] accent-[var(--primary)]" aria-label={`Include ${s.title}`} data-testid="section-include" />

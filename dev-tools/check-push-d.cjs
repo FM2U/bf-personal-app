@@ -531,8 +531,10 @@ const until = async (fn, msg, tries = 60) => {
     await page.getByTestId("work-outreach").fill("12");
     await page.getByTestId("work-eod-time").fill("17:45");
     await page.getByTestId("work-block-minutes").fill("45");
-    // The waiting row reads "Waiting on someone [6] + days: day count turns amber; red at 12+ (double)", the doubled number live.
-    assert((await page.getByTestId("work-settings-threshold").innerText()).replace(/\s+/g, " ").includes("Waiting on someone + days: day count turns amber; red at 12+ (double)"), await page.getByTestId("work-settings-threshold").innerText());
+    // The waiting row (Bram, 2026-11-08): "[6] + days, no answer: amber badge (follow up)" and "12+ days: red
+    // badge (stalled)", the doubled number live.
+    const wt = (await page.getByTestId("work-settings-threshold").innerText()).replace(/\s+/g, " ");
+    assert(wt.includes("+ days, no answer: amber badge (follow up)") && wt.includes("12+ days: red badge (stalled)"), wt);
     await page.locator("#s-work").scrollIntoViewIfNeeded();
     await shot(page, "settings-work-settings.png");
     await page.getByTestId("work-settings-save").click();

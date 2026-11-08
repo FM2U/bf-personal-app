@@ -73,7 +73,6 @@ export function WorkSettingsCard({ initial }: { initial: WorkSettingsValues }) {
     <WorkCard
       id="s-work"
       title="Work settings"
-      sub="Waiting colors, No reply yet, the outreach target, End of day, your work week, Block time"
       actions={
         <RowButton tone={dirty ? "primary" : "outline"} onClick={save} disabled={pending || !dirty} className="h-7 px-3 text-xs" data-testid="work-settings-save">
           {pending ? "Saving" : "Save"}
@@ -84,20 +83,15 @@ export function WorkSettingsCard({ initial }: { initial: WorkSettingsValues }) {
     >
       <div className="px-[22px] pt-1 pb-3">
         <KV label="Waiting on someone" testId="work-settings-threshold">
-          {/* One sentence after the box: "[5] + days: day count turns amber; red at 10+ (double)". The "+" sits against the
-              box, the doubled number is live, and a wrapped line starts under "+ days", not under the box. */}
-          <span className="flex min-w-0 items-center gap-x-1.5">
-            <input value={v.threshold} onChange={set("threshold")} inputMode="numeric" className={cn(NUM, "shrink-0")} aria-label="Waiting on someone (days)" data-testid="work-threshold" />
-            <span className="min-w-0">
-              + days: day count turns amber
-              {red ? (
-                <>
-                  ;{" "}
-                  <span className="whitespace-nowrap text-muted-foreground" data-testid="work-threshold-red">
-                    red at {red}+ (double)
-                  </span>
-                </>
-              ) : null}
+          {/* Bram, 2026-11-08: what the number means, on two lines next to the box: "[5]+ days, no answer: amber badge
+              (follow up)" and "10+ days: red badge (stalled)" (the doubled number is live). */}
+          <span className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-1.5">
+            <input value={v.threshold} onChange={set("threshold")} inputMode="numeric" className={cn(NUM, "row-span-2 shrink-0")} aria-label="Waiting on someone (days)" data-testid="work-threshold" />
+            <span className="min-w-0 leading-[1.35]">
+              + days, no answer: <span className="font-medium text-status-soon">amber badge</span> (follow up)
+            </span>
+            <span className="min-w-0 leading-[1.35] text-muted-foreground" data-testid="work-threshold-red">
+              {red ? `${red}+ days` : "Double that"}: <span className="font-medium text-status-missed">red badge</span> (stalled)
             </span>
           </span>
         </KV>
@@ -117,11 +111,12 @@ export function WorkSettingsCard({ initial }: { initial: WorkSettingsValues }) {
         {/* The work week (Bram, 2026-11-07, design B): the work days, the week's first day, and the weekly review day
             (its own setting: it does not follow the work days). */}
         <KV label="Work days" testId="work-settings-days">
-          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          {/* Bram, 2026-11-08: one row of seven columns, the day on top and its box centered under it. */}
+          <span className="grid grid-cols-7 gap-x-2.5">
             {WEEK_DAYS.map((d) => (
-              <label key={d.n} className="flex cursor-pointer items-center gap-1.5" data-testid="work-day" data-day={d.n}>
+              <label key={d.n} className="flex w-[30px] cursor-pointer flex-col items-center gap-1" data-testid="work-day" data-day={d.n}>
+                <span className="text-[12.5px] leading-4 text-slate-700">{d.short}</span>
                 <input type="checkbox" checked={v.workDays.includes(d.n)} onChange={(e) => toggleDay(d.n, e.target.checked)} className="h-4 w-4 shrink-0 cursor-pointer rounded-[4px] accent-primary-strong" aria-label={d.long} />
-                <span>{d.short}</span>
               </label>
             ))}
           </span>

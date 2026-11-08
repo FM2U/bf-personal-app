@@ -940,7 +940,7 @@ const until = async (fn, msg, tries = 60) => {
     assert((await wsec("top").getByTestId("section-note-open").innerText()) === "Edit note" && (await wsec("top").getByTestId("section-note-remove").innerText()) === "Remove note", "Edit note and Remove note");
     await until(async () => (await notesInDb()).top === TOP_NOTE, "saved in report_edits._notes");
     const saved = (await one("select report_edits from end_of_day where day = $1", [today])).report_edits;
-    assert(Object.keys(saved).every((k) => k === "_notes" || /^[0-9a-f-]{36}$/.test(k)), JSON.stringify(Object.keys(saved)));
+    assert(Object.keys(saved).every((k) => k === "_notes" || k === "_edited_at" || /^[0-9a-f-]{36}$/.test(k)), JSON.stringify(Object.keys(saved)));
     await wsec("top").getByTestId("section-note").evaluate((e) => e.scrollIntoView({ block: "center" }));
     if (SHOTS) await win().screenshot({ path: path.join(SHOTS, "report-note-top-3-deals-1440.png") });
   });

@@ -14,7 +14,7 @@ import { buildFacts } from "@/lib/accountability/facts";
 import { pillOf, reportFor, reportInnerHtml, targetGroup, targetLine, type ReportData } from "@/lib/accountability/report-email";
 import { cleanChoices, cleanNotes, cleanReview, hasChoices, NOTES_KEY, reviewAnswered, sendsNotes, type ReportChoices, type ReportNotes, type WeeklyReview } from "@/lib/accountability/report-sections";
 import { brokerPerson, reportDeals, type DealRows } from "@/lib/accountability/report-deals";
-import { firstName, partnerSettings, partnersDueOn, type ReportSectionKey } from "@/lib/accountability/partners";
+import { firstName, partnerSettings, partnersDueOn, REPORT_SECTIONS, type ReportSectionKey } from "@/lib/accountability/partners";
 import { PAST_WEEKS, pastWeekPeriodKey, weekLine, type PeriodKey } from "@/lib/accountability/periods";
 import { tileHistories, type TileHistory } from "@/lib/accountability/week-history";
 import {
@@ -202,7 +202,7 @@ export async function loadSentCopies(sb: SupabaseClient, ownerId: string, day: s
   });
 }
 
-type EodRow = { id: string | null; day: string; status: EodState; reasons: Record<string, string>; tomorrow: string; skipReason: string | null; sentAt: string | null; reportId: string | null; reportSubject: string | null; reportHtml: string | null; reportEdited: boolean; /** Push B edits: each partner's choices for today's copy (include, Change, Edit), by contact id. */ reportEdits: Record<string, ReportChoices>; /** Today's notes by section, once for the day and shared by every copy (report_edits._notes, 2026-11-05). */ reportNotes: ReportNotes; judged: Judged[]; /** Push D: the Weekly review answers (Fridays). */ weeklyReview: WeeklyReview; /** Fix list item 1 (2026-11-06): the partners unticked for this day only (contact ids). */ skippedPartners: string[] };
+type EodRow = { id: string | null; day: string; status: EodState; reasons: Record<string, string>; tomorrow: string; skipReason: string | null; sentAt: string | null; reportId: string | null; reportSubject: string | null; reportHtml: string | null; reportEdited: boolean; /** Push B edits: each partner's choices for today's copy (include, Change, Edit), by contact id. */ reportEdits: Record<string, ReportChoices>; /** Today's notes by section, once for the day and shared by every copy (report_edits._notes, 2026-11-05). */ reportNotes: ReportNotes; judged: Judged[]; /** Push D: the Weekly review answers (Fridays). */ weeklyReview: WeeklyReview; /** Fix list item 1 (2026-11-06): the partners unticked for this day only (contact ids). */ skippedPartners: string[]; /** When each Edit and + Note was last saved (2026-11-08): "<copy id>:<section>" or "note:<section>". */ editedAt: Record<string, string> };
 
 export async function loadEodRow(sb: SupabaseClient, ownerId: string, day: string): Promise<EodRow> {
   const { data } = await sb.from("end_of_day").select("*").eq("owner_id", ownerId).eq("day", day).maybeSingle();
@@ -221,12 +221,23 @@ export async function loadEodRow(sb: SupabaseClient, ownerId: string, day: strin
     reportHtml: (r?.report_html as string | null) ?? null,
     reportEdited: !!r?.report_edited,
     // An edit saved before the push B edits (a whole email as HTML) is not a choice; the copy is built again.
-    reportEdits: r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? Object.fromEntries(Object.entries(r.report_edits as Record<string, unknown>).filter(([k, v]) => k !== NOTES_KEY && v && typeof v === "object" && !Array.isArray(v)).map(([k, v]) => [k, cleanChoices(v)])) : {},
+    reportEdits: r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? Object.fromEntries(Object.entries(r.report_edits as Record<string, unknown>).filter(([k, v]) => k !== NOTES_KEY && k !== EDITED_AT_KEY && v && typeof v === "object" && !Array.isArray(v)).map(([k, v]) => [k, cleanChoices(v)])) : {},
     reportNotes: r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? cleanNotes((r.report_edits as Record<string, unknown>)[NOTES_KEY]) : {},
     judged: Array.isArray(r?.judged) ? (r!.judged as Judged[]) : [],
     weeklyReview: cleanReview(r?.weekly_review),
     skippedPartners: Array.isArray(r?.skipped_partners) ? (r!.skipped_partners as unknown[]).map(String) : [],
+    editedAt: cleanEditedAt(r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? (r.report_edits as Record<string, unknown>)[EDITED_AT_KEY] : null),
   };
+}
+
+/** One report window (Bram, 2026-11-08): the copy reviewed when no partner gets the report today, its choices kept under this key. */
+export const GENERAL_COPY = "_general";
+/** When each Edit and + Note of the day was saved, kept in report_edits under this key (carried-over edits are marked). */
+export const EDITED_AT_KEY = "_edited_at";
+
+export function cleanEditedAt(v: unknown): Record<string, string> {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+  return Object.fromEntries(Object.entries(v as Record<string, unknown>).filter(([k, t]) => k.length <= 80 && typeof t === "string" && !Number.isNaN(Date.parse(t))).map(([k, t]) => [k, String(t)]));
 }
 
 /**
@@ -265,6 +276,11 @@ export type PartnerCopy = { partner: Partner; report: ReportData; html: string; 
 
 export type EndOfDayPage = {
   day: string;
+  /** The copy reviewed and sent when no partner gets the report today (Also send to only; it does not close the day). */
+  general: PartnerCopy;
+  /** When each Edit and + Note was saved ("<copy id>:<section>", "note:<section>"), and the day's last send (2026-11-08). */
+  editedAt: Record<string, string>;
+  lastSentAt: string | null;
   dateLabel: string;
   /** The weekly review day (Friday unless changed in Settings): the Weekly review and The week in the report. */
   friday: boolean;
@@ -392,6 +408,12 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
     partner: first?.partner ?? partners[0] ?? null,
     partners,
     copies,
+    general: (() => {
+      const r = reportFor(report, { name: "there", first: "there", sections: REPORT_SECTIONS.map((x) => x.key) }, row.reportEdits[GENERAL_COPY] ?? null);
+      return { partner: { id: GENERAL_COPY, name: "there", first: "there", email: null, days: [], sections: REPORT_SECTIONS.map((x) => x.key) }, report: r, html: reportInnerHtml(r), edited: hasChoices(row.reportEdits[GENERAL_COPY]) || sendsNotes(r), sentAt: null, sentTime: null, skipped: false };
+    })(),
+    editedAt: row.editedAt,
+    lastSentAt: i.sent.map((c) => c.sentAt).sort().slice(-1)[0] ?? null,
     numbers,
     threshold: i.threshold,
     judged,

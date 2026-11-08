@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requireOwner } from "@/lib/auth";
 import { loadGmailSetup, type ComposeSetup } from "@/lib/compose-email";
 import { isGoogleConfigured } from "@/lib/env";
@@ -12,7 +13,6 @@ import { parsePeriodKey } from "@/lib/accountability/periods";
 import { AccountabilityTabs } from "@/components/app/nav-links";
 import { AskAiPill } from "@/components/app/work/ask-ai";
 import { ReportsBoard } from "@/components/app/work/reports-board";
-import { SendReportButton } from "@/components/app/work/send-report";
 import { WorkShell, WorkUpdateNotice } from "@/components/app/work/shell";
 import { PinnedBlock, WorkHeader } from "@/components/app/work/ui";
 
@@ -49,7 +49,10 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
           <span className="hidden sm:inline" data-testid="reports-summary">
             To {partnerFirst} by email · replies come from your Gmail
           </span>
-          <SendReportButton className="inline-flex h-8 items-center rounded-full border border-primary-strong bg-white px-3.5 text-[13px] font-medium text-primary-strong hover:bg-primary-soft" />
+          {/* One report window (Bram, 2026-11-08): Send a report opens End of day's report window with Also send to open. */}
+          <Link href="/work/end-of-day?send=1" className="inline-flex h-8 items-center rounded-full border border-primary-strong bg-white px-3.5 text-[13px] font-medium text-primary-strong hover:bg-primary-soft" data-testid="send-a-report">
+            Send a report
+          </Link>
           <AskAiPill context={{ page: "reports", label: d ? `Reports, ${d.periods[0].label.toLowerCase()}` : "Reports" }} />
         </>
       }

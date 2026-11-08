@@ -229,26 +229,88 @@ const until = async (fn, msg, tries = 80) => {
     assert(await page.getByTestId("settings-export-download").count(), "no Download full export");
   });
 
-  // ---------- Send a report (Bram, 2026-11-07, design A) ----------
-  const win = () => page.getByTestId("send-report-window");
-  const pressSend = async () => {
-    await win().getByTestId("send-report-send").click();
-    await until(async () => (await win().getByTestId("send-report-sent").count()) || (await win().getByTestId("send-report-owed").count()) || (await win().getByTestId("send-report-error").count()), "Send gave no answer", 120);
-    if (await win().getByTestId("send-report-owed").count()) {
-      await win().getByTestId("send-report-anyway").click();
-      await until(async () => (await win().getByTestId("send-report-sent").count()) || (await win().getByTestId("send-report-error").count()), "Send anyway gave no answer", 120);
-    }
-    if (await win().getByTestId("send-report-error").count()) throw new Error(await win().getByTestId("send-report-error").innerText());
+  // ---------- One report window (Bram, 2026-11-07 design A; 2026-11-08 one window, Also send to, carried-over edits) ----------
+  const rw = () => page.getByTestId("report-window");
+  const sec = (key) => rw().locator(`[data-testid=report-section][data-section=${key}]`);
+  const sendFromWindow = async () => {
+    await rw().getByTestId("report-window-send").click();
+    const anyway = page.getByTestId("send-check-anyway");
+    await Promise.race([anyway.waitFor({ timeout: 20000 }).then(() => anyway.click()), page.getByTestId("sent-line").waitFor({ timeout: 20000 }), until(async () => /Sent (to|the report of)/.test(await rw().getByTestId("report-window-note").innerText()), "x", 80)]).catch(() => {});
   };
-  const sec = (key) => win().locator(`[data-testid=report-section][data-section=${key}]`);
-  await step("Also send to (2026-11-08): in End of day's review window, a new address added under the partner boxes gets the open tab's copy right after Approve and send; the card names them; today only", async () => {
+  let saved = "";
+  let someone = null;
+  await step("Send a report (End of day card) opens the one report window: Which report (today), the note box, Also send to open; the review has Change, Edit and + Note", async () => {
+    await open("/work/end-of-day");
+    await page.getByTestId("send-a-report").first().click();
+    await rw().getByTestId("report-also-picker").waitFor({ timeout: 20000 });
+    assert((await rw().getByTestId("report-day-select").inputValue()).match(/^\d{4}-\d{2}-\d{2}$/), "no day chosen");
+    assert(await rw().getByTestId("report-intro").count(), "no note box");
+    assert((await sec("targets").getByTestId("section-edit").count()) && (await sec("targets").getByTestId("section-note-open").count()), "no Edit or + Note");
+  });
+
+  await step("Sending only to people under Also send to (partner unticked) sends them the report with the note, the section note and the edit, and the day stays open; the edit and the note stay in today's draft", async () => {
+    const before = (await g("/__sent")).length;
+    someone = await one("select id, name, email from contacts where email like '%@%.%' and archived_at is null and coalesce(outreach_role, '') <> 'accountability_partner' order by name limit 1");
+    const picker = rw().getByTestId("report-also-picker");
+    await picker.getByTestId("send-report-search").fill(someone.name.split(" ")[0]);
+    await picker.getByTestId("send-report-match").filter({ hasText: someone.email }).first().click();
+    saved = `advisor-${Date.now()}@example.com`;
+    await picker.getByTestId("send-report-new-email").fill(saved);
+    await picker.getByTestId("send-report-new-name").fill("Avery Advisor");
+    await picker.getByTestId("send-report-new-add").click();
+    await picker.getByTestId("send-report-new-save").uncheck();
+    await picker.getByTestId("send-report-new-email").fill("just-once@example.com");
+    await picker.getByTestId("send-report-new-add").click();
+    assert((await picker.getByTestId("send-report-chip").count()) === 3, `${await picker.getByTestId("send-report-chip").count()} people chosen`);
+    // Jake unticked for now: only the people added get it.
+    await rw().locator("[data-testid=report-send-to-partner][data-partner=Jake] input").uncheck();
+    await sec("targets").getByTestId("section-note-open").click();
+    await sec("targets").getByTestId("section-note-text").fill("A note for the midday send.");
+    await sec("targets").getByTestId("section-note-save").click();
+    await sec("tomorrow").getByTestId("section-edit").click();
+    await sec("tomorrow").getByTestId("section-edit-text").fill("Tomorrow, rewritten at midday.");
+    await sec("tomorrow").getByTestId("section-edit-save").click();
+    await rw().getByTestId("report-intro").fill("Avery, this is the daily report I mentioned.");
+    await until(async () => (await rw().getByTestId("report-preview").innerText()).includes("this is the daily report I mentioned"), "the preview does not show the note under the greeting");
+    await until(async () => /Send to 3 people/.test(await rw().getByTestId("report-window-send").innerText()), `the button reads ${await rw().getByTestId("report-window-send").innerText()}`);
+    await sendFromWindow();
+    await until(async () => /Sent to/.test(await rw().getByTestId("report-window-note").innerText()), "no sent line in the window", 120);
+    const mails = (await g("/__sent")).slice(before);
+    assert(mails.length === 3, `${mails.length} emails sent`);
+    for (const a of [someone.email, saved, "just-once@example.com"]) assert(mails.some((m) => String(m.to).includes(a)), `no email to ${a}`);
+    for (const m of mails) for (const t of ["this is the daily report I mentioned", "A note for the midday send.", "Tomorrow, rewritten at midday."]) assert(String(m.body).includes(t) && String(m.html).includes(t), `an email lacks "${t}"`);
+    assert(/Hello Avery,/.test(String(mails.find((m) => String(m.to).includes(saved)).body)), "the greeting does not use the new person's first name");
+    assert((await one("select count(*)::int n from contacts where email = $1", [saved])).n === 1, "the new address was not saved as a contact");
+    assert((await one("select count(*)::int n from contacts where email = 'just-once@example.com'")).n === 0, "the address sent only was saved as a contact");
+    const eod = await one("select status, report_edits::text e from end_of_day where day = (select max(day) from end_of_day)");
+    assert(eod.status === "open", `the day is ${eod.status}`);
+    assert(eod.e.includes("A note for the midday send.") && eod.e.includes("rewritten at midday") && eod.e.includes("_edited_at"), "the edit and the note are not in today's draft");
+    assert((await one("select count(*)::int n from communications where direction = 'outgoing' and contact_id = (select id from contacts where email = $1)", [saved])).n >= 1, "the send is not on the new contact's timeline");
+  });
+
+  await step("Carried over: reopened later, the note and the edit saved before that send are outlined amber with 'before the report went out'; closing with a typed note asks Discard first", async () => {
     await open("/work/end-of-day");
     await page.getByTestId("report-view").click();
-    const rw = page.getByTestId("report-window");
-    await rw.getByTestId("report-also").waitFor({ timeout: 15000 });
-    assert((await rw.getByTestId("report-also-names").innerText()).includes("Nobody else"), "someone is already on Also send to");
-    await rw.getByTestId("report-also-open").click();
-    const picker = rw.getByTestId("report-also-picker");
+    await rw().locator("[data-testid=report-send-to-partner][data-partner=Jake] input").check();
+    await until(async () => (await sec("targets").getAttribute("data-stale")) === "1" && (await sec("tomorrow").getAttribute("data-stale")) === "1", "the carried-over sections are not marked");
+    assert((await sec("tomorrow").getByTestId("section-stale").innerText()).includes("before the report went out"), await sec("tomorrow").getByTestId("section-stale").innerText());
+    await rw().getByTestId("report-intro").fill("Typed and left.");
+    await page.keyboard.press("Escape");
+    await page.getByTestId("discard-warning").waitFor();
+    await page.getByTestId("discard-keep").click();
+    assert(await rw().isVisible(), "Keep editing closed the window");
+    await rw().getByTestId("report-window-close").click();
+    await page.getByTestId("discard-yes").click();
+    await until(async () => !(await rw().count()) || !(await rw().isVisible()), "Discard did not close the window");
+  });
+
+  await step("Also send to: a new address added under the partner boxes gets the open tab's copy right after Approve and send (which closes the day); the card names them first", async () => {
+    await open("/work/end-of-day");
+    await page.getByTestId("report-view").click();
+    await rw().getByTestId("report-also").waitFor({ timeout: 15000 });
+    assert((await rw().getByTestId("report-also-names").innerText()).includes("Nobody else"), "someone is already on Also send to");
+    await rw().getByTestId("report-also-open").click();
+    const picker = rw().getByTestId("report-also-picker");
     await picker.waitFor({ timeout: 20000 });
     // A partner already on today's report is not offered again; one not due today (Sarah on a Thursday) can be added.
     assert(!(await picker.getByTestId("send-report-partner").filter({ hasText: "Jake Morgan" }).count()), "Jake (on today's report) shows again in Also send to");
@@ -256,101 +318,40 @@ const until = async (fn, msg, tries = 80) => {
     await picker.getByTestId("send-report-new-name").fill("Morgan Also");
     await picker.getByTestId("send-report-new-save").uncheck();
     await picker.getByTestId("send-report-new-add").click();
-    await rw.getByTestId("report-also-open").click();
-    assert((await rw.getByTestId("report-also-names").innerText()).includes("Morgan Also"), "the name is not on the Also send to line");
-    await rw.getByTestId("report-window-close").click();
-    await page.getByTestId("eod-also-line").waitFor();
-    const first = await page.locator("[data-testid=eod-partner]").first().getAttribute("data-partner");
+    await rw().getByTestId("report-also-open").click();
+    assert((await rw().getByTestId("report-also-names").innerText()).includes("Morgan Also"), "the name is not on the Also send to line");
     const before = (await g("/__sent")).length;
-    await page.getByTestId("report-send").click();
-    const anyway = page.getByTestId("send-check-anyway");
-    await Promise.race([anyway.waitFor({ timeout: 20000 }).then(() => anyway.click()), page.getByTestId("sent-line").waitFor({ timeout: 20000 })]).catch(() => {});
+    await sendFromWindow();
     await page.getByTestId("sent-line").waitFor({ timeout: 60000 });
     await until(async () => (await page.getByTestId("sent-line").innerText()).includes("Also sent to Morgan Also"), "the sent line does not name Morgan Also", 120);
     const mails = (await g("/__sent")).slice(before);
     const extra = mails.find((m) => String(m.to).includes("also-once@example.com"));
     assert(extra && /Hello Morgan,/.test(String(extra.body)), `no copy for the extra person: ${mails.map((m) => m.to)}`);
-    assert(mails.some((m) => String(m.to).toLowerCase().includes(String(first).toLowerCase())), `the partner ${first} did not get the report`);
-    assert((await one("select count(*)::int n from contacts where email = 'also-once@example.com'")).n === 0, "the address sent only was saved as a contact");
+    assert(mails.some((m) => String(m.to).includes("jake.morgan")), "Jake did not get the report");
+    assert((await one("select status from end_of_day where day = (select max(day) from end_of_day)")).status === "sent", "Approve and send did not close the day");
   });
 
-  await step("Send a report: the window opens with today chosen and the same review as End of day (every section ticked, Change, Edit, + Note)", async () => {
-    await open("/work/end-of-day");
-    await page.getByTestId("send-a-report").first().click();
-    await win().getByTestId("send-report-day-select").waitFor({ timeout: 20000 });
-    const today = await win().getByTestId("send-report-day-select").inputValue();
-    assert(/^\d{4}-\d{2}-\d{2}$/.test(today), `the day is ${today}`);
-    await win().getByTestId("report-section").first().waitFor({ timeout: 20000 });
-    const n = await win().getByTestId("report-section").count();
-    assert(n >= 5, `${n} sections`);
-    assert((await win().locator("[data-testid=report-section][data-included='0']").count()) === 0, "a section starts unticked");
-    assert(await sec("targets").getByTestId("section-edit").count() && await sec("targets").getByTestId("section-note-open").count(), "no Edit or + Note on a section");
-    assert((await win().getByTestId("send-report-preview").innerText()).includes("Hello there,"), "the greeting is not 'Hello there,' before anyone is chosen");
-    assert((await win().getByTestId("send-report-send").isDisabled()), "Send is enabled with nobody chosen");
-  });
-
-  let saved = "";
-  await step("Send a report: a contact found by search, a new address saved as a contact and one sent only, a section left out, a section note and an edit, a note under the greeting; three emails go out with them; End of day's draft is untouched", async () => {
-    const before = (await g("/__sent")).length;
-    const someone = await one("select id, name, email from contacts where email like '%@%.%' and archived_at is null and coalesce(outreach_role, '') <> 'accountability_partner' and email not like 'also-%' order by name limit 1");
-    assert(someone, "no contact with an email address in the sample");
-    await win().getByTestId("send-report-search").fill(someone.name.split(" ")[0]);
-    await win().getByTestId("send-report-match").filter({ hasText: someone.email }).first().click();
-    saved = `advisor-${Date.now()}@example.com`;
-    await win().getByTestId("send-report-new-email").fill(saved);
-    await win().getByTestId("send-report-new-name").fill("Avery Advisor");
-    await win().getByTestId("send-report-new-add").click();
-    await win().getByTestId("send-report-new-save").uncheck();
-    await win().getByTestId("send-report-new-email").fill("just-once@example.com");
-    await win().getByTestId("send-report-new-add").click();
-    assert((await win().getByTestId("send-report-chip").count()) === 3, `${await win().getByTestId("send-report-chip").count()} people chosen`);
-    await sec("jobs").getByTestId("section-include").uncheck();
-    await sec("targets").getByTestId("section-note-open").click();
-    await sec("targets").getByTestId("section-note-text").fill("A note only Avery and the others get.");
-    await sec("targets").getByTestId("section-note-save").click();
-    await sec("tomorrow").getByTestId("section-edit").click();
-    await sec("tomorrow").getByTestId("section-edit-text").fill("Tomorrow, rewritten for this send.");
-    await sec("tomorrow").getByTestId("section-edit-save").click();
-    await win().getByTestId("send-report-intro").fill("Avery, this is the daily report I mentioned.");
-    await until(async () => (await win().getByTestId("send-report-preview").innerText()).includes("this is the daily report I mentioned"), "the preview does not show the note under the greeting");
-    await pressSend();
-    const mails = (await g("/__sent")).slice(before);
-    assert(mails.length === 3, `${mails.length} emails sent`);
-    const to = mails.map((m) => String(m.to)).join(" ");
-    for (const a of [someone.email, saved, "just-once@example.com"]) assert(to.includes(a), `no email to ${a}: ${to}`);
-    for (const m of mails) {
-      for (const t of ["this is the daily report I mentioned", "A note only Avery and the others get.", "Tomorrow, rewritten for this send."]) assert(String(m.body).includes(t) && String(m.html).includes(t), `an email lacks "${t}"`);
-    }
-    const avery = mails.find((m) => String(m.to).includes(saved));
-    assert(/Hello Avery,/.test(String(avery.body)), "the greeting does not use the new person's first name");
-    assert((await one("select count(*)::int n from contacts where email = $1", [saved])).n === 1, "the new address was not saved as a contact");
-    assert((await one("select count(*)::int n from contacts where email = 'just-once@example.com'")).n === 0, "the address sent only was saved as a contact");
-    const r = await one("select count(*)::int n, bool_and((snapshot->'choices'->'include'->>'jobs') = 'false') jobs_out from partner_reports where snapshot->>'sent_by' = 'send_a_report' and contact_id in (select id from contacts where email in ($1, $2))", [saved, someone.email]);
-    assert(r.n === 2 && r.jobs_out, `copies kept ${JSON.stringify(r)}`);
-    const t = await one("select count(*)::int n from communications where direction = 'outgoing' and contact_id = (select id from contacts where email = $1)", [saved]);
-    assert(t.n >= 1, "the send is not on the new contact's timeline");
-    const eod = await one("select coalesce(report_edits::text, '') e from end_of_day where day = (select max(day) from end_of_day)");
-    assert(!eod.e.includes("A note only Avery") && !eod.e.includes("rewritten for this send"), "the send changed End of day's draft");
-    await win().getByTestId("send-report-close").click();
-  });
-
-  await step("Send a report on Reports: an earlier day sent again goes out and changes nothing about that day", async () => {
+  await step("Which report: an earlier sent day, sent again to a contact, goes out and changes nothing about that day; Reports' Send a report opens the same window", async () => {
     const earlier = await one("select day::text as d, sent_at::text as sent_at, report_id from end_of_day where status = 'sent' and day < (select max(day) from end_of_day) order by day desc limit 1");
     assert(earlier, "no earlier sent day in the sample");
     await open("/work/reports");
     await page.getByTestId("send-a-report").first().click();
-    await win().getByTestId("send-report-day-select").waitFor({ timeout: 20000 });
-    await win().getByTestId("send-report-day-select").selectOption(earlier.d);
-    await win().getByTestId("send-report-new-email").fill(saved);
-    await win().getByTestId("send-report-new-add").click();
-    await win().getByTestId("send-report-preview").waitFor({ timeout: 20000 });
+    await page.waitForURL(/end-of-day\?send=1/);
+    await rw().getByTestId("report-day-select").waitFor({ timeout: 20000 });
+    await until(async () => (await rw().locator(`[data-testid=report-day-select] option[value="${earlier.d}"]`).count()) === 1, "the earlier day is not in Which report");
+    await rw().getByTestId("report-day-select").selectOption(earlier.d);
+    const picker = rw().getByTestId("report-past-picker");
+    await picker.waitFor({ timeout: 20000 });
+    await picker.getByTestId("send-report-new-email").fill(saved);
+    await picker.getByTestId("send-report-new-add").click();
+    await rw().getByTestId("report-preview").waitFor({ timeout: 20000 });
     const before = (await g("/__sent")).length;
-    await pressSend();
+    await rw().getByTestId("report-window-send").click();
+    await until(async () => /Sent the report of/.test(await rw().getByTestId("report-window-note").innerText()), "no sent line for the earlier day", 120);
     assert((await g("/__sent")).length === before + 1, "the earlier report was not sent");
     const after = await one("select day::text as d, sent_at::text as sent_at, report_id from end_of_day where day = $1", [earlier.d]);
     assert(after.sent_at === earlier.sent_at && after.report_id === earlier.report_id, "the earlier day changed");
-    const kept = await one("select count(*)::int n from partner_reports where period_start = $1 and (snapshot->>'resend')::boolean", [earlier.d]);
-    assert(kept.n === 1, "the resend is not kept as a copy");
+    assert((await one("select count(*)::int n from partner_reports where period_start = $1 and (snapshot->>'resend')::boolean", [earlier.d])).n === 1, "the resend is not kept as a copy");
   });
 
   // ---------- The work week (Bram, 2026-11-07, design B). The app runs on a Thursday clock. ----------

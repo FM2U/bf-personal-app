@@ -10,8 +10,12 @@ import type { EndOfDayPage } from "@/lib/accountability/data";
 import { dueLine, getsLabel, sendLabel } from "@/lib/accountability/partners";
 import { includesLine, REVIEW_QUESTIONS, reviewAnswered, sentSections, type WeeklyReview } from "@/lib/accountability/report-sections";
 import { PARTNER_BOX, ReportWindow } from "@/components/app/work/report-window";
-import { NO_RECIPIENTS, RecipientPicker, recipientCount, recipientsTo, SendReportButton, type Recipients } from "@/components/app/work/send-report";
-import { sendReport, sendReportSetup, type SendReportPerson } from "@/app/actions/send-report";
+import { NO_RECIPIENTS, RecipientPicker, recipientCount, recipientsTo, type Recipients } from "@/components/app/work/send-report";
+import { loadSendReportDay, sendReport, sendReportSetup, type SendReportDayData, type SendReportSetup } from "@/app/actions/send-report";
+import type { PartnerCopy } from "@/lib/accountability/data";
+import { reportFor } from "@/lib/accountability/report-email";
+import { REPORT_SECTIONS } from "@/lib/accountability/partners";
+import type { ReportChoices, ReportNotes, SectionKey } from "@/lib/accountability/report-sections";
 import { DONE_AREAS, judgedMark, MARK_WORD, owedReasons, sendChecklist, todayStrip, type DayNumbers, type Judged, type TodayPart } from "@/lib/accountability/targets";
 import type { AskContext } from "@/lib/work/ask-ai";
 import { AccountabilityTabs, type EodBadge } from "@/components/app/nav-links";
@@ -57,7 +61,7 @@ const newRequestId = () => (typeof crypto !== "undefined" && "randomUUID" in cry
 /** "Jake", "Jake and Sarah", "Jake, Sarah and Ann". */
 const andNames = (names: string[]) => (names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`);
 
-export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
+export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; /** ?send=1 (Send a report on Reports): the window opens with Also send to open. */ openSend?: boolean }) {
   const router = useRouter();
   const { day } = data;
   // Push B: one copy per partner due today (their own sections); the window has a tab per copy.
@@ -82,7 +86,7 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
   const [tomorrow, setTomorrow] = useState(data.tomorrow);
   const [review, setReview] = useState<WeeklyReview>({ well: data.review?.well ?? "", slipped: data.review?.slipped ?? "", focus: data.review?.focus ?? "" });
   const [state, setState] = useState<{ status: EndOfDayPage["state"]; sentTime: string | null; skipReason: string | null }>({ status: data.state, sentTime: data.sentTime, skipReason: data.skipReason });
-  const [windowOpen, setWindowOpen] = useState<false | "view" | "edit">(false);
+  const [windowOpen, setWindowOpen] = useState<false | "view" | "edit">(openSend ? "view" : false);
   const [resetKey, setResetKey] = useState(0);
   const [shared, setShared] = useState(false);
   const [sharedText, setSharedText] = useState("");
@@ -100,16 +104,71 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
   // "Also send to" (Bram, 2026-11-08): more people for today's send, for today only; they get the copy of the partner
   // whose tab is open in the review window, right after Approve and send.
   const [also, setAlso] = useState<Recipients>(NO_RECIPIENTS);
-  const [alsoOpen, setAlsoOpen] = useState(false);
-  const [alsoPeople, setAlsoPeople] = useState<SendReportPerson[] | null>(null);
+  const [alsoOpen, setAlsoOpen] = useState(openSend);
+  // One report window (Bram, 2026-11-08): the people and the sent days, read when the window first needs them.
+  const [setupData, setSetupData] = useState<SendReportSetup | null>(null);
   const [alsoError, setAlsoError] = useState<string | null>(null);
+  const alsoPeople = setupData?.people ?? null;
   const alsoRequest = useRef(newRequestId());
   const alsoCount = recipientCount(also);
-  const alsoNames = andNames([...also.chosen.map((id) => alsoPeople?.find((p) => p.id === id)?.name ?? "a contact"), ...also.fresh.map((f) => f.name || f.email)]);
+  const nameOf = (r: Recipients) => andNames([...r.chosen.map((id) => alsoPeople?.find((p) => p.id === id)?.name ?? "a contact"), ...r.fresh.map((f) => f.name || f.email)]);
+  const alsoNames = nameOf(also);
+  const loadSetup = () => {
+    if (!setupData) sendReportSetup().then((r) => (r.ok ? setSetupData(r) : setAlsoError(r.error)));
+  };
+  useEffect(() => {
+    if (openSend) loadSetup();
+    // Only on the first visit with ?send=1.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const openAlso = () => {
     setAlsoOpen((o) => !o);
-    if (!alsoPeople) sendReportSetup().then((r) => (r.ok ? setAlsoPeople(r.people) : setAlsoError(r.error)));
+    loadSetup();
   };
+  const openWindow = (how: "view" | "edit" | "send") => {
+    setWindowOpen(how === "send" ? "view" : how);
+    if (how === "send") setAlsoOpen(true);
+    loadSetup();
+  };
+  // The note under the greeting: for this send only, in every copy (partners and the people added).
+  const [intro, setIntro] = useState("");
+  // A sent day picked in the window: its report as it was then, changes for that send only.
+  const [viewDay, setViewDay] = useState(day);
+  const [past, setPast] = useState<{ data: SendReportDayData | null; error: string | null; choices: ReportChoices; notes: ReportNotes; key: number }>({ data: null, error: null, choices: {}, notes: {}, key: 0 });
+  const [pastTo, setPastTo] = useState<Recipients>(NO_RECIPIENTS);
+  const [pastLine, setPastLine] = useState<string | null>(null);
+  const pastRequest = useRef(newRequestId());
+  const isPast = viewDay !== day;
+  const pickDay = (d: string) => {
+    setViewDay(d);
+    setPastLine(null);
+    setPastTo(NO_RECIPIENTS);
+    setPast((x) => ({ data: null, error: null, choices: {}, notes: {}, key: x.key + 1 }));
+    if (d === day) return;
+    loadSendReportDay(d).then((r) => setPast((x) => (r.ok ? { data: r, error: null, choices: {}, notes: r.kind === "data" ? (r.report.notes ?? {}) : {}, key: x.key + 1 } : { ...x, error: r.error })));
+  };
+  const ALL_SECTIONS = REPORT_SECTIONS.map((x) => x.key);
+  const pastFirst = pastTo.chosen.length ? (alsoPeople?.find((p) => p.id === pastTo.chosen[0])?.name ?? "") : (pastTo.fresh[0]?.name ?? "");
+  const pastCopy: PartnerCopy | null =
+    isPast && past.data?.kind === "data"
+      ? (() => {
+          const name = pastFirst || "there";
+          const f = name.split(/\s+/)[0] || "there";
+          const report = { ...reportFor(past.data.report, { name, first: f, sections: ALL_SECTIONS }, past.choices), notes: past.notes, intro: intro.trim() || null };
+          return { partner: { id: "_past", name, first: f, email: null, days: [], sections: ALL_SECTIONS }, report, html: "", edited: false, sentAt: null, sentTime: null, skipped: false };
+        })()
+      : null;
+  // An Edit or note saved before today's last send (2026-11-08): marked in the window, since the numbers may have moved.
+  const stale = (copyId: string, section: SectionKey, kindOf: "edit" | "note") => {
+    const t = data.editedAt[kindOf === "edit" ? `${copyId}:${section}` : `note:${section}`];
+    const last = data.lastSentAt;
+    if (!t || !last || t >= last) return null;
+    const at = (ts: string) => new Intl.DateTimeFormat("en-US", { timeZone: data.tz, hour: "numeric", minute: "2-digit" }).format(new Date(ts)).toLowerCase();
+    return kindOf === "edit"
+      ? `Edited at ${at(t)}, before the report went out at ${at(last)}. The numbers may have changed since: review this text, change it, or click Edit, then Use the app's text.`
+      : `Note added at ${at(t)}, before the report went out at ${at(last)}. Review it, change it, or remove it.`;
+  };
+  const [alsoLine, setAlsoLine] = useState<string | null>(null);
   const tomorrowRef = useRef<HTMLTextAreaElement>(null);
   const closed = state.status !== "open";
   const judged = data.judged;
@@ -211,8 +270,21 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
     startSend(async () => {
       setError(null);
       setCheck(null);
-      const from = copy;
-      const r = await approveAndSend(day, requestId.current, force);
+      const from = copy ?? (copies.length ? null : data.general);
+      // Nobody due left to send to: the people under Also send to only, and the day stays as it is (2026-11-08).
+      if (!(state.status === "open" && unsent.length)) {
+        if (!alsoCount || !from) return;
+        const x = await sendReport({ day, sections: from.partner.sections, intro, to: recipientsTo(also), requestId: alsoRequest.current, force: true, fromCopy: from.partner.id });
+        if (!x.ok) return setError(x.error);
+        setAlsoLine(`Sent to ${andNames(x.sentTo)}.${state.status === "open" && data.partners.length ? " Today's report to your partners is still to send." : ""}`);
+        setAlso(NO_RECIPIENTS);
+        setAlsoOpen(false);
+        setIntro("");
+        alsoRequest.current = newRequestId();
+        router.refresh();
+        return;
+      }
+      const r = await approveAndSend(day, requestId.current, force, intro);
       if (!r.ok) {
         if (r.reason === "reasons") return setCheck(r.error);
         setError(r.error);
@@ -222,14 +294,27 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
       setState({ status: "sent", sentTime: r.sentTime, skipReason: null });
       let line = r.alreadySent ? "This report was already sent." : null;
       if (alsoCount && from) {
-        const x = await sendReport({ day, sections: from.partner.sections, intro: "", to: recipientsTo(also), requestId: alsoRequest.current, force: true, choices: from.report.choices ?? null, notes: from.report.notes ?? null });
+        const x = await sendReport({ day, sections: from.partner.sections, intro, to: recipientsTo(also), requestId: alsoRequest.current, force: true, fromCopy: from.partner.id });
         if (x.ok) {
           line = `${line ? `${line} ` : ""}Also sent to ${andNames(x.sentTo)}`;
           setAlso(NO_RECIPIENTS);
           setAlsoOpen(false);
+          alsoRequest.current = newRequestId();
         } else setError(`Sent to your partners. Not sent to ${alsoNames}: ${x.error}`);
       }
+      setIntro("");
       setNote(line);
+      router.refresh();
+    });
+  const sendPast = () =>
+    startSend(async () => {
+      setError(null);
+      const x = await sendReport({ day: viewDay, sections: ALL_SECTIONS, intro, to: recipientsTo(pastTo), requestId: pastRequest.current, choices: past.choices, notes: past.notes });
+      if (!x.ok) return setError(x.error);
+      setPastLine(`Sent the report of ${setupData?.days.find((d) => d.day === viewDay)?.label ?? viewDay} to ${andNames(x.sentTo)}. That day stays as it was.`);
+      setPastTo(NO_RECIPIENTS);
+      setIntro("");
+      pastRequest.current = newRequestId();
       router.refresh();
     });
   const skip = () =>
@@ -282,9 +367,14 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
       <Loader2 className="h-[15px] w-[15px] shrink-0 animate-spin" aria-hidden />
       <span role="status">Sending…</span>
     </>
+  ) : state.status === "open" && unsent.length ? (
+    sendLabel(unsent.length)
+  ) : alsoCount ? (
+    `Send to ${alsoCount === 1 ? alsoNames : `${alsoCount} people`}`
   ) : (
     sendLabel(unsent.length)
   );
+  const partnersPending = state.status === "open" && unsent.length > 0;
   // Sent or skipped: one line above the checklist (the mockup's Sent state).
   const statusLine =
     state.status === "sent" ? (
@@ -506,11 +596,11 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
                 </div>
               </div>
               <div id="report-acts" className="mt-3 flex flex-col gap-2 min-[421px]:flex-row" data-testid="report-acts">
-                <button type="button" onClick={() => setWindowOpen("view")} disabled={!copies.length} aria-haspopup="dialog" className={cn(BTN_LG, "border-primary-strong bg-white text-primary-strong hover:bg-primary-soft")} data-testid="report-view">
+                <button type="button" onClick={() => openWindow("view")} aria-haspopup="dialog" className={cn(BTN_LG, "border-primary-strong bg-white text-primary-strong hover:bg-primary-soft")} data-testid="report-view">
                   <Eye className="h-[15px] w-[15px]" aria-hidden />
                   View report
                 </button>
-                <button type="button" onClick={() => send(false)} disabled={state.status !== "open" || sending || !unsent.length} className={cn(BTN_LG, "border-primary-solid bg-primary-solid text-white hover:border-primary-solid-hover hover:bg-primary-solid-hover")} data-testid="report-send" data-count={unsent.length} data-busy={sending ? "1" : "0"}>
+                <button type="button" onClick={() => send(false)} disabled={sending || !((state.status === "open" && unsent.length) || alsoCount)} className={cn(BTN_LG, "border-primary-solid bg-primary-solid text-white hover:border-primary-solid-hover hover:bg-primary-solid-hover")} data-testid="report-send" data-count={unsent.length} data-busy={sending ? "1" : "0"}>
                   {sendLabelNow}
                 </button>
               </div>
@@ -536,7 +626,7 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
               <div className="mt-2.5 flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[13px]">
                 {state.status === "open" ? (
                   <>
-                    <button type="button" onClick={() => setWindowOpen("edit")} disabled={!copies.length} className="font-medium text-muted-foreground hover:text-primary-strong" data-testid="report-edit">
+                    <button type="button" onClick={() => openWindow("edit")} className="font-medium text-muted-foreground hover:text-primary-strong" data-testid="report-edit">
                       Edit
                     </button>
                     <button type="button" onClick={() => setSkipOpen(true)} className="font-medium text-muted-foreground hover:text-primary-strong" data-testid="skip-today">
@@ -545,7 +635,9 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
                   </>
                 ) : null}
                 {/* Send a report (Bram, 2026-11-07): today's or an earlier report, to anyone with an email address. */}
-                <SendReportButton className="font-medium text-muted-foreground hover:text-primary-strong" />
+                <button type="button" onClick={() => openWindow("send")} aria-haspopup="dialog" className="font-medium text-muted-foreground hover:text-primary-strong" data-testid="send-a-report">
+                  Send a report
+                </button>
                 {state.status === "open" && partly ? (
                   <span className="min-w-0 text-[12.5px] text-muted-foreground sm:ml-auto sm:text-right" data-testid="report-due-line">
                     {partly}
@@ -645,19 +737,75 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
       </div>
       <ReportWindow
         open={!!windowOpen}
-        onOpenChange={(o) => setWindowOpen(o ? "view" : false)}
+        onOpenChange={(o) => {
+          setWindowOpen(o ? "view" : false);
+          if (o) return;
+          // Closing drops what is kept only in the window (the Discard question asked first).
+          setIntro("");
+          setAlso(NO_RECIPIENTS);
+          setAlsoOpen(false);
+          setAlsoLine(null);
+          if (isPast) pickDay(day);
+        }}
         day={day}
-        copies={copies}
         skipped={skippedIds}
         onPartner={closed ? null : togglePartner}
         sel={copy?.partner.id ?? null}
         onSel={setSel}
-        title={reportTitle}
-        sub={`${kind} · ${data.dateLabel} · ${state.status === "sent" ? `sent at ${state.sentTime}` : state.status === "skipped" ? "not sent today" : `as it will be sent at ${data.eodTime.long}`}`}
+        title={isPast ? `Report of ${setupData?.days.find((d) => d.day === viewDay)?.label ?? viewDay}` : reportTitle}
+        sub={isPast ? "As it was sent that day. Send it again to anyone; that day stays as it was." : `${kind} · ${data.dateLabel} · ${state.status === "sent" ? `sent at ${state.sentTime}` : state.status === "skipped" ? "not sent today" : `as it will be sent at ${data.eodTime.long}`}`}
+        top={
+          <div className="mb-4 grid gap-3 border-b border-slate-100 pb-4" data-testid="report-top">
+            <div className="grid grid-cols-[minmax(0,140px)_minmax(0,1fr)] items-center gap-x-4">
+              <label htmlFor="report-day" className="label-caps figure-label">
+                Which report
+              </label>
+              <select id="report-day" value={viewDay} onChange={(e) => pickDay(e.target.value)} className={cn(INPUT, "max-w-[320px]")} data-testid="report-day-select">
+                <option value={day}>Today, {data.titleDate}</option>
+                {(setupData?.days ?? [])
+                  .filter((d) => !d.today && d.day !== day)
+                  .map((d) => (
+                    <option key={d.day} value={d.day}>
+                      {d.label}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <div className="grid grid-cols-[minmax(0,140px)_minmax(0,1fr)] items-start gap-x-4">
+              <label htmlFor="report-intro" className="label-caps figure-label pt-2">
+                Note under the greeting
+              </label>
+              <textarea id="report-intro" value={intro} onChange={(e) => setIntro(e.target.value)} rows={2} maxLength={1200} placeholder="Optional, this send only: who you are, why you are sending it" className={cn(INPUT, "h-auto py-2 leading-[1.45]")} data-testid="report-intro" />
+            </div>
+          </div>
+        }
+        general={copies.length ? null : { ...data.general, report: { ...data.general.report, intro: intro.trim() || null } }}
+        copies={copies.map((c) => (c.sentAt || !intro.trim() ? c : { ...c, report: { ...c.report, intro: intro.trim() } }))}
+        stale={stale}
+        localDirty={!!intro.trim() || alsoCount > 0 || (isPast && (recipientCount(pastTo) > 0 || Object.keys(past.choices).length > 0))}
+        past={
+          isPast
+            ? {
+                key: `${viewDay}:${past.key}`,
+                copy: pastCopy,
+                html: past.data?.kind === "html" ? past.data.html : null,
+                notes: past.notes,
+                onNotes: (n) => setPast((x) => ({ ...x, notes: n })),
+                onChoices: (c) => setPast((x) => ({ ...x, choices: c })),
+                loading: past.error ?? (past.data ? null : "Loading that day's report…"),
+                to: (
+                  <div className="mb-4 rounded-[9px] border border-border bg-background px-3.5 py-2.5" data-testid="report-past-to">
+                    <span className="label-caps figure-label mb-2 block">Send to</span>
+                    {alsoPeople ? <RecipientPicker people={alsoPeople} value={pastTo} onChange={setPastTo} testId="report-past-picker" /> : <p className="text-[12.5px] text-muted-foreground">{alsoError ?? "Loading your contacts…"}</p>}
+                  </div>
+                ),
+              }
+            : null
+        }
         startEditing={windowOpen === "edit"}
         resetKey={resetKey}
         alsoTo={
-          state.status === "open" ? (
+          !isPast ? (
             <div className="mb-3 rounded-[9px] border border-border bg-background px-3.5 py-2.5" data-testid="report-also">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-slate-700">
                 <span className="label-caps figure-label">Also send to</span>
@@ -682,14 +830,21 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
                   )}
                 </div>
               ) : null}
-              <p className="mt-1.5 text-[12px] text-muted-foreground">Today only. They get {copy ? `${copy.partner.first}'s copy (the tab open below)` : "the copy shown below"}, sent with Approve and send.</p>
+              <p className="mt-1.5 text-[12px] text-muted-foreground">
+                Today only. They get {copy ? `${copy.partner.first}'s copy (the tab open below)` : "the report shown below"}
+                {partnersPending ? ", sent with Approve and send." : ". Sending to them does not close the day."}
+              </p>
             </div>
           ) : null
         }
-        footerNote={checkBox ?? (state.status === "open" && needs.length ? `${needs.join(" · ")}. Gaps go out as "(still to give)".` : state.status === "open" ? (partly ?? dueLine(data.partners, day)) : state.status === "sent" ? `Sent to ${toNames(copies)} at ${state.sentTime}.` : "Skipped today. Nothing is sent.")}
+        footerNote={isPast ? (pastLine ?? "Sending an earlier report again changes nothing about that day.") : alsoLine ? alsoLine : checkBox ?? (state.status === "open" && needs.length ? `${needs.join(" · ")}. Gaps go out as "(still to give)".` : state.status === "open" ? (partly ?? dueLine(data.partners, day)) : state.status === "sent" ? `Sent to ${toNames(copies)} at ${state.sentTime}.` : "Skipped today. Nothing is sent.")}
         sendButton={
-          state.status === "open" ? (
-            <button type="button" onClick={() => send(false)} disabled={sending || !unsent.length} className="inline-flex h-8 items-center gap-1.5 rounded-[7px] border border-primary-solid bg-primary-solid px-3 text-[13px] font-medium text-white hover:bg-primary-solid-hover disabled:opacity-50" data-testid="report-window-send" data-busy={sending ? "1" : "0"}>
+          isPast ? (
+            <button type="button" onClick={sendPast} disabled={sending || !recipientCount(pastTo) || !past.data} className="inline-flex h-8 items-center gap-1.5 rounded-[7px] border border-primary-solid bg-primary-solid px-3 text-[13px] font-medium text-white hover:bg-primary-solid-hover disabled:opacity-50" data-testid="report-window-send" data-busy={sending ? "1" : "0"}>
+              {sending ? sendLabelNow : recipientCount(pastTo) > 1 ? `Send to ${recipientCount(pastTo)} people` : "Send"}
+            </button>
+          ) : partnersPending || alsoCount ? (
+            <button type="button" onClick={() => send(false)} disabled={sending} className="inline-flex h-8 items-center gap-1.5 rounded-[7px] border border-primary-solid bg-primary-solid px-3 text-[13px] font-medium text-white hover:bg-primary-solid-hover disabled:opacity-50" data-testid="report-window-send" data-busy={sending ? "1" : "0"}>
               {sendLabelNow}
             </button>
           ) : null

@@ -14,7 +14,7 @@ import { loadEndOfDay, loadPartners, type EndOfDayPage } from "@/lib/accountabil
 import { REPORT_SECTIONS, type ReportSectionKey } from "@/lib/accountability/partners";
 import { reportFor, reportInnerHtml, reportSubject, reportText, type ReportData } from "@/lib/accountability/report-email";
 import { cleanChoices, cleanNotes, sentSections, type ReportChoices, type ReportNotes } from "@/lib/accountability/report-sections";
-import { owedReasons, reportSummary } from "@/lib/accountability/targets";
+import { reportSummary } from "@/lib/accountability/targets";
 import { date as fmtDate } from "@/lib/format";
 import type { Row } from "@/lib/types";
 
@@ -156,17 +156,17 @@ export type SendReportResult = { ok: true; sentTo: string[]; dayMarkedSent: bool
  * Sends the report to each person chosen. `force` sends today's report even when a missed commitment has no reason
  * yet (the same question as Approve and send). The same requestId never sends twice to one address.
  */
-export async function sendReport(input: { day: string; sections: string[]; intro: string; to: SendReportTo[]; requestId: string; force?: boolean; choices?: unknown; notes?: unknown }): Promise<SendReportResult> {
+export async function sendReport(input: { day: string; sections: string[]; intro: string; to: SendReportTo[]; requestId: string; force?: boolean; choices?: unknown; notes?: unknown; /** Today's copy to send (a partner's id, or "_general"): its saved choices and today's notes, read fresh here. */ fromCopy?: string | null }): Promise<SendReportResult> {
   const s = await setup();
   if ("ok" in s) return s;
   const { sb, ctx } = s;
   if (!REQUEST_ID.test(String(input.requestId ?? ""))) return fail("The send request was not valid. Close the window and try again.");
   if (!DATE.test(String(input.day ?? ""))) return fail("Pick a day.");
-  const sections = cleanSections(input.sections);
-  if (!sections.length) return fail("Tick at least one section.");
+  if (!cleanSections(input.sections).length && !input.fromCopy) return fail("Tick at least one section.");
   const intro = cleanIntro(input.intro);
-  const choices = input.choices && typeof input.choices === "object" ? cleanChoices(input.choices) : null;
-  const notes = input.notes && typeof input.notes === "object" ? cleanNotes(input.notes) : null;
+  let choices = input.choices && typeof input.choices === "object" ? cleanChoices(input.choices) : null;
+  let notes = input.notes && typeof input.notes === "object" ? cleanNotes(input.notes) : null;
+  let sections: readonly string[] = cleanSections(input.sections);
 
   // The people: saved contacts by id, new addresses checked (and saved as contacts when asked).
   const ids = [...new Set((input.to ?? []).filter((t): t is { contactId: string } => "contactId" in t && UUID.test(String(t.contactId))).map((t) => t.contactId))];
@@ -183,12 +183,16 @@ export async function sendReport(input: { day: string; sections: string[]; intro
   const b = await baseFor(sb, ctx, input.day);
   if ("ok" in b) return b;
   const isToday = input.day === ctx.today;
-  if (b.base.data && !sentSections(copyData(b.base.data, "", sections, intro, choices, notes)).length) return fail("Every section is left out. Tick at least one section.");
-  if (isToday && b.page && !input.force) {
-    const pg = b.page;
-    const owed = owedReasons(pg.judged, pg.reasons).length + (pg.owed ? pg.owed.items.filter((j) => !String(pg.reasons[`owed:${pg.owed!.day}:${j.targetId}`] ?? "").trim()).length : 0);
-    if (owed) return { ok: false, error: `${owed === 1 ? "One missed commitment has" : `${owed} missed commitments have`} no reason yet. Add the reason on End of day, or send anyway.`, owed };
+  // Today's report from the window (2026-11-08): the copy as saved in today's draft, so a note or Edit saved a moment ago goes out.
+  if (isToday && b.page && input.fromCopy) {
+    const c = input.fromCopy === b.page.general.partner.id ? b.page.general : b.page.copies.find((x) => x.partner.id === input.fromCopy);
+    if (!c) return fail("That copy of today's report was not found. Close the window and open it again.");
+    choices = c.report.choices ?? null;
+    notes = b.page.report.notes ?? {};
+    sections = c.partner.sections;
   }
+  if (b.base.data && !sentSections(copyData(b.base.data, "", sections, intro, choices, notes)).length) return fail("Every section is left out. Tick at least one section.");
+  // No reasons question here: reasons are owed to the partners, and Approve and send asks for them (2026-11-08).
   const perm = isGoogleConfigured() ? sendPermission(await getGoogleConnection(sb, ctx.ownerId)) : "not_connected";
   if (perm === "reconnect") return fail("Sending from the app is not allowed yet. Reconnect Google once (1 minute) under Settings, Connections, then send again.");
   if (perm !== "allowed") return fail("Google is not connected. Connect Google in Settings, Connections, then send again.");
@@ -198,7 +202,6 @@ export async function sendReport(input: { day: string; sections: string[]; intro
   const done = new Set(((prior ?? []) as Row[]).map((p) => String(((p.new_value as Row) ?? {}).to ?? "").toLowerCase()));
   const summary = b.page ? reportSummary(b.page.judged, b.page.numbers, b.page.friday) : null;
   const sentTo: string[] = [];
-  let firstReport: { id: string | null; html: string; subject: string; sentAt: string } | null = null;
   for (const p of people) {
     if (done.has(p.email.toLowerCase())) {
       sentTo.push(p.name || p.email);
@@ -245,20 +248,11 @@ export async function sendReport(input: { day: string; sections: string[]; intro
       if (commId && reportId) await sb.from("record_links").insert({ owner_id: ctx.ownerId, from_type: "communications", from_id: commId, to_type: "partner_reports", to_id: reportId, relation: "report sent" });
     }
     await sb.from("change_log").insert({ owner_id: ctx.ownerId, table_name: "partner_reports", record_id: reportId, action: "insert", field: "email_sent", new_value: { request_id: input.requestId, kind: "send_a_report", to: p.email, subject: built.subject, contact_id: contact ? String(contact.id) : null, day: input.day, communication_id: commId, gmail_message_id: sent.id, gmail_thread_id: sent.threadId, sent_at: sentAt }, actor: "owner" });
-    firstReport ??= { id: reportId, html: built.inner, subject: built.subject, sentAt };
     sentTo.push(name || p.email);
   }
 
-  // Today's report counts the day as sent (as Approve and send does); an earlier day stays as it is.
-  let dayMarkedSent = false;
-  if (isToday && b.page && b.page.state === "open" && firstReport) {
-    let { data: row } = await sb.from("end_of_day").select("id").eq("owner_id", ctx.ownerId).eq("day", input.day).maybeSingle();
-    if (!row) row = (await sb.from("end_of_day").insert({ owner_id: ctx.ownerId, day: input.day }).select("id").single()).data;
-    if (row) {
-      const { error } = await sb.from("end_of_day").update({ status: "sent", sent_at: firstReport.sentAt, report_id: firstReport.id, report_subject: firstReport.subject, report_html: firstReport.html, report_edited: !!intro, report_edits: {}, judged: b.page.judged }).eq("id", (row as Row).id);
-      dayMarkedSent = !error;
-    }
-  }
+  // One report window (Bram, 2026-11-08): a send to other people never closes the day; only Approve and send to the
+  // partners due today does. An earlier day stays as it is.
   revalidatePath("/", "layout");
-  return { ok: true, sentTo, dayMarkedSent };
+  return { ok: true, sentTo, dayMarkedSent: false };
 }
