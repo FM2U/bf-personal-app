@@ -69,7 +69,7 @@ async function putInput(sb: SupabaseClient, ownerId: string, def: { key: string;
 }
 
 /** Work settings: waiting turns amber at (days), No reply yet after (days; push E), the weekly outreach target, the End of day time, the default block length. */
-export async function saveWorkSettings(input: { threshold: string; noReply: string; outreach: string; eodTime: string; blockMinutes: string; workDays?: number[]; weekStart?: string; reviewDay?: string }): Promise<{ ok: true } | Fail> {
+export async function saveWorkSettings(input: { threshold: string; stalled?: string; noReply: string; outreach: string; eodTime: string; blockMinutes: string; autoSend?: boolean; workDays?: number[]; weekStart?: string; reviewDay?: string }): Promise<{ ok: true } | Fail> {
   // Speed plan (2026-11-07): the settings kept in the browser are read fresh on the next page.
   await forgetKeptSettings();
   const { supabase, ownerId } = await requireOwner();
@@ -81,6 +81,8 @@ export async function saveWorkSettings(input: { threshold: string; noReply: stri
     [WORK_SETTING_KEYS.noReply, { value_number: v.noReply }],
     [WORK_SETTING_KEYS.outreach, { value_number: v.outreach }],
     [WORK_SETTING_KEYS.eodTime, { value_text: v.eodTime }],
+    [WORK_SETTING_KEYS.stalled, { value_number: v.stalled }],
+    [WORK_SETTING_KEYS.autoSend, { value_number: v.autoSend ? 1 : 0 }],
   ] as const) {
     const err = await putInput(supabase, ownerId, def, value);
     if (err) return { ok: false, error: `Not saved: ${err}` };

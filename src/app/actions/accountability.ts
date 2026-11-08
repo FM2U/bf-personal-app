@@ -5,12 +5,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireOwner } from "@/lib/auth";
 import { AI_REPLY_CUT_OFF, AI_REPLY_UNUSABLE, AIInvalidReply, AIUnavailable, callForJson, cleanDeep, replySnippet } from "@/lib/ai/claude";
 import { loadCtx, type Ctx } from "@/lib/engine/helpers";
-import { isValidEmail } from "@/lib/email-address";
-import { isGoogleConfigured } from "@/lib/env";
-import { explainGoogleError } from "@/lib/google-errors";
-import { getGoogleConnection, sendGmailMessage } from "@/lib/google";
-import { sendPermission } from "@/lib/google-scopes";
-import { sentEmailCommunication } from "@/lib/calc/sent-email";
 import { DB_UPDATE_NOTICE_0025, DB_UPDATE_NOTICE_PUSH_D, DB_UPDATE_NOTICE_PUSH_F, isMissingSchemaError } from "@/lib/schema-guard";
 import { recordWorkEvent } from "@/lib/accountability/events";
 import { buildEndOfDay, factsSince, loadEodRow, loadFacts, loadOwedFromSkipped, loadPartners, loadSentCopies, loadTargets, cleanEditedAt, EDITED_AT_KEY, GENERAL_COPY, type EndOfDayPage, type PartnerCopy } from "@/lib/accountability/data";
@@ -19,14 +13,14 @@ import { replyTaskText } from "@/lib/gmail-replies";
 import { TODO_MAX_LENGTH } from "@/lib/work/questions";
 import { nextTodoPosition } from "@/lib/work/todos";
 import { reasonsPrompt, validateReasonsReply, type ReasonDraft } from "@/lib/accountability/ask-ai";
-import { reportInnerHtml, reportSubject, reportText } from "@/lib/accountability/report-email";
 import { cleanChoices, cleanNotes, cleanReview, hasChoices, NOTE_MAX, NOTES_KEY, SECTION_ORDER, type ReportChoices, type ReportNotes, type SectionKey, type WeeklyReview } from "@/lib/accountability/report-sections";
 import { personHref } from "@/lib/work/people";
-import { countable, isCountKey, noReasonText, owedReasons, reportSummary, type Cadence } from "@/lib/accountability/targets";
+import { countable, isCountKey, owedReasons, type Cadence } from "@/lib/accountability/targets";
 import { loadWorkCtx } from "@/lib/work/data";
 import { loadWeeklyFocus } from "@/lib/work/projects-data";
 import type { Row } from "@/lib/types";
 import { signOffName } from "@/lib/work/names";
+import { approveAndSendCore, type SendResult } from "@/lib/accountability/send-core";
 
 /**
  * Targets, End of day, and Reports (batch C, database update 0025): add, edit, remove (archive) a target and its
@@ -331,7 +325,7 @@ export async function putShortReport(day: string, contactId?: string | null): Pr
 async function loadPage(sb: SupabaseClient, ctx: Ctx, day: string): Promise<EndOfDayPage> {
   const wctx = await loadWorkCtx(sb, ctx.ownerId);
   const [targets, bundle, row, partners, owed, sent] = await Promise.all([loadTargets(sb, ctx.ownerId), loadFacts(sb, wctx, factsSince(day)), loadEodRow(sb, ctx.ownerId, day), loadPartners(sb, ctx.ownerId), loadOwedFromSkipped(sb, ctx.ownerId, day), loadSentCopies(sb, ctx.ownerId, day)]);
-  return buildEndOfDay({ targets, bundle, row, partners, sent, owed, day, tz: ctx.tz, threshold: wctx.threshold, eodTime: wctx.eodTime, signName: signOffName(wctx.profile?.display_name) });
+  return buildEndOfDay({ targets, bundle, row, partners, sent, owed, day, tz: ctx.tz, threshold: wctx.threshold, eodTime: wctx.eodTime, signName: signOffName(wctx.profile?.display_name), autoSend: wctx.autoSend });
 }
 
 function owedCount(page: EndOfDayPage): number {
@@ -340,112 +334,16 @@ function owedCount(page: EndOfDayPage): number {
   return todays + prev;
 }
 
-type SendResult = { ok: true; sentAt: string; sentTime: string; sentTo: string[]; alreadySent?: boolean } | { ok: false; error: string; reason?: "reasons" | "partner" | "google" | "invalid" | "partial"; owed?: number; sentTo?: string[] };
-
 /**
- * Approve and send (push B: to every partner due today, each getting only their own sections): one email per partner
- * through the existing Gmail sending (never by a job). Each sent copy is kept as a partner report with the partner and
- * its Gmail thread (so replies can be found), one communication on the partner, and a change log entry with the
- * click's request id. A second press of the same click, or a retry after one partner failed, skips every partner who
- * already got today's report; the day is marked sent once every partner due has it. With reasons still owed and
- * `force` false it stops with "N commitments have no reason yet".
+ * Approve and send (push B; one place for every send since 2026-11-08, src/lib/accountability/send-core.ts): to every
+ * partner due today and ticked, then the people saved under Also send to. With reasons still owed and `force` false it
+ * stops with "N commitments have no reason yet".
  */
 export async function approveAndSend(day: string, requestId: string, force = false, intro: string | null = null): Promise<SendResult> {
   const s = await setup();
   if (isFail(s)) return { ok: false, error: s.error, reason: "invalid" };
-  const { sb, ctx } = s;
   if (!REQUEST_ID.test(String(requestId ?? ""))) return { ok: false, error: "The send request was not valid. Reload the page and try again.", reason: "invalid" };
-  const row = await ensureEod(sb, ctx, day);
-  if (isFail(row)) return { ok: false, error: row.error, reason: "invalid" };
-  if (row.status === "sent") return { ok: true, sentAt: String(row.sent_at), sentTime: timeOf(String(row.sent_at), ctx.tz), sentTo: [], alreadySent: true };
-  if (row.status === "skipped") return { ok: false, error: "Today was skipped. Nothing is sent.", reason: "invalid" };
-  const page = await loadPage(sb, ctx, day);
-  // Fix list item 1: an unticked partner is skipped today.
-  const waiting = page.copies.filter((c) => !c.sentAt && !c.skipped);
-  // This click already sent (a double press or a retry): those partners are not sent to again.
-  const { data: prior } = await sb.from("change_log").select("new_value").eq("field", "email_sent").eq("new_value->>request_id", requestId).limit(50);
-  const sentThisClick = new Set(((prior ?? []) as Row[]).map((p) => String(((p.new_value as Row) ?? {}).contact_id ?? "")));
-  const todo = waiting.filter((c) => !sentThisClick.has(c.partner.id));
-  if (!page.copies.length) return { ok: false, error: page.partners.length ? "No partner gets the report today. Change a partner's days on their page under Contacts to send one." : "No accountability partner yet. Add a person under Contacts with the role Accountability partner and an email address.", reason: "partner" };
-  if (page.copies.every((c) => c.skipped)) return { ok: false, error: "Every partner is unticked for today. Tick at least one partner to send, or press Skip today.", reason: "partner" };
-  if (!todo.length) return finishDay(sb, ctx, row, page, requestId);
-  const owed = owedCount(page);
-  if (owed && !force) return { ok: false, error: noReasonText(owed, todo.length > 1 ? "Your partners" : todo[0].partner.first), reason: "reasons", owed };
-  const noEmail = todo.filter((c) => !c.partner.email || !isValidEmail(c.partner.email));
-  if (noEmail.length) return { ok: false, error: `${noEmail.map((c) => c.partner.name).join(" and ")} ${noEmail.length > 1 ? "have" : "has"} no valid email address. Add it on ${noEmail.length > 1 ? "their pages" : `${noEmail[0].partner.first}'s page`} under Contacts, then press Approve and send again. Nothing was sent.`, reason: "partner" };
-  const perm = isGoogleConfigured() ? sendPermission(await getGoogleConnection(sb, ctx.ownerId)) : "not_connected";
-  if (perm === "reconnect") return { ok: false, error: "Sending from the app is not allowed yet. Reconnect Google once (1 minute) under Settings, Connections, then press Approve and send again.", reason: "google" };
-  if (perm !== "allowed") return { ok: false, error: "Google is not connected. Connect Google in Settings, Connections, then press Approve and send again.", reason: "google" };
-
-  const summary = reportSummary(page.judged, page.numbers, page.friday);
-  const sentTo: string[] = [];
-  for (const copy of todo) {
-    const p = copy.partner;
-    // The copy as the review window shows it: this partner's sections with today's include, Change, and Edit.
-    const edited = copy.edited;
-    // The note under the greeting (one report window, 2026-11-08): for this send only, in every copy.
-    const note = String(intro ?? "").replace(/\r/g, "").trim().slice(0, 1200);
-    if (note) copy.report = { ...copy.report, intro: note };
-    const inner = reportInnerHtml(copy.report);
-    const html = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;background-color:#f8fafc"><tr><td align="center" style="padding:12px 6px">${inner}</td></tr></table>`;
-    const body = reportText(copy.report);
-    const subject = reportSubject(copy.report);
-    let sent: { id: string; threadId: string | null };
-    try {
-      const r = await sendGmailMessage(sb, ctx.ownerId, { to: p.email!, subject, body, html });
-      if (!r) return { ok: false, error: "Google is not connected. Connect Google in Settings, Connections.", reason: "google", sentTo };
-      sent = r;
-    } catch (e) {
-      const x = explainGoogleError(e);
-      if (!sentTo.length) return { ok: false, error: x.message, reason: "google" };
-      const left = todo.filter((c) => !sentTo.includes(c.partner.first)).map((c) => c.partner.first);
-      return { ok: false, error: `Sent to ${sentTo.join(" and ")}. Not sent to ${left.join(" and ")}: ${x.message} Press Approve and send again to send to ${left.join(" and ")} only.`, reason: "partial", sentTo };
-    }
-    const sentAt = new Date().toISOString();
-    // The sent copy as a partner report (finalized: it never changes), with the thread its replies come in.
-    const { data: report } = await sb
-      .from("partner_reports")
-      .insert({ owner_id: ctx.ownerId, contact_id: p.id, period_start: day, period_end: day, status: "finalized", snapshot: { end_of_day: true, day, judged: page.judged, reasons: page.reasons, tomorrow: page.tomorrow, report: copy.report, sections: p.sections, choices: copy.report.choices ?? null, notes: copy.report.notes ?? null, edited: !!edited, html: inner, subject }, summary, summary_source: "owner", finalized_at: sentAt, delivered_via: ["gmail_sent"], report_kind: "end_of_day", sent_at: sentAt, gmail_message_id: sent.id, gmail_thread_id: sent.threadId })
-      .select("id")
-      .single();
-    const reportId = report ? String((report as Row).id) : null;
-    const contact = ((await sb.from("contacts").select("*").eq("id", p.id).maybeSingle()).data as Row | null) ?? null;
-    const comm = { ...sentEmailCommunication({ kind: "partner_report", ownerId: ctx.ownerId, to: p.email!, subject, body, sentAt, contact }), gmail_message_id: sent.id, gmail_thread_id: sent.threadId, partner_report_id: reportId };
-    const { data: c } = await sb.from("communications").insert(comm).select("id").single();
-    const commId = c ? String((c as Row).id) : null;
-    if (commId && reportId) await sb.from("record_links").insert({ owner_id: ctx.ownerId, from_type: "communications", from_id: commId, to_type: "partner_reports", to_id: reportId, relation: "report sent" });
-    await sb.from("change_log").insert({ owner_id: ctx.ownerId, table_name: "partner_reports", record_id: reportId, action: "insert", field: "email_sent", new_value: { request_id: requestId, kind: "end_of_day", to: p.email, subject, contact_id: p.id, day, communication_id: commId, gmail_message_id: sent.id, gmail_thread_id: sent.threadId, sent_at: sentAt, edited: !!edited }, actor: "owner" });
-    sentTo.push(p.first);
-  }
-  const after = await loadPage(sb, ctx, day);
-  const result = await finishDay(sb, ctx, row, after, requestId);
-  return result.ok ? { ...result, sentTo, alreadySent: false } : result;
-}
-
-/** Marks the day sent once every copy on it went out (the first copy's email is kept on the day for older screens). */
-async function finishDay(sb: SupabaseClient, ctx: Ctx, row: Row, page: EndOfDayPage, requestId: string): Promise<SendResult> {
-  void requestId;
-  // Fix list item 1: the day is sent once every ticked partner has it; an unticked one is not waited for.
-  const left = page.copies.filter((c) => !c.sentAt && !c.skipped);
-  if (left.length) return { ok: false, error: `Not sent yet to ${left.map((c) => c.partner.first).join(" and ")}. Press Approve and send again.`, reason: "partial", sentTo: page.copies.filter((c) => c.sentAt).map((c) => c.partner.first) };
-  const sentCopies = page.copies.filter((c) => c.sentAt);
-  if (!sentCopies.length) return { ok: false, error: "Every partner is unticked for today. Tick at least one partner to send, or press Skip today.", reason: "partner" };
-  const sentAt = sentCopies.map((c) => c.sentAt!).sort().slice(-1)[0] ?? new Date().toISOString();
-  const first = sentCopies[0];
-  const { data: rep } = await sb.from("partner_reports").select("id,snapshot").eq("owner_id", ctx.ownerId).eq("report_kind", "end_of_day").eq("period_start", page.day).eq("contact_id", first.partner.id).order("sent_at").limit(1).maybeSingle();
-  const snap = ((rep as Row | null)?.snapshot ?? {}) as Row;
-  const { error } = await sb.from("end_of_day").update({ status: "sent", sent_at: sentAt, report_id: rep ? String((rep as Row).id) : null, report_subject: typeof snap.subject === "string" ? snap.subject : reportSubject(first.report), report_html: first.html, report_edited: first.edited, report_edits: {}, judged: page.judged }).eq("id", row.id);
-  if (error) return { ok: false, error: `The emails were sent, but the day could not be marked sent: ${error.message}`, reason: "invalid" };
-  done();
-  return { ok: true, sentAt, sentTime: timeOf(sentAt, ctx.tz), sentTo: sentCopies.map((c) => c.partner.first) };
-}
-
-function timeOf(ts: string, tz: string): string {
-  try {
-    return new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", minute: "2-digit" }).format(new Date(ts)).toLowerCase();
-  } catch {
-    return "";
-  }
+  return approveAndSendCore(s.sb, s.ctx, day, requestId, force, intro);
 }
 
 /** Skip today with a reason: nothing is sent; the judgment is kept so the owed reasons are asked on the next End of day. */

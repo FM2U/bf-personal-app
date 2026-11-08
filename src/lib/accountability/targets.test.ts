@@ -116,7 +116,8 @@ describe("reasons owed from a skipped day", () => {
   const list = [missedCommit, ...judged.filter((j) => j.targetId !== missedCommit.targetId)];
   it("are asked on the next End of day only: the last closed day must be the skipped one", () => {
     expect(owedFromLastClosed(null)).toBeNull();
-    expect(owedFromLastClosed({ day: WED, status: "sent", judged: list, reasons: {} })).toBeNull();
+    // 2026-11-08: a day sent without its reasons owes them too (the report sends itself at the send time).
+    expect(owedFromLastClosed({ day: WED, status: "sent", judged: list, reasons: {} })?.day).toBe(WED);
     const owed = owedFromLastClosed({ day: WED, status: "skipped", judged: list, reasons: {} });
     expect(owed?.day).toBe(WED);
     expect(owed?.items.map((j) => j.targetId)).toContain(missedCommit.targetId);

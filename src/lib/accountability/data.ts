@@ -6,6 +6,7 @@ import { date as fmtDate, formatInZone } from "@/lib/format";
 import { displayName, signOffName } from "@/lib/work/names";
 import { loadPipelineOfKind, loadWorkCtx, type WorkCtx, type WorkPipeline } from "@/lib/work/data";
 import { weekdayShort } from "@/lib/work/outreach";
+import { stalledAt } from "@/lib/work/stages";
 import { isReviewDay, isWeekJudgedOn, isWorkDay, workWeekNow } from "@/lib/work-week";
 import { waitLines, type SavedWait } from "@/lib/work/waiting";
 import { recordHref } from "@/lib/work/task-records";
@@ -202,7 +203,7 @@ export async function loadSentCopies(sb: SupabaseClient, ownerId: string, day: s
   });
 }
 
-type EodRow = { id: string | null; day: string; status: EodState; reasons: Record<string, string>; tomorrow: string; skipReason: string | null; sentAt: string | null; reportId: string | null; reportSubject: string | null; reportHtml: string | null; reportEdited: boolean; /** Push B edits: each partner's choices for today's copy (include, Change, Edit), by contact id. */ reportEdits: Record<string, ReportChoices>; /** Today's notes by section, once for the day and shared by every copy (report_edits._notes, 2026-11-05). */ reportNotes: ReportNotes; judged: Judged[]; /** Push D: the Weekly review answers (Fridays). */ weeklyReview: WeeklyReview; /** Fix list item 1 (2026-11-06): the partners unticked for this day only (contact ids). */ skippedPartners: string[]; /** When each Edit and + Note was last saved (2026-11-08): "<copy id>:<section>" or "note:<section>". */ editedAt: Record<string, string> };
+type EodRow = { id: string | null; day: string; status: EodState; reasons: Record<string, string>; tomorrow: string; skipReason: string | null; sentAt: string | null; reportId: string | null; reportSubject: string | null; reportHtml: string | null; reportEdited: boolean; /** Push B edits: each partner's choices for today's copy (include, Change, Edit), by contact id. */ reportEdits: Record<string, ReportChoices>; /** Today's notes by section, once for the day and shared by every copy (report_edits._notes, 2026-11-05). */ reportNotes: ReportNotes; judged: Judged[]; /** Push D: the Weekly review answers (Fridays). */ weeklyReview: WeeklyReview; /** Fix list item 1 (2026-11-06): the partners unticked for this day only (contact ids). */ skippedPartners: string[]; /** When each Edit and + Note was last saved (2026-11-08): "<copy id>:<section>" or "note:<section>". */ editedAt: Record<string, string>; /** Also send to and the note under the greeting (2026-11-08). */ extras: ReportExtras; /** The automatic send's record (2026-11-08). */ auto: ReportAuto };
 
 export async function loadEodRow(sb: SupabaseClient, ownerId: string, day: string): Promise<EodRow> {
   const { data } = await sb.from("end_of_day").select("*").eq("owner_id", ownerId).eq("day", day).maybeSingle();
@@ -221,13 +222,49 @@ export async function loadEodRow(sb: SupabaseClient, ownerId: string, day: strin
     reportHtml: (r?.report_html as string | null) ?? null,
     reportEdited: !!r?.report_edited,
     // An edit saved before the push B edits (a whole email as HTML) is not a choice; the copy is built again.
-    reportEdits: r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? Object.fromEntries(Object.entries(r.report_edits as Record<string, unknown>).filter(([k, v]) => k !== NOTES_KEY && k !== EDITED_AT_KEY && v && typeof v === "object" && !Array.isArray(v)).map(([k, v]) => [k, cleanChoices(v)])) : {},
+    reportEdits: r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? Object.fromEntries(Object.entries(r.report_edits as Record<string, unknown>).filter(([k, v]) => (!k.startsWith("_") || k === GENERAL_COPY) && v && typeof v === "object" && !Array.isArray(v)).map(([k, v]) => [k, cleanChoices(v)])) : {},
     reportNotes: r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? cleanNotes((r.report_edits as Record<string, unknown>)[NOTES_KEY]) : {},
     judged: Array.isArray(r?.judged) ? (r!.judged as Judged[]) : [],
     weeklyReview: cleanReview(r?.weekly_review),
     skippedPartners: Array.isArray(r?.skipped_partners) ? (r!.skipped_partners as unknown[]).map(String) : [],
     editedAt: cleanEditedAt(r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? (r.report_edits as Record<string, unknown>)[EDITED_AT_KEY] : null),
+    extras: cleanExtras(r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? (r.report_edits as Record<string, unknown>)[EXTRAS_KEY] : null),
+    auto: cleanAuto(r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? (r.report_edits as Record<string, unknown>)[AUTO_KEY] : null),
   };
+}
+
+/**
+ * Today's people under Also send to, the copy they get, and the note under the greeting (Bram, 2026-11-08): saved
+ * with the day like the section notes, so closing the window keeps them and the 6:00 pm send includes them.
+ */
+export const EXTRAS_KEY = "_extras";
+export type ReportExtras = { chosen: string[]; fresh: { email: string; name: string; save: boolean }[]; from: string | null; intro: string };
+export const NO_EXTRAS: ReportExtras = { chosen: [], fresh: [], from: null, intro: "" };
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export function cleanExtras(v: unknown): ReportExtras {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return { ...NO_EXTRAS };
+  const o = v as Record<string, unknown>;
+  const chosen = Array.isArray(o.chosen) ? [...new Set(o.chosen.map(String).filter((x) => UUID_RE.test(x)))].slice(0, 50) : [];
+  const fresh = Array.isArray(o.fresh)
+    ? (o.fresh as unknown[])
+        .filter((f): f is Record<string, unknown> => !!f && typeof f === "object")
+        .map((f) => ({ email: String(f.email ?? "").trim().slice(0, 200), name: String(f.name ?? "").trim().slice(0, 120), save: f.save !== false }))
+        .filter((f) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email))
+        .slice(0, 20)
+    : [];
+  const from = typeof o.from === "string" && (o.from === GENERAL_COPY || UUID_RE.test(o.from)) ? o.from : null;
+  return { chosen, fresh, from, intro: String(o.intro ?? "").replace(/\r/g, "").slice(0, 1200) };
+}
+
+/** What the automatic send did today (2026-11-08): the two reminder emails, the send, a failure and its email. */
+export const AUTO_KEY = "_auto";
+export type ReportAuto = { reminded1?: string; reminded2?: string; sentAt?: string; failedAt?: string; failure?: string; failureMailed?: string };
+export function cleanAuto(v: unknown): ReportAuto {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+  const o = v as Record<string, unknown>;
+  const out: ReportAuto = {};
+  for (const k of ["reminded1", "reminded2", "sentAt", "failedAt", "failure", "failureMailed"] as const) if (typeof o[k] === "string") out[k] = String(o[k]).slice(0, 500);
+  return out;
 }
 
 /** One report window (Bram, 2026-11-08): the copy reviewed when no partner gets the report today, its choices kept under this key. */
@@ -281,6 +318,10 @@ export type EndOfDayPage = {
   /** When each Edit and + Note was saved ("<copy id>:<section>", "note:<section>"), and the day's last send (2026-11-08). */
   editedAt: Record<string, string>;
   lastSentAt: string | null;
+  /** Also send to and the note under the greeting, saved with the day; the automatic send's record and setting (2026-11-08). */
+  extras: ReportExtras;
+  auto: ReportAuto;
+  autoSend: boolean;
   dateLabel: string;
   /** The weekly review day (Friday unless changed in Settings): the Weekly review and The week in the report. */
   friday: boolean;
@@ -332,11 +373,11 @@ export type EndOfDayPage = {
 export async function loadEndOfDay(sb: SupabaseClient, ctx: Ctx, day = ctx.today): Promise<EndOfDayPage> {
   const wctx = await loadWorkCtx(sb, ctx.ownerId);
   const [targets, bundle, row, partners, owed, sent] = await Promise.all([loadTargets(sb, ctx.ownerId), loadFacts(sb, wctx, factsSince(day)), loadEodRow(sb, ctx.ownerId, day), loadPartners(sb, ctx.ownerId), loadOwedFromSkipped(sb, ctx.ownerId, day), loadSentCopies(sb, ctx.ownerId, day)]);
-  return buildEndOfDay({ targets, bundle, row, partners, sent, owed, day, tz: ctx.tz, threshold: wctx.threshold, eodTime: wctx.eodTime, signName: signOffName(wctx.profile?.display_name) });
+  return buildEndOfDay({ targets, bundle, row, partners, sent, owed, day, tz: ctx.tz, threshold: wctx.threshold, eodTime: wctx.eodTime, signName: signOffName(wctx.profile?.display_name), autoSend: wctx.autoSend });
 }
 
 /** Builds the End of day page from loaded rows (shared with the send action, which judges the same way). */
-export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: EodRow; partners: Partner[]; sent: SentCopy[]; owed: { day: string; items: Judged[]; reasons: Record<string, string> } | null; day: string; tz: string; threshold: number; eodTime?: string; /** Fix list item 10: the name under "Thank you," (Settings, Name). */ signName?: string | null }): EndOfDayPage {
+export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: EodRow; partners: Partner[]; sent: SentCopy[]; owed: { day: string; items: Judged[]; reasons: Record<string, string> } | null; day: string; tz: string; threshold: number; eodTime?: string; /** Fix list item 10: the name under "Thank you," (Settings, Name). */ signName?: string | null; /** Send the report automatically (2026-11-08). */ autoSend?: boolean }): EndOfDayPage {
   const { targets, bundle, row, partners, day } = i;
   // The work week (Settings, Work settings; design B, 2026-11-07): the review day shows the week; a work day is judged.
   const friday = isReviewDay(day);
@@ -372,6 +413,7 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
     owed,
     waits: bundle.waits.filter((w) => w.days >= i.threshold).map((w) => ({ id: w.dealId, name: w.name, days: w.days, who: w.who })),
     threshold: i.threshold,
+    stalledAt: stalledAt(i.threshold),
     deals,
     jobs,
     period: friday ? "this week" : "today",
@@ -413,6 +455,9 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
       return { partner: { id: GENERAL_COPY, name: "there", first: "there", email: null, days: [], sections: REPORT_SECTIONS.map((x) => x.key) }, report: r, html: reportInnerHtml(r), edited: hasChoices(row.reportEdits[GENERAL_COPY]) || sendsNotes(r), sentAt: null, sentTime: null, skipped: false };
     })(),
     editedAt: row.editedAt,
+    extras: row.extras,
+    auto: row.auto,
+    autoSend: i.autoSend ?? true,
     lastSentAt: i.sent.map((c) => c.sentAt).sort().slice(-1)[0] ?? null,
     numbers,
     threshold: i.threshold,
@@ -498,7 +543,7 @@ export type SentRow = {
 
 type SentSection = { key: string; label: string; hint: string; rows: SentRow[]; collapsed: boolean };
 
-export type ReportsPage = { today: string; partner: Partner | null; partners: Partner[]; periods: PeriodView[]; sent: SentSection[]; /** The four full weeks before this one, newest first (the Past weeks tiles, Edit batch C item 7). */ past: WeekTile[]; mostMissed: { name: string; n: number; of: number } | null; /** The waiting threshold from Settings (days): a day count turns amber at it and red at double. */ threshold: number };
+export type ReportsPage = { today: string; partner: Partner | null; partners: Partner[]; periods: PeriodView[]; sent: SentSection[]; /** The four full weeks before this one, newest first (the Past weeks tiles, Edit batch C item 7). */ past: WeekTile[]; mostMissed: { name: string; n: number; of: number } | null; /** The waiting threshold from Settings (days): a day count turns amber at it, red at stalledAt (Stalled after, 2026-11-08). */ threshold: number; stalledAt: number };
 
 export async function loadReportsPage(sb: SupabaseClient, ctx: Ctx): Promise<ReportsPage> {
   const wctx = await loadWorkCtx(sb, ctx.ownerId);
@@ -549,7 +594,7 @@ export async function loadReportsPage(sb: SupabaseClient, ctx: Ctx): Promise<Rep
       words: d.words,
     };
   });
-  return { today: ctx.today, partner, partners, periods, sent: groupSent(sentRows, ctx.today), past: pastWeeks(targets, bundle.facts, ctx.today, bundle.skippedDays, PAST_WEEKS), mostMissed: mostMissed(targets, bundle.facts, ctx.today, bundle.skippedDays), threshold: wctx.threshold };
+  return { today: ctx.today, partner, partners, periods, sent: groupSent(sentRows, ctx.today), past: pastWeeks(targets, bundle.facts, ctx.today, bundle.skippedDays, PAST_WEEKS), mostMissed: mostMissed(targets, bundle.facts, ctx.today, bundle.skippedDays), threshold: wctx.threshold, stalledAt: stalledAt(wctx.threshold) };
 }
 
 function targetRow(t: Target, bundle: FactsBundle, p: { start: string; end: string }, key: PeriodKey, today: string): PeriodView["targets"][number] {

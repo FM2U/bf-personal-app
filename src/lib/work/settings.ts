@@ -7,16 +7,21 @@
 
 /** The settings rows the Work settings card writes, with their labels for the inputs table. */
 export const WORK_SETTING_KEYS = {
-  threshold: { key: "waiting_threshold_days", label: "Waiting on someone (days)", unit: "number", description: "Waiting on someone: at this many days or more, a deal's day count turns amber; at double, red." },
+  threshold: { key: "waiting_threshold_days", label: "Follow up after (days)", unit: "number", description: "Waiting on someone: at this many days with no answer, the wait turns amber (time to follow up)." },
+  /** Bram, 2026-11-08: its own number (it was double the follow-up number). */
+  stalled: { key: "waiting_stalled_days", label: "Stalled after (days)", unit: "number", description: "Waiting on someone: at this many days with no answer, the wait turns red (stalled)." },
+  /** Bram, 2026-11-08: the report goes out by itself at the send time on the partners' days (1 on, 0 off; on unless set). */
+  autoSend: { key: "report_auto_send", label: "Send the report automatically", unit: "number", description: "End of day: the report goes to the partners due at the send time, with reminders 2 hours and 30 minutes before." },
   /** Push E: an email the app sent shows under No reply yet when no reply has come after this many days (default 2). */
   noReply: { key: "no_reply_after_days", label: "No reply yet after (days)", unit: "number", description: "Waiting on someone, No reply yet: an email the app sent shows there when no reply has come after this many days." },
   outreach: { key: "outreach_weekly_target", label: "Network outreach per week", unit: "number", description: "The weekly outreach counter on Contacts and Home." },
-  eodTime: { key: "end_of_day_time", label: "End of day time", unit: "text", description: "The time End of day shows for the report, weekdays (HH:MM, 24-hour)." },
+  eodTime: { key: "end_of_day_time", label: "Report goes out at", unit: "text", description: "The time the report goes out on the partners' days (HH:MM, 24-hour)." },
 } as const;
 
-export const DEFAULT_EOD_TIME = "17:30";
+/** The report's send time unless changed (Bram, 2026-11-08: 6:00 pm). */
+export const DEFAULT_EOD_TIME = "18:00";
 
-export type WorkSettings = { threshold: number; noReply: number; outreach: number; eodTime: string; blockMinutes: number };
+export type WorkSettings = { threshold: number; stalled: number; noReply: number; outreach: number; eodTime: string; blockMinutes: number; autoSend: boolean };
 
 /** "17:30" -> "5:30"; anything not a time reads as the default. */
 export function eodShort(hhmm: string | null | undefined): string {
@@ -70,19 +75,21 @@ const whole = (v: unknown) => {
 };
 
 /** The Work settings card's values checked for Save; the first problem as one plain sentence. */
-export function cleanWorkSettings(input: { threshold: unknown; noReply: unknown; outreach: unknown; eodTime: unknown; blockMinutes: unknown }): { ok: true; value: WorkSettings } | { ok: false; error: string } {
+export function cleanWorkSettings(input: { threshold: unknown; stalled?: unknown; noReply: unknown; outreach: unknown; eodTime: unknown; blockMinutes: unknown; autoSend?: unknown }): { ok: true; value: WorkSettings } | { ok: false; error: string } {
   const threshold = whole(input.threshold);
-  if (!(threshold >= 1 && threshold <= 60)) return { ok: false, error: "Waiting on someone: a whole number of days from 1 to 60." };
+  if (!(threshold >= 1 && threshold <= 60)) return { ok: false, error: "Follow up after: a whole number of days from 1 to 60." };
+  const stalled = input.stalled === undefined || String(input.stalled).trim() === "" ? threshold * 2 : whole(input.stalled);
+  if (!(stalled > threshold && stalled <= 120)) return { ok: false, error: `Stalled after: a whole number of days more than ${threshold} (Follow up after), up to 120.` };
   // Push E: up to 29, inside the 30 days replies are read for.
   const noReply = whole(input.noReply);
   if (!(noReply >= 1 && noReply <= 29)) return { ok: false, error: "No reply yet: a whole number of days from 1 to 29." };
   const outreach = whole(input.outreach);
   if (!(outreach >= 1 && outreach <= 200)) return { ok: false, error: "Network outreach: a whole number from 1 to 200 per week." };
   const eodTime = parseTime(input.eodTime);
-  if (!eodTime) return { ok: false, error: "End of day: a time such as 5:30 pm." };
+  if (!eodTime) return { ok: false, error: "Report goes out at: a time such as 6:00 pm." };
   const blockMinutes = whole(input.blockMinutes);
   if (!(blockMinutes >= 5 && blockMinutes <= 480)) return { ok: false, error: "Default block length: 5 to 480 minutes." };
-  return { ok: true, value: { threshold, noReply, outreach, eodTime, blockMinutes } };
+  return { ok: true, value: { threshold, stalled, noReply, outreach, eodTime, blockMinutes, autoSend: input.autoSend === undefined ? true : input.autoSend === true || input.autoSend === "1" || input.autoSend === "true" } };
 }
 
 /** One stage's defaults as the table sends them. */

@@ -195,15 +195,15 @@ const until = async (fn, msg, tries = 80) => {
     await page.getByTestId("work-settings-save").click();
     await page.getByTestId("work-settings-note").waitFor({ timeout: 15000 });
     await open("/work");
-    await page.getByTestId("now-wait").waitFor();
-    await until(async () => /6\+ DAYS/i.test(await page.getByTestId("now-wait").innerText()), `the Waiting card shows: ${(await page.getByTestId("now-wait").innerText()).slice(0, 120)}`);
+    await page.getByTestId("home-right").getByTestId("now-wait").waitFor();
+    await until(async () => /6\+ DAYS/i.test(await page.getByTestId("home-right").getByTestId("now-wait").innerText()), `the Waiting card shows: ${(await page.getByTestId("home-right").getByTestId("now-wait").innerText()).slice(0, 120)}`);
     await open("/settings");
     await page.getByTestId("work-threshold").fill("5");
     await page.getByTestId("work-settings-save").click();
     await page.getByTestId("work-settings-note").waitFor({ timeout: 15000 });
     await open("/work");
-    await page.getByTestId("now-wait").waitFor();
-    await until(async () => /5\+ DAYS/i.test(await page.getByTestId("now-wait").innerText()), "the Waiting card did not go back to 5+ days");
+    await page.getByTestId("home-right").getByTestId("now-wait").waitFor();
+    await until(async () => /5\+ DAYS/i.test(await page.getByTestId("home-right").getByTestId("now-wait").innerText()), "the Waiting card did not go back to 5+ days");
   });
 
   await step("Settings, Buy box: the page shows the form and Save answers", async () => {
@@ -288,13 +288,18 @@ const until = async (fn, msg, tries = 80) => {
     assert((await one("select count(*)::int n from communications where direction = 'outgoing' and contact_id = (select id from contacts where email = $1)", [saved])).n >= 1, "the send is not on the new contact's timeline");
   });
 
-  await step("Carried over: reopened later, the note and the edit saved before that send are outlined amber with 'before the report went out'; closing with a typed note asks Discard first", async () => {
+  await step("Carried over: reopened later, the note and the edit saved before that send are outlined amber with 'before the report went out'; closing with changes to an earlier day asks Discard first", async () => {
     await open("/work/end-of-day");
     await page.getByTestId("report-view").click();
     await rw().locator("[data-testid=report-send-to-partner][data-partner=Jake] input").check();
     await until(async () => (await sec("targets").getAttribute("data-stale")) === "1" && (await sec("tomorrow").getAttribute("data-stale")) === "1", "the carried-over sections are not marked");
     assert((await sec("tomorrow").getByTestId("section-stale").innerText()).includes("before the report went out"), await sec("tomorrow").getByTestId("section-stale").innerText());
-    await rw().getByTestId("report-intro").fill("Typed and left.");
+    // Today's people and note are saved with the day (2026-11-08), so only an earlier day's changes ask before closing.
+    const earlierDay = (await one("select day::text as d from end_of_day where status = 'sent' and day < (select max(day) from end_of_day) order by day desc limit 1")).d;
+    await until(async () => (await rw().locator(`[data-testid=report-day-select] option[value="${earlierDay}"]`).count()) === 1, "the earlier day is not in Which report");
+    await rw().getByTestId("report-day-select").selectOption(earlierDay);
+    await rw().getByTestId("report-past-picker").getByTestId("send-report-new-email").fill("left-here@example.com");
+    await rw().getByTestId("report-past-picker").getByTestId("send-report-new-add").click();
     await page.keyboard.press("Escape");
     await page.getByTestId("discard-warning").waitFor();
     await page.getByTestId("discard-keep").click();

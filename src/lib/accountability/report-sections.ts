@@ -11,6 +11,7 @@
  * lines under them ("Waiting on brokers 5+ days" over "Summit Logistics Group: 11 days, Mark Reed").
  */
 import type { ReportTile } from "@/lib/accountability/targets";
+import { stalledAt } from "@/lib/work/stages";
 import type { TileStatus } from "@/lib/calc/partner-report";
 
 export type SectionKey = "today" | "targets" | "top" | "active" | "waiting" | "jobs" | "week" | "review" | "tomorrow";
@@ -79,6 +80,8 @@ export type ReportData = {
   /** Open waits on brokers at or past the threshold, longest first. */
   waits: { id: string; name: string; days: number; who: string | null }[];
   threshold: number;
+  /** The day count at which a wait turns red (Stalled after, 2026-11-08); missing on older reports: double the threshold. */
+  stalledAt?: number;
   /** Open acquisition deals (the Top 3 candidates), furthest along first. */
   deals: ReportDeal[];
   /** Open job opportunities, furthest along first. */
@@ -337,7 +340,7 @@ export function buildSections(d: ReportData): BuiltSection[] {
   {
     const h = hid("waiting");
     const shown = d.waits.filter((w) => !h.has(w.id));
-    const red = shown.some((w) => w.days >= d.threshold * 2);
+    const red = shown.some((w) => w.days >= (d.stalledAt ?? stalledAt(d.threshold)));
     const blocks: Block[] = shown.length ? [{ title: `Waiting on brokers ${d.threshold}+ days`, tone: red ? "red" : "amber", items: shown.map((w) => ({ id: w.id, line: { lead: w.name, text: `${w.days} days${w.who ? `, ${w.who}` : ""}` } })) }] : [];
     push({ key: "waiting", kind: "list", tiles: [], blocks, line: null, text: blocksText(blocks), choices: d.waits.length ? d.waits.map((w) => ({ id: w.id, label: w.name, on: !h.has(w.id) })) : null, pick: null, emptyAfterChange: !shown.length && d.waits.length > 0, quiet: d.waits.length ? null : `No deal has been waiting on a broker ${d.threshold}+ days.` });
   }

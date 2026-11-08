@@ -4,14 +4,14 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Check, Eye, Loader2 } from "lucide-react";
-import { approveAndSend, saveReasons, saveTomorrow, saveWeeklyReview, setPartnerToday, skipToday, putShortReport } from "@/app/actions/accountability";
+import { approveAndSend, saveReasons, saveTomorrow, saveWeeklyReview, setPartnerToday, putShortReport } from "@/app/actions/accountability";
 import type { ReasonDraft } from "@/lib/accountability/ask-ai";
 import type { EndOfDayPage } from "@/lib/accountability/data";
 import { dueLine, getsLabel, sendLabel } from "@/lib/accountability/partners";
 import { includesLine, REVIEW_QUESTIONS, reviewAnswered, sentSections, type WeeklyReview } from "@/lib/accountability/report-sections";
 import { PARTNER_BOX, ReportWindow } from "@/components/app/work/report-window";
 import { NO_RECIPIENTS, RecipientPicker, recipientCount, recipientsTo, type Recipients } from "@/components/app/work/send-report";
-import { loadSendReportDay, sendReport, sendReportSetup, type SendReportDayData, type SendReportSetup } from "@/app/actions/send-report";
+import { loadSendReportDay, saveReportExtras, sendExtrasNow, sendReport, sendReportSetup, type SendReportDayData, type SendReportSetup } from "@/app/actions/send-report";
 import type { PartnerCopy } from "@/lib/accountability/data";
 import { reportFor } from "@/lib/accountability/report-email";
 import { REPORT_SECTIONS } from "@/lib/accountability/partners";
@@ -37,7 +37,7 @@ import { cn } from "@/lib/utils";
  * every box), with reasons owed from a skipped day under their own heading. Right: the "Report to Jake" card (hybrid of
  * 2026-11-05, Option B): the "Before you send" checklist (Reasons, Fridays the Weekly review, Tomorrow's line, each
  * row a circle that turns into a green check, a click scrolling to its card and outlining it for a moment, "N of M
- * done" at the right), View report, Approve and send, Edit, Skip today, then a Partner | Gets | Sections table (View
+ * done" at the right), View report, Approve and send, Edit, Send a report, then a Partner | Gets | Sections table (View
  * shows a partner's sections as a list); then "What matters tomorrow". View report opens the report window (src/components/app/work/report-window.tsx) with
  * the email exactly as it will be sent and the include box, Change, and Edit on each section. Approve and send works
  * from the card or the window, with the same check for missing reasons.
@@ -90,12 +90,10 @@ export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; 
   const [resetKey, setResetKey] = useState(0);
   const [shared, setShared] = useState(false);
   const [sharedText, setSharedText] = useState("");
-  const [skipOpen, setSkipOpen] = useState(false);
-  const [skipWhy, setSkipWhy] = useState("");
   const [check, setCheck] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
-  const [pending, start] = useTransition();
+  const [, start] = useTransition();
   const [sending, startSend] = useTransition();
   const [focused, setFocused] = useState<string | null>(null);
   /** The Today strip part whose drawer is open. */
@@ -103,7 +101,9 @@ export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; 
   const requestId = useRef(newRequestId());
   // "Also send to" (Bram, 2026-11-08): more people for today's send, for today only; they get the copy of the partner
   // whose tab is open in the review window, right after Approve and send.
-  const [also, setAlso] = useState<Recipients>(NO_RECIPIENTS);
+  // Saved with the day (Bram, 2026-11-08): the people under Also send to and the note under the greeting, so closing
+  // the window keeps them and the automatic send at the send time includes them.
+  const [also, setAlsoState] = useState<Recipients>(() => ({ chosen: data.extras.chosen, fresh: data.extras.fresh.map((f, i) => ({ ...f, key: `saved-${i}` })) }));
   const [alsoOpen, setAlsoOpen] = useState(openSend);
   // One report window (Bram, 2026-11-08): the people and the sent days, read when the window first needs them.
   const [setupData, setSetupData] = useState<SendReportSetup | null>(null);
@@ -131,7 +131,31 @@ export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; 
     loadSetup();
   };
   // The note under the greeting: for this send only, in every copy (partners and the people added).
-  const [intro, setIntro] = useState("");
+  const [intro, setIntroState] = useState(data.extras.intro);
+  const [pastIntro, setPastIntro] = useState("");
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const extrasDirty = useRef(false);
+  const latestExtras = useRef<{ also: Recipients; intro: string; from: string | null }>({ also, intro, from: null });
+  const flushExtras = async (): Promise<boolean> => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = null;
+    if (!extrasDirty.current) return true;
+    extrasDirty.current = false;
+    const x = latestExtras.current;
+    const r = await saveReportExtras(day, { chosen: x.also.chosen, fresh: x.also.fresh.map((f) => ({ email: f.email, name: f.name, save: f.save })), from: x.from, intro: x.intro });
+    if (!r.ok) setError(r.error);
+    return r.ok;
+  };
+  const queueExtras = (a: Recipients, t: string, wait: number) => {
+    latestExtras.current = { also: a, intro: t, from: copy?.partner.id ?? (copies.length ? null : data.general.partner.id) };
+    extrasDirty.current = true;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => void flushExtras(), wait);
+  };
+  const setAlso = (r: Recipients) => {
+    setAlsoState(r);
+    queueExtras(r, intro, 0);
+  };
   // A sent day picked in the window: its report as it was then, changes for that send only.
   const [viewDay, setViewDay] = useState(day);
   const [past, setPast] = useState<{ data: SendReportDayData | null; error: string | null; choices: ReportChoices; notes: ReportNotes; key: number }>({ data: null, error: null, choices: {}, notes: {}, key: 0 });
@@ -139,6 +163,12 @@ export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; 
   const [pastLine, setPastLine] = useState<string | null>(null);
   const pastRequest = useRef(newRequestId());
   const isPast = viewDay !== day;
+  const introShown = isPast ? pastIntro : intro;
+  const setIntro = (t: string) => {
+    if (isPast) return setPastIntro(t);
+    setIntroState(t);
+    queueExtras(also, t, 700);
+  };
   const pickDay = (d: string) => {
     setViewDay(d);
     setPastLine(null);
@@ -154,7 +184,7 @@ export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; 
       ? (() => {
           const name = pastFirst || "there";
           const f = name.split(/\s+/)[0] || "there";
-          const report = { ...reportFor(past.data.report, { name, first: f, sections: ALL_SECTIONS }, past.choices), notes: past.notes, intro: intro.trim() || null };
+          const report = { ...reportFor(past.data.report, { name, first: f, sections: ALL_SECTIONS }, past.choices), notes: past.notes, intro: pastIntro.trim() || null };
           return { partner: { id: "_past", name, first: f, email: null, days: [], sections: ALL_SECTIONS }, report, html: "", edited: false, sentAt: null, sentTime: null, skipped: false };
         })()
       : null;
@@ -270,21 +300,21 @@ export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; 
     startSend(async () => {
       setError(null);
       setCheck(null);
-      const from = copy ?? (copies.length ? null : data.general);
+      if (!(await flushExtras())) return;
       // Nobody due left to send to: the people under Also send to only, and the day stays as it is (2026-11-08).
       if (!(state.status === "open" && unsent.length)) {
-        if (!alsoCount || !from) return;
-        const x = await sendReport({ day, sections: from.partner.sections, intro, to: recipientsTo(also), requestId: alsoRequest.current, force: true, fromCopy: from.partner.id });
+        if (!alsoCount) return;
+        const x = await sendExtrasNow(day, alsoRequest.current);
         if (!x.ok) return setError(x.error);
         setAlsoLine(`Sent to ${andNames(x.sentTo)}.${state.status === "open" && data.partners.length ? " Today's report to your partners is still to send." : ""}`);
-        setAlso(NO_RECIPIENTS);
+        setAlsoState(NO_RECIPIENTS);
+        setIntroState("");
         setAlsoOpen(false);
-        setIntro("");
         alsoRequest.current = newRequestId();
         router.refresh();
         return;
       }
-      const r = await approveAndSend(day, requestId.current, force, intro);
+      const r = await approveAndSend(day, requestId.current, force);
       if (!r.ok) {
         if (r.reason === "reasons") return setCheck(r.error);
         setError(r.error);
@@ -293,37 +323,25 @@ export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; 
       }
       setState({ status: "sent", sentTime: r.sentTime, skipReason: null });
       let line = r.alreadySent ? "This report was already sent." : null;
-      if (alsoCount && from) {
-        const x = await sendReport({ day, sections: from.partner.sections, intro, to: recipientsTo(also), requestId: alsoRequest.current, force: true, fromCopy: from.partner.id });
-        if (x.ok) {
-          line = `${line ? `${line} ` : ""}Also sent to ${andNames(x.sentTo)}`;
-          setAlso(NO_RECIPIENTS);
-          setAlsoOpen(false);
-          alsoRequest.current = newRequestId();
-        } else setError(`Sent to your partners. Not sent to ${alsoNames}: ${x.error}`);
+      if (r.alsoTo?.length) {
+        line = `${line ? `${line} ` : ""}Also sent to ${andNames(r.alsoTo)}`;
+        setAlsoState(NO_RECIPIENTS);
+        setAlsoOpen(false);
       }
-      setIntro("");
+      if (r.alsoError) setError(`Sent to your partners. Not sent to ${alsoNames}: ${r.alsoError}`);
+      setIntroState("");
       setNote(line);
       router.refresh();
     });
   const sendPast = () =>
     startSend(async () => {
       setError(null);
-      const x = await sendReport({ day: viewDay, sections: ALL_SECTIONS, intro, to: recipientsTo(pastTo), requestId: pastRequest.current, choices: past.choices, notes: past.notes });
+      const x = await sendReport({ day: viewDay, sections: ALL_SECTIONS, intro: pastIntro, to: recipientsTo(pastTo), requestId: pastRequest.current, choices: past.choices, notes: past.notes });
       if (!x.ok) return setError(x.error);
       setPastLine(`Sent the report of ${setupData?.days.find((d) => d.day === viewDay)?.label ?? viewDay} to ${andNames(x.sentTo)}. That day stays as it was.`);
       setPastTo(NO_RECIPIENTS);
-      setIntro("");
+      setPastIntro("");
       pastRequest.current = newRequestId();
-      router.refresh();
-    });
-  const skip = () =>
-    start(async () => {
-      setError(null);
-      const r = await skipToday(day, skipWhy);
-      if (!r.ok) return setError(r.error);
-      setState({ status: "skipped", sentTime: null, skipReason: skipWhy.trim() || "No reason given" });
-      setSkipOpen(false);
       router.refresh();
     });
   const focusFirstReason = () => {
@@ -614,23 +632,11 @@ export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; 
                   Skipped: {state.skipReason}. It shows on Reports as &ldquo;Not sent&rdquo;, and any reason still owed is asked on the next End of day.
                 </Confirm>
               ) : null}
-              {state.status === "open" && skipOpen ? (
-                <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-status-soon-border bg-status-soon-bg px-3 py-2" data-testid="skip-box">
-                  <input value={skipWhy} onChange={(e) => setSkipWhy(e.target.value)} placeholder="Reason, one line (goes on Reports)" className={cn(INPUT, "h-[30px] flex-1 basis-[180px]")} data-testid="skip-reason" />
-                  <RowButton onClick={skip} disabled={pending} data-testid="skip-confirm">
-                    Skip
-                  </RowButton>
-                  <RowButton onClick={() => setSkipOpen(false)}>Cancel</RowButton>
-                </div>
-              ) : null}
               <div className="mt-2.5 flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[13px]">
                 {state.status === "open" ? (
                   <>
                     <button type="button" onClick={() => openWindow("edit")} className="font-medium text-muted-foreground hover:text-primary-strong" data-testid="report-edit">
                       Edit
-                    </button>
-                    <button type="button" onClick={() => setSkipOpen(true)} className="font-medium text-muted-foreground hover:text-primary-strong" data-testid="skip-today">
-                      Skip today
                     </button>
                   </>
                 ) : null}
@@ -641,6 +647,11 @@ export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; 
                 {state.status === "open" && partly ? (
                   <span className="min-w-0 text-[12.5px] text-muted-foreground sm:ml-auto sm:text-right" data-testid="report-due-line">
                     {partly}
+                  </span>
+                ) : state.status === "open" && unsent.length ? (
+                  // Bram, 2026-11-08: the report sends itself at the send time (Settings, Work settings).
+                  <span className="min-w-0 text-[12.5px] text-muted-foreground sm:ml-auto sm:text-right" data-testid="report-auto-line">
+                    {data.autoSend ? `Goes out by itself at ${data.eodTime.long}` : "Send automatically is off: press Approve and send"}
                   </span>
                 ) : null}
               </div>
@@ -740,11 +751,11 @@ export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; 
         onOpenChange={(o) => {
           setWindowOpen(o ? "view" : false);
           if (o) return;
-          // Closing drops what is kept only in the window (the Discard question asked first).
-          setIntro("");
-          setAlso(NO_RECIPIENTS);
+          // Today's people and note are saved with the day; an earlier day's changes go (the Discard question asked first).
+          void flushExtras();
           setAlsoOpen(false);
           setAlsoLine(null);
+          setPastIntro("");
           if (isPast) pickDay(day);
         }}
         day={day}
@@ -775,14 +786,14 @@ export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; 
               <label htmlFor="report-intro" className="label-caps figure-label pt-2">
                 Note under the greeting
               </label>
-              <textarea id="report-intro" value={intro} onChange={(e) => setIntro(e.target.value)} rows={2} maxLength={1200} placeholder="Optional, this send only: who you are, why you are sending it" className={cn(INPUT, "h-auto py-2 leading-[1.45]")} data-testid="report-intro" />
+              <textarea id="report-intro" value={introShown} onChange={(e) => setIntro(e.target.value)} rows={2} maxLength={1200} placeholder={isPast ? "Optional, this send only: who you are, why you are sending it" : "Optional, saved with today's report: who you are, why you are sending it"} className={cn(INPUT, "h-auto py-2 leading-[1.45]")} data-testid="report-intro" />
             </div>
           </div>
         }
         general={copies.length ? null : { ...data.general, report: { ...data.general.report, intro: intro.trim() || null } }}
         copies={copies.map((c) => (c.sentAt || !intro.trim() ? c : { ...c, report: { ...c.report, intro: intro.trim() } }))}
         stale={stale}
-        localDirty={!!intro.trim() || alsoCount > 0 || (isPast && (recipientCount(pastTo) > 0 || Object.keys(past.choices).length > 0))}
+        localDirty={isPast && (recipientCount(pastTo) > 0 || Object.keys(past.choices).length > 0 || !!pastIntro.trim())}
         past={
           isPast
             ? {
@@ -850,7 +861,7 @@ export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; 
           ) : null
         }
       />
-      {drawer ? <TodayDrawer part={drawer} n={n} threshold={data.threshold} dateLabel={data.dateLabel} onClose={() => setDrawer(null)} /> : null}
+      {drawer ? <TodayDrawer part={drawer} n={n} threshold={data.threshold} stalled={data.report.stalledAt} dateLabel={data.dateLabel} onClose={() => setDrawer(null)} /> : null}
     </>
   );
 }
@@ -974,7 +985,7 @@ const DRAWER_TITLE: Record<TodayPart["key"], string> = { screened: "Listings scr
  * is a link to its record (the listing or deal, the person or the deal an email was on, the record a next action was
  * done on, the To-dos page for a to-do), with the shared row hover; it opens in the same tab.
  */
-function TodayDrawer({ part, n, threshold, dateLabel, onClose }: { part: TodayPart; n: DayNumbers; threshold: number; dateLabel: string; onClose: () => void }) {
+function TodayDrawer({ part, n, threshold, stalled, dateLabel, onClose }: { part: TodayPart; n: DayNumbers; threshold: number; /** Stalled after (days), 2026-11-08. */ stalled?: number; dateLabel: string; onClose: () => void }) {
   type Item = { name: string; detail?: string | null; note?: string | null; tone?: "red" | "green" | "plain"; href?: string | null };
   let items: Item[] = [];
   let empty = "None yet today.";
@@ -992,7 +1003,7 @@ function TodayDrawer({ part, n, threshold, dateLabel, onClose }: { part: TodayPa
     empty = "No to-do checked off today.";
   } else {
     // Edits of Nov 5 (item 5): one row per wait of 5+ days (a deal with two such waits has two rows).
-    items = n.waits.map((w) => ({ name: w.name, detail: `${w.days} days${w.kind === "person" ? " · Contacts" : w.who ? ` · ${w.who}` : ""}`, note: w.what ? `Waiting on: ${w.what}${w.since ? `, since ${w.since}` : ""}` : null, tone: w.days >= threshold * 2 ? "red" : "plain", href: w.href }));
+    items = n.waits.map((w) => ({ name: w.name, detail: `${w.days} days${w.kind === "person" ? " · Contacts" : w.who ? ` · ${w.who}` : ""}`, note: w.what ? `Waiting on: ${w.what}${w.since ? `, since ${w.since}` : ""}` : null, tone: w.days >= (stalled ?? threshold * 2) ? "red" : "plain", href: w.href }));
     empty = `Nobody has kept you waiting ${threshold}+ days.`;
   }
   const body = (it: Item) => (

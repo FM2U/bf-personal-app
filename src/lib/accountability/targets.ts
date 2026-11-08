@@ -441,11 +441,12 @@ export function owedReasons(judged: readonly Judged[], reasons: Record<string, s
 }
 
 /**
- * The reasons a skipped day still owes, from the last closed End of day before today (sent or skipped, within a
- * week): only when that day was skipped, so they are asked on the next End of day and not again after a later send.
+ * The reasons the last closed day still owes, from the last End of day before today (sent or skipped, within a week),
+ * asked on the next End of day and not again after a later send. Since the report sends itself (2026-11-08), a sent
+ * day owes the reasons it went out without ("(still to give)"), as a skipped day always did.
  */
 export function owedFromLastClosed(last: { day: string; status: string; judged: readonly Judged[]; reasons: Record<string, string> } | null): { day: string; items: Judged[]; reasons: Record<string, string> } | null {
-  if (!last || last.status !== "skipped") return null;
+  if (!last || (last.status !== "skipped" && last.status !== "sent")) return null;
   const items = askedForReason(last.judged).filter((j) => !String(last.reasons[j.targetId] ?? "").trim());
   return items.length ? { day: last.day, items, reasons: last.reasons } : null;
 }

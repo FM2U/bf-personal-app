@@ -178,7 +178,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           </div>
         </WorkCard>
 
-        <WorkSettingsCard initial={{ threshold: wctx.threshold, noReply: wctx.noReplyDays, outreach: Number.isFinite(outreach) && outreach > 0 ? Math.round(outreach) : 10, eodTime: wctx.eodTime, blockMinutes: Number.isFinite(blockMinutes) && blockMinutes >= 5 ? blockMinutes : DEFAULT_BLOCK_MINUTES, workWeek: workWeekNow() }} />
+        <WorkSettingsCard initial={{ threshold: wctx.threshold, noReply: wctx.noReplyDays, outreach: Number.isFinite(outreach) && outreach > 0 ? Math.round(outreach) : 10, eodTime: wctx.eodTime, blockMinutes: Number.isFinite(blockMinutes) && blockMinutes >= 5 ? blockMinutes : DEFAULT_BLOCK_MINUTES, workWeek: workWeekNow(), stalled: wctx.stalled ?? wctx.threshold * 2, autoSend: wctx.autoSend }} />
       </div>
 
       <div className="mt-4">

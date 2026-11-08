@@ -54,13 +54,27 @@ export function daysWaiting(since: string | null | undefined, today: string): nu
 }
 
 /**
- * The color of a wait: amber from the threshold on, red from double the threshold on, quiet (gray) below, none when
- * nobody is waited on.
+ * "Stalled after [10] days" (Settings, Work settings; Bram 2026-11-08): its own number since then, double the follow-up
+ * number when never set. Held here with the owner's other settings (loadWorkCtx), so every wait color reads it.
+ */
+let stalledDays: number | null = null;
+export function setStalledDays(n: number | null | undefined): void {
+  stalledDays = n && Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+}
+/** The day count at which a wait turns red: the Stalled setting, or double the follow-up number. */
+export function stalledAt(threshold = DEFAULT_WAIT_THRESHOLD_DAYS): number {
+  const t = Math.max(1, Math.round(threshold));
+  return stalledDays && stalledDays > t ? stalledDays : t * 2;
+}
+
+/**
+ * The color of a wait: amber from the follow-up number on, red from the Stalled number on (double the follow-up
+ * number unless set), quiet (gray) below, none when nobody is waited on.
  */
 export function waitLevel(waitingOn: string | null | undefined, days: number, threshold = DEFAULT_WAIT_THRESHOLD_DAYS): WaitLevel {
   if (!String(waitingOn ?? "").trim()) return "none";
   const t = Math.max(1, Math.round(threshold));
-  if (days >= t * 2) return "red";
+  if (days >= stalledAt(t)) return "red";
   if (days >= t) return "amber";
   return "quiet";
 }

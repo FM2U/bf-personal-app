@@ -36,6 +36,9 @@ export type KeptSettings = {
   p: { a: string | null; j: string | null; c: string | null };
   /** The work week (design B, 2026-11-07): [work days, week start, review day], ISO day numbers. */
   ww?: KeptWorkWeek;
+  /** Stalled after (days) or null, and Send automatically (2026-11-08). */
+  st?: number | null;
+  as?: boolean;
 };
 
 export function encodeKept(k: KeptSettings): string {

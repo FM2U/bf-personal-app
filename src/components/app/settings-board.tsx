@@ -37,11 +37,11 @@ export function KV({ label, children, testId }: { label: React.ReactNode; childr
   );
 }
 
-export type WorkSettingsValues = { threshold: number; noReply: number; outreach: number; eodTime: string; blockMinutes: number; workWeek: WorkWeek };
+export type WorkSettingsValues = { threshold: number; stalled: number; noReply: number; outreach: number; eodTime: string; blockMinutes: number; autoSend: boolean; workWeek: WorkWeek };
 
 export function WorkSettingsCard({ initial }: { initial: WorkSettingsValues }) {
   const router = useRouter();
-  const start0 = { threshold: String(initial.threshold), noReply: String(initial.noReply), outreach: String(initial.outreach), eodTime: initial.eodTime, blockMinutes: String(initial.blockMinutes), workDays: [...initial.workWeek.days], weekStart: String(initial.workWeek.start), reviewDay: String(initial.workWeek.review) };
+  const start0 = { threshold: String(initial.threshold), stalled: String(initial.stalled), autoSend: initial.autoSend, noReply: String(initial.noReply), outreach: String(initial.outreach), eodTime: initial.eodTime, blockMinutes: String(initial.blockMinutes), workDays: [...initial.workWeek.days], weekStart: String(initial.workWeek.start), reviewDay: String(initial.workWeek.review) };
   const [v, setV] = useState(start0);
   const [saved, setSaved] = useState(start0);
   const [note, setNote] = useState<Note>(null);
@@ -56,7 +56,7 @@ export function WorkSettingsCard({ initial }: { initial: WorkSettingsValues }) {
     setNote(null);
     setV((x) => ({ ...x, [k]: e.target.value }));
   };
-  const set = (k: "threshold" | "noReply" | "outreach" | "eodTime" | "blockMinutes") => (e: React.ChangeEvent<HTMLInputElement>) => {
+  const set = (k: "threshold" | "stalled" | "noReply" | "outreach" | "eodTime" | "blockMinutes") => (e: React.ChangeEvent<HTMLInputElement>) => {
     setNote(null);
     setV((x) => ({ ...x, [k]: e.target.value }));
   };
@@ -68,7 +68,6 @@ export function WorkSettingsCard({ initial }: { initial: WorkSettingsValues }) {
       setNote({ tone: "ok", text: "Saved" });
       router.refresh();
     });
-  const red = Number(v.threshold) > 0 ? Number(v.threshold) * 2 : null;
   return (
     <WorkCard
       id="s-work"
@@ -82,17 +81,17 @@ export function WorkSettingsCard({ initial }: { initial: WorkSettingsValues }) {
       testId="work-settings"
     >
       <div className="px-[22px] pt-1 pb-3">
-        <KV label="Waiting on someone" testId="work-settings-threshold">
-          {/* Bram, 2026-11-08: what the number means, on two lines next to the box: "[5]+ days, no answer: amber badge
-              (follow up)" and "10+ days: red badge (stalled)" (the doubled number is live). */}
-          <span className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-1.5">
-            <input value={v.threshold} onChange={set("threshold")} inputMode="numeric" className={cn(NUM, "row-span-2 shrink-0")} aria-label="Waiting on someone (days)" data-testid="work-threshold" />
-            <span className="min-w-0 leading-[1.35]">
-              + days, no answer: <span className="font-medium text-status-soon">amber badge</span> (follow up)
-            </span>
-            <span className="min-w-0 leading-[1.35] text-muted-foreground" data-testid="work-threshold-red">
-              {red ? `${red}+ days` : "Double that"}: <span className="font-medium text-status-missed">red badge</span> (stalled)
-            </span>
+        {/* Bram, 2026-11-08: two rows with their own numbers, laid out like "No reply yet after". */}
+        <KV label="Follow up after" testId="work-settings-threshold">
+          <input value={v.threshold} onChange={set("threshold")} inputMode="numeric" className={NUM} aria-label="Follow up after (days)" data-testid="work-threshold" />
+          <span>
+            days with no answer · the wait turns <span className="font-medium text-status-soon">amber</span>
+          </span>
+        </KV>
+        <KV label="Stalled after" testId="work-settings-stalled">
+          <input value={v.stalled} onChange={set("stalled")} inputMode="numeric" className={NUM} aria-label="Stalled after (days)" data-testid="work-stalled" />
+          <span>
+            days with no answer · the wait turns <span className="font-medium text-status-missed">red</span>
           </span>
         </KV>
         {/* Push E: "No reply yet after [2] days", under the waiting field it belongs with; the box lines up with the others. */}
@@ -104,9 +103,25 @@ export function WorkSettingsCard({ initial }: { initial: WorkSettingsValues }) {
           <input value={v.outreach} onChange={set("outreach")} inputMode="numeric" className={NUM} aria-label="Network outreach per week" data-testid="work-outreach" />
           <span>per week</span>
         </KV>
-        <KV label="End of day" testId="work-settings-eod">
-          <input type="time" value={v.eodTime} onChange={set("eodTime")} step={300} className={cn(INPUT, "w-[120px]")} aria-label="End of day time" data-testid="work-eod-time" />
-          <span>on work days</span>
+        <KV label="Report goes out at" testId="work-settings-eod">
+          <input type="time" value={v.eodTime} onChange={set("eodTime")} step={300} className={cn(INPUT, "w-[120px]")} aria-label="Report goes out at" data-testid="work-eod-time" />
+          <span>on your partners&apos; days</span>
+        </KV>
+        {/* Bram, 2026-11-08: the report sends itself at that time; reminder emails 2 hours and 30 minutes before either way. */}
+        <KV label="Send automatically" testId="work-settings-auto">
+          <label className="flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              checked={v.autoSend}
+              onChange={(e) => {
+                setNote(null);
+                setV((x) => ({ ...x, autoSend: e.target.checked }));
+              }}
+              className="h-4 w-4 shrink-0 cursor-pointer rounded-[4px] accent-primary-strong"
+              data-testid="work-auto-send"
+            />
+            <span>{v.autoSend ? "On: the report goes out at that time" : "Off: only the reminder emails"}</span>
+          </label>
         </KV>
         {/* The work week (Bram, 2026-11-07, design B): the work days, the week's first day, and the weekly review day
             (its own setting: it does not follow the work days). */}

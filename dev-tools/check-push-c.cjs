@@ -177,7 +177,7 @@ const until = async (fn, msg, tries = 40) => {
     await until(async () => JSON.stringify(await selectedKeys("home-tiles")) === '["all"]', "a new day starts on All");
     // The right column starts level with the tiles; Waiting on someone's groups start closed (push E: three, with No reply yet).
     const tb = await page.getByTestId("home-tiles").boundingBox();
-    const wb = await page.getByTestId("now-wait").boundingBox();
+    const wb = await page.getByTestId("home-right").getByTestId("now-wait").boundingBox();
     assert(Math.abs(tb.y - wb.y) <= 1, `tiles at ${tb.y}, Waiting at ${wb.y}`);
     const wait = await page.locator('[data-testid="home-section"][data-section^="wait-"]').evaluateAll((els) => els.map((e) => e.getAttribute("data-collapsed")));
     assert(wait.length === 3 && wait.every((c) => c === "1"), `waiting groups ${wait}`);
@@ -196,7 +196,7 @@ const until = async (fn, msg, tries = 40) => {
     await page.getByTestId("home-tiles").waitFor();
     assert((await page.getByTestId("filter-open").count()) === 0 && (await page.getByTestId("slim-filter").count()) === 0, "no Filter button on Work on now");
     const before = await tileCounts("home-tiles");
-    const waitBefore = await page.getByTestId("now-wait").innerText();
+    const waitBefore = await page.getByTestId("home-right").getByTestId("now-wait").innerText();
     let opts = await areaOpts();
     assert(JSON.stringify(opts.map((o) => o.label)) === JSON.stringify(["All", "Deals", "Contacts", "Rosara", "Job search", "Consulting", "To-dos", "Tasks"]), `areas ${opts.map((o) => o.label)}`);
     assert(opts[0].on && opts[0].n === before[0], `All is picked with ${opts[0].n} (All tile ${before[0]})`);
@@ -204,10 +204,10 @@ const until = async (fn, msg, tries = 40) => {
     assert(opts.some((o) => o.off), "the sample has an empty area (Consulting)");
     // Placed above the tiles, left-aligned with them, the right column still level with the tiles. The Waiting card
     // arrives after the list (Home list first, 2026-11-07), so the check waits for it.
-    await page.getByTestId("now-wait").waitFor({ timeout: 15000 });
+    await page.getByTestId("home-right").getByTestId("now-wait").waitFor({ timeout: 15000 });
     const sb = await page.getByTestId("area-selector").boundingBox();
     const tb = await page.getByTestId("home-tiles").boundingBox();
-    const wb = await page.getByTestId("now-wait").boundingBox();
+    const wb = await page.getByTestId("home-right").getByTestId("now-wait").boundingBox();
     assert(sb.y + sb.height <= tb.y && Math.abs(sb.x - tb.x) <= 1 && Math.abs(wb.y - tb.y) <= 1, `selector ${JSON.stringify(sb)} tiles ${JSON.stringify(tb)}`);
     await pickTile("home-tiles", "needs");
     const contactsN = opts.find((o) => o.v === "contacts").n;
@@ -218,7 +218,7 @@ const until = async (fn, msg, tries = 40) => {
     assert(JSON.stringify(await selectedKeys("home-tiles")) === JSON.stringify([firstWithItems(HOME_KEYS, after)]), `selected ${await selectedKeys("home-tiles")}`);
     const areas = [...new Set((await homeRowsShown()).map((x) => x.area))];
     assert(JSON.stringify(areas) === '["contacts"]', `areas shown ${areas}`);
-    assert((await page.getByTestId("now-wait").innerText()) === waitBefore, "Waiting on someone did not change");
+    assert((await page.getByTestId("home-right").getByTestId("now-wait").innerText()) === waitBefore, "Waiting on someone did not change");
     // Single choice: Deals replaces Contacts; a greyed area cannot be picked.
     await pickArea("deals");
     opts = await areaOpts();

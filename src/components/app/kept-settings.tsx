@@ -38,6 +38,8 @@ export async function KeptSettingsCheck() {
     dn: p.display_name ? String(p.display_name) : null,
     p: { a: a ? String(a.id) : null, j: j ? String(j.id) : null, c: c ? String(c.id) : null },
     ww: keepWorkWeek(workWeekFromProfile(p)),
+    st: w.stalled,
+    as: w.autoSend,
   };
   const value = encodeKept(fresh);
   if (process.env.READ_LOG === "1" && used && raw !== value) console.log(`[kept] rebuild: ${raw} -> ${value}`);

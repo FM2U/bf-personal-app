@@ -69,7 +69,7 @@ const until = async (fn, msg, tries = 60) => {
   };
 
   // ---------- Helpers on the Waiting card ----------
-  const card = () => page.getByTestId("now-wait");
+  const card = () => page.getByTestId("home-right").getByTestId("now-wait");
   const group = (key) => card().locator(`[data-testid="home-section"][data-section="wait-${key}"]`);
   const openHome = async () => {
     await page.goto(`${BASE}/work`);
@@ -141,7 +141,8 @@ const until = async (fn, msg, tries = 60) => {
     assert((await row.innerText()).replace(/\s+/g, " ").trim() === "No reply yet after days", await row.innerText());
     assert((await page.getByTestId("work-no-reply").inputValue()) === "2", "2 by default");
     const rows = await page.getByTestId("work-settings").locator("[data-testid^=work-settings-]").evaluateAll((els) => els.map((e) => e.dataset.testid));
-    assert(rows.indexOf("work-settings-no-reply") === rows.indexOf("work-settings-threshold") + 1, `order ${rows}`);
+    // 2026-11-08: Follow up after, then Stalled after, then No reply yet after.
+    assert(rows.indexOf("work-settings-no-reply") === rows.indexOf("work-settings-stalled") + 1 && rows.indexOf("work-settings-stalled") === rows.indexOf("work-settings-threshold") + 1, `order ${rows}`);
     // The label column stays aligned.
     const xs = await page.getByTestId("work-settings").locator("[data-testid^=work-settings-] > span:first-child").evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().left)));
     assert(new Set(xs).size === 1, `labels at ${xs}`);

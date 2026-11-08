@@ -71,7 +71,7 @@ const until = async (fn, msg, tries = 60) => {
   };
 
   // ---------- Helpers on the Waiting card ----------
-  const card = () => page.getByTestId("now-wait");
+  const card = () => page.getByTestId("home-right").getByTestId("now-wait");
   const group = (key) => card().locator(`[data-testid="home-section"][data-section="wait-${key}"]`);
   const openHome = async () => {
     await page.goto(`${BASE}/work`);

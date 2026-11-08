@@ -531,10 +531,11 @@ const until = async (fn, msg, tries = 60) => {
     await page.getByTestId("work-outreach").fill("12");
     await page.getByTestId("work-eod-time").fill("17:45");
     await page.getByTestId("work-block-minutes").fill("45");
-    // The waiting row (Bram, 2026-11-08): "[6] + days, no answer: amber badge (follow up)" and "12+ days: red
-    // badge (stalled)", the doubled number live.
+    // The waiting rows (Bram, 2026-11-08): "Follow up after [6] days with no answer · the wait turns amber" and
+    // "Stalled after [10] days with no answer · the wait turns red", each with its own number.
     const wt = (await page.getByTestId("work-settings-threshold").innerText()).replace(/\s+/g, " ");
-    assert(wt.includes("+ days, no answer: amber badge (follow up)") && wt.includes("12+ days: red badge (stalled)"), wt);
+    const ws = (await page.getByTestId("work-settings-stalled").innerText()).replace(/\s+/g, " ");
+    assert(wt.includes("Follow up after") && wt.includes("days with no answer · the wait turns amber") && ws.includes("Stalled after") && ws.includes("the wait turns red"), `${wt} | ${ws}`);
     await page.locator("#s-work").scrollIntoViewIfNeeded();
     await shot(page, "settings-work-settings.png");
     await page.getByTestId("work-settings-save").click();
@@ -549,7 +550,7 @@ const until = async (fn, msg, tries = 60) => {
     const waitHeads = await page.locator("[data-testid=now-wait] [data-testid=home-section] [data-testid=section-heading]").allInnerTexts();
     assert(/6\+ days/i.test(waitHeads[0] ?? "") && /< 6 days/i.test(waitHeads[1] ?? ""), `the waiting groups follow: ${waitHeads}`);
     await page.goto(`${BASE}/work/reports`);
-    assert((await page.getByTestId("report-waits").innerText()).includes("Day count turns amber at 6+ days, red at 12+"), "the Reports waiting hint follows");
+    assert((await page.getByTestId("report-waits").innerText()).includes("Follow up at 6+ days (amber), stalled at 10+ (red)"), "the Reports waiting hint follows");
     await page.goto(`${BASE}/work/targets`);
     const badge = await page.getByTestId("subnav-eod-badge").getAttribute("data-badge");
     assert(badge === "Sent" || badge === "5:45", `badge ${badge}`);

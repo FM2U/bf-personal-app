@@ -14,7 +14,7 @@ import { glanceCounts, type GlanceCounts } from "@/lib/work/home";
 import { compareNames, displayName } from "@/lib/work/names";
 import { parseOpenQuestions, type QuestionGroups } from "@/lib/work/questions";
 import { parseFindingList } from "@/lib/work/deal-facts";
-import { DEFAULT_WAIT_THRESHOLD_DAYS, WORK_STAGES, dayInStage, doneOutcome, nextStageName, stageIndex, type WaitLevel } from "@/lib/work/stages";
+import { DEFAULT_WAIT_THRESHOLD_DAYS, setStalledDays, WORK_STAGES, dayInStage, doneOutcome, nextStageName, stageIndex, type WaitLevel } from "@/lib/work/stages";
 import { commTitle, type TimelineEvent } from "@/lib/work/timeline";
 import { DEFAULT_NO_REPLY_DAYS, waitLines, waitSummary, type SavedWait, type WaitLine } from "@/lib/work/waiting";
 import { loadAllWaits, loadWaitReplies, loadWaitsFor, withReplies } from "@/lib/work/waits-data";
@@ -34,7 +34,7 @@ import { ownerContactsLite, ownerFinancials, ownerOpenTasks, pickOrRead } from "
  */
 
 /** Push D: `eodTime` is the End of day time from Settings, Work settings ("17:30"). Push E: `noReplyDays`, No reply yet after (days). */
-export type WorkCtx = Ctx & { threshold: number; eodTime: string; noReplyDays: number };
+export type WorkCtx = Ctx & { threshold: number; eodTime: string; noReplyDays: number; /** Stalled after (days), or null for double the threshold (2026-11-08). */ stalled: number | null; /** Send the report automatically (2026-11-08). */ autoSend: boolean };
 
 
 export type Stage = { id: string; name: string; position: number; outcome: string; defaultTitle: string | null; defaultDueInDays: number | null };
@@ -114,15 +114,19 @@ export type ListingRow = DealRow & { buyBox: { tier: BuyBoxTier; fits: boolean; 
 
 /** The waiting threshold, End of day time and no-reply days, read once per page build. */
 export function readWorkInputs(sb: SupabaseClient, ownerId: string) {
-  return oncePerPage(`work_inputs:${ownerId}`, () => sb.from("inputs").select("key,value_number,value_text").eq("owner_id", ownerId).in("key", ["waiting_threshold_days", "end_of_day_time", "no_reply_after_days"]));
+  return oncePerPage(`work_inputs:${ownerId}`, () => sb.from("inputs").select("key,value_number,value_text").eq("owner_id", ownerId).in("key", ["waiting_threshold_days", "end_of_day_time", "no_reply_after_days", "waiting_stalled_days", "report_auto_send"]));
 }
 
 /** The three settings from the inputs rows, with their defaults. */
-export function workInputs(rows: Row[]): { threshold: number; eodTime: string; noReplyDays: number } {
+export function workInputs(rows: Row[]): { threshold: number; eodTime: string; noReplyDays: number; stalled: number | null; autoSend: boolean } {
   const n = Number(rows.find((r) => r.key === "waiting_threshold_days")?.value_number);
   const eod = parseTime(rows.find((r) => r.key === "end_of_day_time")?.value_text) ?? DEFAULT_EOD_TIME;
   const nr = Number(rows.find((r) => r.key === "no_reply_after_days")?.value_number);
-  return { threshold: Number.isFinite(n) && n > 0 ? Math.round(n) : DEFAULT_WAIT_THRESHOLD_DAYS, eodTime: eod, noReplyDays: Number.isFinite(nr) && nr > 0 ? Math.round(nr) : DEFAULT_NO_REPLY_DAYS };
+  const st = Number(rows.find((r) => r.key === "waiting_stalled_days")?.value_number);
+  const auto = rows.find((r) => r.key === "report_auto_send");
+  const out = { threshold: Number.isFinite(n) && n > 0 ? Math.round(n) : DEFAULT_WAIT_THRESHOLD_DAYS, eodTime: eod, noReplyDays: Number.isFinite(nr) && nr > 0 ? Math.round(nr) : DEFAULT_NO_REPLY_DAYS, stalled: Number.isFinite(st) && st > 0 ? Math.round(st) : null, autoSend: auto ? Number(auto.value_number) !== 0 : true };
+  setStalledDays(out.stalled);
+  return out;
 }
 
 export async function loadWorkCtx(sb: SupabaseClient, ownerId: string): Promise<WorkCtx> {
@@ -132,7 +136,8 @@ export async function loadWorkCtx(sb: SupabaseClient, ownerId: string): Promise<
   const kept = await keptSettings(ownerId);
   if (kept) {
     Promise.resolve(inputsP).catch(() => {});
-    return { ...(await loadCtx(sb, ownerId)), threshold: kept.th, eodTime: kept.eod, noReplyDays: kept.nr };
+    setStalledDays(kept.st ?? null);
+    return { ...(await loadCtx(sb, ownerId)), threshold: kept.th, eodTime: kept.eod, noReplyDays: kept.nr, stalled: kept.st ?? null, autoSend: kept.as ?? true };
   }
   // Page speed (2026-11-06): the profile and these settings are read side by side, once per page build.
   const [ctx, { data }] = await Promise.all([loadCtx(sb, ownerId), inputsP]);
