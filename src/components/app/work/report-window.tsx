@@ -28,7 +28,7 @@ export const PARTNER_BOX = "h-4 w-4 shrink-0 cursor-pointer rounded-[4px] accent
  * mark, Escape, a click outside, another partner's tab, a link inside) or Approve and send first asks: Save, Discard
  * (Send without it), or Keep editing. Reloading or closing the browser tab gets the browser's own "Leave site?" question.
  */
-type Unsaved = { items: { kind: "note" | "edit"; title: string }[]; save: () => Promise<boolean>; discard: () => void };
+export type Unsaved = { items: { kind: "note" | "edit"; title: string }[]; save: () => Promise<boolean>; discard: () => void };
 type LeaveTo = { to: "close" } | { to: "tab"; id: string; name: string } | { to: "link"; href: string } | { to: "send"; btn: HTMLButtonElement };
 
 function unsavedLine(items: Unsaved["items"]): string {
@@ -45,7 +45,9 @@ function unsavedHint(to: LeaveTo, many: boolean): string {
   return `Save ${it} before the window closes, or discard ${it}.`;
 }
 
-export function ReportWindow({ open, onOpenChange, day, copies, skipped, onPartner, sel, onSel, title, sub, footerNote, sendButton, startEditing, resetKey = 0 }: {
+export function ReportWindow({ open, onOpenChange, day, copies, skipped, onPartner, sel, onSel, title, sub, footerNote, sendButton, startEditing, resetKey = 0, alsoTo }: {
+  /** "Also send to" (Bram, 2026-11-08): more people for today's send, under the partner boxes; absent once the day is closed. */
+  alsoTo?: React.ReactNode;
   /** Fix list item 1 (2026-11-06): the partners unticked for today, the same set as the report card's checkboxes. */
   skipped?: ReadonlySet<string>;
   /** Ticks or unticks a partner for today; null once the day is closed. */
@@ -216,6 +218,7 @@ export function ReportWindow({ open, onOpenChange, day, copies, skipped, onPartn
           })}
         </div>
       ) : null}
+      {alsoTo ?? null}
       {copies.length > 1 ? (
         <div className="mb-4 flex gap-1 overflow-x-auto border-b border-border" role="tablist" data-testid="report-tabs">
           {copies.map((c) => (
@@ -234,8 +237,12 @@ export function ReportWindow({ open, onOpenChange, day, copies, skipped, onPartn
 
 const LINK = "text-[12.5px] font-medium text-primary-strong hover:underline";
 
-/** One partner's copy: the note, then the email with the controls on each section (or the email as sent). */
-function CopyReview({ day, copy, startEditing, notes, onNotes, unsavedRef }: { day: string; copy: PartnerCopy; startEditing: boolean; notes: ReportNotes; onNotes: (n: ReportNotes) => void; unsavedRef: React.RefObject<Unsaved | null> }) {
+/**
+ * One partner's copy: the note, then the email with the controls on each section (or the email as sent).
+ * `local` (Send a report, Bram 2026-11-08): the include box, Change, Edit and + Note work the same way, but nothing is
+ * saved to the day; the choices stay in the window and go out with that one send. `meta` replaces the line on top.
+ */
+export function CopyReview({ day, copy, startEditing, notes, onNotes, unsavedRef, local, meta }: { day: string; copy: PartnerCopy; startEditing: boolean; notes: ReportNotes; onNotes: (n: ReportNotes) => void; unsavedRef: React.RefObject<Unsaved | null>; local?: { onChoices: (c: ReportChoices) => void }; meta?: React.ReactNode }) {
   const router = useRouter();
   const p = copy.partner;
   const [choices, setChoices] = useState<ReportChoices>(copy.report.choices ?? {});
@@ -261,6 +268,10 @@ function CopyReview({ day, copy, startEditing, notes, onNotes, unsavedRef }: { d
   const persistChoices = async (next: ReportChoices) => {
     setChoices(next);
     setError(null);
+    if (local) {
+      local.onChoices(next);
+      return true;
+    }
     const r = await saveReportChoices(day, p.id, next);
     if (!r.ok) {
       setError(r.error);
@@ -315,6 +326,7 @@ function CopyReview({ day, copy, startEditing, notes, onNotes, unsavedRef }: { d
     setNoting(null);
     onNotes(next);
     setError(null);
+    if (local) return true;
     const r = await saveReportNote(day, key, t);
     if (!r.ok) {
       setError(r.error);
@@ -388,6 +400,7 @@ function CopyReview({ day, copy, startEditing, notes, onNotes, unsavedRef }: { d
 
   return (
     <>
+      {meta ?? (
       <p className="mb-2.5 text-[12.5px] leading-[1.5] text-muted-foreground" data-testid="report-meta">
         To {p.name}
         {p.email ? ` (${p.email})` : ", no email address yet"}. Unticking a section applies to today only;{" "}
@@ -396,6 +409,7 @@ function CopyReview({ day, copy, startEditing, notes, onNotes, unsavedRef }: { d
         </Link>{" "}
         keeps the standing choice. Edit changes that section&apos;s text for today only. + Note adds a few lines under a section, in every copy that includes it.
       </p>
+      )}
       {error ? (
         <p className="mb-2 rounded-md bg-status-missed-bg px-3 py-2 text-[13px] text-status-missed" role="alert">
           {error}
@@ -459,7 +473,7 @@ function CopyReview({ day, copy, startEditing, notes, onNotes, unsavedRef }: { d
             {picking === s.key && s.included ? <Picker s={s} onToggle={(id) => (s.pick ? toggleTop(s, id) : toggleItem(s, id))} onDone={() => setPicking(null)} /> : null}
             {/* 2026-11-06 (Bram): a note sits first, under the heading and above the section's items. */}
             {noting === s.key && s.included ? (
-              <NoteBox key={s.key} title={s.title} value={noteDraft} onChange={setNoteDraft} onSave={() => saveNote(s.key, noteDraft)} onCancel={() => setNoting(null)} />
+              <NoteBox key={s.key} title={s.title} value={noteDraft} onChange={setNoteDraft} onSave={() => saveNote(s.key, noteDraft)} onCancel={() => setNoting(null)} hint={local ? "Shows under this section in this send only." : undefined} />
             ) : s.note ? (
               <div className={cn(!s.included && "opacity-[0.38]")} dangerouslySetInnerHTML={{ __html: noteHtml(s.note) }} data-testid="section-note" />
             ) : null}
@@ -498,7 +512,7 @@ const NOTE_PAD = 16;
 const NOTE_MIN_LINES = 3;
 const NOTE_MAX_LINES = 6;
 
-function NoteBox({ title, value, onChange, onSave, onCancel }: { title: string; value: string; onChange: (v: string) => void; onSave: () => void; onCancel: () => void }) {
+function NoteBox({ title, value, onChange, onSave, onCancel, hint }: { title: string; value: string; onChange: (v: string) => void; onSave: () => void; onCancel: () => void; hint?: string }) {
   const fit = (el: HTMLTextAreaElement | null) => {
     if (!el) return;
     el.style.height = "auto";
@@ -529,7 +543,7 @@ function NoteBox({ title, value, onChange, onSave, onCancel }: { title: string; 
         <button type="button" onClick={onCancel} className="inline-flex h-[30px] items-center rounded-[7px] border border-input bg-white px-3 text-[12.5px] font-medium text-slate-800 hover:bg-slate-50" data-testid="section-note-cancel">
           Cancel
         </button>
-        <span className="text-[12px] text-muted-foreground">Shows under this section in every copy that includes it. Today only.</span>
+        <span className="text-[12px] text-muted-foreground">{hint ?? "Shows under this section in every copy that includes it. Today only."}</span>
       </div>
     </div>
   );

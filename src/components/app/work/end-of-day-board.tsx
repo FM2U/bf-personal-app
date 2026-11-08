@@ -10,7 +10,8 @@ import type { EndOfDayPage } from "@/lib/accountability/data";
 import { dueLine, getsLabel, sendLabel } from "@/lib/accountability/partners";
 import { includesLine, REVIEW_QUESTIONS, reviewAnswered, sentSections, type WeeklyReview } from "@/lib/accountability/report-sections";
 import { PARTNER_BOX, ReportWindow } from "@/components/app/work/report-window";
-import { SendReportButton } from "@/components/app/work/send-report";
+import { NO_RECIPIENTS, RecipientPicker, recipientCount, recipientsTo, SendReportButton, type Recipients } from "@/components/app/work/send-report";
+import { sendReport, sendReportSetup, type SendReportPerson } from "@/app/actions/send-report";
 import { DONE_AREAS, judgedMark, MARK_WORD, owedReasons, sendChecklist, todayStrip, type DayNumbers, type Judged, type TodayPart } from "@/lib/accountability/targets";
 import type { AskContext } from "@/lib/work/ask-ai";
 import { AccountabilityTabs, type EodBadge } from "@/components/app/nav-links";
@@ -96,6 +97,19 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
   /** The Today strip part whose drawer is open. */
   const [drawer, setDrawer] = useState<TodayPart | null>(null);
   const requestId = useRef(newRequestId());
+  // "Also send to" (Bram, 2026-11-08): more people for today's send, for today only; they get the copy of the partner
+  // whose tab is open in the review window, right after Approve and send.
+  const [also, setAlso] = useState<Recipients>(NO_RECIPIENTS);
+  const [alsoOpen, setAlsoOpen] = useState(false);
+  const [alsoPeople, setAlsoPeople] = useState<SendReportPerson[] | null>(null);
+  const [alsoError, setAlsoError] = useState<string | null>(null);
+  const alsoRequest = useRef(newRequestId());
+  const alsoCount = recipientCount(also);
+  const alsoNames = andNames([...also.chosen.map((id) => alsoPeople?.find((p) => p.id === id)?.name ?? "a contact"), ...also.fresh.map((f) => f.name || f.email)]);
+  const openAlso = () => {
+    setAlsoOpen((o) => !o);
+    if (!alsoPeople) sendReportSetup().then((r) => (r.ok ? setAlsoPeople(r.people) : setAlsoError(r.error)));
+  };
   const tomorrowRef = useRef<HTMLTextAreaElement>(null);
   const closed = state.status !== "open";
   const judged = data.judged;
@@ -197,6 +211,7 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
     startSend(async () => {
       setError(null);
       setCheck(null);
+      const from = copy;
       const r = await approveAndSend(day, requestId.current, force);
       if (!r.ok) {
         if (r.reason === "reasons") return setCheck(r.error);
@@ -205,7 +220,16 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
         return;
       }
       setState({ status: "sent", sentTime: r.sentTime, skipReason: null });
-      setNote(r.alreadySent ? "This report was already sent." : null);
+      let line = r.alreadySent ? "This report was already sent." : null;
+      if (alsoCount && from) {
+        const x = await sendReport({ day, sections: from.partner.sections, intro: "", to: recipientsTo(also), requestId: alsoRequest.current, force: true, choices: from.report.choices ?? null, notes: from.report.notes ?? null });
+        if (x.ok) {
+          line = `${line ? `${line} ` : ""}Also sent to ${andNames(x.sentTo)}`;
+          setAlso(NO_RECIPIENTS);
+          setAlsoOpen(false);
+        } else setError(`Sent to your partners. Not sent to ${alsoNames}: ${x.error}`);
+      }
+      setNote(line);
       router.refresh();
     });
   const skip = () =>
@@ -566,6 +590,11 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
                       </div>
                     );
                   })}
+                  {state.status === "open" && alsoCount ? (
+                    <p className="mt-2.5 text-[12.5px] text-slate-700" data-testid="eod-also-line">
+                      Also sending to {alsoNames} with Approve and send (today only).
+                    </p>
+                  ) : null}
                   <Link href="/work/people?view=people" className="mt-2.5 inline-block text-[12.5px] font-medium text-primary-strong hover:underline" data-testid="eod-manage-partners">
                     Manage partners
                   </Link>
@@ -627,6 +656,36 @@ export function EndOfDayBoard({ data }: { data: EndOfDayPage }) {
         sub={`${kind} · ${data.dateLabel} · ${state.status === "sent" ? `sent at ${state.sentTime}` : state.status === "skipped" ? "not sent today" : `as it will be sent at ${data.eodTime.long}`}`}
         startEditing={windowOpen === "edit"}
         resetKey={resetKey}
+        alsoTo={
+          state.status === "open" ? (
+            <div className="mb-3 rounded-[9px] border border-border bg-background px-3.5 py-2.5" data-testid="report-also">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-slate-700">
+                <span className="label-caps figure-label">Also send to</span>
+                <span className="min-w-0" data-testid="report-also-names">
+                  {alsoCount ? alsoNames : "Nobody else"}
+                </span>
+                <button type="button" onClick={openAlso} aria-expanded={alsoOpen} className="ml-auto text-[12.5px] font-medium text-primary-strong hover:underline" data-testid="report-also-open">
+                  {alsoOpen ? "Done" : alsoCount ? "Change" : "+ Add someone"}
+                </button>
+              </div>
+              {alsoOpen ? (
+                <div className="mt-2.5">
+                  {alsoPeople ? (
+                    <RecipientPicker people={alsoPeople} value={also} onChange={setAlso} exclude={copies.map((c) => c.partner.id)} testId="report-also-picker" />
+                  ) : alsoError ? (
+                    <p className="text-[12.5px] text-status-missed">{alsoError}</p>
+                  ) : (
+                    <p className="flex items-center gap-2 text-[12.5px] text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                      Loading your contacts…
+                    </p>
+                  )}
+                </div>
+              ) : null}
+              <p className="mt-1.5 text-[12px] text-muted-foreground">Today only. They get {copy ? `${copy.partner.first}'s copy (the tab open below)` : "the copy shown below"}, sent with Approve and send.</p>
+            </div>
+          ) : null
+        }
         footerNote={checkBox ?? (state.status === "open" && needs.length ? `${needs.join(" · ")}. Gaps go out as "(still to give)".` : state.status === "open" ? (partly ?? dueLine(data.partners, day)) : state.status === "sent" ? `Sent to ${toNames(copies)} at ${state.sentTime}.` : "Skipped today. Nothing is sent.")}
         sendButton={
           state.status === "open" ? (

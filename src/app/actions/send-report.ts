@@ -13,6 +13,7 @@ import { sentEmailCommunication } from "@/lib/calc/sent-email";
 import { loadEndOfDay, loadPartners, type EndOfDayPage } from "@/lib/accountability/data";
 import { REPORT_SECTIONS, type ReportSectionKey } from "@/lib/accountability/partners";
 import { reportFor, reportInnerHtml, reportSubject, reportText, type ReportData } from "@/lib/accountability/report-email";
+import { cleanChoices, cleanNotes, sentSections, type ReportChoices, type ReportNotes } from "@/lib/accountability/report-sections";
 import { owedReasons, reportSummary } from "@/lib/accountability/targets";
 import { date as fmtDate } from "@/lib/format";
 import type { Row } from "@/lib/types";
@@ -94,11 +95,19 @@ async function pastReport(sb: SupabaseClient, ctx: Ctx, day: string): Promise<{ 
 
 type Built = { inner: string; subject: string; text: string; asSent: boolean };
 
-/** One person's copy: the chosen sections, their first name in the greeting, and the note under it. */
-function buildFor(base: { data: ReportData | null; html: string | null; subject: string | null }, name: string, sections: ReportSectionKey[], intro: string): Built {
+/** The copy's data: every section standing (or the given ones), the window's choices and notes, the person's name, the note under the greeting. */
+function copyData(data: ReportData, name: string, sections: readonly string[], intro: string, choices: ReportChoices | null, notes: ReportNotes | null): ReportData {
   const first = name.trim().split(/\s+/)[0] || "there";
+  return { ...reportFor({ ...data, notes: notes ?? data.notes ?? {} }, { name: name || "there", first, sections }, choices), intro: intro || null };
+}
+
+/**
+ * One person's copy: their first name in the greeting, the note under it, and (Bram, 2026-11-08) the same choices as
+ * End of day's review window: the include box, Change, Edit and + Note on each section, for this send only.
+ */
+function buildFor(base: { data: ReportData | null; html: string | null; subject: string | null }, name: string, sections: readonly string[], intro: string, choices: ReportChoices | null = null, notes: ReportNotes | null = null): Built {
   if (base.data) {
-    const r: ReportData = { ...reportFor(base.data, { name: name || "there", first, sections }, null), intro: intro || null };
+    const r = copyData(base.data, name, sections, intro, choices, notes);
     return { inner: reportInnerHtml(r), subject: base.subject ?? reportSubject(r), text: reportText(r), asSent: false };
   }
   // An older day kept only as its email: sent as it went out, with the note above it.
@@ -123,18 +132,22 @@ async function baseFor(sb: SupabaseClient, ctx: Ctx, day: string): Promise<{ bas
   return { base: b, page: null };
 }
 
-/** The preview: the copy as the first person chosen would get it (or "there" when nobody is chosen yet). */
-export async function previewSendReport(input: { day: string; sections: string[]; intro: string; name?: string | null }): Promise<{ ok: true; html: string; subject: string; asSent: boolean } | Fail> {
+export type SendReportDayData = { ok: true; kind: "data"; report: ReportData; subject: string | null } | { ok: true; kind: "html"; html: string; subject: string | null };
+
+/**
+ * The report of a day for the window (Bram, 2026-11-08): its data, so the window shows the same review as End of day
+ * (the include box, Change, Edit and + Note on each section), with today's notes from End of day to start; or, for an
+ * older day kept only as its sent email, that email.
+ */
+export async function loadSendReportDay(day: string): Promise<SendReportDayData | Fail> {
   const s = await setup();
   if ("ok" in s) return s;
   const { sb, ctx } = s;
-  if (!DATE.test(String(input.day ?? ""))) return fail("Pick a day.");
-  const sections = cleanSections(input.sections);
-  if (!sections.length) return fail("Tick at least one section.");
-  const b = await baseFor(sb, ctx, input.day);
+  if (!DATE.test(String(day ?? ""))) return fail("Pick a day.");
+  const b = await baseFor(sb, ctx, day);
   if ("ok" in b) return b;
-  const built = buildFor(b.base, String(input.name ?? "").trim(), sections, cleanIntro(input.intro));
-  return { ok: true, html: built.inner, subject: built.subject, asSent: built.asSent };
+  if (b.base.data) return { ok: true, kind: "data", report: { ...b.base.data, choices: null, intro: null }, subject: b.base.subject };
+  return { ok: true, kind: "html", html: String(b.base.html), subject: b.base.subject };
 }
 
 export type SendReportResult = { ok: true; sentTo: string[]; dayMarkedSent: boolean } | { ok: false; error: string; sentTo?: string[]; owed?: number };
@@ -143,7 +156,7 @@ export type SendReportResult = { ok: true; sentTo: string[]; dayMarkedSent: bool
  * Sends the report to each person chosen. `force` sends today's report even when a missed commitment has no reason
  * yet (the same question as Approve and send). The same requestId never sends twice to one address.
  */
-export async function sendReport(input: { day: string; sections: string[]; intro: string; to: SendReportTo[]; requestId: string; force?: boolean }): Promise<SendReportResult> {
+export async function sendReport(input: { day: string; sections: string[]; intro: string; to: SendReportTo[]; requestId: string; force?: boolean; choices?: unknown; notes?: unknown }): Promise<SendReportResult> {
   const s = await setup();
   if ("ok" in s) return s;
   const { sb, ctx } = s;
@@ -152,6 +165,8 @@ export async function sendReport(input: { day: string; sections: string[]; intro
   const sections = cleanSections(input.sections);
   if (!sections.length) return fail("Tick at least one section.");
   const intro = cleanIntro(input.intro);
+  const choices = input.choices && typeof input.choices === "object" ? cleanChoices(input.choices) : null;
+  const notes = input.notes && typeof input.notes === "object" ? cleanNotes(input.notes) : null;
 
   // The people: saved contacts by id, new addresses checked (and saved as contacts when asked).
   const ids = [...new Set((input.to ?? []).filter((t): t is { contactId: string } => "contactId" in t && UUID.test(String(t.contactId))).map((t) => t.contactId))];
@@ -168,6 +183,7 @@ export async function sendReport(input: { day: string; sections: string[]; intro
   const b = await baseFor(sb, ctx, input.day);
   if ("ok" in b) return b;
   const isToday = input.day === ctx.today;
+  if (b.base.data && !sentSections(copyData(b.base.data, "", sections, intro, choices, notes)).length) return fail("Every section is left out. Tick at least one section.");
   if (isToday && b.page && !input.force) {
     const pg = b.page;
     const owed = owedReasons(pg.judged, pg.reasons).length + (pg.owed ? pg.owed.items.filter((j) => !String(pg.reasons[`owed:${pg.owed!.day}:${j.targetId}`] ?? "").trim()).length : 0);
@@ -201,7 +217,7 @@ export async function sendReport(input: { day: string; sections: string[]; intro
       }
     }
     const name = p.name || String(contact?.name ?? "");
-    const built = buildFor(b.base, name, sections, intro);
+    const built = buildFor(b.base, name, sections, intro, choices, notes);
     const html = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;background-color:#f8fafc"><tr><td align="center" style="padding:12px 6px">${built.inner}</td></tr></table>`;
     let sent: { id: string; threadId: string | null };
     try {
@@ -219,7 +235,7 @@ export async function sendReport(input: { day: string; sections: string[]; intro
       // Kept as a copy of that day's report, so it shows on Reports and the person's timeline, and replies are read.
       const { data: report } = await sb
         .from("partner_reports")
-        .insert({ owner_id: ctx.ownerId, contact_id: String(contact.id), period_start: input.day, period_end: input.day, status: "finalized", snapshot: { end_of_day: true, day: input.day, sent_by: "send_a_report", resend: !isToday, judged: b.page?.judged ?? null, reasons: b.page?.reasons ?? null, tomorrow: b.page?.tomorrow ?? null, report: b.base.data ? { ...reportFor(b.base.data, { name: name || "there", first: name.split(/\s+/)[0] || "there", sections }, null), intro: intro || null } : null, sections, intro: intro || null, html: built.inner, subject: built.subject }, summary: summary ?? "Report sent again", summary_source: "owner", finalized_at: sentAt, delivered_via: ["gmail_sent"], report_kind: "end_of_day", sent_at: sentAt, gmail_message_id: sent.id, gmail_thread_id: sent.threadId })
+        .insert({ owner_id: ctx.ownerId, contact_id: String(contact.id), period_start: input.day, period_end: input.day, status: "finalized", snapshot: { end_of_day: true, day: input.day, sent_by: "send_a_report", resend: !isToday, judged: b.page?.judged ?? null, reasons: b.page?.reasons ?? null, tomorrow: b.page?.tomorrow ?? null, report: b.base.data ? copyData(b.base.data, name, sections, intro, choices, notes) : null, sections, choices, notes: b.base.data ? (notes ?? b.base.data.notes ?? null) : null, intro: intro || null, html: built.inner, subject: built.subject }, summary: summary ?? "Report sent again", summary_source: "owner", finalized_at: sentAt, delivered_via: ["gmail_sent"], report_kind: "end_of_day", sent_at: sentAt, gmail_message_id: sent.id, gmail_thread_id: sent.threadId })
         .select("id")
         .single();
       reportId = report ? String((report as Row).id) : null;
