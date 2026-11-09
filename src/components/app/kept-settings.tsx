@@ -40,6 +40,7 @@ export async function KeptSettingsCheck() {
     ww: keepWorkWeek(workWeekFromProfile(p)),
     st: w.stalled,
     as: w.autoSend,
+    cs: w.countingStart,
   };
   const value = encodeKept(fresh);
   if (process.env.READ_LOG === "1" && used && raw !== value) console.log(`[kept] rebuild: ${raw} -> ${value}`);

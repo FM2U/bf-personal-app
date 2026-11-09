@@ -4,7 +4,7 @@ import { todayInTz } from "@/lib/calc/dates";
 import type { Ctx } from "@/lib/engine/helpers";
 import { date as fmtDate } from "@/lib/format";
 import { DB_UPDATE_NOTICE_PUSH_D, isMissingSchemaError } from "@/lib/schema-guard";
-import { loadWorkCtx } from "@/lib/work/data";
+import { loadWorkCtx, readWorkInputs, workInputs } from "@/lib/work/data";
 import { loadFacts, loadTargets } from "@/lib/accountability/data";
 import { countable } from "@/lib/accountability/targets";
 import {
@@ -19,6 +19,12 @@ import type { Row } from "@/lib/types";
  * it; an open one is counted live from the app's facts with the targets as they are now. Before the push D database
  * update the table is missing: the list is empty, the page says the update is needed, and Work on now has no row.
  */
+
+/** Counting starts on (2026-11-09), from the settings row the page reads once (no extra trip). */
+async function countingStartOf(sb: SupabaseClient, ownerId: string): Promise<string | null> {
+  const { data } = await readWorkInputs(sb, ownerId);
+  return workInputs((data ?? []) as Row[]).countingStart;
+}
 
 type ReviewRow = { id: string; month: string; finishedAt: string | null; exportedAt: string | null; results: MonthResult[]; nextTargets: NextTarget[] };
 
@@ -35,10 +41,10 @@ async function loadRows(sb: SupabaseClient, ownerId: string): Promise<{ rows: Re
 export type MonthlyDue = { month: string; slug: string; name: string; nextName: string; opensOn: string };
 
 export async function loadMonthlyDue(sb: SupabaseClient, ctx: Pick<Ctx, "ownerId" | "today">): Promise<MonthlyDue | null> {
-  const open = reviewMonthFor(ctx.today);
-  if (!open) return null;
-  const { rows, available } = await loadRows(sb, ctx.ownerId);
-  if (!available) return null;
+  if (!reviewMonthFor(ctx.today)) return null;
+  const [{ rows, available }, start] = await Promise.all([loadRows(sb, ctx.ownerId), countingStartOf(sb, ctx.ownerId)]);
+  const open = reviewMonthFor(ctx.today, start);
+  if (!open || !available) return null;
   if (rows.some((r) => r.month === open.month && r.finishedAt)) return null;
   return { month: open.month, slug: monthSlug(open.month), name: monthName(open.month), nextName: monthName(nextMonthStart(open.month)), opensOn: open.opensOn };
 }
@@ -47,8 +53,8 @@ export async function loadMonthlyDue(sb: SupabaseClient, ctx: Pick<Ctx, "ownerId
 export type MonthlyListItem = { month: string; slug: string; label: string; line: string; finished: boolean; current: boolean };
 
 export async function loadMonthlyList(sb: SupabaseClient, ctx: Ctx): Promise<{ items: MonthlyListItem[]; available: boolean }> {
-  const { rows, available } = await loadRows(sb, ctx.ownerId);
-  const open = reviewMonthFor(ctx.today);
+  const [{ rows, available }, start] = await Promise.all([loadRows(sb, ctx.ownerId), countingStartOf(sb, ctx.ownerId)]);
+  const open = reviewMonthFor(ctx.today, start);
   const months = new Map(rows.map((r) => [r.month, r]));
   // The review of the month under review shows before it was opened once (no row yet).
   if (open && !months.has(open.month)) months.set(open.month, { id: "", month: open.month, finishedAt: null, exportedAt: null, results: [], nextTargets: [] });
@@ -92,9 +98,9 @@ export type MonthlyReviewPage = {
 
 /** The review page of one month (YYYY-MM-01). */
 export async function loadMonthlyReviewPage(sb: SupabaseClient, ctx: Ctx, month: string): Promise<MonthlyReviewPage> {
-  const { rows, available } = await loadRows(sb, ctx.ownerId);
+  const [{ rows, available }, start] = await Promise.all([loadRows(sb, ctx.ownerId), countingStartOf(sb, ctx.ownerId)]);
   const row = rows.find((r) => r.month === month) ?? null;
-  const open = reviewMonthFor(ctx.today);
+  const open = reviewMonthFor(ctx.today, start);
   const current = !!open && open.month === month;
   const local = (ts: string | null) => (ts ? todayInTz(ctx.tz, new Date(ts)) : null);
   const lastExport = rows.map((r) => r.exportedAt).filter((x): x is string => !!x).sort().slice(-1)[0] ?? null;

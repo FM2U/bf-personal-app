@@ -16,12 +16,22 @@ export const WORK_SETTING_KEYS = {
   noReply: { key: "no_reply_after_days", label: "No reply yet after (days)", unit: "number", description: "Waiting on someone, No reply yet: an email the app sent shows there when no reply has come after this many days." },
   outreach: { key: "outreach_weekly_target", label: "Network outreach per week", unit: "number", description: "The weekly outreach counter on Contacts and Home." },
   eodTime: { key: "end_of_day_time", label: "Report goes out at", unit: "text", description: "The time the report goes out on the partners' days (HH:MM, 24-hour)." },
+  /** Bram, 2026-11-09: targets count from this day; days before it are not counted and weeks that end before it are not judged. */
+  countingStart: { key: "counting_start", label: "Counting starts on", unit: "text", description: "Targets: days before this date are not counted, and weeks that end before it are not judged (YYYY-MM-DD)." },
 } as const;
 
 /** The report's send time unless changed (Bram, 2026-11-08: 6:00 pm). */
 export const DEFAULT_EOD_TIME = "18:00";
 
-export type WorkSettings = { threshold: number; stalled: number; noReply: number; outreach: number; eodTime: string; blockMinutes: number; autoSend: boolean };
+export type WorkSettings = { threshold: number; stalled: number; noReply: number; outreach: number; eodTime: string; blockMinutes: number; autoSend: boolean; /** Counting starts on (YYYY-MM-DD), or null: every day counts (2026-11-09). */ countingStart: string | null };
+
+/** "2026-11-09" when it is a real calendar date; null for anything else. */
+export function parseDay(v: unknown): string | null {
+  const s = String(v ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const d = new Date(`${s}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s ? s : null;
+}
 
 /** "17:30" -> "5:30"; anything not a time reads as the default. */
 export function eodShort(hhmm: string | null | undefined): string {
@@ -75,7 +85,7 @@ const whole = (v: unknown) => {
 };
 
 /** The Work settings card's values checked for Save; the first problem as one plain sentence. */
-export function cleanWorkSettings(input: { threshold: unknown; stalled?: unknown; noReply: unknown; outreach: unknown; eodTime: unknown; blockMinutes: unknown; autoSend?: unknown }): { ok: true; value: WorkSettings } | { ok: false; error: string } {
+export function cleanWorkSettings(input: { threshold: unknown; stalled?: unknown; noReply: unknown; outreach: unknown; eodTime: unknown; blockMinutes: unknown; autoSend?: unknown; countingStart?: unknown }, today?: string): { ok: true; value: WorkSettings } | { ok: false; error: string } {
   const threshold = whole(input.threshold);
   if (!(threshold >= 1 && threshold <= 60)) return { ok: false, error: "Amber after: a whole number of days from 1 to 60." };
   const stalled = input.stalled === undefined || String(input.stalled).trim() === "" ? threshold * 2 : whole(input.stalled);
@@ -89,7 +99,12 @@ export function cleanWorkSettings(input: { threshold: unknown; stalled?: unknown
   if (!eodTime) return { ok: false, error: "Report goes out at: a time such as 6:00 pm." };
   const blockMinutes = whole(input.blockMinutes);
   if (!(blockMinutes >= 5 && blockMinutes <= 480)) return { ok: false, error: "Default block length: 5 to 480 minutes." };
-  return { ok: true, value: { threshold, stalled, noReply, outreach, eodTime, blockMinutes, autoSend: input.autoSend === undefined ? true : input.autoSend === true || input.autoSend === "1" || input.autoSend === "true" } };
+  // Counting starts on (2026-11-09): blank counts every day; a date may not be after today.
+  const rawStart = String(input.countingStart ?? "").trim();
+  const countingStart = rawStart ? parseDay(rawStart) : null;
+  if (rawStart && !countingStart) return { ok: false, error: "Counting starts on: a date such as Nov 9, 2026, or blank." };
+  if (countingStart && today && countingStart > today) return { ok: false, error: "Counting starts on: a date no later than today." };
+  return { ok: true, value: { threshold, stalled, noReply, outreach, eodTime, blockMinutes, autoSend: input.autoSend === undefined ? true : input.autoSend === true || input.autoSend === "1" || input.autoSend === "true", countingStart } };
 }
 
 /** One stage's defaults as the table sends them. */

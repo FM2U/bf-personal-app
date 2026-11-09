@@ -2,7 +2,6 @@
 
 import { revalidatePath } from "next/cache";
 import { requireOwner } from "@/lib/auth";
-import { loadCtx } from "@/lib/engine/helpers";
 import { DB_UPDATE_NOTICE_PUSH_D, isMissingSchemaError } from "@/lib/schema-guard";
 import { loadFacts, loadTargets } from "@/lib/accountability/data";
 import { cleanNextTargets, monthName, monthResults, parseMonthSlug, reviewMonthFor } from "@/lib/accountability/monthly";
@@ -21,10 +20,11 @@ const fail = (error: string): Fail => ({ ok: false, error });
 
 export async function finishMonthlyReview(slug: string, input: { id: string; number: number | string; commitment: boolean }[]): Promise<{ ok: true; exported: boolean } | Fail> {
   const { supabase: sb, ownerId } = await requireOwner();
-  const ctx = await loadCtx(sb, ownerId);
+  const wctx = await loadWorkCtx(sb, ownerId);
+  const ctx = wctx;
   const month = parseMonthSlug(slug);
   if (!month) return fail("That month was not found.");
-  const open = reviewMonthFor(ctx.today);
+  const open = reviewMonthFor(ctx.today, wctx.countingStart);
   if (!open || open.month !== month) return fail(`Only the review of ${open ? monthName(open.month) : "last month"} can be finished now.`);
   const { data: existing, error: readError } = await sb.from("monthly_reviews").select("*").eq("owner_id", ownerId).eq("month", month).maybeSingle();
   if (readError) return fail(isMissingSchemaError(readError) ? DB_UPDATE_NOTICE_PUSH_D : `Not saved: ${readError.message}`);
@@ -33,7 +33,6 @@ export async function finishMonthlyReview(slug: string, input: { id: string; num
   const next = cleanNextTargets(input, targets);
   if (!next.ok) return next;
   // How the month went, counted before the targets change (the copy kept on the review).
-  const wctx = await loadWorkCtx(sb, ownerId);
   const bundle = await loadFacts(sb, wctx, month);
   const results = monthResults(targets, bundle.facts, month, bundle.skippedDays);
   for (const t of next.rows) {

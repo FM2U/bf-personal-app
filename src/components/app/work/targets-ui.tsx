@@ -107,7 +107,7 @@ export function TargetsLegend() {
       </span>
       <span className="inline-flex items-center gap-1.5">
         <StripCell state="off" small />
-        Not counted (skipped day)
+        Not counted (skipped day, or before counting started)
       </span>
       <span className="sm:ml-auto">Counted from what you do in the app. Nothing to type.</span>
     </div>

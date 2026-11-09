@@ -16,7 +16,7 @@
  */
 import { addDaysISO } from "@/lib/calc/dates";
 import { isWorkDay, weekOf, weekStartOf } from "@/lib/work-week";
-import { countable, countIn, type Cadence, type Facts, type Target } from "@/lib/accountability/targets";
+import { beforeCounting, countable, countIn, type Cadence, type Facts, type Target } from "@/lib/accountability/targets";
 
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
@@ -73,9 +73,12 @@ export function firstWorkday(month: string): string {
 }
 
 /** The review open on a day: the month before, from the first workday of this month. Null before that day. */
-export function reviewMonthFor(today: string): { month: string; opensOn: string } | null {
+export function reviewMonthFor(today: string, countingStart: string | null = null): { month: string; opensOn: string } | null {
   const opensOn = firstWorkday(monthStartOf(today));
-  return today >= opensOn ? { month: previousMonthStart(today), opensOn } : null;
+  const month = previousMonthStart(today);
+  // Counting starts on (2026-11-09): no review of a month that ended before it.
+  if (countingStart && monthEnd(month) < countingStart) return null;
+  return today >= opensOn ? { month, opensOn } : null;
 }
 
 /** The full work weeks of a month (from the week's start day to its last work day, all inside it), in order. */
@@ -111,7 +114,8 @@ const one = (n: number) => (Math.round(n * 10) / 10).toFixed(1);
 
 /** How each target went over the month's full weeks. */
 export function monthResults(targets: readonly Target[], facts: Facts, month: string, skipped: readonly string[] = []): MonthResult[] {
-  const weeks = fullWeeks(month);
+  // Counting starts on (2026-11-09): the weeks that ended before it are not judged.
+  const weeks = fullWeeks(month).filter((w) => !beforeCounting(facts, w.end));
   return targets.map((t) => {
     const unit = countable(t.key).unit;
     let met = 0;

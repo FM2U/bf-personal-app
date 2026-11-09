@@ -15,6 +15,7 @@ import { buildSampleData } from "@/lib/sample-data";
 import { countRealRecords } from "@/lib/sample-server";
 import type { Row } from "@/lib/types";
 import { signOffName } from "@/lib/work/names";
+import { parseDay, WORK_SETTING_KEYS } from "@/lib/work/settings";
 
 const PAGE = "/settings/data";
 
@@ -177,6 +178,17 @@ async function testDaysToClear(sb: SupabaseClient, ownerId: string): Promise<str
   return (days ?? []).map((d) => String(d.day)).filter((d) => !realDays.has(d));
 }
 
+/** Sets Counting starts on (Settings, Work settings) to today when it is not set yet; a date already saved stays. */
+async function startCountingToday(sb: SupabaseClient, ownerId: string): Promise<void> {
+  const def = WORK_SETTING_KEYS.countingStart;
+  const { data } = await sb.from("inputs").select("id,value_text").eq("owner_id", ownerId).eq("key", def.key).maybeSingle();
+  const row = data as { id: string; value_text: string | null } | null;
+  if (row && parseDay(row.value_text)) return;
+  const { today } = await loadCtx(sb, ownerId);
+  if (row) await sb.from("inputs").update({ value_text: today }).eq("id", row.id);
+  else await sb.from("inputs").insert({ owner_id: ownerId, key: def.key, label: def.label, category: "Work", unit: def.unit, description: def.description, value_text: today });
+}
+
 export async function removeSampleData() {
   // Speed plan (2026-11-07): the settings kept in the browser are read fresh on the next page.
   await forgetKeptSettings();
@@ -190,8 +202,10 @@ export async function removeSampleData() {
     const { data: gone } = await supabase.from("end_of_day").delete().eq("owner_id", user.id).in("day", clearDays).select("id");
     cleared = gone?.length ?? 0;
   }
-  revalidatePath("/", "layout");
   const total = Number((data as Row | null)?.total ?? 0);
+  // Counting starts on (Bram, 2026-11-09): real use starts now, so targets count from today, unless a date is set.
+  if (total) await startCountingToday(supabase, user.id);
+  revalidatePath("/", "layout");
   const days = cleared ? ` End of day was reset for ${cleared === 1 ? "1 test day" : `${cleared} test days`}.` : "";
   back(total ? `Sample data removed: ${total} records.${days} Your other records were not changed.${failed ? ` ${failed} document files could not be removed from storage.` : ""}` : "There was no sample data to remove.");
 }

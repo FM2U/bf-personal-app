@@ -41,3 +41,15 @@ describe("the last 4 weeks under each tile", () => {
     expect(m.kind === "marks" && m.weeks.map((w) => w.word)).toEqual(["done", "not done", "done", "done"]);
   });
 });
+
+describe("Counting starts on (Bram, 2026-11-09)", () => {
+  it("a week that ended before it keeps its place as a dash, never red", () => {
+    const t: Target = { id: "t1", name: "Network outreach", key: "outreach_contacts", cadence: "week", number: 10, commitment: true, sortOrder: 1 };
+    const h = tileHistories({ targets: [t], facts: { ...EMPTY_FACTS, from: "2026-11-02" }, weekStart: "2026-11-09", waits: [], mostLabel: "Most missed", mostName: "Network outreach" });
+    const out = h["Network outreach"];
+    expect(out.kind === "bars" && out.weeks.map((w) => `${w.value}${w.red ? " red" : ""}`)).toEqual(["–", "–", "–", "0 red"]);
+    const marks = h["Most missed"];
+    expect(marks.kind === "marks" && marks.weeks.map((w) => w.counted === false ? "dash" : w.word)).toEqual(["dash", "dash", "dash", "missed"]);
+  });
+});
+

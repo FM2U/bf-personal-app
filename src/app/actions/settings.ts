@@ -4,6 +4,7 @@ import { forgetKeptSettings } from "@/lib/kept-settings";
 import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireOwner } from "@/lib/auth";
+import { loadCtx } from "@/lib/engine/helpers";
 import { connectionChecks } from "@/lib/jobs";
 import { oauthClient } from "@/lib/google";
 import { decrypt } from "@/lib/crypto";
@@ -69,11 +70,12 @@ async function putInput(sb: SupabaseClient, ownerId: string, def: { key: string;
 }
 
 /** Work settings: waiting turns amber at (days), No reply yet after (days; push E), the weekly outreach target, the End of day time, the default block length. */
-export async function saveWorkSettings(input: { threshold: string; stalled?: string; noReply: string; outreach: string; eodTime: string; blockMinutes: string; autoSend?: boolean; workDays?: number[]; weekStart?: string; reviewDay?: string }): Promise<{ ok: true } | Fail> {
+export async function saveWorkSettings(input: { threshold: string; stalled?: string; noReply: string; outreach: string; eodTime: string; blockMinutes: string; autoSend?: boolean; workDays?: number[]; weekStart?: string; reviewDay?: string; countingStart?: string }): Promise<{ ok: true } | Fail> {
   // Speed plan (2026-11-07): the settings kept in the browser are read fresh on the next page.
   await forgetKeptSettings();
   const { supabase, ownerId } = await requireOwner();
-  const c = cleanWorkSettings(input);
+  const ctx = await loadCtx(supabase, ownerId);
+  const c = cleanWorkSettings(input, ctx.today);
   if (!c.ok) return c;
   const v = c.value;
   for (const [def, value] of [
@@ -83,6 +85,8 @@ export async function saveWorkSettings(input: { threshold: string; stalled?: str
     [WORK_SETTING_KEYS.eodTime, { value_text: v.eodTime }],
     [WORK_SETTING_KEYS.stalled, { value_number: v.stalled }],
     [WORK_SETTING_KEYS.autoSend, { value_number: v.autoSend ? 1 : 0 }],
+    // Counting starts on (2026-11-09): saved only when the card sent it; blank clears it.
+    ...(input.countingStart !== undefined ? ([[WORK_SETTING_KEYS.countingStart, { value_text: v.countingStart }]] as const) : []),
   ] as const) {
     const err = await putInput(supabase, ownerId, def, value);
     if (err) return { ok: false, error: `Not saved: ${err}` };

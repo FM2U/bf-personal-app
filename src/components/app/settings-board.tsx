@@ -42,11 +42,11 @@ function GroupHead({ children, first = false }: { children: React.ReactNode; fir
   return <p className={cn("label-caps figure-label pb-1", first ? "pt-3" : "pt-5")}>{children}</p>;
 }
 
-export type WorkSettingsValues = { threshold: number; stalled: number; noReply: number; outreach: number; eodTime: string; blockMinutes: number; autoSend: boolean; workWeek: WorkWeek };
+export type WorkSettingsValues = { threshold: number; stalled: number; noReply: number; outreach: number; eodTime: string; blockMinutes: number; autoSend: boolean; workWeek: WorkWeek; /** Counting starts on (YYYY-MM-DD) or null (2026-11-09). */ countingStart: string | null };
 
 export function WorkSettingsCard({ initial }: { initial: WorkSettingsValues }) {
   const router = useRouter();
-  const start0 = { threshold: String(initial.threshold), stalled: String(initial.stalled), autoSend: initial.autoSend, noReply: String(initial.noReply), outreach: String(initial.outreach), eodTime: initial.eodTime, blockMinutes: String(initial.blockMinutes), workDays: [...initial.workWeek.days], weekStart: String(initial.workWeek.start), reviewDay: String(initial.workWeek.review) };
+  const start0 = { threshold: String(initial.threshold), stalled: String(initial.stalled), autoSend: initial.autoSend, noReply: String(initial.noReply), outreach: String(initial.outreach), eodTime: initial.eodTime, blockMinutes: String(initial.blockMinutes), workDays: [...initial.workWeek.days], weekStart: String(initial.workWeek.start), reviewDay: String(initial.workWeek.review), countingStart: initial.countingStart ?? "" };
   const [v, setV] = useState(start0);
   const [saved, setSaved] = useState(start0);
   const [note, setNote] = useState<Note>(null);
@@ -61,13 +61,15 @@ export function WorkSettingsCard({ initial }: { initial: WorkSettingsValues }) {
     setNote(null);
     setV((x) => ({ ...x, [k]: e.target.value }));
   };
-  const set = (k: "threshold" | "stalled" | "noReply" | "outreach" | "eodTime" | "blockMinutes") => (e: React.ChangeEvent<HTMLInputElement>) => {
+  const set = (k: "threshold" | "stalled" | "noReply" | "outreach" | "eodTime" | "blockMinutes" | "countingStart") => (e: React.ChangeEvent<HTMLInputElement>) => {
     setNote(null);
     setV((x) => ({ ...x, [k]: e.target.value }));
   };
   const save = () =>
     start(async () => {
-      const r = await saveWorkSettings(v);
+      // Counting starts on is sent only when changed here, so a tab left open from before cannot clear a date set since.
+      const { countingStart, ...rest } = v;
+      const r = await saveWorkSettings(countingStart !== saved.countingStart ? { ...rest, countingStart } : rest);
       if (!r.ok) return setNote({ tone: "warn", text: r.error });
       setSaved(v);
       setNote({ tone: "ok", text: "Saved" });
@@ -151,6 +153,11 @@ export function WorkSettingsCard({ initial }: { initial: WorkSettingsValues }) {
             <option value="1">Monday</option>
             <option value="7">Sunday</option>
           </select>
+        </KV>
+        {/* Bram, 2026-11-09: targets count from this day; earlier days and weeks show grey and are never judged. */}
+        <KV label="Counting starts on" testId="work-settings-counting-start">
+          <input type="date" value={v.countingStart} onChange={set("countingStart")} className={cn(INPUT, "w-[160px]")} aria-label="Counting starts on" data-testid="work-counting-start" />
+          <span className="text-muted-foreground">{v.countingStart ? "targets count from this day; days before it show grey" : "blank: every past day counts"}</span>
         </KV>
         <GroupHead>Calendar</GroupHead>
         <KV label="Default block length" testId="work-settings-block">

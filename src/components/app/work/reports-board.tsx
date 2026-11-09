@@ -342,18 +342,19 @@ function Spark({ h }: { h: TileHistory }) {
         ? h.weeks.map((w) => (
             <div key={w.weekStart} className="flex min-w-0 flex-col items-center gap-[3px] text-[10.5px] text-muted-foreground" data-testid="tile-history-week">
               <span className="flex h-[26px] w-full items-end justify-center border-b border-rule" aria-hidden>
-                <i className={cn("block w-full max-w-[30px] rounded-t-[3px]", w.red ? "bg-status-missed-border" : "bg-[#b9cdf5]")} style={{ height: `${Math.round(w.share * 100)}%`, minHeight: w.value === "none" ? 0 : 1 }} />
+                <i className={cn("block w-full max-w-[30px] rounded-t-[3px]", w.red ? "bg-status-missed-border" : "bg-[#b9cdf5]")} style={{ height: `${Math.round(w.share * 100)}%`, minHeight: w.value === "none" || w.value === "–" ? 0 : 1 }} />
               </span>
-              <span className={cn("tabular text-xs font-semibold", w.value === "none" ? "font-medium text-slate-400" : "text-heading")}>{w.value}</span>
+              <span className={cn("tabular text-xs font-semibold", w.value === "none" || w.value === "–" ? "font-medium text-slate-400" : "text-heading")}>{w.value}</span>
               {fmtDate(w.weekStart, "MMM d")}
             </div>
           ))
         : h.weeks.map((w) => (
             <div key={w.weekStart} className="flex min-w-0 flex-col items-center gap-[3px] text-[10.5px] text-muted-foreground" data-testid="tile-history-week">
               <span className="flex h-[26px] items-center justify-center">
-                <StatusMark mark={w.done ? "met" : "missed"} size={16} testId="tile-history-mark" />
+                {/* Counting starts on (2026-11-09): a week before it shows a dash, not a mark. */}
+                {w.counted === false ? <span className="text-xs font-medium text-slate-400">–</span> : <StatusMark mark={w.done ? "met" : "missed"} size={16} testId="tile-history-mark" />}
               </span>
-              <span className="text-[10.5px] font-medium text-heading">{w.word}</span>
+              <span className={cn("text-[10.5px] font-medium", w.counted === false ? "text-slate-400" : "text-heading")}>{w.word}</span>
               {fmtDate(w.weekStart, "MMM d")}
             </div>
           ))}

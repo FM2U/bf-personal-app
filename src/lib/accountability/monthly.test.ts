@@ -91,3 +91,17 @@ describe("next month's targets", () => {
     expect(reviewListLine({ finishedOn: null, exported: false, current: false }, fmt)).toBe("Not finished · read only");
   });
 });
+
+describe("Counting starts on (Bram, 2026-11-09)", () => {
+  it("no review of a month that ended before it; the month it starts in is reviewed", () => {
+    expect(reviewMonthFor("2026-11-09", "2026-11-09")).toBeNull();
+    expect(reviewMonthFor("2026-12-01", "2026-11-09")).toEqual({ month: "2026-11-01", opensOn: "2026-12-01" });
+    expect(reviewMonthFor("2026-11-09", null)).toEqual({ month: OCT, opensOn: "2026-11-02" });
+  });
+  it("the weeks that ended before it are not judged", () => {
+    const res = monthResults(targets, { ...EMPTY_FACTS, from: "2026-10-19" }, OCT);
+    expect(res[0].weeks).toBe(fullWeeks(OCT).filter((w) => w.end >= "2026-10-19").length);
+    expect(monthSummary(monthResults(targets, { ...EMPTY_FACTS, from: "2026-11-09" }, OCT))).toBe("No full work week in this month to judge.");
+  });
+});
+

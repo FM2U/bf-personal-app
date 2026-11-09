@@ -408,6 +408,54 @@ const until = async (fn, msg, tries = 80) => {
     assert((await page.getByTestId("target-strip").first().innerText()).includes("Mon to Fri"), "the strip does not read Mon to Fri");
   });
 
+  // ---------- Counting starts on (Bram, 2026-11-09). The app runs on Thursday, Nov 5. ----------
+  const countingStart = async (value) => {
+    await open("/settings");
+    const card = page.getByTestId("work-settings");
+    await card.waitFor();
+    await card.getByTestId("work-counting-start").fill(value);
+    await card.getByTestId("work-settings-save").click();
+    await card.getByTestId("work-settings-note").waitFor({ timeout: 15000 });
+    return (await card.getByTestId("work-settings-note").innerText()).trim();
+  };
+  await step("Counting starts on: a date after today is refused; blank by default (every past week counts)", async () => {
+    await open("/settings");
+    assert((await page.getByTestId("work-counting-start").inputValue()) === "", "Counting starts on is not blank");
+    const note = await countingStart("2026-11-06");
+    assert(note.includes("no later than today"), note);
+    await open("/work/targets");
+    const row = page.locator('[data-testid=target-row][data-target="Network outreach"]');
+    assert((await row.getByTestId("target-figure-last-week").innerText()) !== "–", "Last week reads a dash with no date set");
+  });
+
+  await step("Counting starts on Mon, Nov 2: Targets shows the earlier weeks grey with 'Last week –' and no Past weeks line; Reports has no Last week pill; nothing else on the page breaks", async () => {
+    const note = await countingStart("2026-11-02");
+    assert(note.includes("Saved"), note);
+    assert((await one("select value_text from inputs where key = 'counting_start'")).value_text === "2026-11-02", "the date was not saved");
+    await open("/work/targets");
+    const row = page.locator('[data-testid=target-row][data-target="Network outreach"]');
+    assert((await row.getByTestId("target-figure-last-week").innerText()).includes("–"), await row.getByTestId("target-figure-last-week").innerText());
+    assert((await row.getByTestId("target-strip").innerText()).includes("Counting started Nov 2"), await row.getByTestId("target-strip").innerText());
+    assert(!(await page.getByTestId("past-weeks-line").count()), "the Past weeks line still shows");
+    await open("/work/reports");
+    await page.getByTestId("reports-period-this").waitFor({ timeout: 15000 });
+    assert(!(await page.getByTestId("reports-period-last").count()), "the Last week pill still shows");
+    assert(!(await page.getByTestId("past-weeks").count()), "Past weeks still shows on Reports");
+    await open("/work/end-of-day");
+    await page.getByTestId("eod-targets-note").waitFor({ timeout: 15000 });
+    await open("/work");
+    await page.getByTestId("home-right").waitFor({ timeout: 15000 });
+  });
+
+  await step("Counting starts on cleared: the past weeks count again", async () => {
+    const note = await countingStart("");
+    assert(note.includes("Saved"), note);
+    await open("/work/targets");
+    const row = page.locator('[data-testid=target-row][data-target="Network outreach"]');
+    assert(!(await row.getByTestId("target-figure-last-week").innerText()).includes("–"), "Last week still reads a dash");
+    assert(await page.getByTestId("past-weeks-line").count(), "the Past weeks line is missing");
+  });
+
   await step("No page showed an error in the browser", async () => {
     assert(errors.length === 0, errors.slice(0, 3).join("\n"));
   });

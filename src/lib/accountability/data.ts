@@ -19,7 +19,7 @@ import { firstName, partnerSettings, partnersDueOn, REPORT_SECTIONS, type Report
 import { PAST_WEEKS, pastWeekPeriodKey, weekLine, type PeriodKey } from "@/lib/accountability/periods";
 import { tileHistories, type TileHistory } from "@/lib/accountability/week-history";
 import {
-  countedDays, countIn, DEFAULT_TARGETS, dayNumbers, figure, isCountKey, judgeDay, listNames, metThisWeek, mostMissed, mostMissedIn, owedFromLastClosed, owedReasons, pastWeeks, shortName,
+  beforeCounting, countedDays, countIn, DEFAULT_TARGETS, dayNumbers, figure, isCountKey, judgeDay, listNames, metThisWeek, mostMissed, mostMissedIn, owedFromLastClosed, owedReasons, pastWeeks, shortName,
   targetView, tileEodLine, tileTargetLine, tileTargets, todayTiles, tomorrowLabel, reportTiles, weekNumbers, weekTiles, workWeekOf,
   type Cadence, type DayNumbers, type DayWait, type EodState, type Facts, type Judged, type Target, type TargetView, type WeekNumbers, type WeekTile,
 } from "@/lib/accountability/targets";
@@ -161,9 +161,20 @@ export async function loadFacts(sb: SupabaseClient, ctx: WorkCtx, since: string)
     ...openDeals.flatMap((i) => each(waitRows.byItem[String(i.id)] ?? [], { kind: "deal", name: nameOf(i), who: dealWho(i), href: recordHref({ kind: "deal", id: String(i.id) }) })),
     ...openPeople.flatMap((p) => each(waitRows.byContact[String(p.id)] ?? [], { kind: "person", name: String(p.name ?? ""), who: null, href: recordHref({ kind: "person", id: String(p.id) }) })),
   ].sort((a, b) => b.days - a.days);
-  const skippedDays = ((eods ?? []) as Row[]).map((e) => String(e.day).slice(0, 10));
+  // Counting starts on (Bram, 2026-11-09): the days before it count as not counted, like a skipped day.
+  // Each day once, and only work days, as a skipped End of day day is (so no work-day count is lowered twice).
+  const skippedDays = [...new Set([...((eods ?? []) as Row[]).map((e) => String(e.day).slice(0, 10)), ...daysBeforeCounting(since, ctx.countingStart)])];
+  facts.from = ctx.countingStart;
   const raw = { items: (items ?? []) as Row[], history: (hist ?? []) as Row[], comms: (comms ?? []) as Row[], notes: (notes ?? []) as Row[], events: (events ?? []) as Row[], people: (people ?? []) as Row[], waits: waitRows.rows, stageById, acqId: acq?.id ?? null, jobId: job?.id ?? null };
   return { facts, waits, personWaits, eachWait, skippedDays, passes, raw };
+}
+
+/** The work days from `since` up to the day before Counting starts on (none when it is not set). */
+export function daysBeforeCounting(since: string, start: string | null): string[] {
+  const out: string[] = [];
+  if (!start) return out;
+  for (let d = since, i = 0; d < start && i < 800; d = addDaysISO(d, 1), i++) if (isWorkDay(d)) out.push(d);
+  return out;
 }
 
 /** The window the screens read: 9 weeks back (the 8-week strips and four past weeks) or the start of the month, whichever is earlier. */
@@ -281,10 +292,12 @@ export function cleanEditedAt(v: unknown): Record<string, string> {
  * The reasons a skipped day still owes, asked on the next End of day only: the last closed day (sent or skipped) in
  * the past week must be the skipped one. Once a later day was sent, its End of day already asked, so nothing carries on.
  */
-export async function loadOwedFromSkipped(sb: SupabaseClient, ownerId: string, day: string): Promise<{ day: string; items: Judged[]; reasons: Record<string, string> } | null> {
+export async function loadOwedFromSkipped(sb: SupabaseClient, ownerId: string, day: string, countingStart: string | null = null): Promise<{ day: string; items: Judged[]; reasons: Record<string, string> } | null> {
   const { data } = await sb.from("end_of_day").select("day,status,judged,reasons").eq("owner_id", ownerId).in("status", ["sent", "skipped"]).lt("day", day).gte("day", addDaysISO(day, -7)).order("day", { ascending: false }).limit(1).maybeSingle();
   const r = data as Row | null;
   if (!r) return null;
+  // Counting starts on (2026-11-09): a day before it owes nothing.
+  if (countingStart && String(r.day).slice(0, 10) < countingStart) return null;
   return owedFromLastClosed({ day: String(r.day).slice(0, 10), status: String(r.status), judged: Array.isArray(r.judged) ? (r.judged as Judged[]) : [], reasons: r.reasons && typeof r.reasons === "object" && !Array.isArray(r.reasons) ? (r.reasons as Record<string, string>) : {} });
 }
 
@@ -372,7 +385,7 @@ export type EndOfDayPage = {
 /** The End of day data for a day (today by default). */
 export async function loadEndOfDay(sb: SupabaseClient, ctx: Ctx, day = ctx.today): Promise<EndOfDayPage> {
   const wctx = await loadWorkCtx(sb, ctx.ownerId);
-  const [targets, bundle, row, partners, owed, sent] = await Promise.all([loadTargets(sb, ctx.ownerId), loadFacts(sb, wctx, factsSince(day)), loadEodRow(sb, ctx.ownerId, day), loadPartners(sb, ctx.ownerId), loadOwedFromSkipped(sb, ctx.ownerId, day), loadSentCopies(sb, ctx.ownerId, day)]);
+  const [targets, bundle, row, partners, owed, sent] = await Promise.all([loadTargets(sb, ctx.ownerId), loadFacts(sb, wctx, factsSince(day)), loadEodRow(sb, ctx.ownerId, day), loadPartners(sb, ctx.ownerId), loadOwedFromSkipped(sb, ctx.ownerId, day, wctx.countingStart), loadSentCopies(sb, ctx.ownerId, day)]);
   return buildEndOfDay({ targets, bundle, row, partners, sent, owed, day, tz: ctx.tz, threshold: wctx.threshold, eodTime: wctx.eodTime, signName: signOffName(wctx.profile?.display_name), autoSend: wctx.autoSend });
 }
 
@@ -391,7 +404,9 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
   for (const t of targets) if (t.cadence === "day") weekSums[t.id] = countIn(t.key, bundle.facts, week.start, day).value;
   const tl = tomorrowLabel(day);
   const thisWeek = weekNumbers(targets, bundle.facts, week, bundle.waits, bundle.skippedDays, day);
-  const lastWeek = weekNumbers(targets, bundle.facts, workWeekOf(addDaysISO(week.start, -7)), bundle.waits, bundle.skippedDays);
+  const lastP = workWeekOf(addDaysISO(week.start, -7));
+  // Counting starts on (2026-11-09): no "Last week" comparison for a week that ended before it.
+  const lastWeek = beforeCounting(bundle.facts, lastP.end) ? null : weekNumbers(targets, bundle.facts, lastP, bundle.waits, bundle.skippedDays);
   const owedPrev = i.owed;
   const owed: ReportData["owed"] = owedPrev && owedPrev.items.length ? { dayWord: fmtDate(owedPrev.day, "EEEE"), items: owedPrev.items.map((j) => ({ id: j.targetId, text: `${j.name}: ${j.figure}`, reason: String(owedPrev.reasons[j.targetId] ?? row.reasons[`owed:${owedPrev.day}:${j.targetId}`] ?? "").trim() || null })) } : null;
   // The report's period: the day, or the week on Friday (Active this week).
@@ -566,9 +581,11 @@ export async function loadReportsPage(sb: SupabaseClient, ctx: Ctx): Promise<Rep
     }),
     { key: "month", label: monthName, period: month, lead: `${monthName} · ${fmtDate(month.start, "MMM d")} to ${fmtDate(ctx.today, "MMM d")} · this week counted so far`, words: `in ${monthName}`, last: null },
   ];
-  const periods: PeriodView[] = defs.map((d) => {
+  // Counting starts on (2026-11-09): a past week that ended before it is left out (no pill, no tiles), and nothing is
+  // compared with such a week.
+  const periods: PeriodView[] = defs.filter((d) => d.key === "this" || d.key === "month" || !beforeCounting(bundle.facts, d.period.end)).map((d) => {
     const w = weekNumbers(targets, bundle.facts, d.period, bundle.waits, bundle.skippedDays, ctx.today);
-    const prev = d.last ? weekNumbers(targets, bundle.facts, d.last, bundle.waits, bundle.skippedDays) : null;
+    const prev = d.last && !beforeCounting(bundle.facts, d.last.end) ? weekNumbers(targets, bundle.facts, d.last, bundle.waits, bundle.skippedDays) : null;
     const open = (d.key === "this" || d.key === "month") && weekOpen;
     // Edit batch C round 2 (item 6): the tiles of "How the week went", with Most missed in place of Targets met.
     const most = mostMissedIn(targets, bundle.facts, d.period, ctx.today, bundle.skippedDays, d.key === "month");
@@ -620,7 +637,7 @@ function targetRow(t: Target, bundle: FactsBundle, p: { start: string; end: stri
     let metWeeks = 0;
     for (let s = workWeekOf(p.start).start; s <= today; s = addDaysISO(s, 7)) {
       const end = workWeekOf(s).end;
-      if (end >= today) continue;
+      if (end >= today || beforeCounting(bundle.facts, end)) continue;
       weeks++;
       if (countIn(t.key, bundle.facts, s, end).value >= t.number) metWeeks++;
     }
@@ -765,7 +782,7 @@ export async function loadTargetsTile(sb: SupabaseClient, ctx: Ctx): Promise<Tar
   const notice = null;
   if (notice) return { ...empty, notice };
   const wctx = await loadWorkCtx(sb, ctx.ownerId);
-  const [targets, bundle, row, owedPrev] = await Promise.all([loadTargets(sb, ctx.ownerId), loadFacts(sb, wctx, addDaysISO(workWeekOf(ctx.today).start, -7)), loadEodRow(sb, ctx.ownerId, ctx.today), loadOwedFromSkipped(sb, ctx.ownerId, ctx.today)]);
+  const [targets, bundle, row, owedPrev] = await Promise.all([loadTargets(sb, ctx.ownerId), loadFacts(sb, wctx, addDaysISO(workWeekOf(ctx.today).start, -7)), loadEodRow(sb, ctx.ownerId, ctx.today), loadOwedFromSkipped(sb, ctx.ownerId, ctx.today, wctx.countingStart)]);
   const judged = row.status !== "open" && row.judged.length ? row.judged : judgeDay(targets, bundle.facts, ctx.today, bundle.skippedDays);
   const owed = owedReasons(judged, row.reasons).length + (owedPrev?.items.filter((j) => !String(row.reasons[`owed:${owedPrev.day}:${j.targetId}`] ?? "").trim()).length ?? 0);
   const week = workWeekOf(ctx.today);

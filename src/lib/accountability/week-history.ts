@@ -6,10 +6,10 @@
  */
 import { addDaysISO, daysBetween } from "@/lib/calc/dates";
 import { weekOf } from "@/lib/work-week";
-import { countable, judgeWeek, weekNumbers, type Facts, type Target } from "@/lib/accountability/targets";
+import { beforeCounting, countable, judgeWeek, weekNumbers, type Facts, type Target } from "@/lib/accountability/targets";
 
 export type HistoryWeek = { weekStart: string; /** Bar height share, 0 to 1. */ share: number; value: string; red: boolean };
-export type TileHistory = { kind: "bars"; weeks: HistoryWeek[] } | { kind: "marks"; weeks: { weekStart: string; done: boolean; word: string }[] };
+export type TileHistory = { kind: "bars"; weeks: HistoryWeek[] } | { kind: "marks"; weeks: { weekStart: string; done: boolean; word: string; /** False for a week that ended before Counting starts on (shown as a dash). */ counted?: boolean }[] };
 
 /** The Monday of each of the 4 weeks before `weekStart`, oldest first. */
 export function fourWeeksBefore(weekStart: string): string[] {
@@ -29,13 +29,17 @@ const bars = (rows: { weekStart: string; v: number | null; label: string; red: b
 export function tileHistories(i: { targets: readonly Target[]; facts: Facts; weekStart: string; waits: readonly { sinceDate: string | null }[]; skipped?: readonly string[]; mostLabel: string; mostName: string | null }): Record<string, TileHistory> {
   const weeks = fourWeeksBefore(i.weekStart);
   const nums = weeks.map((s) => ({ s, w: weekNumbers(i.targets, i.facts, weekOf(s), [], i.skipped ?? []) }));
+  // Counting starts on (2026-11-09): a week that ended before it keeps its place in the row, shown as a dash.
+  const off = (s: string) => beforeCounting(i.facts, weekOf(s).end);
+  const dash = (s: string) => ({ weekStart: s, v: null, label: "–", red: false });
   const out: Record<string, TileHistory> = {
-    "Deals moved": bars(nums.map(({ s, w }) => ({ weekStart: s, v: w.deals.value, label: String(w.deals.value), red: false }))),
-    "Listings screened": bars(nums.map(({ s, w }) => ({ weekStart: s, v: w.screened.value, label: String(w.screened.value), red: false }))),
-    "Network outreach": bars(nums.map(({ s, w }) => ({ weekStart: s, v: w.outreach.value, label: String(w.outreach.value), red: !!w.outreach.target && w.outreach.value < w.outreach.target }))),
-    "Follow-ups on time": bars(nums.map(({ s, w }) => (w.followUps.parts?.done ? { weekStart: s, v: w.followUps.value, label: `${w.followUps.value}%`, red: w.followUps.value < 100 } : { weekStart: s, v: null, label: "none", red: false }))),
+    "Deals moved": bars(nums.map(({ s, w }) => (off(s) ? dash(s) : { weekStart: s, v: w.deals.value, label: String(w.deals.value), red: false }))),
+    "Listings screened": bars(nums.map(({ s, w }) => (off(s) ? dash(s) : { weekStart: s, v: w.screened.value, label: String(w.screened.value), red: false }))),
+    "Network outreach": bars(nums.map(({ s, w }) => (off(s) ? dash(s) : { weekStart: s, v: w.outreach.value, label: String(w.outreach.value), red: !!w.outreach.target && w.outreach.value < w.outreach.target }))),
+    "Follow-ups on time": bars(nums.map(({ s, w }) => (off(s) ? dash(s) : w.followUps.parts?.done ? { weekStart: s, v: w.followUps.value, label: `${w.followUps.value}%`, red: w.followUps.value < 100 } : { weekStart: s, v: null, label: "none", red: false }))),
     "Days waiting on brokers": bars(
       weeks.map((s) => {
+        if (off(s)) return dash(s);
         const end = weekOf(s).end;
         const open = i.waits.filter((w) => w.sinceDate && w.sinceDate <= end).map((w) => daysBetween(w.sinceDate!, end));
         const avg = open.length ? Math.round((open.reduce((a, b) => a + b, 0) / open.length) * 10) / 10 : 0;
@@ -47,6 +51,7 @@ export function tileHistories(i: { targets: readonly Target[]; facts: Facts; wee
   if (t) {
     const yesno = countable(t.key).unit === "yesno";
     out[i.mostLabel] = { kind: "marks", weeks: weeks.map((s) => {
+      if (off(s)) return { weekStart: s, done: false, word: "not counted", counted: false };
       const done = !judgeWeek([t], i.facts, s, i.skipped ?? []).missed.length;
       return { weekStart: s, done, word: yesno ? (done ? "done" : "not done") : done ? "met" : "missed" };
     }) };

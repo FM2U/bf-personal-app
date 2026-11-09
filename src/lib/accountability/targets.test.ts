@@ -527,3 +527,42 @@ describe("Edits of Nov 5, item 4: every End of day panel row links to its record
     expect(n.contactsList.map((c) => `${c.kind} ${c.href}`)).toEqual(["email /work/deals/d1", "email /work/people/c1", "call /work/people/c1", "email null"]);
   });
 });
+
+describe("Counting starts on (Bram, 2026-11-09): days before it are not counted, weeks that ended before it are not judged", () => {
+  // Counting starts on Monday, Nov 2: the weeks before it (Oct 26 and earlier) are left out.
+  const from: Facts = { ...facts, from: "2026-11-02" };
+  it("the weekly strip shows the earlier weeks grey and judges none of them; Last week reads a dash", () => {
+    const v = targetView(byName("Network outreach"), from, FRI);
+    expect(v.strip.cells.slice(0, 7).every((c) => c.state === "off" && /before counting started/.test(c.title))).toBe(true);
+    expect(v.strip.judged).toBe(0);
+    expect(v.strip.streak).toBeNull();
+    expect(v.strip.text).toBe("Counting started Nov 2");
+    expect(v.figures[1]).toEqual({ value: "–", label: "Last week", tone: "none" });
+    // Without a date, nothing changes.
+    expect(targetView(byName("Network outreach"), facts, FRI).strip.judged).toBe(7);
+  });
+  it("from a later week: only the weeks since count, and 'met N of M' uses the weeks judged", () => {
+    const later: Facts = { ...facts, from: "2026-10-19" };
+    const v = targetView(byName("Network outreach"), later, FRI);
+    expect(v.strip.judged).toBe(2);
+    expect(v.strip.text).toMatch(/^Since Oct 19 · met \d of 2/);
+  });
+  it("Past weeks and Most missed leave out the weeks before it", () => {
+    expect(pastWeeks(targets, from, FRI)).toEqual([]);
+    expect(mostMissed(targets, from, FRI)).toBeNull();
+    const later: Facts = { ...facts, from: "2026-10-19" };
+    expect(pastWeeks(targets, later, FRI).map((w) => w.weekStart)).toEqual(["2026-10-26", "2026-10-19"]);
+    expect(mostMissed(targets, later, FRI)?.of).toBe(2);
+  });
+  it("a day before it judges nothing, so no reason is asked", () => {
+    const before = judgeDay(targets, { ...facts, from: "2026-11-05" }, WED);
+    expect(before.every((j) => !j.judged)).toBe(true);
+    expect(askedForReason(before)).toEqual([]);
+    expect(judgeDay(targets, { ...facts, from: "2026-11-04" }, WED).some((j) => j.judged)).toBe(true);
+  });
+  it("Most missed over a month counts only the weeks since", () => {
+    const m = mostMissedIn(targets, { ...facts, from: "2026-10-26" }, { start: "2026-10-01", end: FRI }, FRI, [], true);
+    expect(m?.weeks?.of).toBe(1);
+  });
+});
+

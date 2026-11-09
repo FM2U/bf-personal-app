@@ -39,6 +39,8 @@ export type KeptSettings = {
   /** Stalled after (days) or null, and Send automatically (2026-11-08). */
   st?: number | null;
   as?: boolean;
+  /** Counting starts on (YYYY-MM-DD) or null (2026-11-09). */
+  cs?: string | null;
 };
 
 export function encodeKept(k: KeptSettings): string {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanStageDefaults, cleanWorkSettings, eodCountdown, eodLong, eodShort, minutesLeftWords, parseTime } from "./settings";
+import { cleanStageDefaults, cleanWorkSettings, eodCountdown, eodLong, eodShort, minutesLeftWords, parseDay, parseTime } from "./settings";
 
 describe("Work settings (push D)", () => {
   it("reads and shows the End of day time", () => {
@@ -29,7 +29,7 @@ describe("Work settings (push D)", () => {
     expect(minutesLeftWords(1)).toBe("1 min left");
   });
   it("checks the four values", () => {
-    expect(cleanWorkSettings({ threshold: "5", noReply: "2", outreach: "10", eodTime: "17:30", blockMinutes: "60" })).toEqual({ ok: true, value: { threshold: 5, stalled: 10, noReply: 2, outreach: 10, eodTime: "17:30", blockMinutes: 60, autoSend: true } });
+    expect(cleanWorkSettings({ threshold: "5", noReply: "2", outreach: "10", eodTime: "17:30", blockMinutes: "60" })).toEqual({ ok: true, value: { threshold: 5, stalled: 10, noReply: 2, outreach: 10, eodTime: "17:30", blockMinutes: 60, autoSend: true, countingStart: null } });
     // 2026-11-08: Stalled after has its own number, more than Follow up after; Send automatically off.
     expect(cleanWorkSettings({ threshold: "5", stalled: "7", noReply: "2", outreach: "10", eodTime: "18:00", blockMinutes: "60", autoSend: false })).toMatchObject({ ok: true, value: { stalled: 7, autoSend: false } });
     expect(cleanWorkSettings({ threshold: "5", stalled: "5", noReply: "2", outreach: "10", eodTime: "18:00", blockMinutes: "60" })).toMatchObject({ ok: false, error: expect.stringMatching(/^Red after/) });
@@ -57,3 +57,16 @@ describe("Work settings (push D)", () => {
     expect(cleanStageDefaults([{ stageId: "s2", title: "a", dueInDays: "1" }], names)).toEqual({ ok: true, rows: [{ stageId: "s2", title: "a", dueInDays: 1 }] });
   });
 });
+
+describe("Counting starts on (Bram, 2026-11-09)", () => {
+  const base = { threshold: "5", noReply: "2", outreach: "10", eodTime: "18:00", blockMinutes: "60" };
+  it("takes a real date no later than today, or blank", () => {
+    expect(cleanWorkSettings({ ...base, countingStart: "2026-11-09" }, "2026-11-09")).toMatchObject({ ok: true, value: { countingStart: "2026-11-09" } });
+    expect(cleanWorkSettings({ ...base, countingStart: "" }, "2026-11-09")).toMatchObject({ ok: true, value: { countingStart: null } });
+    expect(cleanWorkSettings({ ...base, countingStart: "2026-11-10" }, "2026-11-09")).toEqual({ ok: false, error: "Counting starts on: a date no later than today." });
+    expect(cleanWorkSettings({ ...base, countingStart: "2026-02-30" }, "2026-11-09")).toMatchObject({ ok: false });
+    expect(parseDay("2026-11-09")).toBe("2026-11-09");
+    expect(parseDay("Nov 9")).toBeNull();
+  });
+});
+

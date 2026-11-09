@@ -81,7 +81,23 @@ export type Facts = {
   focusDone: { on: string; text: string }[];
   /** Push E2: a personal to-do (no record) checked off. */
   todosDone: { on: string; text: string }[];
+  /**
+   * Counting starts on (Settings, Work settings; Bram, 2026-11-09), or null/absent: every day counts. Days before it are
+   * not counted (they join the skipped days in loadFacts), and a week that ends before it is not judged.
+   */
+  from?: string | null;
 };
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** "2026-11-09" -> "Nov 9". */
+export function monthDay(day: string): string {
+  return `${MONTHS[Number(day.slice(5, 7)) - 1] ?? ""} ${Number(day.slice(8, 10))}`;
+}
+
+/** Is the day before Counting starts on (not counted)? */
+export function beforeCounting(f: Pick<Facts, "from">, day: string): boolean {
+  return !!f.from && day < f.from;
+}
 
 /** The areas next actions are done in, named as on the Area selector (src/lib/work/lanes.ts AREAS), in its order. */
 export const DONE_AREAS = ["Deals", "Contacts", "Rosara", "Job search", "Consulting"] as const;
@@ -249,7 +265,7 @@ function stripOf(t: Target, f: Facts, today: string, opts: { skippedDays?: reado
       const name = weekdayShort(d);
       const v = countIn(t.key, f, d, d).value;
       if (d > today) cells.push({ state: "future", title: `${name}: to come`, period: { start: d, end: d } });
-      else if (skipped.has(d)) cells.push({ state: "off", title: `${name}: not counted (skipped)`, period: { start: d, end: d } });
+      else if (skipped.has(d)) cells.push({ state: "off", title: beforeCounting(f, d) ? `${name}: before counting started` : `${name}: not counted (skipped)`, period: { start: d, end: d } });
       else if (d === today && !opts.judgedToday) cells.push({ state: "now", title: `${name} so far: ${figure(t, v)}`, period: { start: d, end: d } });
       else {
         judged++;
@@ -266,6 +282,11 @@ function stripOf(t: Target, f: Facts, today: string, opts: { skippedDays?: reado
   for (let i = 7; i >= 1; i--) {
     const start = addDaysISO(thisWeek.start, -7 * i);
     const p = weekOf(start);
+    // Counting starts on (2026-11-09): a week that ended before it is shown grey and not judged.
+    if (beforeCounting(f, p.end)) {
+      cells.push({ state: "off", title: `Week of ${p.start}: before counting started`, period: p });
+      continue;
+    }
     const v = countIn(t.key, f, p.start, p.end).value;
     const m = isMet(t, v);
     results.push(m);
@@ -281,7 +302,9 @@ function stripOf(t: Target, f: Facts, today: string, opts: { skippedDays?: reado
   let miss = 0;
   for (let i = results.length - 1; i >= 0 && !results[i]; i--) miss++;
   const streak = run >= 2 ? { kind: "met" as const, n: run } : miss >= 2 ? { kind: "missed" as const, n: miss } : null;
-  const text = `Last 8 weeks · met ${met} of 7${streak ? ` · ${streak.kind} ${streak.n} in a row` : ""}`;
+  // Counting starts on (2026-11-09): with fewer than 7 weeks judged, the line names the start instead of "Last 8 weeks".
+  const lead = judged < 7 && f.from ? `Since ${monthDay(f.from)}` : "Last 8 weeks";
+  const text = judged ? `${lead} · met ${met} of ${judged}${streak ? ` · ${streak.kind} ${streak.n} in a row` : ""}` : `Counting started ${monthDay(f.from ?? today)}`;
   return { cells, text, met, judged, streak };
 }
 
@@ -336,7 +359,7 @@ export function targetView(t: Target, f: Facts, today: string, opts: { skippedDa
     mark,
     figures: [
       { value: figure(t, cur.value), label: "This week", tone: isMet(t, cur.value) ? "met" : mark === "missed" ? "missed" : countable(t.key).unit === "yesno" ? "none" : "plain" },
-      { value: figure(t, last.value), label: "Last week", tone: isMet(t, last.value) ? "met" : "missed" },
+      beforeCounting(f, lastWeek.end) ? { value: "–", label: "Last week", tone: "none" } : { value: figure(t, last.value), label: "Last week", tone: isMet(t, last.value) ? "met" : "missed" },
     ],
     value: cur.value,
   };
@@ -390,7 +413,12 @@ export function shortTargetName(name: string): string {
 export function pastWeeks(targets: readonly Target[], f: Facts, today: string, skipped: readonly string[] = [], n = 4): WeekTile[] {
   const thisWeek = workWeekOf(today);
   const out: WeekTile[] = [];
-  for (let i = 1; i <= n; i++) out.push(judgeWeek(targets, f, addDaysISO(thisWeek.start, -7 * i), skipped));
+  for (let i = 1; i <= n; i++) {
+    const start = addDaysISO(thisWeek.start, -7 * i);
+    // Counting starts on (2026-11-09): the weeks that ended before it are left out (they are the oldest, at the end).
+    if (beforeCounting(f, weekOf(start).end)) break;
+    out.push(judgeWeek(targets, f, start, skipped));
+  }
   return out;
 }
 
@@ -398,14 +426,18 @@ export function pastWeeks(targets: readonly Target[], f: Facts, today: string, s
 export function mostMissed(targets: readonly Target[], f: Facts, today: string, skipped: readonly string[] = [], weeks = 7): { name: string; n: number; of: number } | null {
   const thisWeek = workWeekOf(today);
   const misses = new Map<string, number>();
+  let judged = 0;
   for (let i = 1; i <= weeks; i++) {
-    const w = judgeWeek(targets, f, addDaysISO(thisWeek.start, -7 * i), skipped);
+    const start = addDaysISO(thisWeek.start, -7 * i);
+    if (beforeCounting(f, weekOf(start).end)) break;
+    judged++;
+    const w = judgeWeek(targets, f, start, skipped);
     for (const m of w.missed) misses.set(m.name, (misses.get(m.name) ?? 0) + 1);
   }
   let best: { name: string; n: number; of: number } | null = null;
   for (const t of targets) {
     const n = misses.get(t.name) ?? 0;
-    if (n > 0 && (!best || n > best.n)) best = { name: t.name, n, of: weeks };
+    if (n > 0 && (!best || n > best.n)) best = { name: t.name, n, of: judged };
   }
   return best;
 }
@@ -426,7 +458,8 @@ export function judgeDay(targets: readonly Target[], f: Facts, day: string, skip
       const sum = countIn(t.key, f, week.start, day).value;
       line = `Per weekday · target ${t.number} · this week ${sum} of ${t.number * countedDays(day, skipped)}`;
     } else line = `Per week · target ${countable(t.key).unit === "percent" ? `${t.number}%` : t.number}${c.detail ? ` · ${c.detail}` : ""}`;
-    return { targetId: t.id, name: t.name, key: t.key, cadence: t.cadence, number: t.number, commitment: t.commitment, value: c.value, met, figure: figure(t, c.value), line, detail: c.detail, judged: judgedOn(t, day) };
+    // Counting starts on (2026-11-09): a day before it judges nothing (no misses, no reasons asked).
+    return { targetId: t.id, name: t.name, key: t.key, cadence: t.cadence, number: t.number, commitment: t.commitment, value: c.value, met, figure: figure(t, c.value), line, detail: c.detail, judged: judgedOn(t, day) && !beforeCounting(f, day) };
   });
 }
 
@@ -680,7 +713,7 @@ export function mostMissedIn(targets: readonly Target[], f: Facts, p: Period, to
     let weeks = 0;
     for (let s = workWeekOf(p.start).start; s <= today; s = addDaysISO(s, 7)) {
       const end = weekOf(s).end;
-      if (end >= today) continue;
+      if (end >= today || beforeCounting(f, end)) continue;
       weeks++;
       for (const m of judgeWeek(targets, f, s, skipped).missed) misses.set(m.name, (misses.get(m.name) ?? 0) + 1);
     }

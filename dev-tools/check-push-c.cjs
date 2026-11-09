@@ -788,8 +788,14 @@ const until = async (fn, msg, tries = 40) => {
     for (let i = 0; i < 40 && (await one("select count(*)::int n from sample_records")).n; i++) await page.waitForTimeout(500);
     const left = await one("select (select count(*)::int from sample_records) s, (select count(*)::int from time_blocks) b, (select string_agg(text, ',') from deal_todos) t");
     assert(left.s === 0 && left.b === 0 && left.t === "A real to-do of mine", JSON.stringify(left));
+    // Counting starts on (Bram, 2026-11-09): removing the sample data sets it to today.
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
+    await until(async () => (await one("select value_text from inputs where key = 'counting_start'"))?.value_text === today, "Counting starts on was not set to today");
     await page.goto(`${BASE}/work`);
     await page.getByTestId("home-calendar").waitFor();
+    await page.goto(`${BASE}/work/targets`);
+    await page.getByTestId("targets-card").waitFor();
+    assert(!(await page.getByTestId("past-weeks-line").count()), "Past weeks still shows after the sample data went");
   });
 
   if (errors.length) {
