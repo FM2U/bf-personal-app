@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { env } from "@/lib/env";
 import { connectionChecks, morningJob, ownerIds } from "@/lib/jobs";
@@ -35,6 +35,20 @@ export async function GET(req: Request, { params }: { params: Promise<{ job: str
   // Local checks only (the stand-in Google is set): ?at=<ISO time> runs the job as if it were that time.
   const at = new URL(req.url).searchParams.get("at");
   const now = at && process.env.GOOGLE_API_MOCK_URL && !Number.isNaN(Date.parse(at)) ? new Date(at) : new Date();
+  // The report timer (Supabase Cron) waits at most 5 seconds for an answer: the app answers at once and does the
+  // reminder or the send right after (2026-11-08). The local checks (?at=) wait for the result.
+  if (job === "report" && !at) {
+    after(async () => {
+      for (const id of await ownerIds(sb)) {
+        try {
+          console.log(`[report job] ${id}`, JSON.stringify(await fn(sb, id, now)));
+        } catch (e) {
+          console.log(`[report job] ${id} error`, e instanceof Error ? e.message : String(e));
+        }
+      }
+    });
+    return NextResponse.json({ job, accepted_at: new Date().toISOString() }, { status: 202 });
+  }
   const results: Record<string, unknown> = {};
   for (const id of await ownerIds(sb)) {
     try {
