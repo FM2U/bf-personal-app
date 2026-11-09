@@ -15,6 +15,8 @@ export const env = {
   plaidSecret: process.env.PLAID_SECRET ?? "",
   plaidEnv: (process.env.PLAID_ENV || "sandbox") as "sandbox" | "production",
   cronSecret: process.env.CRON_SECRET ?? "",
+  /** The report timer's own secret (2026-11-08): set for previews first, so CRON_SECRET (shared with Production) stays as it is. */
+  reportCronSecret: process.env.REPORT_CRON_SECRET ?? "",
   tokenEncryptionKey: process.env.TOKEN_ENCRYPTION_KEY ?? "",
   appUrl: (process.env.APP_URL || "http://localhost:3000").replace(/\/$/, ""),
 };

@@ -20,9 +20,10 @@ const JOBS: Record<string, (sb: Sb, ownerId: string, now: Date) => Promise<unkno
 };
 
 function authorized(req: Request): boolean {
-  if (!env.cronSecret) return false;
+  // CRON_SECRET (Vercel's own timers) or REPORT_CRON_SECRET (the Supabase timer, 2026-11-08).
   const auth = req.headers.get("authorization");
-  return auth === `Bearer ${env.cronSecret}` || req.headers.get("x-cron-secret") === env.cronSecret;
+  const given = req.headers.get("x-cron-secret");
+  return [env.cronSecret, env.reportCronSecret].some((s) => !!s && (auth === `Bearer ${s}` || given === s));
 }
 
 export async function GET(req: Request, { params }: { params: Promise<{ job: string }> }) {

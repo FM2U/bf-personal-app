@@ -192,6 +192,7 @@ It also includes 0011 to 0017, so steps 0000, 000, 00, and 0 and the database pa
 - [ ] `OWNER_EMAIL` = `bram@cyanarc.com`
 - [ ] `APP_URL` = the Vercel address, for example `https://bf-personal-app.vercel.app` (no slash at the end)
 - [ ] `CRON_SECRET` = any long random text (for example from a password manager, 40+ characters)
+- [ ] `REPORT_CRON_SECRET` = the report timer's secret (2026-11-08; added for Preview by Bram). On setup day, tick Production on it too, and point the Supabase timer at the Production address.
 - [ ] `TOKEN_ENCRYPTION_KEY` = 64 hexadecimal characters. Create with `openssl rand -hex 32` or a password manager set to hex. Never change it later.
 - [ ] Deploy. Then Redeploy once after adding any variable.
 
