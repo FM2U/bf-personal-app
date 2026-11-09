@@ -191,7 +191,7 @@ const shot = async (page, name) => {
     await page.getByTestId("report-window").waitFor();
     assert((await page.getByTestId("report-tab").count()) === 2, "a tab per partner");
     const jakeText = await page.getByTestId("report-preview").innerText();
-    assert(jakeText.includes("Hello Jake,") && /TODAY/i.test(jakeText) && /TOP 3 DEALS/i.test(jakeText), "Jake's copy");
+    assert(jakeText.includes("Hey Jake,") && /TODAY/i.test(jakeText) && /TOP 3 DEALS/i.test(jakeText), "Jake's copy");
     const included = async () => page.$$eval("[data-testid=report-section]", (els) => els.filter((e) => e.getAttribute("data-included") === "1").map((e) => e.getAttribute("data-section")));
     // Jake, today only: Job search left out, a different deal in the top 3, Waiting on brokers rewritten.
     const sec = (k) => page.locator(`[data-testid=report-section][data-section=${k}]`);
@@ -211,7 +211,7 @@ const shot = async (page, name) => {
     assert(saved && saved.include && saved.include.jobs === false && saved.top && saved.top.includes(swapIn) && saved.edits && saved.edits.waiting.includes("Mark owes"), `saved choices ${JSON.stringify(saved)}`);
     const swapName = await one("select coalesce(company_name, name) n from pipeline_items where id = $1", [swapIn]);
     await page.locator("[data-testid=report-tab][data-partner=Sarah]").click();
-    await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hello Sarah,"));
+    await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hey Sarah,"));
     const sarahIn = await included();
     // Push D: the Weekly review is one of Sarah's sections (on by default for partners who get Friday).
     assert(JSON.stringify(sarahIn) === JSON.stringify(["targets", "week", "review", "tomorrow"]), `Sarah's standing sections ${JSON.stringify(sarahIn)}`);
@@ -228,7 +228,7 @@ const shot = async (page, name) => {
     const reports = sent.filter((m) => /Daily report/.test(m.subject));
     assert(reports.length === 2 && reports.some((m) => m.to.includes("jake.morgan")) && reports.some((m) => m.to.includes("sarah.klein")), JSON.stringify(reports.map((m) => m.to)));
     const sarahMail = reports.find((m) => m.to.includes("sarah.klein"));
-    assert(sarahMail.body.includes("Hello Sarah,") && !sarahMail.body.includes("TODAY") && !sarahMail.body.includes("WAITING ON BROKERS") && sarahMail.body.includes("TARGETS") && sarahMail.body.includes("TOP 3 DEALS"), "Sarah's email has her sections and today's Top 3");
+    assert(sarahMail.body.includes("Hey Sarah,") && !sarahMail.body.includes("TODAY") && !sarahMail.body.includes("WAITING ON BROKERS") && sarahMail.body.includes("TARGETS") && sarahMail.body.includes("TOP 3 DEALS"), "Sarah's email has her sections and today's Top 3");
     const jakeMail = reports.find((m) => m.to.includes("jake.morgan"));
     assert(!jakeMail.body.includes("JOB SEARCH") && jakeMail.body.includes("Mark owes the seller call date") && jakeMail.body.includes(swapName.n), "Jake's email has today's choices");
     const rows = await all("select r.contact_id, r.gmail_thread_id, c.name from partner_reports r join contacts c on c.id = r.contact_id where r.period_start = (select max(day) from end_of_day where status = 'sent') and r.report_kind = 'end_of_day' order by c.name");

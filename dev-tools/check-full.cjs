@@ -279,7 +279,7 @@ const until = async (fn, msg, tries = 80) => {
     assert(mails.length === 3, `${mails.length} emails sent`);
     for (const a of [someone.email, saved, "just-once@example.com"]) assert(mails.some((m) => String(m.to).includes(a)), `no email to ${a}`);
     for (const m of mails) for (const t of ["this is the daily report I mentioned", "A note for the midday send.", "Tomorrow, rewritten at midday."]) assert(String(m.body).includes(t) && String(m.html).includes(t), `an email lacks "${t}"`);
-    assert(/Hello Avery,/.test(String(mails.find((m) => String(m.to).includes(saved)).body)), "the greeting does not use the new person's first name");
+    assert(/Hey Avery,/.test(String(mails.find((m) => String(m.to).includes(saved)).body)), "the greeting does not use the new person's first name");
     assert((await one("select count(*)::int n from contacts where email = $1", [saved])).n === 1, "the new address was not saved as a contact");
     assert((await one("select count(*)::int n from contacts where email = 'just-once@example.com'")).n === 0, "the address sent only was saved as a contact");
     const eod = await one("select status, report_edits::text e from end_of_day where day = (select max(day) from end_of_day)");
@@ -331,7 +331,7 @@ const until = async (fn, msg, tries = 80) => {
     await until(async () => (await page.getByTestId("sent-line").innerText()).includes("Also sent to Morgan Also"), "the sent line does not name Morgan Also", 120);
     const mails = (await g("/__sent")).slice(before);
     const extra = mails.find((m) => String(m.to).includes("also-once@example.com"));
-    assert(extra && /Hello Morgan,/.test(String(extra.body)), `no copy for the extra person: ${mails.map((m) => m.to)}`);
+    assert(extra && /Hey Morgan,/.test(String(extra.body)), `no copy for the extra person: ${mails.map((m) => m.to)}`);
     assert(mails.some((m) => String(m.to).includes("jake.morgan")), "Jake did not get the report");
     assert((await one("select status from end_of_day where day = (select max(day) from end_of_day)")).status === "sent", "Approve and send did not close the day");
   });

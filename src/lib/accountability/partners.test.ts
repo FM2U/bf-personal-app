@@ -86,7 +86,7 @@ describe("each partner's copy of the report", () => {
   };
   it("Jake gets the counts, targets, the waits, the week, and tomorrow, but not the top deals", () => {
     const html = reportInnerHtml(reportFor(base, { name: "Jake Morgan", first: "Jake", sections: jake.sections }));
-    expect(html).toContain("Hello Jake,");
+    expect(html).toContain("Hey Jake,");
     expect(html).toContain("Listings screened");
     expect(html).toContain("Summit Logistics Group");
     expect(html).not.toContain("Top 3 deals");
@@ -96,7 +96,7 @@ describe("each partner's copy of the report", () => {
   it("Sarah gets targets, the week, and Monday's line only", () => {
     const d = reportFor(base, { name: "Sarah Klein", first: "Sarah", sections: sarah.sections });
     const html = reportInnerHtml(d);
-    expect(html).toContain("Hello Sarah,");
+    expect(html).toContain("Hey Sarah,");
     expect(html).not.toContain(">Today<");
     expect(html).not.toContain("Summit Logistics Group");
     expect(html).toContain("Listings screened: 6 of 5");

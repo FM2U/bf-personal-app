@@ -209,10 +209,10 @@ describe("the batch C sample (Jake, End of day rows, work events)", () => {
     expect(replies.every((m) => c.partnerReports.some((r) => r.id === m.partner_report_id && r.contact_id === m.contact_id))).toBe(true);
     // Sarah's copy has only her sections.
     const sarahHtml = String((c.partnerReports.find((r) => r.contact_id === sarah.id)!.snapshot as { html: string }).html);
-    expect(sarahHtml).toContain("Hello Sarah,");
+    expect(sarahHtml).toContain("Hey Sarah,");
     expect(sarahHtml).not.toContain("Summit Logistics Group");
     const sent = c.endOfDay.filter((r) => r.status === "sent");
-    expect(sent.every((r) => String(r.report_html).includes("Hello Jake,") && String(r.report_html).includes("Thank you,<br>Bram") && c.partnerReports.some((p) => p.id === r.report_id))).toBe(true);
+    expect(sent.every((r) => String(r.report_html).includes("Hey Jake,") && String(r.report_html).includes("Thank you,<br>Bram") && c.partnerReports.some((p) => p.id === r.report_id))).toBe(true);
     expect(sent.every((r) => !/#(c9a227|b8860b|d4a017|daa520|caa53d)/i.test(String(r.report_html)))).toBe(true);
     // Push D: the past Friday has its Weekly review answers, and the Friday copies show them.
     const friday = c.endOfDay.find((r) => r.day === "2026-10-23")!;

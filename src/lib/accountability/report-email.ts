@@ -137,7 +137,7 @@ export function headerHtml(d: ReportData): string {
 export function greetingHtml(d: ReportData): string {
   // Send a report (Bram, 2026-11-07): a short note of your own under the greeting, for that send only.
   const intro = d.intro?.trim() ? p(escapeHtml(d.intro.trim()).replace(/\n/g, "<br>"), ";margin-bottom:2px") : "";
-  return p(`Hello ${escapeHtml(d.partnerFirst)},`, ";margin-top:12px;margin-bottom:2px") + intro + p(`Here is my report for ${escapeHtml(d.dateShort)}.${d.withWeek ? ` It is ${escapeHtml(d.dateShort.split(",")[0])}, so the week is at the end.` : ""}`);
+  return p(`Hey ${escapeHtml(d.partnerFirst)},`, ";margin-top:12px;margin-bottom:2px") + intro + p(`Here is my report for ${escapeHtml(d.dateShort)}.${d.withWeek ? ` It is ${escapeHtml(d.dateShort.split(",")[0])}, so the week is at the end.` : ""}`);
 }
 
 /** The closing; the name under "Thank you," is the Name in Settings (fix list item 10), none when not set. */
@@ -161,7 +161,7 @@ export function reportSubject(d: ReportData): string {
 
 /** The plain-text part, from the same sections. */
 export function reportText(d: ReportData): string {
-  const lines: string[] = [`Hello ${d.partnerFirst},`, "", ...(d.intro?.trim() ? [d.intro.trim(), ""] : []), `Here is my report for ${d.dateShort}.${d.withWeek ? ` It is ${d.dateShort.split(",")[0]}, so the week is at the end.` : ""}`, `${d.pill.text}.`];
+  const lines: string[] = [`Hey ${d.partnerFirst},`, "", ...(d.intro?.trim() ? [d.intro.trim(), ""] : []), `Here is my report for ${d.dateShort}.${d.withWeek ? ` It is ${d.dateShort.split(",")[0]}, so the week is at the end.` : ""}`, `${d.pill.text}.`];
   for (const s of sentSections(d)) {
     lines.push("", s.title.toUpperCase());
     if (s.note) lines.push(noteText(s.note), "");

@@ -227,7 +227,7 @@ describe("the report's numbers and the email", () => {
     d.signName = "Bram";
     const html = reportInnerHtml(d);
     expect(html).toContain("Daily report, with the week");
-    expect(html).toContain("Hello Jake,");
+    expect(html).toContain("Hey Jake,");
     expect(html).toContain("It is Friday, so the week is at the end.");
     expect(html).toContain("Commitment. Reason: Deal work filled the block");
     expect(html).toContain("(still to give)");

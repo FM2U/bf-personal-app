@@ -379,7 +379,7 @@ const until = async (fn, msg, tries = 60) => {
     await page.locator("[data-testid=report-section][data-section=review]").scrollIntoViewIfNeeded();
     await shot(page, "friday-report-preview.png");
     await page.locator("[data-testid=report-tab][data-partner=Sarah]").click();
-    await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hello Sarah,"));
+    await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hey Sarah,"));
     assert((await page.locator("[data-testid=report-section][data-section=review]").getAttribute("data-included")) === "1", "Sarah gets it");
     await page.getByTestId("report-window-close").click();
     // Sarah unticks it on her page: her copy leaves it out; ticked again, it is back.
@@ -392,7 +392,7 @@ const until = async (fn, msg, tries = 60) => {
     await page.goto(`${BASE}/work/end-of-day`);
     await page.getByTestId("report-view").click();
     await page.locator("[data-testid=report-tab][data-partner=Sarah]").click();
-    await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hello Sarah,"));
+    await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hey Sarah,"));
     assert((await page.locator("[data-testid=report-section][data-section=review]").getAttribute("data-included")) === "0", "left out for Sarah");
     await page.getByTestId("report-window-close").click();
     await page.goto(`${BASE}/work/people/${sarah}`);

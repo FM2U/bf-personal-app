@@ -173,7 +173,7 @@ const auto = async (day) => ((await one("select report_edits from end_of_day whe
     const jake = mails.find((m) => String(m.to).includes("jake.morgan"));
     const riley = mails.find((m) => String(m.to).includes("auto-advisor@example.com"));
     assert(jake && riley, `sent to ${mails.map((m) => m.to)}`);
-    assert(String(jake.body).includes("Riley, this is my daily report.") && /Hello Riley,/.test(String(riley.body)), "the note or the greeting is missing");
+    assert(String(jake.body).includes("Riley, this is my daily report.") && /Hey Riley,/.test(String(riley.body)), "the note or the greeting is missing");
     const row = await one("select status, report_edits from end_of_day where day = $1", [day]);
     assert(row.status === "sent", `the day is ${row.status}`);
     assert(!row.report_edits?._extras, "Also send to was not cleared after its send");

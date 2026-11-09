@@ -912,7 +912,7 @@ const until = async (fn, msg, tries = 60) => {
     await page.getByTestId("report-view").click();
     await win().waitFor();
     await page.locator("[data-testid=report-tab][data-partner=Jake]").click();
-    await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hello Jake,"));
+    await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hey Jake,"));
     // Every section with Edit has + Note, Tomorrow's line too.
     const sections = await win().getByTestId("report-section").evaluateAll((els) => els.filter((e) => e.dataset.included === "1").map((e) => [e.dataset.section, !!e.querySelector("[data-testid=section-edit]"), e.querySelector("[data-testid=section-note-open]")?.textContent]));
     assert(sections.length >= 5 && sections.every(([, edit, note]) => !edit || note === "+ Note"), JSON.stringify(sections));
@@ -948,7 +948,7 @@ const until = async (fn, msg, tries = 60) => {
   await step("+ Note: a note sits above Edit's text too; the Targets note shows in Sarah's tab (one note for every copy); in her tab a left-out section shows 'Left out today, note not sent'", async () => {
     await addNote("targets", TARGETS_NOTE);
     await page.locator("[data-testid=report-tab][data-partner=Sarah]").click();
-    await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hello Sarah,"));
+    await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hey Sarah,"));
     assert((await wsec("targets").getByTestId("section-note").innerText()).includes(TARGETS_NOTE), "Sarah's tab shows the Targets note typed in Jake's tab");
     assert((await wsec("top").getAttribute("data-included")) === "0", "Top 3 is not one of Sarah's sections");
     assert((await wsec("top").innerText()).includes("Left out today, note not sent"), await wsec("top").innerText());
@@ -961,7 +961,7 @@ const until = async (fn, msg, tries = 60) => {
     assert((await notesInDb()).targets === TARGETS_NOTE, "the Targets note is kept");
     // A typed edit with a note: the note follows the edited text.
     await page.locator("[data-testid=report-tab][data-partner=Jake]").click();
-    await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hello Jake,"));
+    await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hey Jake,"));
     await wsec("targets").getByTestId("section-edit").click();
     await wsec("targets").getByTestId("section-edit-text").fill("Targets\n  - Two CIMs to screen first thing");
     await wsec("targets").getByTestId("section-edit-save").click();
@@ -1005,11 +1005,11 @@ const until = async (fn, msg, tries = 60) => {
     await box.waitFor();
     assert((await box.innerText()).includes("before you switch to Sarah's copy"), await box.innerText());
     await page.getByTestId("unsaved-discard").click();
-    await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hello Sarah,"));
+    await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hey Sarah,"));
     await page.waitForTimeout(600);
     assert(!("tomorrow" in (await notesInDb())), "Discard saved nothing");
     await page.locator("[data-testid=report-tab][data-partner=Jake]").click();
-    await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hello Jake,"));
+    await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hey Jake,"));
     // An Edit typed and not saved asks the same way.
     await wsec("targets").getByTestId("section-edit").click();
     await wsec("targets").getByTestId("section-edit-text").fill("Targets\n  - Typed in Edit, not saved");
@@ -1022,7 +1022,7 @@ const until = async (fn, msg, tries = 60) => {
     await page.getByTestId("report-view").click();
     await win().waitFor();
     await page.locator("[data-testid=report-tab][data-partner=Jake]").click();
-    await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hello Jake,"));
+    await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hey Jake,"));
     assert(!(await wsec("targets").innerText()).includes("Typed in Edit, not saved"), "the discarded Edit is gone");
     await wsec("tomorrow").getByTestId("section-note-open").click();
     await wsec("tomorrow").getByTestId("section-note-text").fill("Saved from the question.");
@@ -1043,7 +1043,7 @@ const until = async (fn, msg, tries = 60) => {
     await page.getByTestId("report-view").click();
     await win().waitFor();
     await page.locator("[data-testid=report-tab][data-partner=Jake]").click();
-    await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hello Jake,"));
+    await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hey Jake,"));
     await wsec("tomorrow").getByTestId("section-note-open").click();
     await wsec("tomorrow").getByTestId("section-note-text").fill("Typed just before sending.");
     await page.getByTestId("report-window-send").click();
