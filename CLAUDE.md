@@ -7,9 +7,13 @@ to-dos) plus Accountability (targets, End of day report to partners, weekly and 
 ## Start every session
 
 - Read the newest `claude/*-session-handoff.md` in the claude.ai Project first. It is last
-  session's snapshot, not the current state: before advising on the preview, ask Bram for today's
-  day, whether End of day is sent, and whether sample data is loaded.
-- Work on branch `final-app`. Never touch `main` before setup day.
+  session's snapshot, not the current state: before advising on the live app, ask Bram for today's
+  day and whether today's End of day is sent.
+- Work on branch `final-app`. It is the live branch (Vercel Production Branch since 2026-11-09):
+  every push goes live within minutes, so push only after all checks pass and Bram's yes.
+  `main` holds the old app; never touch it.
+- If a release breaks the live app: Vercel, Deployments, the last good Production deployment, ⋯,
+  Instant Rollback. Never set Production Branch back to `main`.
 
 ## Commands
 
@@ -45,10 +49,11 @@ to-dos) plus Accountability (targets, End of day report to partners, weekly and 
 
 ## Never
 
-- Touch `main`, Production settings, or the old database before setup day.
+- Touch `main` or the old database (bf-personal-app). Change Vercel or Supabase settings only with
+  Bram, step by step.
 - Put keys in chat or in commits.
 - Commit a builder's half-done work.
-- Change the preview database; Bram runs the update files himself.
+- Change the live database (bf-personal-app-final); Bram runs the update files himself.
 
 ## Working with Bram
 
