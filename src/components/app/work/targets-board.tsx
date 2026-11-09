@@ -26,6 +26,8 @@ const SMALL_INPUT = "h-[30px] rounded-[6px] border border-input bg-white px-2 te
 const LABEL = "text-xs font-medium text-muted-foreground";
 /** The fixed figure column (the alignment rule): "19 of 25" at 13.5px semibold, "THIS WEEK" in small caps. */
 const FIG = "w-[82px]";
+/** The Weekend figure's column (2026-11-09): a plain number and "WEEKEND". */
+const FIG_WEEKEND = "w-[60px] sm:w-[72px]";
 const GRID = ROW_GRIDS.target;
 
 export function TargetsBoard({ data, adding = false }: { data: TargetsPage; adding?: boolean }) {
@@ -149,8 +151,9 @@ function TargetRow({ t }: { t: TargetView }) {
       </div>
       <StatusMark mark={t.mark} className="justify-self-start" />
       <div className="flex items-end gap-x-5 whitespace-nowrap sm:gap-x-6" data-row-right>
-        {t.figures.map((f) => (
-          <Figure key={f.label} value={f.value} label={f.label} tone={f.tone === "met" ? "plain" : f.tone === "missed" ? "red" : f.tone === "none" ? "none" : "plain"} className={cn(FIG, f.tone === "met" && "[&>b]:text-status-met")} testId={`target-figure-${f.label.replace(/\s/g, "-").toLowerCase()}`} />
+        {/* Bram, 2026-11-09: WEEKEND in the middle of every row, a plain number (never judged). */}
+        {[t.figures[0], t.weekend, t.figures[1]].map((f) => (
+          <Figure key={f.label} value={f.value} label={f.label} tone={f.tone === "met" ? "plain" : f.tone === "missed" ? "red" : f.tone === "none" ? "none" : "plain"} className={cn(f === t.weekend ? FIG_WEEKEND : FIG, f.tone === "met" && "[&>b]:text-status-met")} testId={`target-figure-${f.label.replace(/\s/g, "-").toLowerCase()}`} />
         ))}
       </div>
       <div className="col-span-2 flex items-center justify-between gap-3.5 border-t border-slate-100 pt-2 whitespace-nowrap sm:col-span-1 sm:border-t-0 sm:pt-0" data-col="buttons">

@@ -86,6 +86,24 @@ export function weekOf(date: string, w: WorkWeek = current): { start: string; en
   return { start, end };
 }
 
+/**
+ * The first day counted toward a week's totals (Bram, 2026-11-09): the day after the previous week's last work day, so
+ * work done on the days off between two weeks (Saturday and Sunday for Mon to Fri) counts toward the coming week. With
+ * every day a work day it is the week's start day. `weekStart` is the week's start day.
+ */
+export function weekCountFrom(weekStart: string, w: WorkWeek = current): string {
+  return addDays(weekOf(addDays(weekStart, -1), w).end, 1);
+}
+
+/**
+ * "This week" for a day (Bram, 2026-11-09): the week that holds it, or, on a day off after that week's last work day
+ * (Saturday and Sunday for Mon to Fri), the coming week, since that day's work counts toward it.
+ */
+export function thisWeekOf(date: string, w: WorkWeek = current): { start: string; end: string } {
+  const week = weekOf(date, w);
+  return date > week.end ? weekOf(nextWorkDay(date, w), w) : week;
+}
+
 /** The work days from start to end (both included). */
 export function workDaysIn(start: string, end: string, w: WorkWeek = current): string[] {
   const out: string[] = [];

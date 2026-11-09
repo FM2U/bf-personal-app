@@ -44,8 +44,8 @@ export const TARGET_TEXT_GAP = { px: 48 } as const;
  * and `textMargin` the text cell's right margin: together they make TARGET_TEXT_GAP (48px) before the mark.
  */
 export const ROW_GRIDS = {
-  /** Targets: the text, the status mark (22px), the two figures (82px each, 24px apart), the Commitment switch and Edit. */
-  target: { cls: "sm:grid-cols-[minmax(0,1fr)_22px_188px_202px]", gap: 16, gapCls: "sm:gap-x-4", textMargin: 32, textMarginCls: "sm:mr-8" },
+  /** Targets: the text, the status mark (22px), the figures (82px, Weekend 72px, 82px, 24px apart), the Commitment switch and Edit. */
+  target: { cls: "sm:grid-cols-[minmax(0,1fr)_22px_284px_202px]", gap: 16, gapCls: "sm:gap-x-4", textMargin: 32, textMarginCls: "sm:mr-8" },
   /** End of day (its Targets rows and the "Owed from" rows): the text, the status mark (22px), the figure (82px). */
   eodTarget: { cls: "grid-cols-[minmax(0,1fr)_22px_82px]", gap: 16, gapCls: "gap-x-4", textMargin: 32, textMarginCls: "mr-8" },
   /** The Monthly review's How the month went: the text, the status mark (22px), Weeks met (82px), and Average (86px; under Weeks met on the phone). */

@@ -6,7 +6,7 @@
  * records (the contacts table); the next follow-up date and what it is for are the contact's follow_up_date and
  * follow_up_note.
  */
-import { weekOf } from "@/lib/work-week";
+import { thisWeekOf } from "@/lib/work-week";
 import { addDaysISO, daysBetween } from "@/lib/calc/dates";
 
 export const OUTREACH_ROLES = [
@@ -174,7 +174,8 @@ export const DEFAULT_OUTREACH_TARGET = 10;
 /** Monday to Friday of the week that holds `today` (YYYY-MM-DD, inclusive). */
 export function workWeek(today: string): { start: string; end: string } {
   // The work week from Settings (2026-11-08): the week's start day to its last work day (Monday to Friday unless changed).
-  return weekOf(today);
+  // On a day off after the week's last work day, the coming week (Bram, 2026-11-09).
+  return thisWeekOf(today);
 }
 
 /** "email", "call", "meeting", "video call", "text" for the LAST CONTACT figure. */

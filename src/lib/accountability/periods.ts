@@ -40,5 +40,7 @@ export function weekSpan(start: string, end: string): string {
  */
 export function weekLine(week: { start: string; end: string }, i: { thisWeek: boolean; open?: boolean; today?: string }): string {
   if (!i.thisWeek) return `Week of ${weekSpan(week.start, week.end)}`;
+  // On a day off before the week's first work day (2026-11-09): the week is the coming one, already counting that day's work.
+  if (i.today && i.today < week.start) return `This week, ${weekSpan(week.start, week.end)} · starts ${fmtDate(week.start, "EEEE")}, weekend work counted`;
   return `This week, ${weekSpan(week.start, week.end)}${i.open && i.today ? ` · partial, through today, ${fmtDate(i.today, "EEE MMM d")}` : ""}`;
 }

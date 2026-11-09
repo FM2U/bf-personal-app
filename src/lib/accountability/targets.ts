@@ -8,7 +8,7 @@
  * Nothing here reads the database: src/lib/accountability/data.ts loads the facts and calls these.
  */
 import { addDaysISO } from "@/lib/calc/dates";
-import { dayLong, isWeekJudgedOn, isWorkDay, nextWorkDay, weekOf, workDaysIn, workDaysLabel } from "@/lib/work-week";
+import { dayLong, isWeekJudgedOn, isWorkDay, nextWorkDay, thisWeekOf, weekCountFrom, weekOf, workDaysIn, workDaysLabel } from "@/lib/work-week";
 import { weekdayShort } from "@/lib/work/outreach";
 
 // ---------- What a target counts ----------
@@ -112,6 +112,20 @@ const isContact = (m: string) => m === "email" || isCall(m);
 /** A count for one key over a period: the value the target is judged on, plus what makes it up. */
 type Count = { value: number; /** "2 passed, 1 Interested", "12 of 14", "Dalton, Meridian". */ detail: string; names: string[]; /** For percent keys: how many were done and how many on time. */ parts?: { done: number; onTime: number } };
 
+/**
+ * A week's count (Bram, 2026-11-09): from the day after the previous week's last work day (Saturday for Mon to Fri)
+ * through the week's last work day, so weekend work counts toward the coming week. `p` is a week (start day to end).
+ */
+export function weekCount(key: CountKey, f: Facts, p: { start: string; end: string }): Count {
+  return countIn(key, f, weekFrom(f, p.start), p.end);
+}
+
+/** The first day a week's totals count from: the day after the previous week's last work day, never before Counting starts on. */
+export function weekFrom(f: Pick<Facts, "from">, weekStart: string): string {
+  const d = weekCountFrom(weekStart);
+  return f.from && f.from > d ? f.from : d;
+}
+
 /** Counts one key between two dates (inclusive, YYYY-MM-DD). */
 export function countIn(key: CountKey, f: Facts, start: string, end: string): Count {
   switch (key) {
@@ -144,7 +158,8 @@ export function countIn(key: CountKey, f: Facts, start: string, end: string): Co
       return { value: rows.length, detail: listNames(names), names };
     }
     case "outreach_contacts": {
-      const rows = f.comms.filter((c) => !!c.contactId && isContact(c.method) && inRange(c.on, start, end) && isWorkDay(c.on));
+      // Weekend outreach counts too (Bram, 2026-11-09: weekend work counts toward the coming week).
+      const rows = f.comms.filter((c) => !!c.contactId && isContact(c.method) && inRange(c.on, start, end));
       const names = [...new Set(rows.map((r) => r.contactName ?? "").filter(Boolean))];
       return { value: rows.length, detail: listNames(names), names };
     }
@@ -194,9 +209,30 @@ function dayName(date: string): string {
 
 type Period = { start: string; end: string };
 
-/** The week that holds the date, from its start day to its last work day (Monday to Friday unless changed in Settings). */
+/**
+ * The week that holds the date, from its start day to its last work day (Monday to Friday unless changed in Settings);
+ * on a day off after that last work day, the coming week (Bram, 2026-11-09: weekend work counts toward it).
+ */
 export function workWeekOf(date: string): Period {
-  return weekOf(date);
+  return thisWeekOf(date);
+}
+
+/**
+ * The Weekend figure (Bram, 2026-11-09): what was done on the days off counted toward the week (Saturday and Sunday
+ * for Mon to Fri), up to today, never before Counting starts on; null when the week has no days off. A plain number:
+ * a count, the follow-ups done for a percent target, 1 or 0 for a yes/no one.
+ */
+export function weekendCount(key: CountKey, f: Facts, week: Period, today: string): number | null {
+  const off: string[] = [];
+  for (let d = weekCountFrom(week.start); d <= week.end; d = addDaysISO(d, 1)) if (!isWorkDay(d)) off.push(d);
+  if (!off.length) return null;
+  let n = 0;
+  for (const d of off) {
+    if (d > today || beforeCounting(f, d)) continue;
+    const c = countIn(key, f, d, d);
+    n += countable(key).unit === "percent" ? (c.parts?.done ?? 0) : c.value;
+  }
+  return countable(key).unit === "yesno" ? Math.min(n, 1) : n;
 }
 
 /** The period a target is judged on for a date: that day, or Monday to Friday of its week. */
@@ -274,7 +310,7 @@ function stripOf(t: Target, f: Facts, today: string, opts: { skippedDays?: reado
         cells.push({ state: m ? "met" : "missed", title: `${name}: ${figure(t, v)}`, period: { start: d, end: d } });
       }
     }
-    const text = `${workDaysLabel()} · met ${met} of ${judged} ${judged === 1 ? "day" : "days"}${today <= week.end ? " so far" : ""}`;
+    const text = today < week.start ? `${workDaysLabel()} · starts ${dayLong(week.start)}` : `${workDaysLabel()} · met ${met} of ${judged} ${judged === 1 ? "day" : "days"}${today <= week.end ? " so far" : ""}`;
     return { cells, text, met, judged, streak: null };
   }
   const thisWeek = workWeekOf(today);
@@ -287,14 +323,14 @@ function stripOf(t: Target, f: Facts, today: string, opts: { skippedDays?: reado
       cells.push({ state: "off", title: `Week of ${p.start}: before counting started`, period: p });
       continue;
     }
-    const v = countIn(t.key, f, p.start, p.end).value;
+    const v = weekCount(t.key, f, p).value;
     const m = isMet(t, v);
     results.push(m);
     if (m) met++;
     judged++;
     cells.push({ state: m ? "met" : "missed", title: `Week of ${p.start}: ${figure(t, v)}`, period: p });
   }
-  const v = countIn(t.key, f, thisWeek.start, thisWeek.end).value;
+  const v = weekCount(t.key, f, thisWeek).value;
   // Met as soon as the week's count reaches the target (Edit batch C round 2); missed only after Friday's End of day.
   cells.push({ state: isMet(t, v) ? "met" : (opts.judgedToday && isWeekJudgedOn(today)) || today > thisWeek.end ? "missed" : "now", title: `This week so far: ${figure(t, v)}`, period: thisWeek });
   let run = 0;
@@ -321,6 +357,8 @@ export type TargetView = Target & {
   mark: Mark;
   /** Today and This week (per weekday), or This week and Last week (per week). */
   figures: [Fig, Fig];
+  /** Between the two (Bram, 2026-11-09): the Weekend figure, a plain number ("–" when the week has no days off). */
+  weekend: Fig;
   /** The figure the mark is about. */
   value: number;
 };
@@ -328,28 +366,33 @@ export type TargetView = Target & {
 export function targetView(t: Target, f: Facts, today: string, opts: { skippedDays?: readonly string[]; judgedToday?: boolean } = {}): TargetView {
   const strip = stripOf(t, f, today, opts);
   const week = workWeekOf(today);
+  const wk = weekendCount(t.key, f, week, today);
+  const weekend: Fig = { value: wk === null ? "–" : String(wk), label: "Weekend", tone: "plain" };
   if (t.cadence === "day") {
     const todayCount = countIn(t.key, f, today, today).value;
-    const weekSum = countIn(t.key, f, week.start, week.end).value;
+    const weekSum = weekCount(t.key, f, week).value;
     const counted = countedDays(today, opts.skippedDays ?? []);
     const required = t.number * counted;
     const mark = markOf(t, todayCount, today, today, opts.judgedToday);
+    // A day off asks for nothing (2026-11-09): Today is a plain number, and before the week's first work day so is This week.
+    const workDay = isWorkDay(today);
     return {
       ...t,
       line: countsLine(t),
       pill: targetPill(t),
       strip,
-      mark: isWorkDay(today) ? mark : markOf(t, weekSum, week.end, today),
+      mark: workDay ? mark : counted ? markOf(t, weekSum, week.end, today) : "now",
       figures: [
-        { value: figure(t, todayCount), label: "Today", tone: isMet(t, todayCount) ? "met" : mark === "missed" ? "missed" : "plain" },
-        { value: `${weekSum} of ${required}`, label: "This week", tone: weekSum >= required && counted > 0 ? "met" : "plain" },
+        workDay ? { value: figure(t, todayCount), label: "Today", tone: isMet(t, todayCount) ? "met" : mark === "missed" ? "missed" : "plain" } : { value: String(todayCount), label: "Today", tone: "plain" },
+        counted ? { value: `${weekSum} of ${required}`, label: "This week", tone: weekSum >= required ? "met" : "plain" } : { value: String(weekSum), label: "This week", tone: "plain" },
       ],
+      weekend,
       value: todayCount,
     };
   }
-  const cur = countIn(t.key, f, week.start, week.end);
+  const cur = weekCount(t.key, f, week);
   const lastWeek = weekOf(addDaysISO(week.start, -7));
-  const last = countIn(t.key, f, lastWeek.start, lastWeek.end);
+  const last = weekCount(t.key, f, lastWeek);
   const mark = markOf(t, cur.value, week.end, today, opts.judgedToday && isWeekJudgedOn(today));
   return {
     ...t,
@@ -357,6 +400,7 @@ export function targetView(t: Target, f: Facts, today: string, opts: { skippedDa
     pill: targetPill(t),
     strip,
     mark,
+    weekend,
     figures: [
       { value: figure(t, cur.value), label: "This week", tone: isMet(t, cur.value) ? "met" : mark === "missed" ? "missed" : countable(t.key).unit === "yesno" ? "none" : "plain" },
       beforeCounting(f, lastWeek.end) ? { value: "–", label: "Last week", tone: "none" } : { value: figure(t, last.value), label: "Last week", tone: isMet(t, last.value) ? "met" : "missed" },
@@ -376,7 +420,7 @@ export function metThisWeek(targets: readonly Target[], f: Facts, today: string,
   const week = workWeekOf(today);
   const names: string[] = [];
   for (const t of targets) {
-    const v = countIn(t.key, f, week.start, week.end).value;
+    const v = weekCount(t.key, f, week).value;
     const required = t.cadence === "day" ? t.number * countedDays(today, skipped) : t.number;
     if (v >= required && (t.cadence !== "day" || required > 0)) names.push(t.name);
   }
@@ -394,7 +438,7 @@ export function judgeWeek(targets: readonly Target[], f: Facts, weekStart: strin
   const missed: { name: string; figure: string }[] = [];
   let met = 0;
   for (const t of targets) {
-    const v = countIn(t.key, f, weekStart, end).value;
+    const v = countIn(t.key, f, weekFrom(f, weekStart), end).value;
     const required = t.cadence === "day" ? t.number * days : t.number;
     if (v >= required) met++;
     else missed.push({ name: t.name, figure: t.cadence === "day" ? `${v} of ${required}` : countable(t.key).unit === "yesno" ? "not done" : figure(t, v) });
@@ -450,16 +494,18 @@ export function judgeDay(targets: readonly Target[], f: Facts, day: string, skip
   const week = workWeekOf(day);
   return targets.map((t) => {
     const p = periodOf(t, day);
-    const c = countIn(t.key, f, p.start, p.end);
+    const c = t.cadence === "day" ? countIn(t.key, f, p.start, p.end) : weekCount(t.key, f, p);
     const met = isMet(t, c.value);
     let line: string;
     if (t.cadence === "day") {
       // The week so far, up to the day being judged.
-      const sum = countIn(t.key, f, week.start, day).value;
+      const sum = countIn(t.key, f, weekFrom(f, week.start), day).value;
       line = `Per weekday · target ${t.number} · this week ${sum} of ${t.number * countedDays(day, skipped)}`;
     } else line = `Per week · target ${countable(t.key).unit === "percent" ? `${t.number}%` : t.number}${c.detail ? ` · ${c.detail}` : ""}`;
-    // Counting starts on (2026-11-09): a day before it judges nothing (no misses, no reasons asked).
-    return { targetId: t.id, name: t.name, key: t.key, cadence: t.cadence, number: t.number, commitment: t.commitment, value: c.value, met, figure: figure(t, c.value), line, detail: c.detail, judged: judgedOn(t, day) && !beforeCounting(f, day) };
+    // Counting starts on (2026-11-09): a day before it judges nothing (no misses, no reasons asked). A day off asks
+    // nothing of a per-weekday target: a plain number, never Met or Missed (Bram, 2026-11-09).
+    const off = t.cadence === "day" && !isWorkDay(day);
+    return { targetId: t.id, name: t.name, key: t.key, cadence: t.cadence, number: t.number, commitment: t.commitment, value: c.value, met: off ? false : met, figure: off ? String(c.value) : figure(t, c.value), line, detail: c.detail, judged: judgedOn(t, day) && !beforeCounting(f, day) };
   });
 }
 
@@ -543,7 +589,7 @@ export function tileTargets(targets: readonly Target[], max = 3): Target[] {
 // ---------- The report's numbers (End of day email, Reports) ----------
 
 type TileStatus = "met" | "soon" | "missed" | "neutral";
-export type ReportTile = { label: string; value: string; small?: string; note: string; status: TileStatus; pct: number | null };
+export type ReportTile = { label: string; value: string; small?: string; note: string; status: TileStatus; pct: number | null; /** Monday's report (2026-11-09): the weekend's number under a hairline; set on every tile or none. */ weekend?: string };
 
 export type DayNumbers = {
   screened: Count;
@@ -573,6 +619,29 @@ export type DayNumbers = {
   actionsDoneList: { name: string; label: string; area: DoneArea; href?: string | null }[];
 };
 
+/**
+ * Monday's report (Bram, 2026-11-09): on a work day right after days off (Saturday and Sunday for Mon to Fri), each
+ * Today tile gets the number done on those days ("Weekend 10"), never before Counting starts on. Every tile gets one,
+ * so the tiles stay the same height; none when nothing was done on those days. Never judged.
+ */
+export function withWeekend(tiles: readonly ReportTile[], f: Facts, day: string): ReportTile[] {
+  if (!isWorkDay(day)) return [...tiles];
+  const off: string[] = [];
+  for (let d = addDaysISO(day, -1), i = 0; i < 6 && !isWorkDay(d); d = addDaysISO(d, -1), i++) if (!beforeCounting(f, d)) off.push(d);
+  if (!off.length) return [...tiles];
+  const sum = (key: CountKey) => off.reduce((a, d) => a + countIn(key, f, d, d).value, 0);
+  const by: Record<string, number> = {
+    "Listings screened": sum("listings_screened"),
+    "Deals moved": f.moves.filter((m) => off.includes(m.on)).length,
+    "Next actions done": sum("next_actions_done"),
+    Calls: sum("calls_logged"),
+    Emails: sum("emails_sent"),
+    "Network outreach": sum("outreach_contacts"),
+  };
+  if (!Object.values(by).some((v) => v > 0)) return [...tiles];
+  return tiles.map((t) => ({ ...t, weekend: t.label in by ? String(by[t.label]) : "–" }));
+}
+
 /** One open wait as End of day lists it; `href` is the deal or person page (edits of Nov 5). */
 export type DayWait = { name: string; days: number; who: string | null; what: string | null; since: string | null; kind?: "deal" | "person"; href?: string | null };
 
@@ -590,7 +659,7 @@ export function dayNumbers(f: Facts, day: string, waits: DayNumbers["allWaits"],
     calls: countIn("calls_logged", f, day, day),
     emails: countIn("emails_sent", f, day, day),
     outreachToday: countIn("outreach_contacts", f, day, day),
-    outreachWeek: countIn("outreach_contacts", f, week.start, week.end),
+    outreachWeek: weekCount("outreach_contacts", f, week),
     actionsDone: countIn("next_actions_done", f, day, day),
     actionsByArea: DONE_AREAS.map((area) => ({ area, count: done.filter((x) => x.area === area).length })).filter((a) => a.count > 0),
     todosDone: { value: todos.length, list: todos.map((t) => t.text) },
@@ -630,10 +699,10 @@ export function todayStrip(n: DayNumbers, threshold: number): TodayPart[] {
 const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
 
 /** The Today tiles of the report: Listings screened, Deals moved, Next actions done, Calls, Emails, Network outreach. */
-export function todayTiles(n: DayNumbers, targets: readonly Target[]): ReportTile[] {
+export function todayTiles(n: DayNumbers, targets: readonly Target[], /** A day off asks for nothing: no "of 5", no color (2026-11-09). */ workDay = true): ReportTile[] {
   const tOf = (key: CountKey) => targets.find((t) => t.key === key) ?? null;
   const tile = (label: string, value: number, t: Target | null, note: string, noTargetNote = note): ReportTile => {
-    if (!t || t.cadence !== "day") return { label, value: String(value), note: noTargetNote, status: "neutral", pct: null };
+    if (!t || t.cadence !== "day" || !workDay) return { label, value: String(value), note: noTargetNote, status: "neutral", pct: null };
     return { label, value: String(value), small: `of ${t.number}`, note, status: value >= t.number ? "met" : "missed", pct: clamp((value / t.number) * 100) };
   };
   const out: ReportTile[] = [];
@@ -650,14 +719,16 @@ export function todayTiles(n: DayNumbers, targets: readonly Target[]): ReportTil
 export type WeekNumbers = { period: Period; targetsMet: { met: number; total: number; names: string[]; missedNames: string[] }; deals: Count; screened: Count; outreach: { value: number; target: number | null }; followUps: Count; waitAverage: { days: number; n: number; longest: { name: string; days: number } | null } };
 
 /** The figures of a week (or any period) for Reports and the Friday email. */
-export function weekNumbers(targets: readonly Target[], f: Facts, p: Period, waits: DayNumbers["allWaits"], skipped: readonly string[] = [], today?: string): WeekNumbers {
+export function weekNumbers(targets: readonly Target[], f: Facts, p: Period, waits: DayNumbers["allWaits"], skipped: readonly string[] = [], today?: string, /** A month, not a week: counted from its first day. */ month = false): WeekNumbers {
+  // A week counts from the day after the previous week's last work day (weekend work counts toward the coming week).
+  const from = month ? p.start : weekFrom(f, p.start);
   // A per-weekday target is judged against the weekdays counted so far (up to today, less the skipped days), as the Targets card does.
   const upTo = today && today < p.end ? { start: p.start, end: today } : p;
   const days = Math.max(1, weekdaysIn(upTo) - skipped.filter((d) => d >= upTo.start && d <= upTo.end).length);
   const names: string[] = [];
   const missedNames: string[] = [];
   for (const t of targets) {
-    const v = countIn(t.key, f, p.start, p.end).value;
+    const v = countIn(t.key, f, from, p.end).value;
     const required = t.cadence === "day" ? t.number * days : t.number;
     if (v >= required) names.push(t.name);
     else missedNames.push(t.name);
@@ -668,10 +739,10 @@ export function weekNumbers(targets: readonly Target[], f: Facts, p: Period, wai
   return {
     period: p,
     targetsMet: { met: names.length, total: targets.length, names, missedNames },
-    deals: countIn("deals_moved", f, p.start, p.end),
-    screened: countIn("listings_screened", f, p.start, p.end),
-    outreach: { value: countIn("outreach_contacts", f, p.start, p.end).value, target: outreach && outreach.cadence === "week" ? outreach.number : null },
-    followUps: countIn("follow_ups_on_time", f, p.start, p.end),
+    deals: countIn("deals_moved", f, from, p.end),
+    screened: countIn("listings_screened", f, from, p.end),
+    outreach: { value: countIn("outreach_contacts", f, from, p.end).value, target: outreach && outreach.cadence === "week" ? outreach.number : null },
+    followUps: countIn("follow_ups_on_time", f, from, p.end),
     waitAverage: { days: avg, n: waits.length, longest: longest ? { name: longest.name, days: longest.days } : null },
   };
 }
@@ -724,11 +795,13 @@ export function mostMissedIn(targets: readonly Target[], f: Facts, p: Period, to
     }
     return best;
   }
+  // Before the week's first work day (a weekend, 2026-11-09) nothing is behind yet.
+  if (today < p.start) return null;
   const upTo = today < p.end ? { start: p.start, end: today } : p;
   const days = Math.max(1, weekdaysIn(upTo) - skipped.filter((d) => d >= upTo.start && d <= upTo.end).length);
   let best: MostMissedIn = null;
   for (const t of targets) {
-    const v = countIn(t.key, f, p.start, p.end).value;
+    const v = weekCount(t.key, f, p).value;
     const required = t.cadence === "day" ? t.number * days : t.number;
     if (required <= 0 || v >= required) continue;
     const share = v / required;
@@ -744,7 +817,7 @@ export function mostMissedIn(targets: readonly Target[], f: Facts, p: Period, to
  * last week's figure instead of the names, and Most missed names the target without its figure (the figure is in the
  * Targets card). `open`: the period is still being counted, so nothing reads as missed yet.
  */
-export function reportTiles(w: WeekNumbers, last: WeekNumbers | null, most: MostMissedIn, opts: { label: string; open: boolean; month?: boolean }): ReportTile[] {
+export function reportTiles(w: WeekNumbers, last: WeekNumbers | null, most: MostMissedIn, opts: { label: string; open: boolean; month?: boolean; /** A weekend before the week's first work day (2026-11-09). */ notStarted?: boolean }): ReportTile[] {
   const lastLine = (n: number | null) => (last && n !== null ? `Last week ${n}` : "");
   const tiles: ReportTile[] = [
     { label: "Deals moved", value: String(w.deals.value), note: lastLine(last ? last.deals.value : null), status: "neutral", pct: null },
@@ -755,7 +828,9 @@ export function reportTiles(w: WeekNumbers, last: WeekNumbers | null, most: Most
     // Counts only (no names): the people are on Outreach and in the Waiting card, so nothing repeats.
     { label: "Follow-ups on time", value: `${w.followUps.value}%`, note: w.followUps.parts?.done ? `${w.followUps.parts.onTime} of ${w.followUps.parts.done} on time` : "None due", status: w.followUps.parts?.done ? (w.followUps.value >= 100 ? "met" : opts.open ? "neutral" : "missed") : "neutral", pct: w.followUps.parts?.done ? clamp(w.followUps.value) : null },
     { label: "Days waiting on brokers", value: w.waitAverage.n ? w.waitAverage.days.toFixed(1) : "0", note: w.waitAverage.n ? `Average of ${w.waitAverage.n} open ${w.waitAverage.n === 1 ? "wait" : "waits"}` : "No open waits", status: "neutral", pct: null },
-    most
+    opts.notStarted
+      ? { label: opts.label, value: "–", note: "The week starts Monday", status: "neutral", pct: null }
+      : most
       ? { label: opts.label, value: shortTargetName(most.name), note: most.weeks ? `Missed ${most.weeks.missed} of ${most.weeks.of} weeks` : opts.open ? "Furthest behind so far" : "Furthest behind", status: opts.open ? "neutral" : "missed", pct: null }
       : { label: opts.label, value: "None", note: opts.open ? "Every target met so far" : "Every target met", status: opts.open ? "neutral" : "met", pct: null },
   ];

@@ -16,7 +16,7 @@
  */
 import { addDaysISO } from "@/lib/calc/dates";
 import { isWorkDay, weekOf, weekStartOf } from "@/lib/work-week";
-import { beforeCounting, countable, countIn, type Cadence, type Facts, type Target } from "@/lib/accountability/targets";
+import { beforeCounting, countable, countIn, weekFrom, type Cadence, type Facts, type Target } from "@/lib/accountability/targets";
 
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
@@ -124,13 +124,16 @@ export function monthResults(targets: readonly Target[], facts: Facts, month: st
     for (const w of weeks) {
       let counted = 0;
       let perDay = 0;
-      for (let d = w.start; d <= w.end; d = addDaysISO(d, 1)) {
+      // A week counts from the day after the previous week's last work day (Bram, 2026-11-09: weekend work counts
+      // toward the coming week); the days off before the week add their work but are not days the target asks for.
+      const from = weekFrom(facts, w.start);
+      for (let d = from; d <= w.end; d = addDaysISO(d, 1)) {
         if (skipped.includes(d)) continue;
-        counted++;
+        if (d >= w.start) counted++;
         if (t.cadence === "day") perDay += countIn(t.key, facts, d, d).value;
       }
       // A per-weekday target counts only the days counted; a per-week one counts the whole week.
-      const value = t.cadence === "day" && unit === "count" ? perDay : countIn(t.key, facts, w.start, w.end).value;
+      const value = t.cadence === "day" && unit === "count" ? perDay : countIn(t.key, facts, from, w.end).value;
       const need = t.cadence === "day" && unit === "count" ? t.number * counted : t.number;
       if (value >= need && (t.cadence !== "day" || counted > 0)) met++;
       total += value;

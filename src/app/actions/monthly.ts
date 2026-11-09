@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { addDaysISO } from "@/lib/calc/dates";
 import { requireOwner } from "@/lib/auth";
 import { DB_UPDATE_NOTICE_PUSH_D, isMissingSchemaError } from "@/lib/schema-guard";
 import { loadFacts, loadTargets } from "@/lib/accountability/data";
@@ -33,7 +34,8 @@ export async function finishMonthlyReview(slug: string, input: { id: string; num
   const next = cleanNextTargets(input, targets);
   if (!next.ok) return next;
   // How the month went, counted before the targets change (the copy kept on the review).
-  const bundle = await loadFacts(sb, wctx, month);
+  // From a week before the month: its first week counts from the days off before it (2026-11-09).
+  const bundle = await loadFacts(sb, wctx, addDaysISO(month, -7));
   const results = monthResults(targets, bundle.facts, month, bundle.skippedDays);
   for (const t of next.rows) {
     const was = targets.find((x) => x.id === t.targetId);

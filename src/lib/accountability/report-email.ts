@@ -35,6 +35,8 @@ function tile(t: ReportTile): string {
     `<div style="font-size:19px;line-height:24px;font-weight:bold;white-space:nowrap;color:${color}">${escapeHtml(t.value)}${t.small ? ` <span style="font-size:12px;font-weight:normal;color:${C.muted}">${escapeHtml(t.small)}</span>` : ""}</div>` +
     (t.pct !== null ? barHtml(t.pct, t.status) : "") +
     (t.note ? `<div style="font-size:11px;line-height:15px;color:${C.muted}">${escapeHtml(t.note)}</div>` : "") +
+    // Monday's report (Bram, 2026-11-09): the weekend's number under a hairline, in the small gray of "of 5", the number bold.
+    (t.weekend !== undefined ? `<div data-weekend="1" style="margin-top:6px;padding-top:4px;border-top:1px solid ${C.border};font-size:12px;line-height:16px;color:${C.muted}">Weekend <b>${escapeHtml(t.weekend)}</b></div>` : "") +
     `</td></tr></table></div>`
   );
 }
@@ -182,6 +184,7 @@ export function reportText(d: ReportData): string {
 export function targetLine(j: Judged, weekSum: number | null, countedDays = 5): string {
   if (j.key === "rosara_focus_done") return `${j.name.replace(/\s+done$/i, "")}: ${j.met ? "done" : j.judged ? "not done" : "not yet"}`;
   const base = `${j.name}: ${j.figure}`;
+  if (j.cadence === "day" && weekSum !== null && countedDays === 0) return `${j.name}: ${j.value} today, ${weekSum} this week`;
   return j.cadence === "day" && weekSum !== null ? `${base} today, ${weekSum} of ${j.number * Math.max(1, countedDays)} this week` : base;
 }
 

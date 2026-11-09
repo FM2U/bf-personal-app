@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanWorkWeek, DEFAULT_WORK_WEEK, fromKept, isReviewDay, isWeekJudgedOn, isWorkDay, keepWorkWeek, nextWorkDay, setWorkWeek, weekOf, weekStartOf, workDaysIn, workDaysLabel, workWeekFromProfile } from "./work-week";
+import { cleanWorkWeek, DEFAULT_WORK_WEEK, fromKept, isReviewDay, isWeekJudgedOn, isWorkDay, keepWorkWeek, nextWorkDay, setWorkWeek, weekCountFrom, weekOf, weekStartOf, workDaysIn, workDaysLabel, workWeekFromProfile } from "./work-week";
 import { countedDays, judgeDay, judgeWeek, tomorrowLabel, type Facts, type Target } from "./accountability/targets";
 import { partnerSettings } from "./accountability/partners";
 import { fullWeeks } from "./accountability/monthly";
@@ -69,3 +69,20 @@ describe("the work week (design B, 2026-11-07)", () => {
     expect(fullWeeks("2026-11-01")[0]).toEqual({ start: "2026-11-02", end: "2026-11-07" });
   });
 });
+
+describe("weekend work counts toward the coming week (Bram, 2026-11-09)", () => {
+  it("a week counts from the day after the previous week's last work day", () => {
+    // Mon to Fri: the week of Mon Nov 9 counts from Sat Nov 7.
+    expect(weekCountFrom("2026-11-09")).toBe("2026-11-07");
+    // Every day a work day: the week's own start.
+    setWorkWeek({ days: [1, 2, 3, 4, 5, 6, 7], start: 1, review: 5 });
+    expect(weekCountFrom("2026-11-09")).toBe("2026-11-09");
+    // Mon to Fri with the week starting Sunday: from the Saturday before.
+    setWorkWeek({ days: [1, 2, 3, 4, 5], start: 7, review: 5 });
+    expect(weekCountFrom("2026-11-08")).toBe("2026-11-07");
+    // Mon, Wed, Fri: from Saturday too.
+    setWorkWeek({ days: [1, 3, 5], start: 1, review: 5 });
+    expect(weekCountFrom("2026-11-09")).toBe("2026-11-07");
+  });
+});
+

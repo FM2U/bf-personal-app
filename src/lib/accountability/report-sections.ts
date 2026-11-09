@@ -266,7 +266,7 @@ export function blocksText(blocks: readonly Block[]): string {
 }
 
 export function tilesText(tiles: readonly ReportTile[]): string {
-  return tiles.map((t) => `${t.label}: ${t.value}${t.small ? ` ${t.small}` : ""}${t.note ? ` (${t.note})` : ""}`).join("\n");
+  return tiles.map((t) => `${t.label}: ${t.value}${t.small ? ` ${t.small}` : ""}${t.note ? ` (${t.note})` : ""}${t.weekend !== undefined ? ` · Weekend ${t.weekend}` : ""}`).join("\n");
 }
 
 /** Whether the partner gets a section as a standing choice. "moved" (before the push B edits) reads as Active. */

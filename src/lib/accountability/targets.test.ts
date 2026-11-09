@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  askedForReason, DONE_AREAS, judgedMark, mostMissedIn, reportTiles, MARK_WORD, countIn, todayStrip, countedDays, DEFAULT_TARGETS, dayNumbers, EMPTY_FACTS, judgeDay, judgeWeek, metThisWeek, mostMissed, noReasonText, owedFromLastClosed, owedReasons, pastWeeks, reportSummary, sendChecklist, targetView, tileEodLine, tileTargetLine, tileTargets, todayTiles, tomorrowLabel, weekNumbers, weekTiles, workWeekOf,
+  askedForReason, weekCount, weekendCount, withWeekend, workWeekOf as thisWeekFor, DONE_AREAS, judgedMark, mostMissedIn, reportTiles, MARK_WORD, countIn, todayStrip, countedDays, DEFAULT_TARGETS, dayNumbers, EMPTY_FACTS, judgeDay, judgeWeek, metThisWeek, mostMissed, noReasonText, owedFromLastClosed, owedReasons, pastWeeks, reportSummary, sendChecklist, targetView, tileEodLine, tileTargetLine, tileTargets, todayTiles, tomorrowLabel, weekNumbers, weekTiles, workWeekOf,
   type Facts, type Target,
 } from "./targets";
 import { pillOf, reportInnerHtml, reportSubject, reportText, targetGroup, targetLine, type ReportData } from "./report-email";
@@ -64,12 +64,12 @@ describe("counting from the facts", () => {
     expect(c.detail).toBe("2 passed (Too small, Retail), 1 Interested: Industrial Filtration Distributor");
     expect(countIn("listings_screened", facts, "2026-11-02", "2026-11-06").value).toBe(19);
   });
-  it("counts brokers once each, emails, calls, and outreach on weekdays only", () => {
+  it("counts brokers once each, emails, calls, and outreach (weekend outreach counts too, 2026-11-09)", () => {
     expect(countIn("brokers_contacted", facts, "2026-11-02", FRI)).toMatchObject({ value: 2, detail: "Carla Jenkins, Rachel Kim" });
     expect(countIn("emails_sent", facts, FRI, FRI)).toMatchObject({ value: 2 });
     expect(countIn("calls_logged", facts, FRI, FRI)).toMatchObject({ value: 2, detail: "Priya Natarajan, Carla Jenkins" });
-    // The email with no person and the Sunday email do not count toward outreach.
-    expect(countIn("outreach_contacts", facts, "2026-11-01", FRI).value).toBe(5);
+    // The email with no person does not count toward outreach; the Sunday email does (Bram, 2026-11-09).
+    expect(countIn("outreach_contacts", facts, "2026-11-01", FRI).value).toBe(6);
   });
   it("follow-ups on time as a percent, with the late ones named; 100% when none were due", () => {
     expect(countIn("follow_ups_on_time", facts, "2026-11-02", FRI)).toMatchObject({ value: 67, detail: "2 of 3 · one late: Mark Reed", parts: { done: 3, onTime: 2 } });
@@ -87,7 +87,7 @@ describe("judging: weekday versus weekly, the status mark", () => {
   it("judgeDay on a Wednesday judges the weekday targets only; on Friday every target", () => {
     const wed = judgeDay(targets, facts, WED);
     expect(wed.find((j) => j.name === "Listings screened")).toMatchObject({ value: 4, met: false, judged: true, figure: "4 of 5", line: "Per weekday · target 5 · this week 11 of 15" });
-    expect(wed.find((j) => j.name === "Network outreach")).toMatchObject({ judged: false, value: 5 });
+    expect(wed.find((j) => j.name === "Network outreach")).toMatchObject({ judged: false, value: 6 });
     expect(askedForReason(wed).map((j) => j.name)).toEqual(["Listings screened"]);
     const fri = judgeDay(targets, facts, FRI);
     expect(fri.filter((j) => j.judged)).toHaveLength(6);
@@ -133,7 +133,7 @@ describe("the strip, the figures, Past weeks, Most missed", () => {
     expect(v.figures.map((f) => `${f.label} ${f.value}`)).toEqual(["Today 3 of 5", "This week 19 of 25"]);
     expect(v.mark).toBe("now");
     const w = targetView(byName("Network outreach"), facts, FRI);
-    expect(w.figures.map((f) => `${f.label} ${f.value} ${f.tone}`)).toEqual(["This week 5 of 10 plain", "Last week 1 of 10 missed"]);
+    expect(w.figures.map((f) => `${f.label} ${f.value} ${f.tone}`)).toEqual(["This week 6 of 10 plain", "Last week 1 of 10 missed"]);
     expect(targetView(byName("Network outreach"), facts, FRI, { judgedToday: true }).mark).toBe("missed");
     expect(targetView(byName("Deals moved a stage"), facts, FRI).mark).toBe("met");
   });
@@ -180,14 +180,14 @@ describe("the report's numbers and the email", () => {
   it("the Today tiles follow the targets (a bar only where a per-weekday target exists)", () => {
     const tiles = todayTiles(n, targets);
     expect(tiles.map((t) => `${t.label} ${t.value}${t.small ? ` ${t.small}` : ""} ${t.status}`)).toEqual(["Listings screened 3 of 5 missed", "Deals moved 1 neutral", "Next actions done 2 neutral", "Calls 2 neutral", "Emails 2 neutral", "Network outreach 3 missed"]);
-    expect(tiles[5].note).toBe("5 of 10 this week");
+    expect(tiles[5].note).toBe("6 of 10 this week");
     expect(n.waits.map((w) => w.name)).toEqual(["Summit Logistics Group", "Pinecrest Landscaping"]);
   });
   it("the week tiles and the deals bullets", () => {
     const w = weekNumbers(targets, facts, workWeekOf(FRI), waits);
     const last = weekNumbers(targets, facts, { start: "2026-10-26", end: "2026-10-30" }, waits);
     const tiles = weekTiles(w, last);
-    expect(tiles.map((t) => `${t.label} ${t.value}${t.small ? ` ${t.small}` : ""}`)).toEqual(["Targets met 1 of 6", "Deals moved 3", "Listings screened 19", "Network outreach 5 of 10", "Follow-ups on time 67%", "Days waiting on brokers 6.3"]);
+    expect(tiles.map((t) => `${t.label} ${t.value}${t.small ? ` ${t.small}` : ""}`)).toEqual(["Targets met 1 of 6", "Deals moved 3", "Listings screened 19", "Network outreach 6 of 10", "Follow-ups on time 67%", "Days waiting on brokers 6.3"]);
     expect(tiles[0].note).toBe("Missed: Listings, Brokers and 3 more");
     expect(tiles[1].note).toBe("Dalton, Meridian and 1 more");
     expect(tiles[5].note).toBe("3 open waits · Summit 11 days");
@@ -563,6 +563,79 @@ describe("Counting starts on (Bram, 2026-11-09): days before it are not counted,
   it("Most missed over a month counts only the weeks since", () => {
     const m = mostMissedIn(targets, { ...facts, from: "2026-10-26" }, { start: "2026-10-01", end: FRI }, FRI, [], true);
     expect(m?.weeks?.of).toBe(1);
+  });
+});
+
+describe("weekend work (Bram, 2026-11-09): counts toward the coming week; Weekend column; Weekend in Monday's tiles", () => {
+  const MON = "2026-11-09";
+  const SUN = "2026-11-08";
+  const wk: Facts = {
+    ...EMPTY_FACTS,
+    screened: [...[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((i) => ({ on: SUN, outcome: "passed" as const, name: `Sun ${i}`, reason: null })), { on: MON, outcome: "passed", name: "Mon 1", reason: null }],
+    moves: [{ on: "2026-11-07", name: "Dalton Services", from: "CIM review", to: "Seller call", keyFinding: null, lane: "Deals" }],
+    comms: [{ on: SUN, method: "email", contactId: "p1", contactName: "Priya", broker: false }, { on: SUN, method: "email", contactId: "p2", contactName: "Tom", broker: false }],
+    actionsDone: [{ on: SUN, name: "Dalton Services", label: "Send the NDA", area: "Deals" }],
+  };
+  it("the week of Mon Nov 9 counts Saturday and Sunday; Monday's own day does not", () => {
+    expect(weekCount("listings_screened", wk, { start: MON, end: "2026-11-13" }).value).toBe(11);
+    expect(weekCount("deals_moved", wk, { start: MON, end: "2026-11-13" }).value).toBe(1);
+    expect(weekCount("listings_screened", wk, { start: "2026-11-02", end: "2026-11-06" }).value).toBe(0);
+    expect(weekCount("listings_screened", { ...wk, from: MON }, { start: MON, end: "2026-11-13" }).value).toBe(1);
+  });
+  it("on Saturday and Sunday, This week is the coming week", () => {
+    expect(thisWeekFor(SUN)).toEqual({ start: MON, end: "2026-11-13" });
+    expect(thisWeekFor("2026-11-07")).toEqual({ start: MON, end: "2026-11-13" });
+    expect(thisWeekFor("2026-11-06")).toEqual({ start: "2026-11-02", end: "2026-11-06" });
+  });
+  it("Targets on Monday: Today 1 of 5, Weekend 10, This week 11 of 5", () => {
+    const v = targetView(byName("Listings screened"), wk, MON);
+    expect([v.figures[0], v.weekend, v.figures[1]].map((f) => `${f.label} ${f.value}`)).toEqual(["Today 1 of 5", "Weekend 10", "This week 11 of 5"]);
+    expect(weekendCount("deals_moved", wk, { start: MON, end: "2026-11-13" }, MON)).toBe(1);
+  });
+  it("Targets on Sunday: plain numbers, nothing asked, Weekend so far; the strip says when the week starts", () => {
+    // As it stands on Sunday: nothing from Monday yet.
+    const sun: Facts = { ...wk, screened: wk.screened.filter((x) => x.on <= SUN) };
+    const v = targetView(byName("Listings screened"), sun, SUN);
+    expect([v.figures[0], v.weekend, v.figures[1]].map((f) => `${f.label} ${f.value} ${f.tone}`)).toEqual(["Today 10 plain", "Weekend 10 plain", "This week 10 plain"]);
+    expect(v.mark).toBe("now");
+    expect(v.strip.text).toBe("Mon to Fri · starts Monday");
+    const w = targetView(byName("Network outreach"), sun, SUN);
+    expect([w.figures[0], w.weekend, w.figures[1]].map((f) => `${f.label} ${f.value}`)).toEqual(["This week 2 of 10", "Weekend 2", "Last week 0 of 10"]);
+  });
+  it("Monday's report: every tile gets the weekend's number; none when nothing was done; none on Tuesday", () => {
+    const tiles = todayTiles(dayNumbers(wk, MON, [], 5), targets);
+    const t = withWeekend(tiles, wk, MON);
+    expect(t.map((x) => `${x.label} ${x.weekend}`)).toEqual(["Listings screened 10", "Deals moved 1", "Next actions done 1", "Calls 0", "Emails 2", "Network outreach 2"]);
+    expect(withWeekend(tiles, EMPTY_FACTS, MON).some((x) => x.weekend !== undefined)).toBe(false);
+    expect(withWeekend(tiles, wk, "2026-11-10").some((x) => x.weekend !== undefined)).toBe(false);
+    expect(withWeekend(tiles, { ...wk, from: MON }, MON).some((x) => x.weekend !== undefined)).toBe(false);
+    // A day off asks for nothing: the tiles of a Sunday report have no "of 5" and no color.
+    expect(todayTiles(dayNumbers(wk, SUN, [], 5), targets, false)[0]).toMatchObject({ value: "10", status: "neutral", pct: null });
+    expect(judgeDay(targets, wk, MON).find((j) => j.name === "Listings screened")?.value).toBe(1);
+  });
+  it("the email: 'Weekend 10' under a hairline in each tile, and in the text", () => {
+    const d: ReportData = {
+      partnerName: "Jake Morgan", partnerFirst: "Jake", dateLong: "Monday, Nov 9, 2026", dateShort: "Monday, Nov 9", withWeek: false,
+      pill: { text: "1 of 6 targets met", status: "missed" }, today: withWeekend(todayTiles(dayNumbers(wk, MON, [], 5), targets), wk, MON),
+      targets: [], owed: null, waits: [], threshold: 5, deals: [], jobs: [], period: "today", week: null, tomorrow: { label: "Tomorrow", text: null },
+    };
+    const html = reportInnerHtml(d);
+    expect(html.match(/data-weekend="1"/g)?.length).toBe(6);
+    expect(html).toContain("Weekend <b>10</b>");
+    expect(reportText(d)).toContain("Listings screened: 1 of 5 (1 passed) · Weekend 10");
+    expect(reportInnerHtml({ ...d, today: todayTiles(dayNumbers(wk, MON, [], 5), targets) })).not.toContain("data-weekend");
+  });
+});
+
+describe("a day off asks nothing (Bram, 2026-11-09)", () => {
+  it("a per-weekday target on a Sunday is a plain number, never Met; a yes/no Weekend is 1 at most", () => {
+    const sun = judgeDay(targets, { ...EMPTY_FACTS, screened: [1, 2, 3, 4, 5, 6].map((i) => ({ on: "2026-11-08", outcome: "passed" as const, name: `S${i}`, reason: null })) }, "2026-11-08");
+    expect(sun.find((j) => j.name === "Listings screened")).toMatchObject({ value: 6, met: false, judged: false, figure: "6" });
+    const focus: Facts = { ...EMPTY_FACTS, focusDone: [{ on: "2026-11-07", text: "A" }, { on: "2026-11-08", text: "B" }] };
+    expect(weekendCount("rosara_focus_done", focus, { start: "2026-11-09", end: "2026-11-13" }, "2026-11-09")).toBe(1);
+  });
+  it("Most missed waits for the week's first work day", () => {
+    expect(mostMissedIn(targets, EMPTY_FACTS, { start: "2026-11-09", end: "2026-11-13" }, "2026-11-08")).toBeNull();
   });
 });
 

@@ -8,6 +8,8 @@ import type { Ctx } from "@/lib/engine/helpers";
 import { date as fmtDate } from "@/lib/format";
 import { isValidEmail } from "@/lib/email-address";
 import { DEFAULT_OUTREACH_TARGET, normalizeRole, outreachSections, parsePurposes, roleLabel, workWeek, type PurposeKey } from "@/lib/work/outreach";
+import { weekCountFrom } from "@/lib/work-week";
+import { readWorkInputs, workInputs } from "@/lib/work/data";
 import { commKind, commTitle, type TimelineEvent } from "@/lib/work/timeline";
 import { nextReportDay, partnerSettings, type ReportSectionKey } from "@/lib/accountability/partners";
 import { RECORD_TASK_COLUMNS, sortTodos, toDealTodo, type DealTodo } from "@/lib/work/todos";
@@ -103,18 +105,26 @@ async function loadOutreachTarget(sb: SupabaseClient, ownerId: string): Promise<
 
 type OutreachCounter = { count: number; target: number; pct: number };
 
-/** The weekly counter: emails sent and calls logged to people, on the work days of this week (the owner's dates). */
+/**
+ * The weekly counter: emails sent and calls logged to people this week (the owner's dates), counted from the day after
+ * the previous week's last work day (Bram, 2026-11-09: weekend work counts toward the coming week), as the target is.
+ */
 async function loadOutreachCounter(sb: SupabaseClient, ctx: Ctx): Promise<OutreachCounter> {
-  const { start, end } = workWeek(ctx.today);
-  const [{ data }, target] = await Promise.all([
+  const week = workWeek(ctx.today);
+  const start = weekCountFrom(week.start);
+  const end = week.end;
+  const [{ data }, target, { data: inputs }] = await Promise.all([
     sb.from("communications").select("occurred_at,method,direction,contact_id,awaiting_log").eq("owner_id", ctx.ownerId).gte("occurred_at", `${start}T00:00:00Z`).limit(2000),
     loadOutreachTarget(sb, ctx.ownerId),
+    readWorkInputs(sb, ctx.ownerId),
   ]);
+  // Never before Counting starts on (2026-11-09), as the Targets page counts.
+  const countingStart = workInputs((inputs ?? []) as Row[]).countingStart;
   // Counted by the same function as the Network outreach target (Edit batch C, item 6), so the counter, the target, and
   // End of day always agree.
   const { facts } = buildFacts({ items: [], history: [], comms: (data ?? []) as Row[], events: [], people: [], stageById: {}, laneOf: {}, since: start, local: (ts) => todayInTz(ctx.tz, new Date(ts)) });
   const t = Number.isFinite(target) && target > 0 ? Math.round(target) : DEFAULT_OUTREACH_TARGET;
-  const count = countIn("outreach_contacts", facts, start, end).value;
+  const count = countIn("outreach_contacts", facts, countingStart && countingStart > start ? countingStart : start, end).value;
   return { count, target: t, pct: Math.min(100, Math.round((count / t) * 100)) };
 }
 

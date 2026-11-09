@@ -21,6 +21,8 @@ export function endOfDayLines(p: EndOfDayPage): string[] {
     `network outreach: ${n.outreachToday.value} today, ${n.outreachWeek.value} this week`,
     `next actions done: ${n.actionsDone.value}${n.actionsByArea?.length ? ` (by area: ${n.actionsByArea.map((a) => `${a.area} ${a.count}`).join(", ")})` : ""}${n.actionsDone.detail ? ` (${n.actionsDone.detail})` : ""}`,
     `to-dos done: ${n.todosDone?.value ?? 0}`,
+    // Monday (2026-11-09): what was done on the days off just before today, counted toward the week, never judged.
+    ...(p.report.today.some((t) => t.weekend !== undefined) ? [`weekend before today (not judged): ${p.report.today.map((t) => `${t.label.toLowerCase()} ${t.weekend ?? "–"}`).join(", ")}`] : []),
     ...n.waits.map((w) => `${w.kind === "person" ? "waiting on person" : "waiting on broker"}: ${w.name}, ${w.days} days${w.who ? `, ${w.who}` : ""}${w.what ? `, for ${w.what}` : ""}`),
     ...p.judged.map((j) => `target: ${j.name} | ${j.line} | ${MARK_WORD[judgedMark(j)].toLowerCase()} ${j.figure}${j.commitment ? " | commitment" : ""}${p.reasons[j.targetId] ? ` | reason given: ${p.reasons[j.targetId]}` : ""}`),
     `tomorrow line: ${p.tomorrow.trim() || "(empty)"}`,
@@ -31,7 +33,7 @@ export function endOfDayLines(p: EndOfDayPage): string[] {
 export function targetsLines(p: TargetsPage): string[] {
   return [
     `week: ${p.weekLabel}; ${p.targets.length} targets, ${p.commitments} commitments`,
-    ...p.targets.map((t) => `target: ${t.name} | ${t.line} | ${t.figures[0].label.toLowerCase()} ${t.figures[0].value}, ${t.figures[1].label.toLowerCase()} ${t.figures[1].value} | ${MARK_WORD[t.mark].toLowerCase()} | ${t.strip.text}${t.commitment ? " | commitment" : ""}`),
+    ...p.targets.map((t) => `target: ${t.name} | ${t.line} | ${t.figures[0].label.toLowerCase()} ${t.figures[0].value}, weekend ${t.weekend.value}, ${t.figures[1].label.toLowerCase()} ${t.figures[1].value} | ${MARK_WORD[t.mark].toLowerCase()} | ${t.strip.text}${t.commitment ? " | commitment" : ""}`),
     ...p.past.map((w) => `past week of ${w.weekStart}: ${w.met} of ${w.total} met${w.missed.length ? `; missed ${w.missed.map((m) => `${m.name} ${m.figure}`).join(", ")}` : ""}`),
     ...(p.mostMissed ? [`most missed: ${p.mostMissed.name}, ${p.mostMissed.n} of the last ${p.mostMissed.of} weeks`] : []),
   ];

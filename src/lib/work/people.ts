@@ -6,7 +6,8 @@
  */
 import { daysBetween } from "@/lib/calc/dates";
 import type { FilterGroup } from "@/lib/filters";
-import { outreachSectionOf, purposeLabel, workWeek, type OutreachRole } from "@/lib/work/outreach";
+import { outreachSectionOf, purposeLabel, type OutreachRole } from "@/lib/work/outreach";
+import { weekCountFrom, weekOf } from "@/lib/work-week";
 
 export type PeopleView = "follow" | "people" | "orgs";
 
@@ -127,7 +128,8 @@ export function lastContactBucket(on: string | null, today: string, value: strin
   if (!on) return false;
   const d = on.slice(0, 10);
   if (d > today) return false;
-  const weekStart = workWeek(today).start;
+  // This week: since the day after the previous week's last work day, so the weekend before counts (2026-11-09).
+  const weekStart = weekCountFrom(weekOf(today).start);
   const ago = daysBetween(d, today);
   if (value === "week") return d >= weekStart;
   if (value === "month" || value === "30") return d < weekStart && ago <= 30;

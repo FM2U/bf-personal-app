@@ -196,7 +196,7 @@ export function PeopleBoard({ view: viewAtStart, data, orgs, adding, saved, tick
           <>
             <StatusTiles tiles={tiles} selected={selected} onPick={pickTile} label="Follow-ups" idPrefix="follow-tile" panelId={PANEL_ID} testId="follow-tiles" className="mb-1.5" headerEnd />
             <section id={PANEL_ID} role="tabpanel" aria-labelledby={`follow-tile-${selected}`} className={CARD} data-testid="outreach-card">
-              <TargetBar count={data.counter.count} target={data.counter.target} pct={data.counter.pct} hint="Counted from emails sent and calls logged, Mon to Fri" className="py-3.5" />
+              <TargetBar count={data.counter.count} target={data.counter.target} pct={data.counter.pct} hint="Counted from emails sent and calls logged this week, the weekend before included" className="py-3.5" />
               {!followBase.length ? (
                 <>
                   <div className="mx-[22px] h-px bg-rule" />

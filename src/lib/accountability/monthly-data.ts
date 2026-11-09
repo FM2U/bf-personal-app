@@ -1,6 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { todayInTz } from "@/lib/calc/dates";
+import { addDaysISO, todayInTz } from "@/lib/calc/dates";
 import type { Ctx } from "@/lib/engine/helpers";
 import { date as fmtDate } from "@/lib/format";
 import { DB_UPDATE_NOTICE_PUSH_D, isMissingSchemaError } from "@/lib/schema-guard";
@@ -109,7 +109,7 @@ export async function loadMonthlyReviewPage(sb: SupabaseClient, ctx: Ctx, month:
     return { ...base, canFinish: false, results: row.results, summary: monthSummary(row.results), next: row.nextTargets, weeks: row.results[0]?.weeks ?? 0 };
   }
   const wctx = await loadWorkCtx(sb, ctx.ownerId);
-  const [targets, bundle] = await Promise.all([loadTargets(sb, ctx.ownerId), loadFacts(sb, wctx, month)]);
+  const [targets, bundle] = await Promise.all([loadTargets(sb, ctx.ownerId), loadFacts(sb, wctx, addDaysISO(month, -7))]);
   const results = monthResults(targets, bundle.facts, month, bundle.skippedDays);
   const next: NextTarget[] = targets.map((t) => ({ targetId: t.id, name: t.name, cadence: t.cadence, number: t.number, commitment: t.commitment, unit: countable(t.key).unit, before: t.number }));
   return { ...base, canFinish: available && current && !row?.finishedAt, results, summary: monthSummary(results), next, weeks: results[0]?.weeks ?? 0 };
