@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Check, Eye, Loader2 } from "lucide-react";
-import { approveAndSend, saveOpening, saveReasons, saveTomorrow, saveWeeklyReview, setPartnerToday, putShortReport } from "@/app/actions/accountability";
+import { approveAndSend, keepDraft, redraftReport, saveNowLine, saveOpening, saveReasons, saveTomorrow, saveWeeklyReview, setPartnerToday, putShortReport } from "@/app/actions/accountability";
 import type { ReasonDraft } from "@/lib/accountability/ask-ai";
 import type { EndOfDayPage } from "@/lib/accountability/data";
 import { dueLine, getsLabel, sendLabel } from "@/lib/accountability/partners";
@@ -22,7 +22,7 @@ import { AccountabilityTabs, type EodBadge } from "@/components/app/nav-links";
 import { AiCardStar, AiFieldStar, AskAiPill, type EodExtras } from "@/components/app/work/ask-ai";
 import { StatusMark } from "@/components/app/work/targets-ui";
 import { Drawer } from "@/components/app/work/drawer";
-import { Confirm, Figure, Line1, Line2, Name, Pill, PinnedBlock, ROW_GRIDS, RowButton, Rows, WorkCard, WorkHeader } from "@/components/app/work/ui";
+import { AiButton, Confirm, Figure, Line1, Line2, Name, Pill, PinnedBlock, ROW_GRIDS, RowButton, Rows, WorkCard, WorkHeader } from "@/components/app/work/ui";
 import { eodCountdown, minutesLeftWords } from "@/lib/work/settings";
 import { personHref } from "@/lib/work/people";
 import { cn } from "@/lib/utils";
@@ -85,6 +85,27 @@ export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; 
   const [reasons, setReasons] = useState<Record<string, string>>(data.reasons);
   const [tomorrow, setTomorrow] = useState(data.tomorrow);
   const [opening, setOpening] = useState(data.opening);
+  // Step 4 (2026-11-15): after a save or a Redraft the page brings the saved text. A box takes it only when the saved
+  // text changed and the box still shows what was loaded before, so text you are typing is never replaced.
+  const nowMap = (lines: EndOfDayPage["nowLines"]) => Object.fromEntries(lines.map((l) => [l.id, l.text]));
+  const [nowText, setNowText] = useState<Record<string, string>>(() => nowMap(data.nowLines));
+  const [loaded, setLoaded] = useState({ opening: data.opening, tomorrow: data.tomorrow, now: nowMap(data.nowLines) });
+  const savedNow = nowMap(data.nowLines);
+  const nowChanged = Object.keys({ ...savedNow, ...loaded.now }).some((id) => (savedNow[id] ?? "") !== (loaded.now[id] ?? ""));
+  if (loaded.opening !== data.opening || loaded.tomorrow !== data.tomorrow || nowChanged) {
+    if (loaded.opening !== data.opening && opening === loaded.opening) setOpening(data.opening);
+    if (loaded.tomorrow !== data.tomorrow && tomorrow === loaded.tomorrow) setTomorrow(data.tomorrow);
+    if (nowChanged) {
+      const next = { ...nowText };
+      for (const id of Object.keys({ ...savedNow, ...loaded.now })) {
+        if ((savedNow[id] ?? "") !== (loaded.now[id] ?? "") && (nowText[id] ?? "") === (loaded.now[id] ?? "")) next[id] = savedNow[id] ?? "";
+      }
+      setNowText(next);
+    }
+    setLoaded({ opening: data.opening, tomorrow: data.tomorrow, now: savedNow });
+  }
+  const [drafting, setDrafting] = useState(false);
+  const [draftNote, setDraftNote] = useState<string | null>(null);
   const [review, setReview] = useState<WeeklyReview>({ well: data.review?.well ?? "", slipped: data.review?.slipped ?? "", focus: data.review?.focus ?? "" });
   const [state, setState] = useState<{ status: EndOfDayPage["state"]; sentTime: string | null; skipReason: string | null }>({ status: data.state, sentTime: data.sentTime, skipReason: data.skipReason });
   const [windowOpen, setWindowOpen] = useState<false | "view" | "edit">(openSend ? "view" : false);
@@ -261,6 +282,41 @@ export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; 
       if (!r.ok) return setError(r.error);
       router.refresh();
     });
+  const redraft = async () => {
+    setDrafting(true);
+    setDraftNote(null);
+    setError(null);
+    const r = await redraftReport(day);
+    setDrafting(false);
+    if (!r.ok) return setError(r.error);
+    const n = [r.wrote.opening ? "the opening" : null, r.wrote.tomorrow ? `${data.tomorrowLabel === "Tomorrow" ? "tomorrow's" : `${data.tomorrowLabel}'s`} line` : null, r.wrote.now ? `${r.wrote.now} Now ${r.wrote.now === 1 ? "line" : "lines"}` : null].filter(Boolean);
+    setDraftNote(n.length ? `Drafted ${n.join(", ")}. Check them before you send.` : "Nothing to draft: everything is typed or kept.");
+    router.refresh();
+  };
+  const keep = (part: "opening" | "tomorrow" | "now", id?: string) =>
+    start(async () => {
+      setError(null);
+      const r = await keepDraft(day, part, id ?? null);
+      if (!r.ok) return setError(r.error);
+      router.refresh();
+    });
+  const saveNow = (id: string, text: string) =>
+    start(async () => {
+      setError(null);
+      const r = await saveNowLine(day, id, text);
+      if (!r.ok) return setError(r.error);
+      router.refresh();
+    });
+  const draftMark = (part: "opening" | "tomorrow" | "now", id?: string, keepLabel = "Keep") => (
+    <span className="inline-flex items-center gap-2 text-[12px]" data-testid={`draft-mark-${part}`}>
+      <span className="rounded-full border border-violet/30 bg-violet/10 px-2 py-px font-semibold text-violet">AI draft</span>
+      {!closed ? (
+        <button type="button" onClick={() => keep(part, id)} className="font-medium text-primary-strong hover:underline" data-testid={`draft-keep-${part}`}>
+          {keepLabel}
+        </button>
+      ) : null}
+    </span>
+  );
   const saveOpeningText = (text: string) =>
     start(async () => {
       setError(null);
@@ -732,8 +788,27 @@ export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; 
 
           {data.v8 ? (
             // The report's opening (v8, Bram 2026-11-15): a few lines on the day, under the greeting.
-            <WorkCard id="eod-opening" title="Opening" hint="A few lines on the day, under the greeting" testId="eod-opening">
+            <WorkCard
+              id="eod-opening"
+              title="Opening"
+              actions={
+                <>
+                  {data.drafts.opening ? draftMark("opening") : null}
+                  {!closed ? (
+                    <AiButton busy={drafting} onClick={redraft} data-testid="redraft">
+                      Redraft
+                    </AiButton>
+                  ) : null}
+                </>
+              }
+              testId="eod-opening"
+            >
               <div className="px-[22px] pt-3 pb-4">
+                {draftNote ? (
+                  <p className="mb-2 text-[12.5px] text-muted-foreground" data-testid="redraft-note">
+                    {draftNote}
+                  </p>
+                ) : null}
                 <textarea
                   rows={4}
                   value={opening}
@@ -748,12 +823,60 @@ export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; 
                   aria-label="Opening"
                   data-testid="opening-input"
                 />
-                <p className="mt-2 text-[12.5px] text-muted-foreground">Three to five sentences. Your partners read it first.</p>
+                <p className="mt-2 text-[12.5px] text-muted-foreground">Three to five sentences under the greeting. Redraft writes the opening, tomorrow&apos;s line and the Now lines again where they are empty or still an AI draft.</p>
               </div>
             </WorkCard>
           ) : null}
 
-          <WorkCard id="eod-tomorrow" title={data.tomorrowLabel === "Tomorrow" ? "What matters tomorrow" : `What matters ${data.tomorrowLabel}`} actions={<AiCardStar context={{ ...page, card: "What matters tomorrow" }} extras={extras} />} testId="eod-tomorrow">
+          {data.v8 && data.nowLines.length ? (
+            // Step 4 (2026-11-15): each top priority's "Now" line in the report, drafted by the AI at 4:00 pm.
+            <WorkCard id="eod-now" title="Now lines" actions={data.nowLines.filter((l) => l.ai).length > 1 ? draftMark("now", undefined, "Keep all") : undefined} hint={data.nowLines.filter((l) => l.ai).length > 1 ? undefined : "Where each top priority stands"} testId="eod-now">
+              <div className="px-[22px] pt-1 pb-3">
+                {data.nowLines.map((l) => (
+                  <div key={l.id} className="grid grid-cols-1 gap-1 border-t border-slate-100 py-2.5 first:border-t-0" data-testid="now-line" data-ai={l.ai ? "1" : "0"}>
+                    <div className="flex min-w-0 items-baseline justify-between gap-2 text-[12.5px]">
+                      <span className="min-w-0 truncate">
+                        <span className="text-muted-foreground">{l.track} · </span>
+                        <span className="font-semibold text-heading">{l.name}</span>
+                      </span>
+                      {l.ai ? (
+                        <span className="inline-flex shrink-0 items-center gap-2 text-[11.5px]">
+                          <span className="rounded-full border border-violet/30 bg-violet/10 px-2 py-px font-semibold text-violet">AI draft</span>
+                          {!closed ? (
+                            <button type="button" onClick={() => keep("now", l.id)} className="text-[12px] font-medium text-primary-strong hover:underline" data-testid="now-keep">
+                              Keep
+                            </button>
+                          ) : null}
+                        </span>
+                      ) : null}
+                    </div>
+                    <textarea
+                      rows={2}
+                      value={nowText[l.id] ?? ""}
+                      onChange={(e) => setNowText((x) => ({ ...x, [l.id]: e.target.value }))}
+                      onBlur={(e) => {
+                        if (e.target.value !== l.text) saveNow(l.id, e.target.value);
+                      }}
+                      placeholder={l.fallback ? `Empty: the next action goes in (${l.fallback})` : "Where it stands and what to focus on"}
+                      disabled={closed}
+                      maxLength={220}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          e.currentTarget.blur();
+                        }
+                      }}
+                      className="block w-full min-w-0 resize-none rounded-[7px] border border-input bg-white px-2.5 py-1.5 text-[13px] leading-[1.45] text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:bg-slate-50"
+                      aria-label={`Now: ${l.name}`}
+                      data-testid="now-input"
+                    />
+                  </div>
+                ))}
+              </div>
+            </WorkCard>
+          ) : null}
+
+          <WorkCard id="eod-tomorrow" title={data.tomorrowLabel === "Tomorrow" ? "What matters tomorrow" : `What matters ${data.tomorrowLabel}`} actions={<>{data.drafts.tomorrow ? draftMark("tomorrow") : null}<AiCardStar context={{ ...page, card: "What matters tomorrow" }} extras={extras} /></>} testId="eod-tomorrow">
             <div className="px-[22px] pt-3 pb-4">
               <div className="relative">
                 <textarea

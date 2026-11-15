@@ -19,6 +19,9 @@ import { countable, isCountKey, owedReasons, type Cadence } from "@/lib/accounta
 import { loadWeeklyFocus } from "@/lib/work/projects-data";
 import type { Row } from "@/lib/types";
 import { approveAndSendCore, type SendResult } from "@/lib/accountability/send-core";
+import { cleanDrafts, DRAFTS_KEY, NOW_MAX } from "@/lib/accountability/report-drafts";
+import { editEod } from "@/lib/accountability/eod-write";
+import { writeReportDrafts } from "@/lib/accountability/report-drafts-run";
 
 /**
  * Targets, End of day, and Reports (batch C, database update 0025): add, edit, remove (archive) a target and its
@@ -177,12 +180,73 @@ export async function saveOpening(day: string, text: string): Promise<{ ok: true
   const row = await ensureEod(sb, ctx, day);
   if (isFail(row)) return row;
   if (row.status !== "open") return fail(`Today is already ${row.status}.`);
-  const all = { ...((row.report_edits && typeof row.report_edits === "object" && !Array.isArray(row.report_edits) ? row.report_edits : {}) as Record<string, unknown>) };
   const t = cleanOpening(text);
-  if (t) all[OPENING_KEY] = t;
-  else delete all[OPENING_KEY];
-  const { error } = await sb.from("end_of_day").update({ report_edits: all, report_html: null, report_edited: false }).eq("id", row.id);
-  if (error) return notSaved(error);
+  const r = await editEod(sb, ctx.ownerId, day, ({ edits: all }) => {
+    if (t) all[OPENING_KEY] = t;
+    else delete all[OPENING_KEY];
+    // Typed over (or cleared): no longer an AI draft (step 4, 2026-11-15).
+    const drafts = cleanDrafts(all[DRAFTS_KEY]);
+    if (drafts.opening) all[DRAFTS_KEY] = { ...drafts, opening: false };
+    return { edits: all, patch: { report_html: null, report_edited: false } };
+  });
+  if (!r.ok) return fail(r.error);
+  done();
+  return { ok: true };
+}
+
+/** "Redraft" on End of day (step 4, 2026-11-15): the AI writes again what is empty or still its draft. */
+export async function redraftReport(day: string): Promise<{ ok: true; wrote: { opening: boolean; tomorrow: boolean; now: number } } | Fail> {
+  const s = await setup();
+  if (isFail(s)) return s;
+  const { sb, ctx } = s;
+  const row = await ensureEod(sb, ctx, day);
+  if (isFail(row)) return row;
+  if (row.status !== "open") return fail(`Today is already ${row.status}.`);
+  const r = await writeReportDrafts(sb, ctx, day);
+  if (!r.ok) return fail(r.error);
+  done();
+  return r;
+}
+
+/** "Keep" on an AI draft (the opening, tomorrow's line, or one Now line, or every Now line with no id): it is yours now. */
+export async function keepDraft(day: string, part: "opening" | "tomorrow" | "now", id?: string | null): Promise<{ ok: true } | Fail> {
+  const s = await setup();
+  if (isFail(s)) return s;
+  const { sb, ctx } = s;
+  const row = await ensureEod(sb, ctx, day);
+  if (isFail(row)) return row;
+  if (row.status !== "open") return fail(`Today is already ${row.status}.`);
+  const r = await editEod(sb, ctx.ownerId, day, ({ edits: all }) => {
+    const drafts = cleanDrafts(all[DRAFTS_KEY]);
+    if (part === "opening") drafts.opening = false;
+    else if (part === "tomorrow") drafts.tomorrow = false;
+    else for (const [k, n] of Object.entries(drafts.now)) if (!id || k === id) drafts.now[k] = { ...n, ai: false };
+    all[DRAFTS_KEY] = drafts;
+    return { edits: all };
+  });
+  if (!r.ok) return fail(r.error);
+  done();
+  return { ok: true };
+}
+
+/** A pick's Now line typed on End of day (step 4): saved as yours; empty goes back to the next action. */
+export async function saveNowLine(day: string, id: string, text: string): Promise<{ ok: true } | Fail> {
+  const s = await setup();
+  if (isFail(s)) return s;
+  const { sb, ctx } = s;
+  if (!/^[0-9a-f-]{36}$/i.test(String(id))) return fail("This priority was not found.");
+  const row = await ensureEod(sb, ctx, day);
+  if (isFail(row)) return row;
+  if (row.status !== "open") return fail(`Today is already ${row.status}.`);
+  const t = String(text ?? "").replace(/\s+/g, " ").trim().slice(0, NOW_MAX);
+  const r = await editEod(sb, ctx.ownerId, day, ({ edits: all }) => {
+    const drafts = cleanDrafts(all[DRAFTS_KEY]);
+    if (t) drafts.now[id] = { text: t, ai: false };
+    else delete drafts.now[id];
+    all[DRAFTS_KEY] = drafts;
+    return { edits: all, patch: { report_html: null, report_edited: false } };
+  });
+  if (!r.ok) return fail(r.error);
   done();
   return { ok: true };
 }
@@ -195,8 +259,13 @@ export async function saveTomorrow(day: string, text: string): Promise<{ ok: tru
   if (isFail(row)) return row;
   if (row.status !== "open") return fail(`Today is already ${row.status}.`);
   const line = String(text ?? "").replace(/\r\n/g, "\n").trim().slice(0, 600);
-  const { error } = await sb.from("end_of_day").update({ tomorrow_line: line || null }).eq("id", row.id);
-  if (error) return notSaved(error);
+  // Typed over (or cleared): no longer an AI draft (step 4, 2026-11-15).
+  const r = await editEod(sb, ctx.ownerId, day, ({ edits: all }) => {
+    const drafts = cleanDrafts(all[DRAFTS_KEY]);
+    if (drafts.tomorrow) all[DRAFTS_KEY] = { ...drafts, tomorrow: false };
+    return { edits: all, patch: { tomorrow_line: line || null } };
+  });
+  if (!r.ok) return fail(r.error);
   done();
   return { ok: true };
 }
@@ -243,22 +312,23 @@ export async function saveReportChoices(day: string, contactId: string | null, c
   if (!copy) return fail("No partner gets the report today, so there is nothing to change.");
   if (copy.sentAt) return fail(`The report to ${copy.partner.first} was already sent. A sent report never changes.`);
   const cleaned = cleanChoices(choices);
-  const all = { ...((row.report_edits && typeof row.report_edits === "object" && !Array.isArray(row.report_edits) ? row.report_edits : {}) as Record<string, unknown>) };
-  // When each section's Edit was saved (2026-11-08): an Edit saved before a send today is marked in the window.
-  const was = cleanChoices(all[copy.partner.id]).edits ?? {};
-  const at = cleanEditedAt(all[EDITED_AT_KEY]);
-  const now = new Date().toISOString();
-  for (const k of new Set([...Object.keys(was), ...Object.keys(cleaned.edits ?? {})]) as Set<SectionKey>) {
-    const v = cleaned.edits?.[k];
-    if (!v) delete at[`${copy.partner.id}:${k}`];
-    else if (v !== was[k]) at[`${copy.partner.id}:${k}`] = now;
-  }
-  if (Object.keys(at).length) all[EDITED_AT_KEY] = at;
-  else delete all[EDITED_AT_KEY];
-  if (hasChoices(cleaned)) all[copy.partner.id] = cleaned;
-  else delete all[copy.partner.id];
-  const { error } = await sb.from("end_of_day").update({ report_edits: all, report_html: null, report_edited: false }).eq("id", row.id);
-  if (error) return notSaved(error);
+  const saved = await editEod(sb, ctx.ownerId, day, ({ edits: all }) => {
+    // When each section's Edit was saved (2026-11-08): an Edit saved before a send today is marked in the window.
+    const was = cleanChoices(all[copy.partner.id]).edits ?? {};
+    const at = cleanEditedAt(all[EDITED_AT_KEY]);
+    const now = new Date().toISOString();
+    for (const k of new Set([...Object.keys(was), ...Object.keys(cleaned.edits ?? {})]) as Set<SectionKey>) {
+      const v = cleaned.edits?.[k];
+      if (!v) delete at[`${copy.partner.id}:${k}`];
+      else if (v !== was[k]) at[`${copy.partner.id}:${k}`] = now;
+    }
+    if (Object.keys(at).length) all[EDITED_AT_KEY] = at;
+    else delete all[EDITED_AT_KEY];
+    if (hasChoices(cleaned)) all[copy.partner.id] = cleaned;
+    else delete all[copy.partner.id];
+    return { edits: all, patch: { report_html: null, report_edited: false } };
+  });
+  if (!saved.ok) return fail(saved.error);
   const page = await loadPage(sb, ctx, day);
   done();
   const after = copyOf(page, copy.partner.id);
@@ -280,18 +350,20 @@ export async function saveReportNote(day: string, section: string, text: string)
   const row = await ensureEod(sb, ctx, day);
   if (isFail(row)) return row;
   if (row.status !== "open") return fail(`Today is already ${row.status}.`);
-  const all = { ...((row.report_edits && typeof row.report_edits === "object" && !Array.isArray(row.report_edits) ? row.report_edits : {}) as Record<string, unknown>) };
-  const notes = cleanNotes({ ...cleanNotes(all[NOTES_KEY]), [section]: String(text ?? "") });
-  if (!notes[section as SectionKey]) delete notes[section as SectionKey];
-  if (Object.keys(notes).length) all[NOTES_KEY] = notes;
-  else delete all[NOTES_KEY];
-  const at = cleanEditedAt(all[EDITED_AT_KEY]);
-  if (notes[section as SectionKey]) at[`note:${section}`] = new Date().toISOString();
-  else delete at[`note:${section}`];
-  if (Object.keys(at).length) all[EDITED_AT_KEY] = at;
-  else delete all[EDITED_AT_KEY];
-  const { error } = await sb.from("end_of_day").update({ report_edits: all, report_html: null, report_edited: false }).eq("id", row.id);
-  if (error) return notSaved(error);
+  let notes: ReportNotes = {};
+  const saved = await editEod(sb, ctx.ownerId, day, ({ edits: all }) => {
+    notes = cleanNotes({ ...cleanNotes(all[NOTES_KEY]), [section]: String(text ?? "") });
+    if (!notes[section as SectionKey]) delete notes[section as SectionKey];
+    if (Object.keys(notes).length) all[NOTES_KEY] = notes;
+    else delete all[NOTES_KEY];
+    const at = cleanEditedAt(all[EDITED_AT_KEY]);
+    if (notes[section as SectionKey]) at[`note:${section}`] = new Date().toISOString();
+    else delete at[`note:${section}`];
+    if (Object.keys(at).length) all[EDITED_AT_KEY] = at;
+    else delete all[EDITED_AT_KEY];
+    return { edits: all, patch: { report_html: null, report_edited: false } };
+  });
+  if (!saved.ok) return fail(saved.error);
   done();
   return { ok: true, notes };
 }

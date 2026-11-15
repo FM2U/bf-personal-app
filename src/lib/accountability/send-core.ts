@@ -15,6 +15,7 @@ import { cleanChoices, cleanNotes, sentSections, type ReportChoices, type Report
 import { noReasonText, owedReasons, reportSummary } from "@/lib/accountability/targets";
 import { date as fmtDate } from "@/lib/format";
 import type { Row } from "@/lib/types";
+import { editEod } from "@/lib/accountability/eod-write";
 
 /**
  * Sending the report (one place for every way it goes out, 2026-11-08): Approve and send (End of day), the automatic
@@ -62,12 +63,14 @@ function keptAfterSend(v: unknown): Record<string, unknown> {
 export async function saveExtrasCore(sb: SupabaseClient, ctx: Ctx, day: string, extras: ReportExtras): Promise<{ ok: true } | Fail> {
   const row = await ensureEodRow(sb, ctx, day);
   if (typeof row === "string") return fail(row);
-  const all = { ...((row.report_edits && typeof row.report_edits === "object" && !Array.isArray(row.report_edits) ? row.report_edits : {}) as Record<string, unknown>) };
   const empty = !extras.chosen.length && !extras.fresh.length && !extras.intro.trim();
-  if (empty) delete all[EXTRAS_KEY];
-  else all[EXTRAS_KEY] = extras;
-  const { error } = await sb.from("end_of_day").update({ report_edits: all }).eq("id", row.id);
-  return error ? fail(`Not saved: ${error.message}`) : { ok: true };
+  // The same save check as every report_edits change (src/lib/accountability/eod-write.ts); kept on a sent day as before.
+  const r = await editEod(sb, ctx.ownerId, day, ({ edits: all }) => {
+    if (empty) delete all[EXTRAS_KEY];
+    else all[EXTRAS_KEY] = extras;
+    return { edits: all };
+  }, { open: false });
+  return r.ok ? { ok: true } : fail(r.error);
 }
 
 /** The people under Also send to as recipients. */

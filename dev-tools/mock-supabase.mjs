@@ -619,6 +619,7 @@ google.listen(GOOGLE_PORT, () => console.log(`Mock Google listening on http://lo
 //                                  the suggested tasks of the Tasks card star)
 //   "TASK: ask_page"            -> a bulleted answer to the question with a next action and an email draft (Ask about this page)
 //   "TASK: key_finding"         -> strengths, risks, growth paths (revision 1), a key finding, and broker questions (the Key finding star, AI instructions 2026-11-02)
+//   "TASK: report_drafts"       -> the opening, tomorrow's line and the Now lines asked for (step 4, End of day)
 //   "TASK: field_draft"         -> one line for the field named in the request (the star inside a field; "Use this");
 //                                  with {"field": "plain"} the line as plain text (no JSON)
 //   "TASK: next_action"         -> one next action due two days after the "Today is" date (a Monday when that is a weekend),
@@ -826,6 +827,17 @@ const ai = http.createServer(async (req, res) => {
           broker_questions: ["Mock question: which period does the revenue figure cover?", "Mock question: how many clients renew each year?"],
         };
         return send(res, 200, maybeCut("key_finding", JSON.stringify(reply), body));
+      }
+      // Step 4 (2026-11-15): the 4:00 pm drafts: the opening, tomorrow's line, and a Now line for each pick marked "now: write".
+      if (text.includes("TASK: report_drafts")) {
+        aiCalls.push("report_drafts");
+        const ids = [...text.matchAll(/^- id ([0-9a-f-]{36}) \| [^|]+ \| ([^|]+) \|.*now: write$/gm)].map((m) => ({ id: m[1], name: m[2].trim() }));
+        const reply = {};
+        if (text.includes('"opening"')) reply.opening = "Mock opening: most of today went to the top deal, the broker call is set, and one deal is still waiting on numbers.";
+        if (text.includes('"tomorrow"')) reply.tomorrow = "Mock tomorrow: the seller call prep first, then the two broker follow-ups.";
+        if (ids.length) reply.now = ids.map((x) => ({ id: x.id, text: `Mock now for ${x.name}: next step booked, waiting on numbers` }));
+        // Answers after 3 seconds, like the real AI, so the checks can type while it writes.
+        return setTimeout(() => send(res, 200, aiMessage(JSON.stringify(reply))), 3000);
       }
       if (text.includes("TASK: field_draft")) {
         aiCalls.push("field_draft");

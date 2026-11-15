@@ -28,6 +28,8 @@ import type { Row } from "@/lib/types";
 import { ownerContactsLite, ownerFinancials, pickOrRead, rowsOf } from "@/lib/work/shared-reads";
 import { loadPriorities, type PrioritiesData } from "@/lib/work/priorities-data";
 import { buildTracks } from "@/lib/accountability/report-v8";
+import { cleanDrafts, DRAFTS_KEY, type DraftPick, type ReportDrafts } from "@/lib/accountability/report-drafts";
+import { nextWorkDay } from "@/lib/work-week";
 
 /**
  * Everything Targets, End of day, Reports, and the Targets today tile read (batch C, database update 0025). One
@@ -216,7 +218,7 @@ export async function loadSentCopies(sb: SupabaseClient, ownerId: string, day: s
   });
 }
 
-type EodRow = { id: string | null; day: string; status: EodState; reasons: Record<string, string>; tomorrow: string; skipReason: string | null; sentAt: string | null; reportId: string | null; reportSubject: string | null; reportHtml: string | null; reportEdited: boolean; /** Push B edits: each partner's choices for today's copy (include, Change, Edit), by contact id. */ reportEdits: Record<string, ReportChoices>; /** Today's notes by section, once for the day and shared by every copy (report_edits._notes, 2026-11-05). */ reportNotes: ReportNotes; judged: Judged[]; /** Push D: the Weekly review answers (Fridays). */ weeklyReview: WeeklyReview; /** Fix list item 1 (2026-11-06): the partners unticked for this day only (contact ids). */ skippedPartners: string[]; /** When each Edit and + Note was last saved (2026-11-08): "<copy id>:<section>" or "note:<section>". */ editedAt: Record<string, string>; /** Also send to and the note under the greeting (2026-11-08). */ extras: ReportExtras; /** The automatic send's record (2026-11-08). */ auto: ReportAuto; /** v8 (2026-11-15): the opening paragraph (report_edits._opening). */ opening: string };
+type EodRow = { id: string | null; day: string; status: EodState; reasons: Record<string, string>; tomorrow: string; skipReason: string | null; sentAt: string | null; reportId: string | null; reportSubject: string | null; reportHtml: string | null; reportEdited: boolean; /** Push B edits: each partner's choices for today's copy (include, Change, Edit), by contact id. */ reportEdits: Record<string, ReportChoices>; /** Today's notes by section, once for the day and shared by every copy (report_edits._notes, 2026-11-05). */ reportNotes: ReportNotes; judged: Judged[]; /** Push D: the Weekly review answers (Fridays). */ weeklyReview: WeeklyReview; /** Fix list item 1 (2026-11-06): the partners unticked for this day only (contact ids). */ skippedPartners: string[]; /** When each Edit and + Note was last saved (2026-11-08): "<copy id>:<section>" or "note:<section>". */ editedAt: Record<string, string>; /** Also send to and the note under the greeting (2026-11-08). */ extras: ReportExtras; /** The automatic send's record (2026-11-08). */ auto: ReportAuto; /** v8 (2026-11-15): the opening paragraph (report_edits._opening). */ opening: string; /** Step 4: the AI drafts and Now lines (report_edits._drafts). */ drafts: ReportDrafts };
 
 export async function loadEodRow(sb: SupabaseClient, ownerId: string, day: string): Promise<EodRow> {
   const { data } = await sb.from("end_of_day").select("*").eq("owner_id", ownerId).eq("day", day).maybeSingle();
@@ -244,6 +246,7 @@ export async function loadEodRow(sb: SupabaseClient, ownerId: string, day: strin
     extras: cleanExtras(r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? (r.report_edits as Record<string, unknown>)[EXTRAS_KEY] : null),
     auto: cleanAuto(r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? (r.report_edits as Record<string, unknown>)[AUTO_KEY] : null),
     opening: cleanOpening(r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? (r.report_edits as Record<string, unknown>)[OPENING_KEY] : null),
+    drafts: cleanDrafts(r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? (r.report_edits as Record<string, unknown>)[DRAFTS_KEY] : null),
   };
 }
 
@@ -371,6 +374,11 @@ export type EndOfDayPage = {
   /** v8 (2026-11-15): the report's opening paragraph, and whether the report uses the new layout. */
   opening: string;
   v8: boolean;
+  /** Step 4 (2026-11-15): which text is still an AI draft, and each pick's Now line (with the next-action line it replaces). */
+  drafts: ReportDrafts;
+  nowLines: { id: string; name: string; track: string; text: string; fallback: string | null; ai: boolean; saved: boolean }[];
+  /** What the AI drafts are written from: each pick with its facts, and the next working day's actions. */
+  draftInput: { picks: DraftPick[]; dueNext: string[]; activity: string[] };
   state: EodState;
   sentAt: string | null;
   sentTime: string | null;
@@ -413,7 +421,7 @@ export async function loadReportV8(sb: SupabaseClient, ownerId: string, day: str
     ownerFinancials(sb, ownerId),
     sb.from("projects").select("id,name,goal,milestone,status,next_action,next_action_due,updated_at").eq("owner_id", ownerId).limit(1000),
     sb.from("decisions").select("pipeline_item_id,project_id,decided_on,outcome,line").eq("owner_id", ownerId).gte("decided_on", since).limit(500),
-    sb.from("notes").select("record_id,created_at").eq("owner_id", ownerId).eq("record_type", "projects").gte("created_at", `${since}T00:00:00Z`).limit(2000),
+    sb.from("notes").select("record_id,body,created_at").eq("owner_id", ownerId).eq("record_type", "projects").gte("created_at", `${since}T00:00:00Z`).limit(2000),
   ]);
   const ebitda = new Map(((fin.data ?? []) as Row[]).filter((f) => f.ebitda !== null && f.ebitda !== undefined).map((f) => [String(f.item_id), Number(f.ebitda)]));
   return { priorities, ebitda, projects: (projects.data ?? []) as Row[], decisions: decisions.error ? [] : ((decisions.data ?? []) as Row[]), projectNotes: (notes.data ?? []) as Row[] };
@@ -458,8 +466,36 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
       i.v8.decisions.some((d) => !!d.project_id && inPeriod(String(d.decided_on).slice(0, 10))) ||
       i.v8.projects.some((p) => !!p.updated_at && inPeriod(local(String(p.updated_at)))));
   const tracks = i.v8 && i.v8.priorities.ready
-    ? buildTracks({ columns: i.v8.priorities.columns, items: bundle.raw.items, projects: i.v8.projects, ebitda: i.v8.ebitda, history: bundle.raw.history, stageById: bundle.raw.stageById, pipes: { acquisition: bundle.raw.acqId, job: bundle.raw.jobId, consulting: bundle.raw.conId ?? null }, decisions: i.v8.decisions, screenedThisWeek: countIn("listings_screened", bundle.facts, weekStart, day).value, weekStart, day, local, startupActive })
+    ? buildTracks({ columns: i.v8.priorities.columns, items: bundle.raw.items, projects: i.v8.projects, ebitda: i.v8.ebitda, history: bundle.raw.history, stageById: bundle.raw.stageById, pipes: { acquisition: bundle.raw.acqId, job: bundle.raw.jobId, consulting: bundle.raw.conId ?? null }, decisions: i.v8.decisions, screenedThisWeek: countIn("listings_screened", bundle.facts, weekStart, day).value, weekStart, day, local, startupActive, nowOverride: Object.fromEntries(Object.entries(row.drafts.now).map(([id, n]) => [id, n.text])) })
     : null;
+  // Step 4 (2026-11-15): the picks' Now lines for End of day, and what the AI drafts are written from.
+  const trackLabel: Record<string, string> = { acquisition: "Acquisition", job: "Job search", consulting: "Consulting", startup: "Startup" };
+  const allPicks = i.v8 && i.v8.priorities.ready ? (["acquisition", "job", "consulting", "startup"] as const).filter((k) => k !== "startup" || startupActive).flatMap((k) => i.v8!.priorities.ready ? i.v8!.priorities.columns[k].map((p) => ({ ...p, track: trackLabel[k] })) : []) : [];
+  const itemRow = new Map(bundle.raw.items.map((r) => [String(r.id), r]));
+  const projectRow = new Map((i.v8?.projects ?? []).map((r) => [String(r.id), r]));
+  const nextLineOf = (r: Row | undefined) => (r?.next_action ? `${String(r.next_action)}${r.next_action_due ? `, due ${String(r.next_action_due).slice(0, 10)}` : ""}` : null);
+  const nowLines = allPicks.map((p) => {
+    const r = p.table === "projects" ? projectRow.get(p.id) : itemRow.get(p.id);
+    const saved = row.drafts.now[p.id];
+    const fallback = nextLineOf(r);
+    return { id: p.id, name: p.name, track: p.track, text: saved?.text ?? "", fallback, ai: !!saved?.ai, saved: !!saved };
+  });
+  const waitOf = new Map(bundle.waits.map((w) => [w.dealId, `${w.days} days${w.who ? ` on ${w.who}` : ""}${w.what ? ` for ${w.what}` : ""}`]));
+  const notesOf = (id: string) =>
+    [...bundle.raw.notes.filter((n) => String(n.record_id) === id), ...(i.v8?.projectNotes ?? []).filter((n) => String(n.record_id) === id)]
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
+      .slice(0, 2)
+      .map((n) => String(n.body ?? "").replace(/\s+/g, " ").trim().slice(0, 200))
+      .filter(Boolean);
+  const nextDay = nextWorkDay(day);
+  const draftInput = {
+    picks: allPicks.map((p): DraftPick => {
+      const r = p.table === "projects" ? projectRow.get(p.id) : itemRow.get(p.id);
+      return { id: p.id, track: p.track, name: p.name, stage: p.stage, why: p.why, nextAction: r?.next_action ? String(r.next_action) : null, nextActionDue: r?.next_action_due ? String(r.next_action_due).slice(0, 10) : null, nextDecision: p.next ? `${p.next.text}${p.next.on ? ` by ${p.next.on}` : ""}` : null, movedToday: p.movedToday, waiting: waitOf.get(p.id) ?? null, notes: notesOf(p.id) };
+    }),
+    dueNext: [...bundle.raw.items.filter((r) => r.status === "open" && String(r.next_action_due ?? "").slice(0, 10) === nextDay && r.next_action).map((r) => `${String(r.next_action)} (${String(r.company_name || r.name)})`), ...(i.v8?.projects ?? []).filter((r) => r.status === "open" && String(r.next_action_due ?? "").slice(0, 10) === nextDay && r.next_action).map((r) => `${String(r.next_action)} (${String(r.name)})`)].slice(0, 15),
+    activity: [...deals, ...jobs].filter((d) => d.activity.length).map((d) => `${d.name}: ${d.activity.join("; ")}`).slice(0, 15),
+  };
   const report: ReportData = {
     ...(tracks ? { layout: "v8" as const, opening: row.opening || null, tracks } : {}),
     signName: i.signName ?? null,
@@ -530,6 +566,9 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
     tomorrowLabel: tl,
     opening: row.opening,
     v8: report.layout === "v8",
+    drafts: row.drafts,
+    nowLines,
+    draftInput,
     state: row.status,
     sentAt: row.sentAt,
     sentTime: row.sentAt ? formatInZone(row.sentAt, "h:mm a", i.tz).toLowerCase() : null,

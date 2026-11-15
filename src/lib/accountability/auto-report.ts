@@ -9,11 +9,14 @@ import { approveAndSendCore, ensureEodRow, owedCount } from "@/lib/accountabilit
 import { loadWorkCtx } from "@/lib/work/data";
 import { eodLong, parseTime } from "@/lib/work/settings";
 import { reportStep } from "@/lib/accountability/auto-report-rules";
+import { writeReportDrafts } from "@/lib/accountability/report-drafts-run";
+import { editEod } from "@/lib/accountability/eod-write";
 
 /**
  * The report sends itself (Bram, 2026-11-08; claude/2026-11-08-auto-send-report-plan.md). The report job runs every
  * 5 minutes (Supabase Cron calls /api/cron/report). On a day a partner is due and the report is not sent yet:
- *  - 2 hours before the send time (Settings, Work settings, "Send by"): a reminder email to you;
+ *  - 2 hours before the send time (Settings, Work settings, "Send by"): the AI drafts the opening, tomorrow's line and
+ *    each top priority's Now line (step 4, 2026-11-15; only what is empty or still its draft), then a reminder email;
  *  - 30 minutes before: the same email again;
  *  - at the send time, when "Send automatically" is on: the report goes out as End of day shows it (Approve and send
  *    without the reasons question; anything not filled in goes as "(still to give)"), then the people under Also send to;
@@ -34,13 +37,20 @@ function localMinutes(tz: string, now: Date): number {
 
 /** Saves the job's record on the day's row; false when there is no row or the save failed. */
 async function saveAuto(sb: SupabaseClient, day: string, ownerId: string, patch: ReportAuto): Promise<boolean> {
-  const { data, error: readError } = await sb.from("end_of_day").select("id,report_edits").eq("owner_id", ownerId).eq("day", day).maybeSingle();
-  if (readError || !data) return false;
-  const all = { ...((data.report_edits && typeof data.report_edits === "object" && !Array.isArray(data.report_edits) ? data.report_edits : {}) as Record<string, unknown>) };
-  // A key set to undefined is left out when saved (JSON), which takes it back.
-  all[AUTO_KEY] = { ...cleanAuto(all[AUTO_KEY]), ...patch };
-  const { error } = await sb.from("end_of_day").update({ report_edits: all }).eq("id", data.id);
-  return !error;
+  // A key set to undefined is left out when saved (JSON), which takes it back. Saved on a sent day too (the send's record).
+  const r = await editEod(sb, ownerId, day, ({ edits: all }) => {
+    all[AUTO_KEY] = { ...cleanAuto(all[AUTO_KEY]), ...patch };
+    return { edits: all };
+  }, { open: false });
+  return r.ok;
+}
+
+/** The reminder's line on the AI drafts (step 4), naming only what was written; null when nothing was. */
+export function draftsReadyLine(w: { opening: boolean; tomorrow: boolean; now: number }): string | null {
+  const parts = [w.opening ? "the opening" : null, w.tomorrow ? "tomorrow's line" : null, w.now ? (w.now === 1 ? "a Now line" : `${w.now} Now lines`) : null].filter((x): x is string => !!x);
+  if (!parts.length) return null;
+  const list = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+  return `AI drafts of ${list} are ready to check on End of day.`;
 }
 
 /** "2 reasons, tomorrow's line" or null when everything is filled in. */
@@ -84,16 +94,21 @@ export async function runReportJob(sb: SupabaseClient, ownerId: string, now: Dat
   if (step === "remind1" || step === "remind2") {
     const row = await ensureEodRow(sb, ctx, day);
     if (typeof row === "string") return { day, step, detail: row };
+    // Recorded before the AI drafts and the email (step 4, 2026-11-15), so a slow AI answer never brings a second run's
+    // email; the first reminder goes out with or without the drafts.
+    if (!(await saveAuto(sb, day, ownerId, step === "remind1" ? { reminded1: now.toISOString() } : { reminded2: now.toISOString(), ...(page.auto.reminded1 ? {} : { reminded1: now.toISOString() }) }))) return { day, step, detail: "not recorded; tried on the next run" };
+    const drafted = step === "remind1" ? await writeReportDrafts(sb, ctx, day).catch((e) => ({ ok: false as const, error: String(e) })) : null;
+    const draftLine = drafted && drafted.ok ? draftsReadyLine(drafted.wrote) : null;
     const at = eodLong(sendTime);
     const subject = wctx.autoSend ? `Your report goes out at ${at}` : `Your report is ready to send (${at})`;
     const lines = [
       wctx.autoSend ? `Today's report goes to ${names} at ${at}, as End of day shows it.` : `Today's report to ${names} is ready. Send automatically is off, so it goes out only when you press Approve and send.`,
       open ? (wctx.autoSend ? `Still open: ${open}. Anything left empty goes out as "(still to give)".` : `Still open: ${open}.`) : "Everything is filled in.",
       wctx.autoSend ? "To add a note or change anything, do it before then." : `Send it by ${at}.`,
+      ...(draftLine ? [draftLine] : []),
     ];
     const ok = await mailOwner(sb, ownerId, subject, lines).catch(() => false);
-    await saveAuto(sb, day, ownerId, step === "remind1" ? { reminded1: now.toISOString() } : { reminded2: now.toISOString(), ...(page.auto.reminded1 ? {} : { reminded1: now.toISOString() }) });
-    return { day, step, detail: ok ? "emailed" : "no email (Google not connected)" };
+    return { day, step, detail: `${ok ? "emailed" : "no email (Google not connected)"}${drafted ? `; drafts ${drafted.ok ? "written" : `not written (${drafted.error})`}` : ""}` };
   }
   if (step === "due") {
     // Send automatically is off (Bram, 2026-11-15): one email at the send time; the report waits for Approve and send.

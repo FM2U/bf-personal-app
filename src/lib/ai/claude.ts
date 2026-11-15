@@ -64,6 +64,8 @@ export async function callClaude(params: {
   messages: Anthropic.MessageParam[];
   tools?: Anthropic.Tool[];
   maxTokens?: number;
+  /** A time limit for this one call, in ms, with at most one retry (the report job's drafts, step 4). Default: the SDK's own. */
+  timeoutMs?: number;
 }): Promise<Anthropic.Message> {
   if (!isAIConfigured()) throw new AIUnavailable("not_configured", "The AI is not set up yet. Add ANTHROPIC_API_KEY in Vercel.");
   const budget = await aiBudget(params.sb, params.ownerId);
@@ -79,7 +81,7 @@ export async function callClaude(params: {
       system: params.system,
       messages: params.messages,
       ...(params.tools?.length ? { tools: params.tools } : {}),
-    });
+    }, params.timeoutMs ? { timeout: params.timeoutMs, maxRetries: 1 } : undefined);
   } catch (e) {
     throw new AIUnavailable("error", `The AI request failed: ${e instanceof Error ? e.message : String(e)}`);
   }
@@ -143,8 +145,11 @@ export async function callForJson<T>(params: {
   /** How a plain-text reply is read before the check (default: only JSON). */
   shape?: ReplyShape;
   validate: (value: unknown) => { ok: true; value: T } | { ok: false; error: string };
+  /** All the calls together (the first try and any retry) stop after this many ms (step 4: the report job must finish). */
+  deadlineMs?: number;
 }): Promise<T> {
   const limit = params.maxTokens ?? 3000;
+  const stopAt = params.deadlineMs ? Date.now() + params.deadlineMs : null;
   let maxTokens = limit;
   let messages: Anthropic.MessageParam[] = [{ role: "user", content: params.prompt }];
   let lastError = "";
@@ -152,7 +157,10 @@ export async function callForJson<T>(params: {
   let cutOffRetried = false;
   let invalidRetried = false;
   for (;;) {
-    const msg = await callClaude({ sb: params.sb, ownerId: params.ownerId, purpose: params.purpose, system: AI_SYSTEM_BASE, messages, maxTokens });
+    // Each call gets half of the time left, so a retry after one slow or failed attempt still fits.
+    const left = stopAt === null ? null : stopAt - Date.now();
+    if (left !== null && left < 5000) throw new AIUnavailable("error", "The AI took too long to answer. Try again.");
+    const msg = await callClaude({ sb: params.sb, ownerId: params.ownerId, purpose: params.purpose, system: AI_SYSTEM_BASE, messages, maxTokens, ...(left !== null ? { timeoutMs: Math.floor(left / 2) } : {}) });
     const raw = textOf(msg);
     lastReply = raw;
     if (isCutOff(raw, msg.stop_reason)) {

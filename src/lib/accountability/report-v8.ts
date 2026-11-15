@@ -118,6 +118,8 @@ export function buildTracks(i: {
   day: string;
   local: (ts: string) => string;
   startupActive: boolean;
+  /** Step 4 (2026-11-15): a pick's Now line written by the AI or by the owner, in place of the next action. */
+  nowOverride?: Record<string, string>;
 }): ReportTracks {
   const itemById = new Map(i.items.map((r) => [String(r.id), r]));
   const projectById = new Map(i.projects.map((r) => [String(r.id), r]));
@@ -134,7 +136,7 @@ export function buildTracks(i: {
         since: p.day ? `day ${p.day} since ${kind === "startup" ? "start" : "first contact"}` : null,
         moved: p.movedToday && p.stage ? `moved to ${p.stage} today` : null,
         why: p.why,
-        now: nowLine(r),
+        now: i.nowOverride?.[p.id] ?? nowLine(r),
         next: reportNext(p.next),
       };
     });
