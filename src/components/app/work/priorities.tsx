@@ -162,7 +162,7 @@ function Track({ kind, picks, layout }: { kind: PriorityKind; picks: PriorityPic
 export function TopPrioritiesCard({ data, kinds, className }: { data: PrioritiesData; kinds: readonly PriorityKind[]; className?: string }) {
   const one = kinds.length === 1;
   const title = one ? `Top priorities · ${PRIORITY_TRACKS[kinds[0]].label}` : "Top priorities";
-  const hint = "What you're pushing forward now.";
+  const hint = "What you're pushing forward now. Your partners see these in every report.";
   if (!data.ready) {
     return (
       <WorkCard title={title} hint={hint} className={className} testId="top-priorities">

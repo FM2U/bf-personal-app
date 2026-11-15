@@ -37,11 +37,15 @@ describe("which partners are due on a weekday", () => {
 });
 
 describe("a partner's sections", () => {
-  it("keeps the known sections in the report's order; unknown keys stay out of the checklist", () => {
-    // Push D: the Weekly review is on unless it was unticked, so a partner saved before it gets it.
-    expect(jake.sections).toEqual(["today", "targets", "waiting", "week", "review", "tomorrow"]);
-    // "Deals moved" from before the push B edits reads as Active today.
-    expect(partnerSettings({ report_days: [1], report_sections: ["today", "moved"] }).sections).toEqual(["today", "active", "review"]);
+  it("keeps the known sections in the report's order; a list saved before the redesign gets every new section", () => {
+    // The redesign (2026-11-15): a list with only the old sections gets every section of the new layout.
+    expect(jake.sections).toEqual(ALL_SECTIONS);
+    expect(ALL_SECTIONS).toEqual(["opening", "acquisition", "jobs", "consulting", "startup", "review", "tomorrow"]);
+    expect(partnerSettings({ report_days: [1], report_sections: ["today", "moved"] }).sections).toEqual(ALL_SECTIONS);
+    // A list saved since: only its sections (the Weekly review on unless unticked); unknown keys stay out.
+    expect(partnerSettings({ report_days: [1], report_sections: ["acquisition", "tomorrow", "later"] }).sections).toEqual(["acquisition", "review", "tomorrow"]);
+    // Saved since the redesign with only sections both layouts share: read as it is, not as an old list.
+    expect(partnerSettings({ report_days: [1], report_sections: ["jobs", "tomorrow", "review_off"] }).sections).toEqual(["jobs", "tomorrow"]);
     expect(sarah.days).toEqual([5]);
   });
   it("a partner never set up gets every weekday and every section", () => {
@@ -49,21 +53,23 @@ describe("a partner's sections", () => {
     expect(partnerSettings({})).toEqual({ days: [1, 2, 3, 4, 5], sections: ALL_SECTIONS });
   });
   it("no days is kept as no days once sections are saved", () => {
-    expect(partnerSettings({ report_days: [], report_sections: ["targets", "review_off"] })).toEqual({ days: [], sections: ["targets"] });
+    expect(partnerSettings({ report_days: [], report_sections: ["acquisition", "review_off"] })).toEqual({ days: [], sections: ["acquisition"] });
+    // An old list with the review unticked keeps it off in the new layout.
+    expect(partnerSettings({ report_days: [5], report_sections: ["targets", "review_off"] }).sections).toEqual(ALL_SECTIONS.filter((k) => k !== "review"));
   });
   it("Save: weekdays in order, at least one section, unknown saved keys kept", () => {
-    expect(cleanPartnerSettings({ days: [5, 1, 1, 8], sections: ["week", "today", "nope"] }, ["today", "later_section"])).toEqual({ ok: true, days: [1, 5], sections: ["today", "week", "review_off", "later_section"] });
+    expect(cleanPartnerSettings({ days: [5, 1, 1, 8], sections: ["tomorrow", "opening", "nope"] }, ["today", "later_section"])).toEqual({ ok: true, days: [1, 5], sections: ["opening", "tomorrow", "review_off", "later_section"] });
     // The work week (2026-11-07): Saturday and Sunday can be report days too.
-    expect(cleanPartnerSettings({ days: [7, 6], sections: ["today"] }, [])).toMatchObject({ ok: true, days: [6, 7] });
+    expect(cleanPartnerSettings({ days: [7, 6], sections: ["opening"] }, [])).toMatchObject({ ok: true, days: [6, 7] });
     expect(daysLabel([6])).toBe("Saturdays");
     expect(daysLabel([1, 2, 3, 4, 5, 6, 7])).toBe("every day");
     expect(daysLabel([1, 2, 3, 4, 5])).toBe("every weekday");
   });
   it("Weekly review (push D): on by default, off only when unticked, and ticking it again clears the mark", () => {
-    expect(partnerSettings({ report_days: [5], report_sections: ["targets"] }).sections).toEqual(["targets", "review"]);
-    expect(partnerSettings({ report_days: [5], report_sections: ["targets", "review_off"] }).sections).toEqual(["targets"]);
-    expect(cleanPartnerSettings({ days: [5], sections: ["targets"] }, ["targets"])).toEqual({ ok: true, days: [5], sections: ["targets", "review_off"] });
-    expect(cleanPartnerSettings({ days: [5], sections: ["targets", "review"] }, ["targets", "review_off"])).toEqual({ ok: true, days: [5], sections: ["targets", "review"] });
+    expect(partnerSettings({ report_days: [5], report_sections: ["acquisition"] }).sections).toEqual(["acquisition", "review"]);
+    expect(partnerSettings({ report_days: [5], report_sections: ["acquisition", "review_off"] }).sections).toEqual(["acquisition"]);
+    expect(cleanPartnerSettings({ days: [5], sections: ["acquisition"] }, ["acquisition"])).toEqual({ ok: true, days: [5], sections: ["acquisition", "review_off"] });
+    expect(cleanPartnerSettings({ days: [5], sections: ["acquisition", "review"] }, ["acquisition", "review_off"])).toEqual({ ok: true, days: [5], sections: ["acquisition", "review"] });
     expect(REPORT_SECTIONS.map((x) => x.key)).toContain("review");
     expect(cleanPartnerSettings({ days: [1], sections: [] }, [])).toEqual({ ok: false, error: "Tick at least one section." });
   });
@@ -85,7 +91,8 @@ describe("each partner's copy of the report", () => {
     tomorrow: { label: "Monday", text: "Meridian partner deck and the Summit decision." },
   };
   it("Jake gets the counts, targets, the waits, the week, and tomorrow, but not the top deals", () => {
-    const html = reportInnerHtml(reportFor(base, { name: "Jake Morgan", first: "Jake", sections: jake.sections }));
+    // A report built before the redesign keeps its old sections (the partner's list as it was then).
+    const html = reportInnerHtml(reportFor(base, { name: "Jake Morgan", first: "Jake", sections: ["today", "targets", "waiting", "tomorrow", "week", "review"] }));
     expect(html).toContain("Hey Jake,");
     expect(html).toContain("Listings screened");
     expect(html).toContain("Summit Logistics Group");
@@ -94,7 +101,7 @@ describe("each partner's copy of the report", () => {
     expect(html).toContain("Meridian partner deck");
   });
   it("Sarah gets targets, the week, and Monday's line only", () => {
-    const d = reportFor(base, { name: "Sarah Klein", first: "Sarah", sections: sarah.sections });
+    const d = reportFor(base, { name: "Sarah Klein", first: "Sarah", sections: ["targets", "tomorrow", "week"] });
     const html = reportInnerHtml(d);
     expect(html).toContain("Hey Sarah,");
     expect(html).not.toContain(">Today<");
@@ -106,6 +113,12 @@ describe("each partner's copy of the report", () => {
     expect(text).not.toContain("TOP 3 DEALS");
     expect(text).toContain("TARGETS");
     expect(text).toContain("MONDAY");
+  });
+  it("a report built before the redesign, sent again to a partner with a new list, keeps every old section", () => {
+    const html = reportInnerHtml(reportFor(base, { name: "Jake Morgan", first: "Jake", sections: ["acquisition", "tomorrow"] }));
+    expect(html).toContain("Top 3 deals");
+    expect(html).toContain("Summit Logistics Group");
+    expect(html).toContain("The week, Nov 2 to 6");
   });
   it("a report without sections keeps every section", () => {
     const html = reportInnerHtml(base);

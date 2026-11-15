@@ -309,9 +309,9 @@ const until = async (fn, msg, tries = 60) => {
     await fields.nth(2).click();
     await until(async () => (await one("select weekly_review from end_of_day where day = $1", [today]))?.weekly_review?.slipped === "Brokers contacted came in one short.", "two answers saved");
     await until(async () => (await page.locator("[data-testid=eod-check][data-key=review]").getAttribute("data-state")) === "2 of 3", "checklist 2 of 3");
-    // The checklist on Fridays (2026-11-05): Reasons, Weekly review, Monday's line, in that order.
+    // The checklist on Fridays (2026-11-05; Opening in place of Reasons since 2026-11-15): Opening, Weekly review, Monday's line.
     const checks = await page.getByTestId("eod-check").evaluateAll((els) => els.map((e) => `${e.dataset.key}:${e.querySelector("span:nth-child(2)").textContent}`));
-    assert(JSON.stringify(checks) === JSON.stringify(["reasons:Reasons", "review:Weekly review", "tomorrow:Monday's line"]), JSON.stringify(checks));
+    assert(JSON.stringify(checks) === JSON.stringify(["opening:Opening", "review:Weekly review", "tomorrow:Monday's line"]), JSON.stringify(checks));
     // The field star drafts the third (the AI stand-in's answer), and Use this saves it.
     await card.getByTestId("eod-review-field").nth(2).getByTestId("ai-field-star").click();
     await page.getByTestId("ask-ai-use").waitFor({ timeout: 20000 });
@@ -414,8 +414,10 @@ const until = async (fn, msg, tries = 60) => {
     const sent = (await g("/__sent")).slice(before).filter((m) => /Daily report/.test(m.subject));
     assert(sent.length === (friday ? 2 : 1), `sent ${sent.length}`);
     for (const m of sent) {
-      const has = m.body.includes("WEEKLY REVIEW") && m.body.includes("Went well: Screened 26 listings");
-      assert(friday ? has : !m.body.includes("WEEKLY REVIEW"), `${m.to}: Weekly review ${has}`);
+      // The new layout (2026-11-15) titles the Weekly review "The week".
+      const week = /\nTHE WEEK\r?\n/.test(m.body);
+      const has = week && m.body.includes("Went well: Screened 26 listings");
+      assert(friday ? has : !week, `${m.to}: Weekly review ${has}`);
     }
     assert((await one("select status from end_of_day where day = $1", [today])).status === "sent", "the day is sent");
   });

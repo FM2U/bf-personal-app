@@ -9,7 +9,8 @@
  */
 import { barHtml, EMAIL_COLORS, escapeHtml, FONT, pillHtml, type TileStatus } from "@/lib/calc/partner-report";
 import { judgedMark, MARK_WORD, type Judged, type ReportTile } from "@/lib/accountability/targets";
-import { blocksText, buildSections, parseEdited, sentSections, tilesText, type Block, type BuiltSection, type Line, type ReportChoices, type ReportData } from "@/lib/accountability/report-sections";
+import { blocksText, buildSections, parseEdited, pickText, pipelineText, sentSections, tilesText, type Block, type BuiltSection, type Line, type ReportChoices, type ReportData } from "@/lib/accountability/report-sections";
+import type { PipelineCol, ReportPick } from "@/lib/accountability/report-v8";
 import { signOff } from "@/lib/work/names";
 
 export type { ReportData, ReportChoices };
@@ -98,9 +99,67 @@ export function editedHtml(text: string): string {
   return html;
 }
 
+// ---------- The new layout (v8, approved 2026-11-15: claude/2026-11-15-report-redesign-decisions-log.md) ----------
+
+const STRENGTH: Record<string, { label: string; color: string }> = { hot: { label: "Hot", color: "#dc2626" }, warm: { label: "Warm", color: "#d97706" }, cold: { label: "Cold", color: "#2563eb" } };
+const MUTED_SPAN = (t: string) => `<span style="color:${C.muted}">${t}</span>`;
+
+/** One pick: its number in cobalt, the name in bold with its facts, the stage chip and How strong, then Why, Now, Next. */
+export function pickHtml(pk: ReportPick, last: boolean): string {
+  const st = pk.strength ? STRENGTH[pk.strength] : null;
+  const facts = [
+    pk.stage ? `<span style="display:inline-block;margin:2px 0 3px 0;padding:0 7px;border-radius:999px;border:1px solid ${C.border};background:#f8fafc;font-size:11.5px;line-height:17px;color:#334155">${escapeHtml(pk.stage)}</span>` : "",
+    st ? `<span style="font-size:11.5px;font-weight:bold;color:${st.color}">&#9679; ${st.label}</span>` : "",
+    pk.since ? `<span style="font-size:11.5px;color:${C.muted}">${st || pk.stage ? "&middot; " : ""}${escapeHtml(pk.since)}</span>` : "",
+    pk.moved ? `<span style="font-size:11.5px;font-weight:bold;color:${C.text.met}">&middot; &#9650; ${escapeHtml(pk.moved)}</span>` : "",
+  ].filter(Boolean).join(" ");
+  const lines = [
+    `<b>${escapeHtml(pk.name)}</b>${pk.meta ? ` ${MUTED_SPAN(`&middot; ${escapeHtml(pk.meta)}`)}` : ""}`,
+    facts,
+    pk.why ? `${MUTED_SPAN("Why:")} ${escapeHtml(pk.why)}` : "",
+    pk.now ? `${MUTED_SPAN("Now:")} ${escapeHtml(pk.now)}` : "",
+    pk.next ? `${MUTED_SPAN("Next:")} ${pk.next.amber ? `<span style="color:${C.text.soon}">${escapeHtml(pk.next.words)}</span>` : escapeHtml(pk.next.words)}` : "",
+  ].filter(Boolean);
+  return (
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" data-pick="1" style="border-collapse:collapse;margin-bottom:${last ? 4 : 10}px"><tr>` +
+    `<td width="22" valign="top" style="font-size:13px;line-height:19px;font-weight:bold;color:${C.cobalt};${FONT}">${pk.number}</td>` +
+    `<td valign="top" style="font-size:13px;line-height:19px;color:${C.ink};${FONT}">${lines.join("<br>")}</td></tr></table>`
+  );
+}
+
+/** "Decided this week: ..." under the picks, lined up with the names. */
+function decidedHtml(t: string): string {
+  return `<div data-decided="1" style="font-size:12px;line-height:17px;color:${C.muted};margin:2px 0 6px 22px;${FONT}"><b style="color:#334155">Decided this week:</b> ${escapeHtml(t)}.</div>`;
+}
+
+/** The Pipeline table: "Added this week" (green +N, a dash for none) and "In stage today"; equal columns, PIPELINE at the left. */
+export function pipelineHtml(cols: readonly PipelineCol[]): string {
+  const cell = "padding:3px 6px;font-size:13px;line-height:18px;font-weight:bold;border-left:1px solid #eef1f4";
+  const head = cols.map((c) => `<td align="center" style="padding:6px 6px 4px 6px;font-size:11px;line-height:14px;color:${C.muted};border-left:1px solid #eef1f4;${FONT}">${escapeHtml(c.label)}</td>`).join("");
+  const added = cols.map((c) => `<td align="center" style="${cell};color:${c.added ? C.text.met : "#cbd5e1"};${FONT}">${c.added ? `+${c.added}` : "&ndash;"}</td>`).join("");
+  const inStage = cols.map((c) => (c.inStage === null ? `<td align="center" style="${cell};font-weight:normal;color:#cbd5e1;${FONT}">&ndash;</td>` : `<td align="center" style="padding:3px 6px 6px 6px;font-size:15px;line-height:20px;font-weight:bold;color:${C.ink};border-left:1px solid #eef1f4;${FONT}">${c.inStage}</td>`)).join("");
+  const label = (t: string) => `<td style="padding:3px 10px 3px 10px;font-size:11px;line-height:14px;color:${C.muted};white-space:nowrap;${FONT}">${t}</td>`;
+  return (
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" data-pipeline="1" style="margin:17px 0 15px 0;border-collapse:separate;border:1px solid ${C.border};border-radius:8px;background:#f8fafc;width:100%;table-layout:fixed"><col style="width:118px">` +
+    `<tr><td width="118" style="padding:6px 10px 4px 10px;font-size:10.5px;line-height:14px;letter-spacing:1px;text-transform:uppercase;font-weight:bold;color:#334155;${FONT}">Pipeline</td>${head}</tr>` +
+    `<tr>${label("Added this week")}${added}</tr><tr>${label("In stage today")}${inStage}</tr></table>`
+  );
+}
+
+function prioritiesHtml(s: BuiltSection): string {
+  const picks = s.picks ?? [];
+  // Every pick hidden with Change: nothing in their place (the quiet line is for a track with no picks at all).
+  const allHidden = !picks.length && !!s.choices?.length;
+  const body = picks.length ? picks.map((pk, n) => pickHtml(pk, n === picks.length - 1)).join("") : allHidden ? "" : muted(s.quiet ?? "No top priorities chosen.");
+  return body + (s.decided ? decidedHtml(s.decided) : "") + (s.pipeline ? pipelineHtml(s.pipeline) : "");
+}
+
 /** The body of a section as sent (no heading): its edited text, its tiles or lists, or its line. */
 export function sectionBodyHtml(s: BuiltSection): string {
   if (s.edited) return editedHtml(s.edited);
+  if (s.kind === "priorities") return prioritiesHtml(s);
+  // v8: the opening is a plain paragraph (no rule, no heading in the email).
+  if (s.key === "opening") return s.line ? p(escapeHtml(s.line).replace(/\n/g, "<br>")) : `<div style="font-size:13px;line-height:18px;color:${C.text.soon};${FONT}">(no opening yet)</div>`;
   if (s.kind === "tiles") return s.tiles.length ? tilesHtml(s.tiles) : muted("Nothing shown in this section today.");
   // 2026-11-06 (Bram): the tomorrow line in the note look (dark text, cobalt left line), not bold.
   if (s.kind === "line") return s.line ? `<div data-line="1" style="${NOTE_STYLE}">${escapeHtml(s.line)}</div>` : `<div style="font-size:13px;line-height:18px;color:${C.text.soon};${FONT}">(no line yet)</div>`;
@@ -129,9 +188,10 @@ export function noteText(note: string | null | undefined): string {
 export function headerHtml(d: ReportData): string {
   return (
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse"><tr>` +
-    `<td valign="middle" style="padding:0 0 10px 0;${FONT}"><div style="font-size:12px;line-height:16px;color:${C.muted}">${d.withWeek ? "Daily report, with the week" : "Daily report"}</div>` +
+    `<td valign="middle" style="padding:0 0 10px 0;${FONT}"><div style="font-size:12px;line-height:16px;color:${C.muted}">${d.withWeek && d.layout !== "v8" ? "Daily report, with the week" : "Daily report"}</div>` +
     `<div style="font-size:18px;line-height:24px;font-weight:bold;color:${C.ink}">${escapeHtml(d.dateLong)}</div></td>` +
-    `<td valign="middle" align="right" style="padding:0 0 10px 0;${FONT}">${pillHtml(d.pill)}</td>` +
+    // v8 (2026-11-15): no status pill; the targets stay in the app.
+    `<td valign="middle" align="right" style="padding:0 0 10px 0;${FONT}">${d.layout === "v8" ? "" : pillHtml(d.pill)}</td>` +
     `</tr><tr><td colspan="2" style="height:1px;line-height:1px;font-size:0;background-color:${C.rule}">&nbsp;</td></tr></table>`
   );
 }
@@ -139,12 +199,15 @@ export function headerHtml(d: ReportData): string {
 export function greetingHtml(d: ReportData): string {
   // Send a report (Bram, 2026-11-07): a short note of your own under the greeting, for that send only.
   const intro = d.intro?.trim() ? p(escapeHtml(d.intro.trim()).replace(/\n/g, "<br>"), ";margin-bottom:2px") : "";
-  return p(`Hey ${escapeHtml(d.partnerFirst)},`, ";margin-top:12px;margin-bottom:2px") + intro + p(`Here is my report for ${escapeHtml(d.dateShort)}.${d.withWeek ? ` It is ${escapeHtml(d.dateShort.split(",")[0])}, so the week is at the end.` : ""}`);
+  const weekNote = d.withWeek && d.layout !== "v8" ? ` It is ${escapeHtml(d.dateShort.split(",")[0])}, so the week is at the end.` : "";
+  return p(`Hey ${escapeHtml(d.partnerFirst)},`, ";margin-top:12px;margin-bottom:2px") + intro + p(`Here is my report for ${escapeHtml(d.dateShort)}.${weekNote}`);
 }
 
 /** The closing; the name under "Thank you," is the Name in Settings (fix list item 10), none when not set. */
-export function closingHtml(signName?: string | null): string {
-  return p("Nothing is required from you. Reply to this email if you want to talk.", `;color:${C.muted};font-size:13px;margin-top:4px`) + p(signName ? `Thank you,<br>${escapeHtml(signName)}` : "Thank you,", ";margin-bottom:0");
+export function closingHtml(signName?: string | null, v8 = false): string {
+  // v8 (2026-11-15): no "Nothing is required" line.
+  const lead = v8 ? "" : p("Nothing is required from you. Reply to this email if you want to talk.", `;color:${C.muted};font-size:13px;margin-top:4px`);
+  return lead + p(signName ? `Thank you,<br>${escapeHtml(signName)}` : "Thank you,", ";margin-bottom:0");
 }
 
 /** The inner card of the email (what is sent, and what Sent reports shows): the sections this partner gets today. */
@@ -152,27 +215,42 @@ export function reportInnerHtml(d: ReportData): string {
   const row = (inner: string, pad: string) => `<tr><td style="padding:${pad}">${inner}</td></tr>`;
   const parts = [row(headerHtml(d), "16px 20px 0 20px"), row(greetingHtml(d), "0 20px 0 20px")];
   // 2026-11-06 (Bram): a note sits first, under the heading and above the section's items.
-  for (const s of sentSections(d)) parts.push(row(headingHtml(s.title) + noteHtml(s.note) + sectionBodyHtml(s), "8px 20px 4px 20px"));
-  parts.push(row(closingHtml(d.signName), "10px 20px 18px 20px"));
+  for (const s of sentSections(d)) {
+    // v8: the opening reads as part of the greeting (no heading).
+    if (d.layout === "v8" && s.key === "opening") {
+      // An empty opening is left out of the email (the window shows "(no opening yet)").
+      if (s.line || s.edited || s.note) parts.push(row((s.line || s.edited ? sectionBodyHtml(s) : "") + noteHtml(s.note), "0 20px 4px 20px"));
+    }
+    else parts.push(row(headingHtml(s.title) + noteHtml(s.note) + sectionBodyHtml(s), "8px 20px 4px 20px"));
+  }
+  parts.push(row(closingHtml(d.signName, d.layout === "v8"), "10px 20px 18px 20px"));
   return `<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;border-collapse:separate;background-color:#ffffff;border:1px solid ${C.border};border-radius:10px">${parts.join("")}</table>`;
 }
 
 export function reportSubject(d: ReportData): string {
+  if (d.layout === "v8") return `Daily report: ${d.dateLong}`;
   return `${d.withWeek ? "Daily report with the week" : "Daily report"}: ${d.dateLong}`;
 }
 
 /** The plain-text part, from the same sections. */
 export function reportText(d: ReportData): string {
-  const lines: string[] = [`Hey ${d.partnerFirst},`, "", ...(d.intro?.trim() ? [d.intro.trim(), ""] : []), `Here is my report for ${d.dateShort}.${d.withWeek ? ` It is ${d.dateShort.split(",")[0]}, so the week is at the end.` : ""}`, `${d.pill.text}.`];
+  const v8 = d.layout === "v8";
+  const lines: string[] = [`Hey ${d.partnerFirst},`, "", ...(d.intro?.trim() ? [d.intro.trim(), ""] : []), `Here is my report for ${d.dateShort}.${d.withWeek && !v8 ? ` It is ${d.dateShort.split(",")[0]}, so the week is at the end.` : ""}`, ...(v8 ? [] : [`${d.pill.text}.`])];
   for (const s of sentSections(d)) {
+    if (v8 && s.key === "opening") {
+      if (s.edited || s.line) lines.push("", (s.edited ?? s.line ?? "").trim());
+      if (s.note) lines.push(noteText(s.note));
+      continue;
+    }
     lines.push("", s.title.toUpperCase());
     if (s.note) lines.push(noteText(s.note), "");
     if (s.edited) lines.push(s.edited.trim());
     else if (s.kind === "tiles") lines.push(tilesText(s.tiles).split("\n").map((x) => `- ${x}`).join("\n"));
+    else if (s.kind === "priorities") lines.push([...(s.picks ?? []).map(pickText), s.decided ? `Decided this week: ${s.decided}.` : "", s.pipeline ? pipelineText(s.pipeline) : "", !(s.picks ?? []).length && !s.choices?.length ? (s.quiet ?? "") : ""].filter(Boolean).join("\n"));
     else if (s.kind === "line") lines.push(s.line ? noteText(s.line) : "(no line yet)");
     else lines.push(s.blocks.length ? blocksText(s.blocks) : (s.quiet ?? ""));
   }
-  lines.push("", "Nothing is required from you. Reply to this email if you want to talk.", "", ...signOff("Thank you", d.signName).split("\n"));
+  lines.push("", ...(v8 ? [] : ["Nothing is required from you. Reply to this email if you want to talk.", ""]), ...signOff("Thank you", d.signName).split("\n"));
   return lines.join("\n");
 }
 

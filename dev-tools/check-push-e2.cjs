@@ -61,7 +61,7 @@ const until = async (fn, msg, tries = 60) => {
   await ctx.addCookies([cookie]);
   const page = await ctx.newPage();
   const errors = [];
-  page.on("pageerror", (e) => errors.push(e.message));
+  page.on("pageerror", (e) => errors.push(`${page.url()}: ${e.message}`));
   await g("/__reset", {});
   const today = ny();
   const shot = async (name, el = null) => {
@@ -612,12 +612,11 @@ const until = async (fn, msg, tries = 60) => {
     assert(waitItems.length === waiting.deals + waiting.people && waitItems.some((t) => t.startsWith("Priya Natarajan") && t.includes("· Contacts")), JSON.stringify(waitItems));
     await page.keyboard.press("Escape");
     await drawer.waitFor({ state: "hidden" });
-    // The partner report's "Waiting on brokers 5+ days" stays deals only.
+    // The report (new layout, 2026-11-15) lists top priorities, never the people waited on.
     await page.getByTestId("report-view").click();
     await page.getByTestId("report-window").waitFor();
     const preview = await page.getByTestId("report-preview").innerText();
-    const waitPart = preview.slice(preview.search(/Waiting on brokers/i), preview.search(/Waiting on brokers/i) + 400);
-    assert(/Waiting on brokers/i.test(preview) && waitPart.includes("Summit") && !preview.includes("Priya Natarajan"), waitPart);
+    assert(/Acquisition · top priorities/i.test(preview) && !preview.includes("Priya Natarajan"), preview.slice(0, 400));
     await page.keyboard.press("Escape");
   });
 
@@ -668,12 +667,11 @@ const until = async (fn, msg, tries = 60) => {
     await first.click();
     await page.waitForURL(new RegExp(`/work/deals/${summit}$`));
     assert(ctx.pages().length === pages, "same tab");
-    // The report's broker section stays one entry per deal.
+    // The report (new layout, 2026-11-15) has no broker section, so a wait's text never reaches it.
     await page.goto(`${BASE}/work/end-of-day`);
     await page.getByTestId("report-view").click();
     await page.getByTestId("report-window").waitFor();
-    const preview = await page.getByTestId("report-preview").innerText();
-    assert((preview.match(/Summit Logistics Group/g) || []).length >= 1 && !preview.includes("Three years of tax returns"), "the broker section is one line per deal");
+    assert(!(await page.getByTestId("report-preview").innerText()).includes("Three years of tax returns"), "a wait's text is in the report");
     await page.keyboard.press("Escape");
     await db.query("delete from waits where pipeline_item_id = $1 and text = 'Three years of tax returns'", [summit]);
   });
@@ -739,15 +737,18 @@ const until = async (fn, msg, tries = 60) => {
     }
   });
 
-  await step("End of day: the report card's 'Before you send' checklist: Reasons and Tomorrow's line with their states, 'N of M done', a click scrolls to the card and outlines it, a green check when done", async () => {
+  await step("End of day: the report card's 'Before you send' checklist: Opening and Tomorrow's line with their states, 'N of M done', a click scrolls to the card and outlines it, a green check when done", async () => {
     await db.query("update end_of_day set tomorrow_line = '' where day = $1", [today]);
     await eodTop();
     const list = page.getByTestId("eod-checklist");
     const rows = async () => list.getByTestId("eod-check").evaluateAll((els) => els.map((e) => ({ key: e.dataset.key, done: e.dataset.done, state: e.dataset.state, text: e.innerText.replace(/\s+/g, " ").trim(), check: !!e.querySelector("svg") })));
     let r = await rows();
-    const owed = Number(await list.getAttribute("data-owed"));
-    assert(r.map((x) => x.key).join(",") === "reasons,tomorrow", JSON.stringify(r));
-    assert(r[0].state === (owed ? `${owed} left` : "Done") && r[0].text === `Reasons ${r[0].state}` && r[0].check === !owed, JSON.stringify(r[0]));
+    // The new layout (2026-11-15): Opening and Tomorrow's line (target reasons no longer hold up the report).
+    await db.query("update end_of_day set report_edits = report_edits - '_opening' where day = $1", [today]);
+    await eodTop();
+    r = await rows();
+    assert(r.map((x) => x.key).join(",") === "opening,tomorrow", JSON.stringify(r));
+    assert(r[0].state === "Empty" && r[0].text === "Opening Empty" && !r[0].check, JSON.stringify(r[0]));
     assert(r[1].state === "Empty" && r[1].text === "Tomorrow's line Empty" && !r[1].check, JSON.stringify(r[1]));
     const doneN = r.filter((x) => x.done === "1").length;
     assert((await list.innerText()).toUpperCase().startsWith("BEFORE YOU SEND") && (await page.getByTestId("eod-checklist-count").innerText()) === `${doneN} of 2 done`, await page.getByTestId("eod-checklist-count").innerText());
@@ -761,9 +762,9 @@ const until = async (fn, msg, tries = 60) => {
     const inView = await page.evaluate(() => { const b = document.getElementById("eod-tomorrow").getBoundingClientRect(); return b.top >= 0 && b.top < window.innerHeight; });
     assert(inView, "scrolled to the card");
     await until(async () => !(await page.locator("#eod-tomorrow").getAttribute("class")).includes("field-flash"), "the outline goes");
-    // A click on Reasons goes to the Targets card.
-    await list.locator("[data-testid=eod-check][data-key=reasons]").click();
-    await until(async () => (await page.locator("#eod-targets").getAttribute("class")).includes("field-flash"), "the Targets card is outlined");
+    // A click on Opening goes to the Opening card.
+    await list.locator("[data-testid=eod-check][data-key=opening]").click();
+    await until(async () => (await page.locator("#eod-opening").getAttribute("class")).includes("field-flash"), "the Opening card is outlined");
     // Writing tomorrow's line turns its row green with a check.
     await page.getByTestId("tomorrow-input").fill("Call Mark Reed about the Summit seller call at 10.");
     await page.getByTestId("tomorrow-input").blur();
@@ -773,7 +774,7 @@ const until = async (fn, msg, tries = 60) => {
     const color = await list.locator("[data-testid=eod-check][data-key=tomorrow] > span").last().evaluate((e) => { const p = document.createElement("span"); p.className = "text-status-met"; document.body.appendChild(p); const g = getComputedStyle(p).color; p.remove(); return getComputedStyle(e).color === g; });
     assert(color, "Done in green");
     const count = await page.getByTestId("eod-checklist-count").innerText();
-    assert(count === (owed ? "1 of 2 done" : "All done"), count);
+    assert(count === "1 of 2 done", count);
     await page.evaluate(() => window.scrollTo(0, 0));
     await shot("end-of-day-report-card-1440.png", page.getByTestId("report-card"));
   });
@@ -867,7 +868,8 @@ const until = async (fn, msg, tries = 60) => {
     await page.getByTestId("report-view").click();
     await page.getByTestId("report-window").waitFor();
     const preview = (await page.getByTestId("report-preview").innerText()).replace(/\s+/g, " ");
-    assert(new RegExp(`NEXT ACTIONS DONE ${before + 1}\\b`, "i").test(preview) || preview.includes(`Next actions done ${before + 1}`), preview.slice(0, 600));
+    // The new layout (2026-11-15) sends no count tiles; the count stays on End of day.
+    assert(!/NEXT ACTIONS DONE/i.test(preview), preview.slice(0, 600));
     await page.keyboard.press("Escape");
     const fu = page.locator("[data-testid=eod-target][data-target='Follow-ups done on time']");
     if (await fu.count()) assert((await fu.innerText()).includes("Mark Reed") || /\d+ of \d+/.test(await fu.innerText()), await fu.innerText());
@@ -917,56 +919,56 @@ const until = async (fn, msg, tries = 60) => {
     const sections = await win().getByTestId("report-section").evaluateAll((els) => els.filter((e) => e.dataset.included === "1").map((e) => [e.dataset.section, !!e.querySelector("[data-testid=section-edit]"), e.querySelector("[data-testid=section-note-open]")?.textContent]));
     assert(sections.length >= 5 && sections.every(([, edit, note]) => !edit || note === "+ Note"), JSON.stringify(sections));
     assert(sections.some(([k]) => k === "tomorrow"), "tomorrow's line is a section");
-    await wsec("top").getByTestId("section-note-open").click();
-    const box = wsec("top").getByTestId("section-note-box");
+    await wsec("acquisition").getByTestId("section-note-open").click();
+    const box = wsec("acquisition").getByTestId("section-note-box");
     await box.waitFor();
-    assert((await wsec("top").getByTestId("section-note-text").getAttribute("placeholder")) === "Add a few lines for your partner: context, why it matters, what to watch", "placeholder");
+    assert((await wsec("acquisition").getByTestId("section-note-text").getAttribute("placeholder")) === "Add a few lines for your partner: context, why it matters, what to watch", "placeholder");
     assert((await box.locator("[data-testid=ai-star], [data-testid*=ai-]").count()) === 0, "no AI star on the note box");
-    const h1 = await wsec("top").getByTestId("section-note-text").evaluate((e) => e.getBoundingClientRect().height);
-    await wsec("top").getByTestId("section-note-box").evaluate((e) => e.scrollIntoView({ block: "center" }));
+    const h1 = await wsec("acquisition").getByTestId("section-note-text").evaluate((e) => e.getBoundingClientRect().height);
+    await wsec("acquisition").getByTestId("section-note-box").evaluate((e) => e.scrollIntoView({ block: "center" }));
     if (SHOTS) await win().screenshot({ path: path.join(SHOTS, "report-note-box-open-1440.png") });
     // It grows with the text, up to about 6 lines, then scrolls.
-    await wsec("top").getByTestId("section-note-text").fill(Array.from({ length: 12 }, (_, i) => `line ${i + 1}`).join("\n"));
-    const h2 = await wsec("top").getByTestId("section-note-text").evaluate((e) => e.getBoundingClientRect().height);
+    await wsec("acquisition").getByTestId("section-note-text").fill(Array.from({ length: 12 }, (_, i) => `line ${i + 1}`).join("\n"));
+    const h2 = await wsec("acquisition").getByTestId("section-note-text").evaluate((e) => e.getBoundingClientRect().height);
     assert(h1 >= 60 && h1 <= 90 && h2 > h1 && h2 <= 140, `box heights ${h1} then ${h2}`);
-    await wsec("top").getByTestId("section-note-cancel").click();
-    assert((await wsec("top").getByTestId("section-note").count()) === 0 && (await wsec("top").getAttribute("data-note")) === "0", "Cancel saves nothing");
-    await addNote("top", TOP_NOTE);
-    const note = wsec("top").getByTestId("section-note");
+    await wsec("acquisition").getByTestId("section-note-cancel").click();
+    assert((await wsec("acquisition").getByTestId("section-note").count()) === 0 && (await wsec("acquisition").getAttribute("data-note")) === "0", "Cancel saves nothing");
+    await addNote("acquisition", TOP_NOTE);
+    const note = wsec("acquisition").getByTestId("section-note");
     assert((await note.innerText()).replace(/\s+/g, " ").trim() === TOP_NOTE.replace(/\s+/g, " "), await note.innerText());
     const look = await note.locator("[data-note]").evaluate((e) => ({ rule: getComputedStyle(e).borderLeftWidth, ruleColor: getComputedStyle(e).borderLeftColor, color: getComputedStyle(e).color, br: e.querySelectorAll("br").length }));
     assert(look.rule === "3px" && look.color === "rgb(15, 23, 42)" && look.ruleColor === "rgb(30, 64, 175)" && look.br === 1, JSON.stringify(look));
-    assert((await wsec("top").getByTestId("section-note-mark").innerText()) === "Note added", "the Note added mark");
-    assert((await wsec("top").getByTestId("section-note-open").innerText()) === "Edit note" && (await wsec("top").getByTestId("section-note-remove").innerText()) === "Remove note", "Edit note and Remove note");
-    await until(async () => (await notesInDb()).top === TOP_NOTE, "saved in report_edits._notes");
+    assert((await wsec("acquisition").getByTestId("section-note-mark").innerText()) === "Note added", "the Note added mark");
+    assert((await wsec("acquisition").getByTestId("section-note-open").innerText()) === "Edit note" && (await wsec("acquisition").getByTestId("section-note-remove").innerText()) === "Remove note", "Edit note and Remove note");
+    await until(async () => (await notesInDb()).acquisition === TOP_NOTE, "saved in report_edits._notes");
     const saved = (await one("select report_edits from end_of_day where day = $1", [today])).report_edits;
     assert(Object.keys(saved).every((k) => k === "_notes" || k === "_edited_at" || /^[0-9a-f-]{36}$/.test(k)), JSON.stringify(Object.keys(saved)));
-    await wsec("top").getByTestId("section-note").evaluate((e) => e.scrollIntoView({ block: "center" }));
+    await wsec("acquisition").getByTestId("section-note").evaluate((e) => e.scrollIntoView({ block: "center" }));
     if (SHOTS) await win().screenshot({ path: path.join(SHOTS, "report-note-top-3-deals-1440.png") });
   });
 
   await step("+ Note: a note sits above Edit's text too; the Targets note shows in Sarah's tab (one note for every copy); in her tab a left-out section shows 'Left out today, note not sent'", async () => {
-    await addNote("targets", TARGETS_NOTE);
+    await addNote("jobs", TARGETS_NOTE);
     await page.locator("[data-testid=report-tab][data-partner=Sarah]").click();
     await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hey Sarah,"));
-    assert((await wsec("targets").getByTestId("section-note").innerText()).includes(TARGETS_NOTE), "Sarah's tab shows the Targets note typed in Jake's tab");
-    assert((await wsec("top").getAttribute("data-included")) === "0", "Top 3 is not one of Sarah's sections");
-    assert((await wsec("top").innerText()).includes("Left out today, note not sent"), await wsec("top").innerText());
+    assert((await wsec("jobs").getByTestId("section-note").innerText()).includes(TARGETS_NOTE), "Sarah's tab shows the Targets note typed in Jake's tab");
+    assert((await wsec("acquisition").getAttribute("data-included")) === "0", "Top 3 is not one of Sarah's sections");
+    assert((await wsec("acquisition").innerText()).includes("Left out today, note not sent"), await wsec("acquisition").innerText());
     // Sarah today: Top 3 ticked (its note goes to her too), Targets left out (its note stays saved, not sent to her).
-    await wsec("top").getByTestId("section-include").check();
-    await until(async () => (await wsec("top").getAttribute("data-included")) === "1", "Top 3 in");
-    await wsec("targets").getByTestId("section-include").uncheck();
-    await until(async () => (await wsec("targets").getAttribute("data-included")) === "0", "Targets out");
+    await wsec("acquisition").getByTestId("section-include").check();
+    await until(async () => (await wsec("acquisition").getAttribute("data-included")) === "1", "Top 3 in");
+    await wsec("jobs").getByTestId("section-include").uncheck();
+    await until(async () => (await wsec("jobs").getAttribute("data-included")) === "0", "Targets out");
     await page.waitForTimeout(1200);
-    assert((await notesInDb()).targets === TARGETS_NOTE, "the Targets note is kept");
+    assert((await notesInDb()).jobs === TARGETS_NOTE, "the Targets note is kept");
     // A typed edit with a note: the note follows the edited text.
     await page.locator("[data-testid=report-tab][data-partner=Jake]").click();
     await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hey Jake,"));
-    await wsec("targets").getByTestId("section-edit").click();
-    await wsec("targets").getByTestId("section-edit-text").fill("Targets\n  - Two CIMs to screen first thing");
-    await wsec("targets").getByTestId("section-edit-save").click();
-    await until(async () => (await wsec("targets").getAttribute("data-edited")) === "1", "edited");
-    const order = await wsec("targets").evaluate((e) => {
+    await wsec("jobs").getByTestId("section-edit").click();
+    await wsec("jobs").getByTestId("section-edit-text").fill("Targets\n  - Two CIMs to screen first thing");
+    await wsec("jobs").getByTestId("section-edit-save").click();
+    await until(async () => (await wsec("jobs").getAttribute("data-edited")) === "1", "edited");
+    const order = await wsec("jobs").evaluate((e) => {
       const t = e.textContent;
       return [t.indexOf("Two CIMs to screen first thing"), t.indexOf("Two CIMs came in late")];
     });
@@ -979,7 +981,7 @@ const until = async (fn, msg, tries = 60) => {
     await wsec("tomorrow").getByTestId("section-note-remove").click();
     await until(async () => (await wsec("tomorrow").getAttribute("data-note")) === "0", "gone from the window");
     assert((await wsec("tomorrow").getByTestId("section-note-open").innerText()) === "+ Note" && (await wsec("tomorrow").getByTestId("section-note-mark").count()) === 0, "back to + Note");
-    await until(async () => !("tomorrow" in (await notesInDb())) && (await notesInDb()).top === TOP_NOTE, "removed from the saved notes only");
+    await until(async () => !("tomorrow" in (await notesInDb())) && (await notesInDb()).acquisition === TOP_NOTE, "removed from the saved notes only");
   });
 
   await step("Text not saved (Bram, 2026-11-06): a typed note or Edit not saved makes Close, Escape, another partner's tab and a browser reload ask first (Save, Discard, Keep editing); Save saves it, Discard drops it", async () => {
@@ -1011,8 +1013,8 @@ const until = async (fn, msg, tries = 60) => {
     await page.locator("[data-testid=report-tab][data-partner=Jake]").click();
     await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hey Jake,"));
     // An Edit typed and not saved asks the same way.
-    await wsec("targets").getByTestId("section-edit").click();
-    await wsec("targets").getByTestId("section-edit-text").fill("Targets\n  - Typed in Edit, not saved");
+    await wsec("jobs").getByTestId("section-edit").click();
+    await wsec("jobs").getByTestId("section-edit-text").fill("Targets\n  - Typed in Edit, not saved");
     await page.getByTestId("report-window-close").click();
     await box.waitFor();
     assert(/^Your edit to the .+ section is not saved\.$/.test(await line()), await line());
@@ -1023,7 +1025,7 @@ const until = async (fn, msg, tries = 60) => {
     await win().waitFor();
     await page.locator("[data-testid=report-tab][data-partner=Jake]").click();
     await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hey Jake,"));
-    assert(!(await wsec("targets").innerText()).includes("Typed in Edit, not saved"), "the discarded Edit is gone");
+    assert(!(await wsec("jobs").innerText()).includes("Typed in Edit, not saved"), "the discarded Edit is gone");
     await wsec("tomorrow").getByTestId("section-note-open").click();
     await wsec("tomorrow").getByTestId("section-note-text").fill("Saved from the question.");
     await page.getByTestId("report-window-close").click();
@@ -1071,7 +1073,7 @@ const until = async (fn, msg, tries = 60) => {
       await view.close();
     }
     const snap = await one("select snapshot from partner_reports where period_start = $1 and contact_id = (select id from contacts where email = 'jake.morgan@example.com') and report_kind = 'end_of_day'", [today]);
-    assert(snap.snapshot.notes && snap.snapshot.notes.top === TOP_NOTE, "the sent copy keeps its notes");
+    assert(snap.snapshot.notes && snap.snapshot.notes.acquisition === TOP_NOTE, "the sent copy keeps its notes");
     // The send went through the View report window: close it (nothing is left unsaved, so no question).
     if (await win().count()) {
       await page.getByTestId("report-window-close").click();

@@ -245,7 +245,7 @@ const until = async (fn, msg, tries = 80) => {
     await rw().getByTestId("report-also-picker").waitFor({ timeout: 20000 });
     assert((await rw().getByTestId("report-day-select").inputValue()).match(/^\d{4}-\d{2}-\d{2}$/), "no day chosen");
     assert(await rw().getByTestId("report-intro").count(), "no note box");
-    assert((await sec("targets").getByTestId("section-edit").count()) && (await sec("targets").getByTestId("section-note-open").count()), "no Edit or + Note");
+    assert((await sec("acquisition").getByTestId("section-edit").count()) && (await sec("acquisition").getByTestId("section-note-open").count()), "no Edit or + Note");
   });
 
   await step("Sending only to people under Also send to (partner unticked) sends them the report with the note, the section note and the edit, and the day stays open; the edit and the note stay in today's draft", async () => {
@@ -264,9 +264,9 @@ const until = async (fn, msg, tries = 80) => {
     assert((await picker.getByTestId("send-report-chip").count()) === 3, `${await picker.getByTestId("send-report-chip").count()} people chosen`);
     // Jake unticked for now: only the people added get it.
     await rw().locator("[data-testid=report-send-to-partner][data-partner=Jake] input").uncheck();
-    await sec("targets").getByTestId("section-note-open").click();
-    await sec("targets").getByTestId("section-note-text").fill("A note for the midday send.");
-    await sec("targets").getByTestId("section-note-save").click();
+    await sec("acquisition").getByTestId("section-note-open").click();
+    await sec("acquisition").getByTestId("section-note-text").fill("A note for the midday send.");
+    await sec("acquisition").getByTestId("section-note-save").click();
     await sec("tomorrow").getByTestId("section-edit").click();
     await sec("tomorrow").getByTestId("section-edit-text").fill("Tomorrow, rewritten at midday.");
     await sec("tomorrow").getByTestId("section-edit-save").click();
@@ -292,7 +292,7 @@ const until = async (fn, msg, tries = 80) => {
     await open("/work/end-of-day");
     await page.getByTestId("report-view").click();
     await rw().locator("[data-testid=report-send-to-partner][data-partner=Jake] input").check();
-    await until(async () => (await sec("targets").getAttribute("data-stale")) === "1" && (await sec("tomorrow").getAttribute("data-stale")) === "1", "the carried-over sections are not marked");
+    await until(async () => (await sec("acquisition").getAttribute("data-stale")) === "1" && (await sec("tomorrow").getAttribute("data-stale")) === "1", "the carried-over sections are not marked");
     assert((await sec("tomorrow").getByTestId("section-stale").innerText()).includes("before the report went out"), await sec("tomorrow").getByTestId("section-stale").innerText());
     // Today's people and note are saved with the day (2026-11-08), so only an earlier day's changes ask before closing.
     const earlierDay = (await one("select day::text as d from end_of_day where status = 'sent' and day < (select max(day) from end_of_day) order by day desc limit 1")).d;

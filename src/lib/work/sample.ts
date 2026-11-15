@@ -441,10 +441,10 @@ export function buildWorkSample(s: WorkSampleSetup, newId: () => string, today: 
     addOutreachTouches({ k, today, contacts, communications, newId });
     const jake = newId();
     // The accountability partner is a person with the role Accountability partner (final app, 2026-11-02).
-    contacts.push({ id: jake, name: "Jake Morgan", email: "jake.morgan@example.com", phone: "(404) 555-0131", title: "Friend, since college", outreach_role: "accountability_partner", report_days: [1, 2, 3, 4, 5], report_sections: ["today", "targets", "top", "active", "waiting", "jobs", "week", "review", "tomorrow"], notes: "Gets the End of day report by email, weekdays at 5:30." });
+    contacts.push({ id: jake, name: "Jake Morgan", email: "jake.morgan@example.com", phone: "(404) 555-0131", title: "Friend, since college", outreach_role: "accountability_partner", report_days: [1, 2, 3, 4, 5], report_sections: ["opening", "acquisition", "jobs", "consulting", "startup", "review", "tomorrow"], notes: "Gets the End of day report by email, weekdays at 5:30." });
     // Push B: a second partner with other days and sections (Fridays: targets, the week, Monday's line).
     const sarah = newId();
-    contacts.push({ id: sarah, name: "Sarah Klein", email: "sarah.klein@example.com", phone: "(404) 555-0188", title: "Former colleague", outreach_role: "accountability_partner", report_days: [5], report_sections: ["targets", "week", "review", "tomorrow"], notes: "Gets the Friday report: targets, the week, the Weekly review, and Monday's line." });
+    contacts.push({ id: sarah, name: "Sarah Klein", email: "sarah.klein@example.com", phone: "(404) 555-0188", title: "Former colleague", outreach_role: "accountability_partner", report_days: [5], report_sections: ["opening", "jobs", "review", "tomorrow"], notes: "Gets the Friday report: targets, the week, the Weekly review, and Monday's line." });
     // The last four weekdays before today (newest first): d1 skipped, d2 to d4 sent.
     const weekdays: string[] = [];
     for (let i = 1; weekdays.length < 4 && i < 14; i++) if (isWeekday(ago(i))) weekdays.push(ago(i));

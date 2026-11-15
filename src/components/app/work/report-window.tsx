@@ -599,7 +599,7 @@ export function CopyReview({ day, copy, startEditing, notes, onNotes, unsavedRef
             )}
           </div>
         ))}
-        <div className="mt-3" dangerouslySetInnerHTML={{ __html: closingHtml(copy.report.signName) }} />
+        <div className="mt-3" dangerouslySetInnerHTML={{ __html: closingHtml(copy.report.signName, copy.report.layout === "v8") }} />
       </div>
     </>
   );

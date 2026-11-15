@@ -11,11 +11,20 @@
  * lines under them ("Waiting on brokers 5+ days" over "Summit Logistics Group: 11 days, Mark Reed").
  */
 import type { ReportTile } from "@/lib/accountability/targets";
+import type { PipelineCol, ReportPick, ReportTracks } from "@/lib/accountability/report-v8";
 import { stalledAt } from "@/lib/work/stages";
 import type { TileStatus } from "@/lib/calc/partner-report";
 
-export type SectionKey = "today" | "targets" | "top" | "active" | "waiting" | "jobs" | "week" | "review" | "tomorrow";
-export const SECTION_ORDER: SectionKey[] = ["today", "targets", "top", "active", "waiting", "jobs", "week", "review", "tomorrow"];
+export type SectionKey = "today" | "targets" | "top" | "active" | "waiting" | "jobs" | "week" | "review" | "tomorrow" | "opening" | "acquisition" | "consulting" | "startup";
+/** The sections before the redesign (reports built before 2026-11-15 still show this way). */
+export const SECTION_ORDER_OLD: SectionKey[] = ["today", "targets", "top", "active", "waiting", "jobs", "week", "review", "tomorrow"];
+/** The report's sections since the redesign (v8, 2026-11-15): the opening, the four tracks, the week (Fridays), tomorrow. */
+export const SECTION_ORDER: SectionKey[] = ["opening", "acquisition", "jobs", "consulting", "startup", "review", "tomorrow"];
+/** Every key a saved note, choice, or partner setting can hold. */
+const ALL_KEYS: SectionKey[] = [...new Set([...SECTION_ORDER_OLD, ...SECTION_ORDER])];
+/** Keys only the new layout has, and keys only the old one had: a list tells which layout it was saved for. */
+const V8_ONLY: SectionKey[] = ["opening", "acquisition", "consulting", "startup"];
+const OLD_ONLY: string[] = ["today", "targets", "top", "active", "waiting", "week", "moved"];
 
 /** The Weekly review answers (push D): typed on Friday's End of day; empty strings while not written. */
 export type WeeklyReview = { well: string; slipped: string; focus: string };
@@ -59,6 +68,12 @@ export type ReportDeal = {
 export type ReportTarget = { id: string; group: "missed" | "now" | "met"; /** "Listings screened: 3 of 5 today, 8 of 10 this week". */ text: string; commitment: boolean; /** A missed commitment asks a reason; null while not given. */ asks: boolean; reason: string | null };
 
 export type ReportData = {
+  /** "v8": the layout since 2026-11-15 (opening, top priorities, pipeline); missing on reports built before it. */
+  layout?: "v8";
+  /** v8: the opening paragraph typed on End of day (a few lines on the day), or null. */
+  opening?: string | null;
+  /** v8: the four tracks (top priorities, decided this week, pipeline). */
+  tracks?: ReportTracks | null;
   /** Send a report (Bram, 2026-11-07): a short note of your own under the greeting, for that send only. */
   intro?: string | null;
   /** Fix list item 10 (2026-11-06): the name under "Thank you," (the first word of the Name in Settings); none when not set. */
@@ -120,7 +135,7 @@ export function cleanNotes(v: unknown): ReportNotes {
   const o = (v && typeof v === "object" && !Array.isArray(v) ? v : {}) as Record<string, unknown>;
   const out: ReportNotes = {};
   for (const [k, val] of Object.entries(o)) {
-    if (!(SECTION_ORDER as string[]).includes(k) || typeof val !== "string") continue;
+    if (!(ALL_KEYS as string[]).includes(k) || typeof val !== "string") continue;
     const t = val
       .replace(/\r\n?/g, "\n")
       .split("\n")
@@ -155,7 +170,11 @@ export type Block = { title?: string; tone?: "red" | "amber" | "green"; items: I
 export type BuiltSection = {
   key: SectionKey;
   title: string;
-  kind: "tiles" | "list" | "line";
+  kind: "tiles" | "list" | "line" | "priorities";
+  /** v8 "priorities": the picks shown (after Change), the decided line, and the Pipeline table. */
+  picks?: ReportPick[];
+  decided?: string | null;
+  pipeline?: PipelineCol[] | null;
   tiles: ReportTile[];
   blocks: Block[];
   line: string | null;
@@ -245,6 +264,10 @@ const titles = (d: ReportData): Record<SectionKey, string> => ({
   week: d.week?.label ?? "The week",
   review: "Weekly review",
   tomorrow: d.tomorrow.label,
+  opening: "Opening",
+  acquisition: "Acquisition · top priorities",
+  consulting: "Consulting · top priorities",
+  startup: "Startup · initiatives",
 });
 
 /** The plain text of a line, as Edit shows it. */
@@ -270,8 +293,12 @@ export function tilesText(tiles: readonly ReportTile[]): string {
 }
 
 /** Whether the partner gets a section as a standing choice. "moved" (before the push B edits) reads as Active. */
-export function standingHas(sections: readonly string[] | null | undefined, key: SectionKey): boolean {
+export function standingHas(sections: readonly string[] | null | undefined, key: SectionKey, v8 = false): boolean {
   if (!sections) return true;
+  // A list saved for the other layout (2026-11-15): every section of this layout goes (the review unless unticked).
+  const oldList = sections.some((k) => OLD_ONLY.includes(k)) && !sections.some((k) => (V8_ONLY as string[]).includes(k));
+  const newList = !sections.some((k) => OLD_ONLY.includes(k));
+  if ((v8 && oldList) || (!v8 && newList)) return key !== "review" || !sections.includes("review_off");
   if (sections.includes(key)) return true;
   return key === "active" && sections.includes("moved");
 }
@@ -282,6 +309,7 @@ export function standingHas(sections: readonly string[] | null | undefined, key:
  * weekday); Waiting on brokers stays with a quiet line. Tomorrow has Edit only (no Change).
  */
 export function buildSections(d: ReportData): BuiltSection[] {
+  if (d.layout === "v8") return buildV8Sections(d);
   const c = d.choices ?? {};
   const hid = (k: SectionKey) => new Set(c.hidden?.[k] ?? []);
   const T = titles(d);
@@ -414,7 +442,7 @@ export function parseEdited(text: string): { depth: number; bullet: boolean; tex
 /** Today's choices cleaned for saving: known section keys, short text, ids as given. */
 export function cleanChoices(v: unknown): ReportChoices {
   const o = (v && typeof v === "object" && !Array.isArray(v) ? v : {}) as Record<string, unknown>;
-  const isKey = (k: string): k is SectionKey => (SECTION_ORDER as string[]).includes(k);
+  const isKey = (k: string): k is SectionKey => (ALL_KEYS as string[]).includes(k);
   const obj = (x: unknown) => (x && typeof x === "object" && !Array.isArray(x) ? (x as Record<string, unknown>) : {});
   const include: ReportChoices["include"] = {};
   for (const [k, val] of Object.entries(obj(o.include))) if (isKey(k) && typeof val === "boolean") include[k] = val;
@@ -439,4 +467,84 @@ export function sendsNotes(d: ReportData): boolean {
 /** Whether a copy has any choice made today (the "Edited" mark). */
 export function hasChoices(c: ReportChoices | null | undefined): boolean {
   return !!c && (!!c.top?.length || Object.keys(c.include ?? {}).length > 0 || Object.keys(c.hidden ?? {}).length > 0 || Object.keys(c.edits ?? {}).length > 0);
+}
+
+// ---------- The new layout (v8, approved 2026-11-15) ----------
+
+const TRACK_OF: Record<"acquisition" | "jobs" | "consulting" | "startup", keyof Omit<ReportTracks, "startupActive">> = { acquisition: "acquisition", jobs: "job", consulting: "consulting", startup: "startup" };
+
+/** A pick as plain text (Edit starts from it): the name line, the facts line, then Why, Now, Next. */
+export function pickText(p: ReportPick): string {
+  const facts = [p.stage, p.strength ? p.strength[0].toUpperCase() + p.strength.slice(1) : null, p.since, p.moved].filter(Boolean).join(" · ");
+  return [
+    `${p.number}. ${p.name}${p.meta ? ` · ${p.meta}` : ""}`,
+    facts ? `  ${facts}` : "",
+    p.why ? `  Why: ${p.why}` : "",
+    p.now ? `  Now: ${p.now}` : "",
+    p.next ? `  Next: ${p.next.words}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** The Pipeline table as plain text: "Pipeline: Screened +14 · CIM review +2, 4 in stage · ...". */
+export function pipelineText(cols: readonly PipelineCol[]): string {
+  return `Pipeline: ${cols.map((c) => `${c.label} ${c.added ? `+${c.added}` : "–"}${c.inStage === null ? "" : `, ${c.inStage} in stage`}`).join(" · ")}`;
+}
+
+function buildV8Sections(d: ReportData): BuiltSection[] {
+  const c = d.choices ?? {};
+  const T = titles(d);
+  const notes = cleanNotes(d.notes);
+  const out: BuiltSection[] = [];
+  const push = (s: Omit<BuiltSection, "included" | "standing" | "edited" | "title" | "note"> & { title?: string }) => {
+    const standing = standingHas(d.sections, s.key, true);
+    const inc = c.include?.[s.key];
+    const edited = typeof c.edits?.[s.key] === "string" && c.edits[s.key]!.trim() ? c.edits[s.key]! : null;
+    out.push({ ...s, title: s.title ?? T[s.key], standing, included: inc === undefined ? standing : inc, edited, note: notes[s.key] ?? null });
+  };
+  const base: Pick<BuiltSection, "tiles" | "blocks" | "pick"> = { tiles: [], blocks: [], pick: null };
+
+  // The opening: the few lines typed on End of day (no heading in the email).
+  const opening = String(d.opening ?? "").trim() || null;
+  push({ ...base, key: "opening", kind: "line", line: opening, text: opening ?? "", choices: null, emptyAfterChange: false, quiet: opening ? null : "(no opening yet)" });
+
+  // The tracks: the picks (Change hides one), Decided this week, the Pipeline table.
+  for (const key of ["acquisition", "jobs", "consulting", "startup"] as const) {
+    const t = d.tracks?.[TRACK_OF[key]];
+    if (!t) continue;
+    if (key === "startup" && (!t.picks.length || !d.tracks?.startupActive)) continue;
+    if (key !== "startup" && !t.picks.length && !t.decided && !(t.pipeline ?? []).some((x) => x.added || x.inStage)) continue;
+    const h = new Set(c.hidden?.[key] ?? []);
+    // Numbered again after Change, so the email reads 1, 2, 3.
+    const picks = t.picks.filter((p) => !h.has(p.id)).map((p, n) => ({ ...p, number: n + 1 }));
+    const text = [...picks.map(pickText), t.decided ? `Decided this week: ${t.decided}` : "", t.pipeline ? pipelineText(t.pipeline) : ""].filter(Boolean).join("\n");
+    push({
+      ...base,
+      key,
+      title: key === "jobs" ? "Job search · top priorities" : undefined,
+      kind: "priorities",
+      line: null,
+      picks,
+      decided: t.decided,
+      pipeline: t.pipeline,
+      text,
+      choices: t.picks.length ? t.picks.map((p) => ({ id: p.id, label: p.name, on: !h.has(p.id) })) : null,
+      emptyAfterChange: !picks.length && t.picks.length > 0 && !t.decided && !t.pipeline,
+      quiet: t.picks.length ? null : "No top priorities chosen.",
+    });
+  }
+
+  // Fridays: "The week", the Weekly review's three answers.
+  if (d.review) {
+    const h = new Set(c.hidden?.review ?? []);
+    const r = d.review;
+    const lines = REVIEW_QUESTIONS.map((q) => ({ id: q.key, line: r[q.key].trim() ? { lead: q.lead, text: r[q.key].trim() } : { lead: q.lead, text: "", todo: STILL_TO_WRITE } }));
+    const shown = lines.filter((x) => !h.has(x.id));
+    const blocks: Block[] = shown.length ? [{ items: shown }] : [];
+    push({ ...base, key: "review", title: "The week", kind: "list", blocks, line: null, text: blocksText(blocks), choices: REVIEW_QUESTIONS.map((q) => ({ id: q.key, label: q.question, on: !h.has(q.key) })), emptyAfterChange: !shown.length, quiet: null });
+  }
+
+  push({ ...base, key: "tomorrow", kind: "line", line: d.tomorrow.text, text: d.tomorrow.text ?? "", choices: null, emptyAfterChange: false, quiet: d.tomorrow.text ? null : "(no line yet)" });
+  return out;
 }

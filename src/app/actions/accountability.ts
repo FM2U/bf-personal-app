@@ -7,7 +7,7 @@ import { AI_REPLY_CUT_OFF, AI_REPLY_UNUSABLE, AIInvalidReply, AIUnavailable, cal
 import { loadCtx, type Ctx } from "@/lib/engine/helpers";
 import { DB_UPDATE_NOTICE_0025, DB_UPDATE_NOTICE_PUSH_D, DB_UPDATE_NOTICE_PUSH_F, isMissingSchemaError } from "@/lib/schema-guard";
 import { recordWorkEvent } from "@/lib/accountability/events";
-import { buildEndOfDay, factsSince, loadEodRow, loadFacts, loadOwedFromSkipped, loadPartners, loadSentCopies, loadTargets, cleanEditedAt, EDITED_AT_KEY, GENERAL_COPY, type EndOfDayPage, type PartnerCopy } from "@/lib/accountability/data";
+import { cleanOpening, loadEndOfDay, loadSentCopies, OPENING_KEY, OPENING_MAX, cleanEditedAt, EDITED_AT_KEY, GENERAL_COPY, type EndOfDayPage, type PartnerCopy } from "@/lib/accountability/data";
 import { cleanPartnerSettings } from "@/lib/accountability/partners";
 import { replyTaskText } from "@/lib/gmail-replies";
 import { TODO_MAX_LENGTH } from "@/lib/work/questions";
@@ -16,10 +16,8 @@ import { reasonsPrompt, validateReasonsReply, type ReasonDraft } from "@/lib/acc
 import { cleanChoices, cleanNotes, cleanReview, hasChoices, NOTE_MAX, NOTES_KEY, SECTION_ORDER, type ReportChoices, type ReportNotes, type SectionKey, type WeeklyReview } from "@/lib/accountability/report-sections";
 import { personHref } from "@/lib/work/people";
 import { countable, isCountKey, owedReasons, type Cadence } from "@/lib/accountability/targets";
-import { loadWorkCtx } from "@/lib/work/data";
 import { loadWeeklyFocus } from "@/lib/work/projects-data";
 import type { Row } from "@/lib/types";
-import { signOffName } from "@/lib/work/names";
 import { approveAndSendCore, type SendResult } from "@/lib/accountability/send-core";
 
 /**
@@ -168,6 +166,25 @@ export async function saveReasons(day: string, reasons: Record<string, string>):
   const page = await loadPage(sb, ctx, day);
   done();
   return { ok: true, owed: owedCount(page) };
+}
+
+/** The report's opening paragraph on End of day (v8, 2026-11-15): a few lines on the day, under the greeting. */
+export async function saveOpening(day: string, text: string): Promise<{ ok: true } | Fail> {
+  const s = await setup();
+  if (isFail(s)) return s;
+  const { sb, ctx } = s;
+  if (String(text ?? "").length > OPENING_MAX * 2) return fail(`The opening can be up to ${OPENING_MAX} characters.`);
+  const row = await ensureEod(sb, ctx, day);
+  if (isFail(row)) return row;
+  if (row.status !== "open") return fail(`Today is already ${row.status}.`);
+  const all = { ...((row.report_edits && typeof row.report_edits === "object" && !Array.isArray(row.report_edits) ? row.report_edits : {}) as Record<string, unknown>) };
+  const t = cleanOpening(text);
+  if (t) all[OPENING_KEY] = t;
+  else delete all[OPENING_KEY];
+  const { error } = await sb.from("end_of_day").update({ report_edits: all, report_html: null, report_edited: false }).eq("id", row.id);
+  if (error) return notSaved(error);
+  done();
+  return { ok: true };
 }
 
 export async function saveTomorrow(day: string, text: string): Promise<{ ok: true } | Fail> {
@@ -319,16 +336,18 @@ export async function putShortReport(day: string, contactId?: string | null): Pr
   const copy = copyOf(page, contactId);
   if (!copy) return fail("No partner gets the report today.");
   const prev = copy.report.choices ?? {};
-  return saveReportChoices(day, copy.partner.id, { ...prev, include: { ...(prev.include ?? {}), today: false, top: false, active: false, waiting: false, jobs: false, targets: true, week: true, tomorrow: true } });
+  // v8 (2026-11-15): the short version keeps the opening, Acquisition, the week (Fridays) and tomorrow.
+  const short = copy.report.layout === "v8" ? { opening: true, acquisition: true, jobs: false, consulting: false, startup: false, review: true, tomorrow: true } : { today: false, top: false, active: false, waiting: false, jobs: false, targets: true, week: true, tomorrow: true };
+  return saveReportChoices(day, copy.partner.id, { ...prev, include: { ...(prev.include ?? {}), ...short } });
 }
 
 async function loadPage(sb: SupabaseClient, ctx: Ctx, day: string): Promise<EndOfDayPage> {
-  const wctx = await loadWorkCtx(sb, ctx.ownerId);
-  const [targets, bundle, row, partners, owed, sent] = await Promise.all([loadTargets(sb, ctx.ownerId), loadFacts(sb, wctx, factsSince(day)), loadEodRow(sb, ctx.ownerId, day), loadPartners(sb, ctx.ownerId), loadOwedFromSkipped(sb, ctx.ownerId, day, wctx.countingStart), loadSentCopies(sb, ctx.ownerId, day)]);
-  return buildEndOfDay({ targets, bundle, row, partners, sent, owed, day, tz: ctx.tz, threshold: wctx.threshold, eodTime: wctx.eodTime, signName: signOffName(wctx.profile?.display_name), autoSend: wctx.autoSend });
+  return loadEndOfDay(sb, ctx, day);
 }
 
 function owedCount(page: EndOfDayPage): number {
+  // The new layout (2026-11-15) sends no targets, so no reason is asked before sending; they stay on End of day.
+  if (page.v8) return 0;
   const todays = owedReasons(page.judged, page.reasons).length;
   const prev = page.owed ? page.owed.items.filter((j) => !String(page.reasons[`owed:${page.owed!.day}:${j.targetId}`] ?? "").trim()).length : 0;
   return todays + prev;

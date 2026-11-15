@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Check, Eye, Loader2 } from "lucide-react";
-import { approveAndSend, saveReasons, saveTomorrow, saveWeeklyReview, setPartnerToday, putShortReport } from "@/app/actions/accountability";
+import { approveAndSend, saveOpening, saveReasons, saveTomorrow, saveWeeklyReview, setPartnerToday, putShortReport } from "@/app/actions/accountability";
 import type { ReasonDraft } from "@/lib/accountability/ask-ai";
 import type { EndOfDayPage } from "@/lib/accountability/data";
 import { dueLine, getsLabel, sendLabel } from "@/lib/accountability/partners";
@@ -84,6 +84,7 @@ export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; 
   const toNames = (list: typeof copies) => andNames(list.map((c) => c.partner.first));
   const [reasons, setReasons] = useState<Record<string, string>>(data.reasons);
   const [tomorrow, setTomorrow] = useState(data.tomorrow);
+  const [opening, setOpening] = useState(data.opening);
   const [review, setReview] = useState<WeeklyReview>({ well: data.review?.well ?? "", slipped: data.review?.slipped ?? "", focus: data.review?.focus ?? "" });
   const [state, setState] = useState<{ status: EndOfDayPage["state"]; sentTime: string | null; skipReason: string | null }>({ status: data.state, sentTime: data.sentTime, skipReason: data.skipReason });
   const [windowOpen, setWindowOpen] = useState<false | "view" | "edit">(openSend ? "view" : false);
@@ -205,13 +206,14 @@ export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; 
   const asked = useMemo(() => judged.filter((j) => j.judged && !j.met && j.commitment), [judged]);
   const owedPrev = data.owed;
   const owedKey = (j: Judged) => `owed:${owedPrev!.day}:${j.targetId}`;
-  const owedLeft = owedReasons(judged, reasons).length + (owedPrev ? owedPrev.items.filter((j) => !String(reasons[owedKey(j)] ?? "").trim()).length : 0);
+  // The new layout (2026-11-15) sends no targets, so missing reasons do not hold up the report.
+  const owedLeft = data.v8 ? 0 : owedReasons(judged, reasons).length + (owedPrev ? owedPrev.items.filter((j) => !String(reasons[owedKey(j)] ?? "").trim()).length : 0);
   const met = judged.filter((j) => j.judged && j.met).length;
   const judgedCount = judged.filter((j) => j.judged).length;
   const badge: EodBadge = state.status === "sent" ? "Sent" : state.status === "skipped" ? "Skipped" : data.eodTime.short;
   /** The weekly review day's name (the review card shows on that day only; Friday unless changed in Settings). */
   const dayWord = data.dateLabel.split(",")[0];
-  const checks = sendChecklist(owedLeft, tomorrow, data.tomorrowLabel, data.review ? reviewAnswered(review) : null);
+  const checks = sendChecklist(data.v8 ? null : owedLeft, tomorrow, data.tomorrowLabel, data.review ? reviewAnswered(review) : null, data.v8 ? opening : null);
   const checksDone = checks.filter((c) => c.done).length;
   /** The partner whose sections show under the table (View). */
   const [openPartner, setOpenPartner] = useState<string | null>(null);
@@ -256,6 +258,13 @@ export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; 
     start(async () => {
       setError(null);
       const r = await saveTomorrow(day, text);
+      if (!r.ok) return setError(r.error);
+      router.refresh();
+    });
+  const saveOpeningText = (text: string) =>
+    start(async () => {
+      setError(null);
+      const r = await saveOpening(day, text);
       if (!r.ok) return setError(r.error);
       router.refresh();
     });
@@ -367,7 +376,7 @@ export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; 
   };
   const extras: EodExtras = { day, tomorrow, closed: closed ? (state.status as "sent" | "skipped") : null, onUseReasons: useDrafts, onUseTomorrow: useLine, onUseShort: applyShort };
   const n = data.numbers;
-  const cardIds = { reasons: "eod-targets", review: "eod-review", tomorrow: "eod-tomorrow" };
+  const cardIds = { reasons: "eod-targets", review: "eod-review", tomorrow: "eod-tomorrow", opening: "eod-opening" };
   const checkBox = check ? (
     <Confirm tone="warn" testId="send-check">
       <span>{check}</span>
@@ -533,7 +542,7 @@ export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; 
             ) : null}
             <p className="px-[22px] pt-1 pb-4 text-[12.5px] text-muted-foreground" data-testid="eod-targets-note">
               {data.weekJudged ? `It is ${data.weekEndName}, so the per-week targets are judged today. ` : data.weekday ? `The per-week targets are judged on ${data.weekEndName}; today judges the per-weekday ones. ` : "No targets are judged today: it is not one of your work days (Settings, Work settings). "}
-              Only commitments ask for a reason; the reason goes into the report as written.
+              {data.v8 ? "Only commitments ask for a reason; reasons stay here in the app (the report no longer lists targets)." : "Only commitments ask for a reason; the reason goes into the report as written."}
             </p>
           </WorkCard>
 
@@ -721,6 +730,29 @@ export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; 
             </div>
           </WorkCard>
 
+          {data.v8 ? (
+            // The report's opening (v8, Bram 2026-11-15): a few lines on the day, under the greeting.
+            <WorkCard id="eod-opening" title="Opening" hint="A few lines on the day, under the greeting" testId="eod-opening">
+              <div className="px-[22px] pt-3 pb-4">
+                <textarea
+                  rows={4}
+                  value={opening}
+                  onChange={(e) => setOpening(e.target.value)}
+                  onBlur={(e) => {
+                    if (e.target.value !== data.opening) saveOpeningText(e.target.value);
+                  }}
+                  placeholder="What the day was about: the main move, what you learned, what is stuck"
+                  disabled={closed}
+                  maxLength={1500}
+                  className="block w-full resize-y rounded-[7px] border border-input bg-white px-3 py-2.5 text-sm leading-[1.5] text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:bg-slate-50 disabled:text-slate-600"
+                  aria-label="Opening"
+                  data-testid="opening-input"
+                />
+                <p className="mt-2 text-[12.5px] text-muted-foreground">Three to five sentences. Your partners read it first.</p>
+              </div>
+            </WorkCard>
+          ) : null}
+
           <WorkCard id="eod-tomorrow" title={data.tomorrowLabel === "Tomorrow" ? "What matters tomorrow" : `What matters ${data.tomorrowLabel}`} actions={<AiCardStar context={{ ...page, card: "What matters tomorrow" }} extras={extras} />} testId="eod-tomorrow">
             <div className="px-[22px] pt-3 pb-4">
               <div className="relative">
@@ -849,7 +881,7 @@ export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; 
             </div>
           ) : null
         }
-        footerNote={isPast ? (pastLine ?? "Sending an earlier report again changes nothing about that day.") : alsoLine ? alsoLine : checkBox ?? (state.status === "open" && needs.length ? `${needs.join(" · ")}. Gaps go out as "(still to give)".` : state.status === "open" ? (partly ?? dueLine(data.partners, day)) : state.status === "sent" ? `Sent to ${toNames(copies)} at ${state.sentTime}.` : "Skipped today. Nothing is sent.")}
+        footerNote={isPast ? (pastLine ?? "Sending an earlier report again changes nothing about that day.") : alsoLine ? alsoLine : checkBox ?? (state.status === "open" && needs.length ? (data.v8 ? `${needs.join(" · ")}.` : `${needs.join(" · ")}. Gaps go out as "(still to give)".`) : state.status === "open" ? (partly ?? dueLine(data.partners, day)) : state.status === "sent" ? `Sent to ${toNames(copies)} at ${state.sentTime}.` : "Skipped today. Nothing is sent.")}
         sendButton={
           isPast ? (
             <button type="button" onClick={sendPast} disabled={sending || !recipientCount(pastTo) || !past.data} className="inline-flex h-8 items-center gap-1.5 rounded-[7px] border border-primary-solid bg-primary-solid px-3 text-[13px] font-medium text-white hover:bg-primary-solid-hover disabled:opacity-50" data-testid="report-window-send" data-busy={sending ? "1" : "0"}>

@@ -11,21 +11,22 @@ import { workWeekNow } from "@/lib/work-week";
  * became part of Active today (a saved "moved" reads as Active today).
  */
 export const REPORT_SECTIONS = [
-  { key: "today", label: "Today's counts", hint: "Listings screened, deals moved, calls, emails" },
-  { key: "targets", label: "Targets", hint: "Met, under way, missed, with reasons" },
-  { key: "top", label: "Top 3 deals", hint: "The 3 deals furthest along: stage, status, next step" },
-  { key: "active", label: "Active today", hint: "Other deals worked on that day (Fridays: that week)" },
-  { key: "waiting", label: "Deals waiting on brokers", hint: "Waiting longer than the amber mark" },
-  { key: "jobs", label: "Job search", hint: "The top 3 opportunities and the ones worked on" },
-  { key: "week", label: "The week", hint: "Fridays: the week's figures" },
-  { key: "review", label: "Weekly review", hint: "Fridays: what went well, what slipped, next week's focus" },
+  // The report's sections since the redesign (v8, Bram 2026-11-15).
+  { key: "opening", label: "Opening", hint: "A few lines on the day, under the greeting" },
+  { key: "acquisition", label: "Acquisition", hint: "Top priorities, decided this week, the pipeline" },
+  { key: "jobs", label: "Job search", hint: "Top priorities, decided this week, the pipeline" },
+  { key: "consulting", label: "Consulting", hint: "Top priorities, decided this week, the pipeline" },
+  { key: "startup", label: "Startup", hint: "Initiatives, on days with startup work" },
+  { key: "review", label: "The week", hint: "Fridays: what went well, what slipped, next week's focus" },
   { key: "tomorrow", label: "Tomorrow's line", hint: null },
 ] as const;
+/** Section keys of the report before the redesign: a list saved with only these gets every new section. */
+const OLD_ONLY = ["today", "targets", "top", "active", "waiting", "week", "moved"];
 export type ReportSectionKey = (typeof REPORT_SECTIONS)[number]["key"];
 export const ALL_SECTIONS: ReportSectionKey[] = REPORT_SECTIONS.map((s) => s.key);
 
 /** Section keys saved before a rename, and the key they are now. */
-const RENAMED_SECTIONS: Record<string, ReportSectionKey> = { moved: "active" };
+const RENAMED_SECTIONS: Record<string, string> = { moved: "active" };
 const readSections = (v: unknown[]): unknown[] => v.map((k) => RENAMED_SECTIONS[String(k)] ?? k);
 
 /** Monday to Sunday as stored (ISO weekday numbers); the weekend days since the work week setting (2026-11-07). */
@@ -54,7 +55,10 @@ export function partnerSettings(row: { report_days?: unknown; report_sections?: 
   const days = Array.isArray(row.report_days) ? [...new Set(row.report_days.map(Number).filter((n) => WEEKDAY_NUMBERS.includes(n)))].sort() : [];
   const raw = Array.isArray(row.report_sections) ? readSections(row.report_sections as unknown[]) : [];
   const reviewOn = raw.length > 0 && !raw.includes(REVIEW_OFF);
-  const sections = ALL_SECTIONS.filter((k) => raw.includes(k) || (k === "review" && reviewOn));
+  // Saved before the redesign (2026-11-15): none of the new sections, so the new layout sends them all.
+  // Old only when it holds a section only the old layout had, and none of the new ones.
+  const legacy = raw.some((k) => OLD_ONLY.includes(String(k))) && !raw.some((k) => ["opening", "acquisition", "consulting", "startup"].includes(String(k)));
+  const sections = legacy ? ALL_SECTIONS.filter((k) => k !== "review" || reviewOn) : ALL_SECTIONS.filter((k) => raw.includes(k) || (k === "review" && reviewOn));
   const rawEmpty = (!Array.isArray(row.report_days) || !row.report_days.length) && (!Array.isArray(row.report_sections) || !row.report_sections.length);
   // Never set: your work days (Settings, Work settings; Monday to Friday unless changed).
   if (rawEmpty) return { days: [...workWeekNow().days], sections: [...ALL_SECTIONS] };
@@ -72,7 +76,7 @@ export function cleanPartnerSettings(input: { days: unknown; sections: unknown }
   const days = Array.isArray(input.days) ? [...new Set(input.days.map(Number).filter((n) => WEEKDAY_NUMBERS.includes(n)))].sort() : [];
   const sections = Array.isArray(input.sections) ? ALL_SECTIONS.filter((k) => (input.sections as unknown[]).includes(k)) : [];
   if (!sections.length) return { ok: false, error: "Tick at least one section." };
-  const kept = Array.isArray(savedSections) ? savedSections.map(String).filter((k) => !isSection(k) && !RENAMED_SECTIONS[k] && k !== REVIEW_OFF) : [];
+  const kept = Array.isArray(savedSections) ? savedSections.map(String).filter((k) => !isSection(k) && !RENAMED_SECTIONS[k] && k !== REVIEW_OFF && !OLD_ONLY.includes(k)) : [];
   return { ok: true, days, sections: [...sections, ...(sections.includes("review") ? [] : [REVIEW_OFF]), ...kept] };
 }
 

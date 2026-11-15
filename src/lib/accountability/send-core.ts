@@ -45,6 +45,8 @@ export async function ensureEodRow(sb: SupabaseClient, ctx: Ctx, day: string): P
 
 /** Reasons still owed today: today's missed commitments, and the day before's left as "(still to give)". */
 export function owedCount(page: EndOfDayPage): number {
+  // The new layout (2026-11-15) sends no targets, so no reason is asked before sending; they stay on End of day.
+  if (page.v8) return 0;
   const todays = owedReasons(page.judged, page.reasons).length;
   const prev = page.owed ? page.owed.items.filter((j) => !String(page.reasons[`owed:${page.owed!.day}:${j.targetId}`] ?? "").trim()).length : 0;
   return todays + prev;
