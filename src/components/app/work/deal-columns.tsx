@@ -26,8 +26,8 @@ import { cn } from "@/lib/utils";
 /** The stages the person collapsed are saved under this key (the same storage as the other collapsible sections). */
 const STORAGE_KEY = "work-deals-stages";
 
-export function DealColumns({ header, groups, today, initialFilter = "all" }: { /** The title and the Work tabs (server-rendered), kept in the sticky block above the filters. */ header: React.ReactNode; groups: StageGroup[]; today: string; /** The filter named in the address (from Home). */ initialFilter?: DealFilter }) {
-  return <PhaseColumns header={header} groups={groups} today={today} initialFilter={initialFilter} phases={PHASES} storageKey={STORAGE_KEY} prefix="deals" placeholder="Find a deal" card={(deal, hidden) => <DealCard deal={deal} today={today} hidden={hidden} />} />;
+export function DealColumns({ header, before, groups, today, initialFilter = "all" }: { /** The title and the Work tabs (server-rendered), kept in the sticky block above the filters. */ header: React.ReactNode; /** Top priorities (2026-11-15), between the filters and the columns. */ before?: React.ReactNode; groups: StageGroup[]; today: string; /** The filter named in the address (from Home). */ initialFilter?: DealFilter }) {
+  return <PhaseColumns header={header} before={before} groups={groups} today={today} initialFilter={initialFilter} phases={PHASES} storageKey={STORAGE_KEY} prefix="deals" placeholder="Find a deal" card={(deal, hidden) => <DealCard deal={deal} today={today} hidden={hidden} />} />;
 }
 
 type ColumnItem = FilterableDeal & { id: string; stageName: string | null; searchText?: string | null };

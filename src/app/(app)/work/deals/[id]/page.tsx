@@ -18,6 +18,8 @@ import { DB_UPDATE_NOTICE_0027 } from "@/lib/schema-guard";
 import { DocumentsCard } from "@/components/app/work/documents-card";
 import { EmptyState } from "@/components/app/page-header";
 import { Button } from "@/components/ui/button";
+import { loadRecordPriority } from "@/lib/work/priorities-data";
+import { PriorityCard, PriorityStar } from "@/components/app/work/priorities";
 
 /** The browser tab (push D): "Listing: <name>" on a listing still to screen, "Deal" otherwise. */
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
@@ -54,6 +56,8 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 export default async function DealPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const { supabase, ownerId } = await requireOwner();
+  // Top priority fields (2026-11-15) are read with the page, in the same trip.
+  const prioP = /^[0-9a-f-]{36}$/i.test(id) ? loadRecordPriority(supabase, ownerId, "pipeline_items", id, "acquisition").catch(() => null) : null;
   const d = await loadDealPage(supabase, ownerId, id);
   if (!d.available) {
     return (
@@ -90,6 +94,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
   const buyBox = isListing ? checkBuyBox({ name: deal.listingName, whatItDoes: deal.whatItDoes, industry: deal.industry, location: deal.location, ebitda: deal.ebitda, sde: deal.sde }, d.buyBox) : null;
   const waiting = deal.status === "open" && deal.waitLevel !== "none";
   const listing = listedAs({ name: deal.listingName, companyName: deal.companyName });
+  const prio = prioP ? await prioP : null;
   const figures = headerFigures(
     { nextDue: deal.nextActionDue, hasNext: !!deal.nextAction, nextLabel: "Next action", openTasks: openTodos(d.todos).length, lastContactAt: d.lastContact?.on ?? null, lastContactKind: d.lastContact?.kind ?? null, waitingOn: waiting ? deal.waitingOn : null, waitDays: deal.waitDays, waitTone: deal.waitLevel },
     d.today,
@@ -139,6 +144,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
               {deal.stageName ?? "No stage"}
               {deal.status === "open" ? ` · day ${deal.dayInStage}` : ""}
             </Pill>
+            {prio ? <PriorityStar data={prio} open={deal.status === "open"} /> : null}
             {waiting ? (
               <Pill tone={waitTone(deal.waitLevel)} className="tabular" testId="deal-wait-pill">
                 Waiting on {deal.waitingOn} · {daysLabel(deal.waitDays)}
@@ -157,7 +163,9 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
       <RecordColumns
         left={
           <>
-          {/* Bram, 2026-11-07: action first on every record page; the record's own card comes after Next action and Tasks. */}
+          {/* Bram, 2026-11-07: action first on every record page; the record's own card comes after Next action and Tasks.
+              Bram, 2026-11-15 (approved mockup): the Priority card sits at the top of a deal's page. */}
+          {prio && !isListing ? <PriorityCard data={prio} label={deal.name} open={deal.status === "open"} /> : null}
           <NextActionCard deal={deal} today={d.today} noActionHint={state.noActionHint} waitsReady={d.waitsReady} />
           <TodosCard deal={deal} todos={d.todos} today={d.today} />
           <FindingsCard deal={deal} compose={d.questionsCompose} aiTools={state.questionsTools} listsReady={listsReady} growthReady={growthReady} />

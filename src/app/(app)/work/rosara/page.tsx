@@ -7,6 +7,8 @@ import { AskAiPill } from "@/components/app/work/ask-ai";
 import { RosaraBoard } from "@/components/app/work/rosara-board";
 import { WorkShell, WorkUpdateNotice } from "@/components/app/work/shell";
 import { PinnedBlock, WorkHeader } from "@/components/app/work/ui";
+import { loadPriorities } from "@/lib/work/priorities-data";
+import { TopPrioritiesCard } from "@/components/app/work/priorities";
 
 export const metadata = { title: "Rosara" };
 
@@ -17,6 +19,8 @@ export const metadata = { title: "Rosara" };
 export default async function RosaraPage() {
   const { supabase, ownerId } = await requireOwner();
   const notice = null;
+  // Top priorities (2026-11-15) start with the first reads, in the same trip.
+  const prioP = loadPriorities(supabase, ownerId);
   const ctx = await loadCtx(supabase, ownerId);
   const tabs = await loadTabCounts(supabase, ownerId, ctx.today);
   const header = (
@@ -47,6 +51,9 @@ export default async function RosaraPage() {
   return (
     <WorkShell testId="work-rosara">
       {header}
+      <div className="mb-[18px]">
+        <TopPrioritiesCard data={await prioP} kinds={["startup"]} />
+      </div>
       <RosaraBoard data={d} />
     </WorkShell>
   );

@@ -48,8 +48,14 @@ export async function loadSampleData(fd: FormData) {
   const [deals, jobs, consulting] = await Promise.all([loadWorkPipeline(supabase, ownerId), loadPipelineOfKind(supabase, ownerId, "job"), loadPipelineOfKind(supabase, ownerId, "consulting")]);
   if (!deals) back("The acquisition pipeline is missing, so sample data was not loaded.");
   const stagesOf = (p: NonNullable<typeof deals>) => Object.fromEntries(p.stages.map((st) => [st.name, st.id]));
+  // Top priorities (2026-11-15): the sample adds its picks only when the owner has none (a place holds one record).
+  const [{ count: rankedItems }, { count: rankedProjects }] = await Promise.all([
+    supabase.from("pipeline_items").select("id", { count: "exact", head: true }).eq("owner_id", ownerId).not("priority_rank", "is", null),
+    supabase.from("projects").select("id", { count: "exact", head: true }).eq("owner_id", ownerId).not("priority_rank", "is", null),
+  ]);
   const { batches, counts, work } = buildSampleData(
     {
+      priorities: !rankedItems && !rankedProjects,
       pipelineId: deals!.id,
       stages: stagesOf(deals!),
       batchB: true,

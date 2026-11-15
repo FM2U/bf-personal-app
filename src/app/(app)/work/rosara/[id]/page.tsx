@@ -10,6 +10,8 @@ import { projectAsk } from "@/lib/work/ask-ai";
 import { GoalCard, ProjectDecisionCard, ProjectFactsCard, ProjectNextActionCard, ProjectTasksCard, ProjectTimelineCard } from "@/components/app/work/project/cards";
 import { RecordHeader } from "@/components/app/work/record-header";
 import { RecordColumns } from "@/components/app/work/record-columns";
+import { loadRecordPriority } from "@/lib/work/priorities-data";
+import { PriorityCard, PriorityStar } from "@/components/app/work/priorities";
 import { WorkShell, WorkUpdateNotice } from "@/components/app/work/shell";
 import { Pill, What, WorkHeader } from "@/components/app/work/ui";
 import { EmptyState } from "@/components/app/page-header";
@@ -39,8 +41,11 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
       </WorkShell>
     );
   }
+  // Top priority fields (2026-11-15) start with the first reads, in the same trip.
+  const prioP = /^[0-9a-f-]{36}$/i.test(id) ? loadRecordPriority(supabase, ownerId, "projects", id, "startup").catch(() => null) : null;
   const ctx = await loadCtx(supabase, ownerId);
   const d = await loadProjectPage(supabase, ctx, id);
+  const prio = prioP ? await prioP : null;
   const project = d.project;
   if (!project) {
     return (
@@ -77,6 +82,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
             <Pill tone={project.status === "closed" ? "charcoal" : "gray"} testId="project-pill">
               {project.status === "closed" ? "Closed" : "Rosara"}
             </Pill>
+            {prio ? <PriorityStar data={prio} open={project.status === "open"} /> : null}
             <What>
               <b className="font-medium text-slate-700">Milestone:</b> {project.milestone ?? "not set"}
             </What>
@@ -88,6 +94,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         left={
           <>
           {/* Bram, 2026-11-07: action first on every record page; the record's own card comes after Next action and Tasks. */}
+          {prio ? <PriorityCard data={prio} label={project.name} open={project.status === "open"} /> : null}
           <ProjectNextActionCard project={project} today={d.today} />
           <ProjectTasksCard project={project} tasks={d.tasks} today={d.today} />
           <GoalCard project={project} />

@@ -13,6 +13,8 @@ import { WorkTabs } from "@/components/app/nav-links";
 import { HomeBoard } from "@/components/app/work/home-board";
 import { WorkShell, WorkUpdateNotice } from "@/components/app/work/shell";
 import { WorkHeader } from "@/components/app/work/ui";
+import { loadPriorities, PRIORITY_KINDS } from "@/lib/work/priorities-data";
+import { TopPrioritiesCard } from "@/components/app/work/priorities";
 
 export const metadata = { title: "Work on now" };
 
@@ -28,7 +30,8 @@ export default async function WorkNowPage() {
   // Push B: opening Home looks for new replies to the reports and emails the app sent (at most once every few minutes).
   // Page speed (2026-11-06): after the page is on screen (ReplyCheck below), no longer before it.
   // Page speed (2026-11-06): Home's data, the email setup and the tab counts load side by side.
-  const [d, gmail0, tabs0] = await Promise.all([loadHome(supabase, ownerId), loadGmailSetup(supabase, ownerId), loadWorkCtx(supabase, ownerId).then((c) => loadTabCounts(supabase, ownerId, c.today))]);
+  // Top priorities (2026-11-15) load in the same trip.
+  const [d, gmail0, tabs0, prio] = await Promise.all([loadHome(supabase, ownerId), loadGmailSetup(supabase, ownerId), loadWorkCtx(supabase, ownerId).then((c) => loadTabCounts(supabase, ownerId, c.today)), loadPriorities(supabase, ownerId)]);
   const tilePeople = d.available ? d.outreach.dueToday : [];
   const gmail: GmailSetup = d.available ? gmail0 : { permission: "not_connected", fromEmail: null, canGmail: false, signature: null };
   /**
@@ -78,7 +81,7 @@ export default async function WorkNowPage() {
           <WorkUpdateNotice notice={d.notice} />
         </>
       ) : (
-        <HomeBoard data={d} dateLabel={dateLabel} askAi={askAi} tabs={tabs} waitingCard={waitingCard} personComposes={Object.fromEntries(tilePeople.map((p) => [p.id, composeForPerson(gmail, p)]))} askCompose={askCompose} />
+        <HomeBoard data={d} priorities={<TopPrioritiesCard data={prio} kinds={PRIORITY_KINDS} />} dateLabel={dateLabel} askAi={askAi} tabs={tabs} waitingCard={waitingCard} personComposes={Object.fromEntries(tilePeople.map((p) => [p.id, composeForPerson(gmail, p)]))} askCompose={askCompose} />
       )}
     </WorkShell>
   );

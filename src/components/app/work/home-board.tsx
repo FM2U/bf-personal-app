@@ -92,7 +92,7 @@ const TILE_EMPTY: Record<HomeTileKey, string> = { all: "Nothing to do.", overdue
 /** The Waiting card's data with each wait's Follow up email setup (push E2: by the wait's id); arrives after the page (2026-11-07). */
 export type WaitingCardData = { board: WaitingBoard; composes: Record<string, ComposeSetup> };
 
-export function HomeBoard({ data, dateLabel, askAi, tabs, waitingCard, personComposes, askCompose }: { data: HomeData; /** The date at the right of the title, long and short. */ dateLabel: { long: string; short: string }; /** Ask AI (server-rendered). */ askAi: React.ReactNode; /** The top menu row (under 1024px). */ tabs: React.ReactNode; /** Waiting on someone, on its way when the page is first sent (page speed 2026-11-07). */ waitingCard: Promise<WaitingCardData>; /** The email setup per person on the Outreach tile. */ personComposes: Record<string, ComposeSetup>; /** The email setup for "Open in email" in the Ask AI panel (a typed address). */ askCompose?: ComposeSetup | null }) {
+export function HomeBoard({ data, priorities, dateLabel, askAi, tabs, waitingCard, personComposes, askCompose }: { data: HomeData; /** Top priorities (2026-11-15), above the tiles. */ priorities?: React.ReactNode; /** The date at the right of the title, long and short. */ dateLabel: { long: string; short: string }; /** Ask AI (server-rendered). */ askAi: React.ReactNode; /** The top menu row (under 1024px). */ tabs: React.ReactNode; /** Waiting on someone, on its way when the page is first sent (page speed 2026-11-07). */ waitingCard: Promise<WaitingCardData>; /** The email setup per person on the Outreach tile. */ personComposes: Record<string, ComposeSetup>; /** The email setup for "Open in email" in the Ask AI panel (a typed address). */ askCompose?: ComposeSetup | null }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [personEmail, setPersonEmail] = useState<PersonRowData | null>(null);
@@ -237,16 +237,24 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, waitingCard, personCom
   const [working, setWorking] = useState(false);
   const steps = useMemo(() => (byAi ? aiRows.filter((r) => r.section !== "needs") : [...sectionsOf.overdue, ...sectionsOf.today]).map((r) => r.step).filter((x): x is WorkStep => !!x), [byAi, aiRows, sectionsOf]);
 
-  // The desktop bento fills the window under the header: its top is measured once the page is at the top.
+  // The desktop bento fills the window under the header: its top is measured from the top of the page, again whenever
+  // the header or Top priorities above it change height (a pick added or removed, 2026-11-15).
   const bentoRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const set = () => {
       const b = bentoRef.current;
-      if (b && window.scrollY === 0) b.style.setProperty("--bento-top", `${b.getBoundingClientRect().top}px`);
+      if (b) b.style.setProperty("--bento-top", `${b.getBoundingClientRect().top + window.scrollY}px`);
     };
     set();
     window.addEventListener("resize", set);
-    return () => window.removeEventListener("resize", set);
+    const above: Element[] = [];
+    for (let el = bentoRef.current?.previousElementSibling ?? null; el; el = el.previousElementSibling) above.push(el);
+    const watch = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(set);
+    above.forEach((el) => watch?.observe(el));
+    return () => {
+      window.removeEventListener("resize", set);
+      watch?.disconnect();
+    };
   }, []);
 
   /**
@@ -322,6 +330,12 @@ export function HomeBoard({ data, dateLabel, askAi, tabs, waitingCard, personCom
           <AreaSelector options={areaOptions} selected={area} onPick={pickArea} />
         </div>
       </header>
+
+      {priorities ? (
+        <div className="mb-[18px]" data-testid="home-priorities">
+          {priorities}
+        </div>
+      ) : null}
 
       <div ref={bentoRef} className="grid grid-cols-1 items-start gap-[18px] lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] desk:-mb-[72px] desk:h-[calc(100vh-var(--bento-top,104px)-24px)] desk:min-h-[460px] desk:items-stretch" data-testid="home-bento">
         <div className="flex min-h-0 min-w-0 flex-col gap-6" data-testid="home-left">

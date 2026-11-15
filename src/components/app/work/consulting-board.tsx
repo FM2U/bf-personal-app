@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils";
  * Add a lead and Ask AI, the tabs, the pills All, Due today, Due next 7 days, Find a client. The closed bar: "Lost N
  * · Done N · Show".
  */
-export function ConsultingBoard({ header, data, adding }: { header: React.ReactNode; data: PipelineBoardData; adding: boolean }) {
+export function ConsultingBoard({ header, priorities, data, adding }: { header: React.ReactNode; /** Top priorities (2026-11-15), between the filters and the columns. */ priorities?: React.ReactNode; data: PipelineBoardData; adding: boolean }) {
   const router = useRouter();
   const [filter, setFilter] = useState<ConsultingFilter>("all");
   const [query, setQuery] = useState("");
@@ -36,6 +36,7 @@ export function ConsultingBoard({ header, data, adding }: { header: React.ReactN
         {header}
         <FilterRow prefix="consulting" filters={CONSULTING_FILTERS} active={filter} counts={counts} onPick={setFilter} query={query} onQuery={setQuery} placeholder="Find a client" className="-mt-2 lg:mt-2.5" />
       </PinnedBlock>
+      {priorities ? <div className="mb-[18px]">{priorities}</div> : null}
       {adding ? (
         <div className="mb-[18px]">
           <AddLeadCard today={today} onClose={() => router.push("/work/consulting")} />

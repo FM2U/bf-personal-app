@@ -9,6 +9,8 @@ import { JobsBoard } from "@/components/app/work/jobs-board";
 import { WorkShell, WorkUpdateNotice } from "@/components/app/work/shell";
 import { WorkHeader } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
+import { loadPriorities } from "@/lib/work/priorities-data";
+import { TopPrioritiesCard } from "@/components/app/work/priorities";
 
 export const metadata = { title: "Job search" };
 
@@ -21,6 +23,8 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   const { supabase, ownerId } = await requireOwner();
   const sp = await searchParams;
   const notice = null;
+  // Top priorities (2026-11-15) start with the board, in the same trip.
+  const prioP = loadPriorities(supabase, ownerId);
   const d = notice ? null : await loadPipelineBoard(supabase, ownerId, "job");
   const tabs = await loadTabCounts(supabase, ownerId, d?.today ?? "");
   const adding = sp.add === "1";
@@ -52,7 +56,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   }
   return (
     <WorkShell testId="work-jobs">
-      <JobsBoard header={header} data={d} adding={adding} initialFilter={parseDealFilter(sp.filter)} />
+      <JobsBoard header={header} priorities={<TopPrioritiesCard data={await prioP} kinds={["job"]} />} data={d} adding={adding} initialFilter={parseDealFilter(sp.filter)} />
     </WorkShell>
   );
 }

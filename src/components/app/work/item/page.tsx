@@ -11,6 +11,8 @@ import { itemAsk } from "@/lib/work/ask-ai";
 import { ConsultingFactsCard, FindOutCard, ItemDecisionCard, ItemHeaderActions, ItemNextActionCard, ItemTasksCard, ItemTimelineCard, OpportunityFactsCard } from "@/components/app/work/item/cards";
 import { RecordHeader } from "@/components/app/work/record-header";
 import { RecordColumns } from "@/components/app/work/record-columns";
+import { loadRecordPriority } from "@/lib/work/priorities-data";
+import { PriorityCard, PriorityStar } from "@/components/app/work/priorities";
 import { WorkShell, WorkUpdateNotice } from "@/components/app/work/shell";
 import { Figure, Pill, waitTone, What, WorkHeader } from "@/components/app/work/ui";
 import { EmptyState } from "@/components/app/page-header";
@@ -42,7 +44,10 @@ export async function ItemPage({ kind, id }: { kind: ItemKind; id: string }) {
       </WorkShell>
     );
   }
+  // Top priority fields (2026-11-15) are read with the page, in the same trip.
+  const prioP = /^[0-9a-f-]{36}$/i.test(id) ? loadRecordPriority(supabase, ownerId, "pipeline_items", id, kind).catch(() => null) : null;
   const d = await loadItemPage(supabase, ownerId, kind, id);
+  const prio = prioP ? await prioP : null;
   const item = d.item;
   if (!item) {
     return (
@@ -94,6 +99,7 @@ export async function ItemPage({ kind, id }: { kind: ItemKind; id: string }) {
               {item.stageName ?? "No stage"}
               {item.status === "open" ? ` · day ${item.dayInStage}` : ""}
             </Pill>
+            {prio ? <PriorityStar data={prio} open={item.status === "open"} /> : null}
             {waiting ? (
               <Pill tone={waitTone(item.waitLevel)} className="tabular" testId="item-wait-pill">
                 Waiting on {item.waitingOn} · {daysLabel(item.waitDays)}
@@ -109,6 +115,7 @@ export async function ItemPage({ kind, id }: { kind: ItemKind; id: string }) {
         left={
           <>
           {/* Bram, 2026-11-07: action first on every record page; the record's own card comes after Next action and Tasks. */}
+          {prio ? <PriorityCard data={prio} label={item.name} open={item.status === "open"} /> : null}
           <ItemNextActionCard item={item} today={d.today} waitsReady={d.waitsReady} />
           <ItemTasksCard item={item} tasks={d.todos} today={d.today} />
           {kind === "job" ? <FindOutCard item={item} /> : null}

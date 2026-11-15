@@ -7,6 +7,8 @@ import { WorkShell, WorkUpdateNotice } from "@/components/app/work/shell";
 import { WorkHeader } from "@/components/app/work/ui";
 import { ClosedStages } from "@/components/app/work/closed-stages";
 import { DealColumns } from "@/components/app/work/deal-columns";
+import { loadPriorities } from "@/lib/work/priorities-data";
+import { TopPrioritiesCard } from "@/components/app/work/priorities";
 
 export const metadata = { title: "Deals" };
 
@@ -21,7 +23,8 @@ export default async function DealsPage({ searchParams }: { searchParams: Promis
   const { supabase, ownerId } = await requireOwner();
   const sp = await searchParams;
   // Page speed (2026-11-06): the deals and the tab counts load side by side.
-  const [d, tabs] = await Promise.all([loadDeals(supabase, ownerId), loadWorkCtx(supabase, ownerId).then((c) => loadTabCounts(supabase, ownerId, c.today))]);
+  // Top priorities (2026-11-15) read in the same trip.
+  const [d, tabs, prio] = await Promise.all([loadDeals(supabase, ownerId), loadWorkCtx(supabase, ownerId).then((c) => loadTabCounts(supabase, ownerId, c.today)), loadPriorities(supabase, ownerId)]);
   const summary = d.available ? [`Acquisition`, `${d.active} active`, d.waitingOver ? `${d.waitingOver} waiting ${d.threshold}+ days` : null].filter(Boolean).join(" · ") : "";
   const header = (
     <>
@@ -46,7 +49,7 @@ export default async function DealsPage({ searchParams }: { searchParams: Promis
         </>
       ) : (
         <>
-          <DealColumns header={header} groups={d.groups} today={d.today} initialFilter={parseDealFilter(sp.filter)} />
+          <DealColumns header={header} before={<TopPrioritiesCard data={prio} kinds={["acquisition"]} />} groups={d.groups} today={d.today} initialFilter={parseDealFilter(sp.filter)} />
           <ClosedStages passed={d.passed} lost={d.lost} closed={d.closed} today={d.today} hint="Sourcing and screening happen on Screen listings; these are deals you said Interested to" />
         </>
       )}

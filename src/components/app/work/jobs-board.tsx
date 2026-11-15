@@ -16,14 +16,21 @@ import { ItemListRow, OpportunityCard } from "@/components/app/work/item-row";
  * contact and location, the next action with its due, the waiting pill, the note. The closed bar: "Declined N · Not
  * chosen N · Show" (Accepted joins when any).
  */
-export function JobsBoard({ header, data, adding, initialFilter = "all" }: { header: React.ReactNode; data: PipelineBoardData; adding: boolean; /** The filter named in the address (from the Home tile). */ initialFilter?: DealFilter }) {
+export function JobsBoard({ header, priorities, data, adding, initialFilter = "all" }: { header: React.ReactNode; /** Top priorities (2026-11-15), between the filters and the columns. */ priorities?: React.ReactNode; data: PipelineBoardData; adding: boolean; /** The filter named in the address (from the Home tile). */ initialFilter?: DealFilter }) {
   const router = useRouter();
   const counts = Object.fromEntries(data.closed.map((c) => [c.name, c.items.length]));
   return (
     <>
       <PhaseColumns<ItemRow>
         header={header}
-        before={adding ? <AddOpportunityCard today={data.today} onClose={() => router.push("/work/jobs")} /> : null}
+        before={
+          priorities || adding ? (
+            <div className="flex flex-col gap-[18px]">
+              {priorities}
+              {adding ? <AddOpportunityCard today={data.today} onClose={() => router.push("/work/jobs")} /> : null}
+            </div>
+          ) : null
+        }
         groups={data.groups}
         today={data.today}
         initialFilter={initialFilter}

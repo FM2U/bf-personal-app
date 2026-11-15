@@ -8,6 +8,8 @@ import { ConsultingBoard } from "@/components/app/work/consulting-board";
 import { WorkShell, WorkUpdateNotice } from "@/components/app/work/shell";
 import { WorkHeader } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
+import { loadPriorities } from "@/lib/work/priorities-data";
+import { TopPrioritiesCard } from "@/components/app/work/priorities";
 
 export const metadata = { title: "Consulting" };
 
@@ -20,6 +22,8 @@ export default async function ConsultingPage({ searchParams }: { searchParams: P
   const { supabase, ownerId } = await requireOwner();
   const sp = await searchParams;
   const notice = null;
+  // Top priorities (2026-11-15) start with the board, in the same trip.
+  const prioP = loadPriorities(supabase, ownerId);
   const d = notice ? null : await loadPipelineBoard(supabase, ownerId, "consulting");
   const tabs = await loadTabCounts(supabase, ownerId, d?.today ?? "");
   const adding = sp.add === "1";
@@ -51,7 +55,7 @@ export default async function ConsultingPage({ searchParams }: { searchParams: P
   }
   return (
     <WorkShell testId="work-consulting">
-      <ConsultingBoard header={header} data={d} adding={adding} />
+      <ConsultingBoard header={header} priorities={<TopPrioritiesCard data={await prioP} kinds={["consulting"]} />} data={d} adding={adding} />
     </WorkShell>
   );
 }
