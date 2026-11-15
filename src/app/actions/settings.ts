@@ -84,7 +84,8 @@ export async function saveWorkSettings(input: { threshold: string; stalled?: str
     [WORK_SETTING_KEYS.outreach, { value_number: v.outreach }],
     [WORK_SETTING_KEYS.eodTime, { value_text: v.eodTime }],
     [WORK_SETTING_KEYS.stalled, { value_number: v.stalled }],
-    [WORK_SETTING_KEYS.autoSend, { value_number: v.autoSend ? 1 : 0 }],
+    // Send automatically (2026-11-15): saved only when the card sent it, so a save without it never changes it.
+    ...(input.autoSend !== undefined ? ([[WORK_SETTING_KEYS.autoSend, { value_number: v.autoSend ? 1 : 0 }]] as const) : []),
     // Counting starts on (2026-11-09): saved only when the card sent it; blank clears it.
     ...(input.countingStart !== undefined ? ([[WORK_SETTING_KEYS.countingStart, { value_text: v.countingStart }]] as const) : []),
   ] as const) {

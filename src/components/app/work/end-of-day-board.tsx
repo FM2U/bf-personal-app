@@ -649,9 +649,10 @@ export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; 
                     {partly}
                   </span>
                 ) : state.status === "open" && unsent.length ? (
-                  // Bram, 2026-11-08: the report sends itself at the send time (Settings, Work settings).
+                  // Bram, 2026-11-08: with Send automatically on, the report sends itself at the send time (Settings, Work settings);
+                  // off (the default since 2026-11-15), the line says when it is due.
                   <span className="min-w-0 text-[12.5px] text-muted-foreground sm:ml-auto sm:text-right" data-testid="report-auto-line">
-                    {data.autoSend ? `Goes out by itself at ${data.eodTime.long}` : "Send automatically is off: press Approve and send"}
+                    {data.autoSend ? `Goes out by itself at ${data.eodTime.long}` : `Send by ${data.eodTime.long}: press Approve and send`}
                   </span>
                 ) : null}
               </div>

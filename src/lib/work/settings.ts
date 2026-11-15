@@ -10,12 +10,12 @@ export const WORK_SETTING_KEYS = {
   threshold: { key: "waiting_threshold_days", label: "Amber after (days)", unit: "number", description: "Waiting on someone: at this many days with no answer, the wait turns amber (time to follow up)." },
   /** Bram, 2026-11-08: its own number (it was double the follow-up number). */
   stalled: { key: "waiting_stalled_days", label: "Red after (days)", unit: "number", description: "Waiting on someone: at this many days with no answer, the wait turns red (stalled)." },
-  /** Bram, 2026-11-08: the report goes out by itself at the send time on the partners' days (1 on, 0 off; on unless set). */
-  autoSend: { key: "report_auto_send", label: "Send the report automatically", unit: "number", description: "End of day: the report goes to the partners due at the send time, with reminders 2 hours and 30 minutes before." },
+  /** Bram, 2026-11-08: the report goes out by itself at the send time on the partners' days (1 on, 0 off). Off unless set since 2026-11-15 (Bram: he sends the report himself). */
+  autoSend: { key: "report_auto_send", label: "Send the report automatically", unit: "number", description: "End of day: the report goes to the partners due at the send time, with reminders 2 hours and 30 minutes before. Off by default (2026-11-15): reminders, then one email at the send time if the report is not sent." },
   /** Push E: an email the app sent shows under No reply yet when no reply has come after this many days (default 2). */
   noReply: { key: "no_reply_after_days", label: "No reply yet after (days)", unit: "number", description: "Waiting on someone, No reply yet: an email the app sent shows there when no reply has come after this many days." },
   outreach: { key: "outreach_weekly_target", label: "Network outreach per week", unit: "number", description: "The weekly outreach counter on Contacts and Home." },
-  eodTime: { key: "end_of_day_time", label: "Report goes out at", unit: "text", description: "The time the report goes out on the partners' days (HH:MM, 24-hour)." },
+  eodTime: { key: "end_of_day_time", label: "Send by", unit: "text", description: "The time the report is due on the partners' days (HH:MM, 24-hour): it goes out then when Send automatically is on." },
   /** Bram, 2026-11-09: targets count from this day; days before it are not counted and weeks that end before it are not judged. */
   countingStart: { key: "counting_start", label: "Counting starts on", unit: "text", description: "Targets: days before this date are not counted, and weeks that end before it are not judged (YYYY-MM-DD)." },
 } as const;
@@ -96,7 +96,7 @@ export function cleanWorkSettings(input: { threshold: unknown; stalled?: unknown
   const outreach = whole(input.outreach);
   if (!(outreach >= 1 && outreach <= 200)) return { ok: false, error: "Network outreach: a whole number from 1 to 200 per week." };
   const eodTime = parseTime(input.eodTime);
-  if (!eodTime) return { ok: false, error: "Report goes out at: a time such as 6:00 pm." };
+  if (!eodTime) return { ok: false, error: "Send by: a time such as 6:00 pm." };
   const blockMinutes = whole(input.blockMinutes);
   if (!(blockMinutes >= 5 && blockMinutes <= 480)) return { ok: false, error: "Default block length: 5 to 480 minutes." };
   // Counting starts on (2026-11-09): blank counts every day; a date may not be after today.
@@ -104,7 +104,7 @@ export function cleanWorkSettings(input: { threshold: unknown; stalled?: unknown
   const countingStart = rawStart ? parseDay(rawStart) : null;
   if (rawStart && !countingStart) return { ok: false, error: "Counting starts on: a date such as Nov 9, 2026, or blank." };
   if (countingStart && today && countingStart > today) return { ok: false, error: "Counting starts on: a date no later than today." };
-  return { ok: true, value: { threshold, stalled, noReply, outreach, eodTime, blockMinutes, autoSend: input.autoSend === undefined ? true : input.autoSend === true || input.autoSend === "1" || input.autoSend === "true", countingStart } };
+  return { ok: true, value: { threshold, stalled, noReply, outreach, eodTime, blockMinutes, autoSend: input.autoSend === undefined ? false : input.autoSend === true || input.autoSend === "1" || input.autoSend === "true", countingStart } };
 }
 
 /** One stage's defaults as the table sends them. */

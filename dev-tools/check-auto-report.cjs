@@ -2,7 +2,8 @@
 // Calls the report job the way Supabase Cron will (/api/cron/report with the cron secret), at fake times on today's
 // date (?at=, accepted only with the stand-in Google): 3:00 pm nothing, 4:00 pm the first reminder email, 5:30 pm the
 // second, 6:00 pm the send (to the partner due, then the people saved under Also send to, with the note under the
-// greeting), each once; Send automatically off sends nothing; a failed send is recorded and tried again. Also checks
+// greeting), each once; Send automatically (off by default since 2026-11-15) off sends no report and one "ready and
+// not sent" email to you; a failed send is recorded and tried again. Also checks
 // that the people and the note added in the window are kept when it closes, and that Skip today is gone.
 // Needs a fresh local database and the built app with the stand-ins, on a weekday clock (see all-checks).
 const { chromium } = require("playwright");
@@ -82,14 +83,28 @@ const auto = async (day) => ((await one("select report_edits from end_of_day whe
     await g("/__reset", {});
   });
 
-  await step("Settings: 'Report goes out at' 6:00 pm and 'Send automatically' on; Amber after 5 and Red after 10, the four groups, no Network outreach row", async () => {
+  await step("Settings: 'Send by' 6:00 pm and 'Send automatically' off by default (2026-11-15); Amber after 5 and Red after 10, the four groups, no Network outreach row", async () => {
     await open("/settings");
     assert((await page.getByTestId("work-eod-time").inputValue()) === "18:00", `the time is ${await page.getByTestId("work-eod-time").inputValue()}`);
-    assert(await page.getByTestId("work-auto-send").isChecked(), "Send automatically is off");
+    assert(!(await page.getByTestId("work-auto-send").isChecked()), "Send automatically is on by default");
+    const eodRow = (await page.getByTestId("work-settings-eod").innerText()).replace(/\s+/g, " ");
+    assert(eodRow.includes("Send by") && !eodRow.includes("Report goes out at"), eodRow);
+    assert((await page.getByTestId("work-settings-auto").innerText()).includes("Off: reminders, and an email at that time if not sent"), await page.getByTestId("work-settings-auto").innerText());
     assert((await page.getByTestId("work-threshold").inputValue()) === "5" && (await page.getByTestId("work-stalled").inputValue()) === "10", "Follow up / Stalled numbers");
     const t = (await page.getByTestId("work-settings").innerText()).replace(/\s+/g, " ");
     assert(t.includes("Amber after") && t.includes("days with no answer (time to nudge)") && t.includes("Red after") && t.includes("days with no answer (stalled)") && t.includes("Unanswered email after") && !t.includes("Network outreach"), t);
     for (const h of ["WAITING ON SOMEONE", "DAILY REPORT", "WORK WEEK", "CALENDAR"]) assert(t.toUpperCase().includes(h), `no group ${h}`);
+  });
+
+  await step("End of day with Send automatically off: the card says 'Send by 6:00 pm: press Approve and send'; then Send automatically is ticked and saved", async () => {
+    await open("/work/end-of-day");
+    const line = await page.getByTestId("report-auto-line").innerText();
+    assert(line.includes("Send by 6:00 pm: press Approve and send"), line);
+    await open("/settings");
+    await page.getByTestId("work-auto-send").check();
+    await page.getByTestId("work-settings-save").click();
+    await page.getByTestId("work-settings-note").waitFor({ timeout: 15000 });
+    await until(async () => Number((await one("select value_number from inputs where key = 'report_auto_send'"))?.value_number) === 1, "Send automatically was not saved as on");
   });
 
   await step("End of day: no Skip today; the card says the report goes out by itself at 6:00 pm", async () => {
@@ -141,14 +156,20 @@ const auto = async (day) => ((await one("select report_edits from end_of_day whe
     assert(a.reminded1 && a.reminded2, JSON.stringify(a));
   });
 
-  await step("Send automatically off: 6:00 pm sends nothing and the day stays open", async () => {
+  await step("Send automatically off: 6:00 pm sends no report, one 'ready and not sent' email to you (once), and the day stays open", async () => {
     await open("/settings");
     await page.getByTestId("work-auto-send").uncheck();
     await page.getByTestId("work-settings-save").click();
     await page.getByTestId("work-settings-note").waitFor({ timeout: 15000 });
     const before = (await g("/__sent")).length;
-    assert((await job(day, 18, 0)).step === "none", "it sent with Send automatically off");
-    assert((await g("/__sent")).length === before, "an email went out");
+    const r = await job(day, 18, 0);
+    assert(r.step === "due" && r.detail === "emailed", JSON.stringify(r));
+    assert((await job(day, 18, 5)).step === "none", "the 'ready and not sent' email came twice");
+    const mails = (await g("/__sent")).slice(before);
+    assert(mails.length === 1, `${mails.length} emails at 6:00 pm`);
+    assert(mails[0].subject === "Today's report is ready and not sent", mails[0].subject);
+    assert(String(mails[0].body).includes("is ready and not sent. It was due at 6:00 pm.") && String(mails[0].body).includes("/work/end-of-day"), mails[0].body);
+    assert((await auto(day)).dueMailed, "the email was not recorded");
     assert((await one("select status from end_of_day where day = $1", [day])).status === "open", "the day closed");
     await open("/settings");
     await page.getByTestId("work-auto-send").check();

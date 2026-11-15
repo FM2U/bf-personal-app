@@ -19,8 +19,12 @@ describe("the report job's steps (2026-11-08)", () => {
     expect(reportStep({ nowMin: at(20, 55), sendMin: SIX, auto: { failure: "x" } as never, autoSend: true })).toBe("send");
     expect(reportStep({ nowMin: at(21), sendMin: SIX, auto: {}, autoSend: true })).toBe("none");
   });
-  it("Send automatically off: both reminders, never the send", () => {
+  it("Send automatically off: both reminders, never the send; one 'ready and not sent' email from the send time (2026-11-15)", () => {
     expect(reportStep({ nowMin: at(16), sendMin: SIX, auto: {}, autoSend: false })).toBe("remind1");
-    expect(reportStep({ nowMin: at(18), sendMin: SIX, auto: {}, autoSend: false })).toBe("none");
+    expect(reportStep({ nowMin: at(18), sendMin: SIX, auto: {}, autoSend: false })).toBe("due");
+    expect(reportStep({ nowMin: at(18, 5), sendMin: SIX, auto: { dueMailed: "x" }, autoSend: false })).toBe("none");
+    expect(reportStep({ nowMin: at(20, 55), sendMin: SIX, auto: {}, autoSend: false })).toBe("due");
+    expect(reportStep({ nowMin: at(21), sendMin: SIX, auto: {}, autoSend: false })).toBe("none");
+    expect(reportStep({ nowMin: at(18), sendMin: SIX, auto: { sentAt: "x" }, autoSend: false })).toBe("none");
   });
 });

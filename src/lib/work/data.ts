@@ -124,7 +124,7 @@ export function workInputs(rows: Row[]): { threshold: number; eodTime: string; n
   const nr = Number(rows.find((r) => r.key === "no_reply_after_days")?.value_number);
   const st = Number(rows.find((r) => r.key === "waiting_stalled_days")?.value_number);
   const auto = rows.find((r) => r.key === "report_auto_send");
-  const out = { threshold: Number.isFinite(n) && n > 0 ? Math.round(n) : DEFAULT_WAIT_THRESHOLD_DAYS, eodTime: eod, noReplyDays: Number.isFinite(nr) && nr > 0 ? Math.round(nr) : DEFAULT_NO_REPLY_DAYS, stalled: Number.isFinite(st) && st > 0 ? Math.round(st) : null, autoSend: auto ? Number(auto.value_number) !== 0 : true, countingStart: parseDay(rows.find((r) => r.key === "counting_start")?.value_text) };
+  const out = { threshold: Number.isFinite(n) && n > 0 ? Math.round(n) : DEFAULT_WAIT_THRESHOLD_DAYS, eodTime: eod, noReplyDays: Number.isFinite(nr) && nr > 0 ? Math.round(nr) : DEFAULT_NO_REPLY_DAYS, stalled: Number.isFinite(st) && st > 0 ? Math.round(st) : null, autoSend: auto ? Number(auto.value_number) !== 0 : false, countingStart: parseDay(rows.find((r) => r.key === "counting_start")?.value_text) };
   setStalledDays(out.stalled);
   return out;
 }
@@ -137,7 +137,7 @@ export async function loadWorkCtx(sb: SupabaseClient, ownerId: string): Promise<
   if (kept) {
     Promise.resolve(inputsP).catch(() => {});
     setStalledDays(kept.st ?? null);
-    return { ...(await loadCtx(sb, ownerId)), threshold: kept.th, eodTime: kept.eod, noReplyDays: kept.nr, stalled: kept.st ?? null, autoSend: kept.as ?? true, countingStart: parseDay(kept.cs) };
+    return { ...(await loadCtx(sb, ownerId)), threshold: kept.th, eodTime: kept.eod, noReplyDays: kept.nr, stalled: kept.st ?? null, autoSend: kept.as ?? false, countingStart: parseDay(kept.cs) };
   }
   // Page speed (2026-11-06): the profile and these settings are read side by side, once per page build.
   const [ctx, { data }] = await Promise.all([loadCtx(sb, ownerId), inputsP]);

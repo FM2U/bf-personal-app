@@ -13,10 +13,12 @@ import { reportStep } from "@/lib/accountability/auto-report-rules";
 /**
  * The report sends itself (Bram, 2026-11-08; claude/2026-11-08-auto-send-report-plan.md). The report job runs every
  * 5 minutes (Supabase Cron calls /api/cron/report). On a day a partner is due and the report is not sent yet:
- *  - 2 hours before the send time (Settings, Work settings, "Report goes out at"): a reminder email to you;
+ *  - 2 hours before the send time (Settings, Work settings, "Send by"): a reminder email to you;
  *  - 30 minutes before: the same email again;
  *  - at the send time, when "Send automatically" is on: the report goes out as End of day shows it (Approve and send
  *    without the reasons question; anything not filled in goes as "(still to give)"), then the people under Also send to;
+ *  - at the send time, when "Send automatically" is off (the default since 2026-11-15): one email to you that today's
+ *    report is ready and not sent, with a link to End of day; the day stays open until you press Approve and send;
  *  - a failed send is tried again on each run until 9:00 pm, with one email to you that it did not go out.
  * What was done is kept on the day's End of day row (report_edits._auto), so nothing is sent twice.
  */
@@ -30,12 +32,15 @@ function localMinutes(tz: string, now: Date): number {
   return h * 60 + m;
 }
 
-async function saveAuto(sb: SupabaseClient, day: string, ownerId: string, patch: ReportAuto): Promise<void> {
-  const { data } = await sb.from("end_of_day").select("id,report_edits").eq("owner_id", ownerId).eq("day", day).maybeSingle();
-  if (!data) return;
+/** Saves the job's record on the day's row; false when there is no row or the save failed. */
+async function saveAuto(sb: SupabaseClient, day: string, ownerId: string, patch: ReportAuto): Promise<boolean> {
+  const { data, error: readError } = await sb.from("end_of_day").select("id,report_edits").eq("owner_id", ownerId).eq("day", day).maybeSingle();
+  if (readError || !data) return false;
   const all = { ...((data.report_edits && typeof data.report_edits === "object" && !Array.isArray(data.report_edits) ? data.report_edits : {}) as Record<string, unknown>) };
+  // A key set to undefined is left out when saved (JSON), which takes it back.
   all[AUTO_KEY] = { ...cleanAuto(all[AUTO_KEY]), ...patch };
-  await sb.from("end_of_day").update({ report_edits: all }).eq("id", data.id);
+  const { error } = await sb.from("end_of_day").update({ report_edits: all }).eq("id", data.id);
+  return !error;
 }
 
 /** "2 reasons, tomorrow's line" or null when everything is filled in. */
@@ -83,11 +88,24 @@ export async function runReportJob(sb: SupabaseClient, ownerId: string, now: Dat
     const subject = wctx.autoSend ? `Your report goes out at ${at}` : `Your report is ready to send (${at})`;
     const lines = [
       wctx.autoSend ? `Today's report goes to ${names} at ${at}, as End of day shows it.` : `Today's report to ${names} is ready. Send automatically is off, so it goes out only when you press Approve and send.`,
-      open ? `Still open: ${open}. Anything left empty goes out as "(still to give)".` : "Everything is filled in.",
-      "To add a note or change anything, do it before then.",
+      open ? (wctx.autoSend ? `Still open: ${open}. Anything left empty goes out as "(still to give)".` : `Still open: ${open}.`) : "Everything is filled in.",
+      wctx.autoSend ? "To add a note or change anything, do it before then." : `Send it by ${at}.`,
     ];
     const ok = await mailOwner(sb, ownerId, subject, lines).catch(() => false);
     await saveAuto(sb, day, ownerId, step === "remind1" ? { reminded1: now.toISOString() } : { reminded2: now.toISOString(), ...(page.auto.reminded1 ? {} : { reminded1: now.toISOString() }) });
+    return { day, step, detail: ok ? "emailed" : "no email (Google not connected)" };
+  }
+  if (step === "due") {
+    // Send automatically is off (Bram, 2026-11-15): one email at the send time; the report waits for Approve and send.
+    // The day's row must exist first, so the record that the email went out is kept (or it would go every 5 minutes).
+    const row = await ensureEodRow(sb, ctx, day);
+    if (typeof row === "string") return { day, step, detail: row };
+    const at = eodLong(sendTime);
+    const lines = [`Today's report to ${names} is ready and not sent. It was due at ${at}.`, open ? `Still open: ${open}.` : "Everything is filled in.", "It goes out when you press Approve and send on End of day."];
+    // Recorded before the email goes, so a failed save can never send it every 5 minutes; taken back if the email fails.
+    if (!(await saveAuto(sb, day, ownerId, { dueMailed: now.toISOString() }))) return { day, step, detail: "not recorded; tried on the next run" };
+    const ok = await mailOwner(sb, ownerId, "Today's report is ready and not sent", lines).catch(() => false);
+    if (!ok) await saveAuto(sb, day, ownerId, { dueMailed: undefined });
     return { day, step, detail: ok ? "emailed" : "no email (Google not connected)" };
   }
   if (step === "send") {

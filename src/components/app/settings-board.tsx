@@ -67,9 +67,10 @@ export function WorkSettingsCard({ initial }: { initial: WorkSettingsValues }) {
   };
   const save = () =>
     start(async () => {
-      // Counting starts on is sent only when changed here, so a tab left open from before cannot clear a date set since.
-      const { countingStart, ...rest } = v;
-      const r = await saveWorkSettings(countingStart !== saved.countingStart ? { ...rest, countingStart } : rest);
+      // Counting starts on and Send automatically are sent only when changed here, so a tab left open from before cannot
+      // undo a choice saved since (2026-11-09; Send automatically 2026-11-15).
+      const { countingStart, autoSend, ...rest } = v;
+      const r = await saveWorkSettings({ ...rest, ...(countingStart !== saved.countingStart ? { countingStart } : {}), ...(autoSend !== saved.autoSend ? { autoSend } : {}) });
       if (!r.ok) return setNote({ tone: "warn", text: r.error });
       setSaved(v);
       setNote({ tone: "ok", text: "Saved" });
@@ -107,8 +108,8 @@ export function WorkSettingsCard({ initial }: { initial: WorkSettingsValues }) {
           <span>days: listed under &ldquo;No reply yet&rdquo;</span>
         </KV>
         <GroupHead>Daily report</GroupHead>
-        <KV label="Report goes out at" testId="work-settings-eod">
-          <input type="time" value={v.eodTime} onChange={set("eodTime")} step={300} className={cn(INPUT, "w-[120px]")} aria-label="Report goes out at" data-testid="work-eod-time" />
+        <KV label="Send by" testId="work-settings-eod">
+          <input type="time" value={v.eodTime} onChange={set("eodTime")} step={300} className={cn(INPUT, "w-[120px]")} aria-label="Send by" data-testid="work-eod-time" />
           <span>on your partners&apos; days</span>
         </KV>
         <KV label="Send automatically" testId="work-settings-auto">
@@ -123,7 +124,7 @@ export function WorkSettingsCard({ initial }: { initial: WorkSettingsValues }) {
               className="h-4 w-4 shrink-0 cursor-pointer rounded-[4px] accent-primary-strong"
               data-testid="work-auto-send"
             />
-            <span>{v.autoSend ? "On: the report goes out at that time" : "Off: only the reminder emails"}</span>
+            <span>{v.autoSend ? "On: the report goes out at that time" : "Off: reminders, and an email at that time if not sent"}</span>
           </label>
         </KV>
         <KV label="Weekly review day" testId="work-settings-review">

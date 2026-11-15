@@ -269,12 +269,12 @@ export function cleanExtras(v: unknown): ReportExtras {
 
 /** What the automatic send did today (2026-11-08): the two reminder emails, the send, a failure and its email. */
 export const AUTO_KEY = "_auto";
-export type ReportAuto = { reminded1?: string; reminded2?: string; sentAt?: string; failedAt?: string; failure?: string; failureMailed?: string };
+export type ReportAuto = { reminded1?: string; reminded2?: string; sentAt?: string; failedAt?: string; failure?: string; failureMailed?: string; /** The "ready and not sent" email at the send time (Send automatically off; 2026-11-15). */ dueMailed?: string };
 export function cleanAuto(v: unknown): ReportAuto {
   if (!v || typeof v !== "object" || Array.isArray(v)) return {};
   const o = v as Record<string, unknown>;
   const out: ReportAuto = {};
-  for (const k of ["reminded1", "reminded2", "sentAt", "failedAt", "failure", "failureMailed"] as const) if (typeof o[k] === "string") out[k] = String(o[k]).slice(0, 500);
+  for (const k of ["reminded1", "reminded2", "sentAt", "failedAt", "failure", "failureMailed", "dueMailed"] as const) if (typeof o[k] === "string") out[k] = String(o[k]).slice(0, 500);
   return out;
 }
 
@@ -475,7 +475,7 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
     editedAt: row.editedAt,
     extras: row.extras,
     auto: row.auto,
-    autoSend: i.autoSend ?? true,
+    autoSend: i.autoSend ?? false,
     lastSentAt: i.sent.map((c) => c.sentAt).sort().slice(-1)[0] ?? null,
     numbers,
     threshold: i.threshold,
