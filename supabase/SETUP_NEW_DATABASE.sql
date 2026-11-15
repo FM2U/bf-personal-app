@@ -558,13 +558,13 @@ begin
   insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Ask for the seller call', 2, 1, true, false);
   insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Seller call', 5, 'open', 10, '{}'::text[], null, false) returning id into v_stage;
   insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Ask for tax returns and start the model', 3, 1, true, false);
-  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Model', 6, 'open', 14, '{}'::text[], null, false) returning id into v_stage;
+  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Diligence', 6, 'open', 14, '{}'::text[], null, false) returning id into v_stage;
   insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Book the partner meeting', 5, 1, true, false);
   insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Partner presentation', 7, 'open', 14, '{}'::text[], null, false) returning id into v_stage;
   insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Submit the IOI or LOI', 5, 1, true, false);
   insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'IOI or LOI', 8, 'open', 14, array['revenue','ebitda','asking_price']::text[], null, false) returning id into v_stage;
   insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Wait for the broker, follow up in 7 days', 7, 1, true, false);
-  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Diligence', 9, 'open', 60, '{}'::text[], null, false) returning id into v_stage;
+  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Confirmatory diligence', 9, 'open', 60, '{}'::text[], null, false) returning id into v_stage;
   insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Data room, quality of earnings, lawyer review', 14, 1, true, false);
   insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Closed', 10, 'won', null, '{}'::text[], null, false) returning id into v_stage;
   insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Upload the signed closing documents', 3, 1, false, false);
@@ -573,10 +573,10 @@ begin
   insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Lost', 12, 'lost', null, '{}'::text[], null, false) returning id into v_stage;
   insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Write down what happened', 1, 1, false, false);
   insert into public.pipelines (owner_id, name, kind, sort_order, is_active) values (p_owner, 'Job search', 'job', 2, true) returning id into v_pipe;
-  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Contact', 1, 'open', 7, '{}'::text[], null, false) returning id into v_stage;
+  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Lead', 1, 'open', 7, '{}'::text[], null, false) returning id into v_stage;
   insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Ask for an introduction or a first conversation', 3, 1, true, false);
-  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Conversation', 2, 'open', 14, '{}'::text[], null, false) returning id into v_stage;
-  insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Send a thank-you note and ask about the next step', 2, 1, true, false);
+  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Applied', 2, 'open', 14, '{}'::text[], null, false) returning id into v_stage;
+  insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Follow up on the application', 5, 1, true, false);
   insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Interview', 3, 'open', 21, '{}'::text[], null, false) returning id into v_stage;
   insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Prepare for the interview', 3, 1, true, false);
   insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Offer', 4, 'open', 7, array['salary']::text[], null, false) returning id into v_stage;
@@ -590,15 +590,17 @@ begin
   insert into public.pipelines (owner_id, name, kind, sort_order, is_active) values (p_owner, 'Consulting', 'consulting', 6, true) returning id into v_pipe;
   insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Lead', 1, 'open', 7, '{}'::text[], 10, false) returning id into v_stage;
   insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Find out what they need and who decides', 3, 1, true, false);
-  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Proposal', 2, 'open', 14, array['rate_type','rate']::text[], 50, false) returning id into v_stage;
+  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Intro call', 2, 'open', 14, '{}'::text[], 25, false) returning id into v_stage;
   insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Send the scope and fee', 3, 1, true, false);
-  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Engagement', 3, 'open', 7, array['rate_type','rate','start_date']::text[], 100, true) returning id into v_stage;
+  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Proposal sent', 3, 'open', 14, array['rate_type','rate']::text[], 50, false) returning id into v_stage;
+  insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Follow up on the proposal', 5, 1, true, false);
+  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Engagement', 4, 'open', 7, array['rate_type','rate','start_date']::text[], 100, true) returning id into v_stage;
   insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Do the work and send the invoice on schedule', 7, 1, true, false);
-  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Paid', 4, 'open', null, '{}'::text[], 100, true) returning id into v_stage;
+  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Paid', 5, 'open', null, '{}'::text[], 100, true) returning id into v_stage;
   insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Ask for a referral or the next project', 7, 1, true, false);
-  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Done', 5, 'won', null, '{}'::text[], null, false) returning id into v_stage;
+  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Done', 6, 'won', null, '{}'::text[], null, false) returning id into v_stage;
   insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Ask for a referral or a testimonial', 3, 1, false, false);
-  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Lost', 6, 'lost', null, '{}'::text[], 0, false) returning id into v_stage;
+  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Lost', 7, 'lost', null, '{}'::text[], 0, false) returning id into v_stage;
   insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Write down the reason', 1, 1, false, false);
   insert into public.inputs (owner_id, key, label, category, unit, value_number, value_text, description, sort_order) values (p_owner, 'waiting_threshold_days', 'Days waiting on someone before it is marked amber', 'Acquisition', 'number', 5, null, 'On Work on now and Deals, a deal waiting on someone this many days shows an amber count; at double it shows red. Follow up resets the count.', 80) on conflict (owner_id, key) do nothing;
   insert into public.inputs (owner_id, key, label, category, unit, value_number, value_text, description, sort_order) values (p_owner, 'outreach_weekly_target', 'Network outreach per week', 'Outreach', 'number', 10, null, 'The weekly counter on Outreach and Home: emails sent and calls logged to people on Outreach, Monday to Friday, out of this number.', 90) on conflict (owner_id, key) do nothing;
@@ -1114,10 +1116,17 @@ CREATE TABLE public.pipeline_items (
     risks jsonb,
     growth_paths jsonb,
     financing text DEFAULT 'equity'::text NOT NULL,
+    priority_rank smallint,
+    why_fits text,
+    strength text,
+    next_decision text,
+    next_decision_on date,
     CONSTRAINT pipeline_items_deal_source_type_check CHECK (((deal_source_type IS NULL) OR (deal_source_type = ANY (ARRAY['proprietary'::text, 'brokered'::text])))),
     CONSTRAINT pipeline_items_financing_check CHECK ((financing = ANY (ARRAY['equity'::text, 'equity_plus_debt'::text]))),
     CONSTRAINT pipeline_items_growth_paths_check CHECK (((growth_paths IS NULL) OR ((jsonb_typeof(growth_paths) = 'array'::text) AND (jsonb_array_length(growth_paths) <= 3)))),
     CONSTRAINT pipeline_items_next_action_minutes_check CHECK (((next_action_minutes IS NULL) OR ((next_action_minutes >= 0) AND (next_action_minutes <= 1440)))),
+    CONSTRAINT pipeline_items_priority_rank_check CHECK (((priority_rank IS NULL) OR ((priority_rank >= 1) AND (priority_rank <= 3)))),
+    CONSTRAINT pipeline_items_strength_check CHECK (((strength IS NULL) OR (strength = ANY (ARRAY['hot'::text, 'warm'::text, 'cold'::text])))),
     CONSTRAINT pipeline_items_pass_reason_check CHECK (((pass_reason IS NULL) OR (pass_reason = ANY (ARRAY['franchise'::text, 'too_small'::text, 'too_big'::text, 'location'::text, 'retail_dtc'::text, 'no_growth_path'::text, 'other'::text])))),
     CONSTRAINT pipeline_items_risks_check CHECK (((risks IS NULL) OR ((jsonb_typeof(risks) = 'array'::text) AND (jsonb_array_length(risks) <= 3)))),
     CONSTRAINT pipeline_items_status_check CHECK ((status = ANY (ARRAY['open'::text, 'won'::text, 'lost'::text]))),
@@ -1184,7 +1193,14 @@ CREATE TABLE public.projects (
     "position" integer DEFAULT 0 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    priority_rank smallint,
+    why_fits text,
+    strength text,
+    next_decision text,
+    next_decision_on date,
     CONSTRAINT projects_next_action_minutes_check CHECK (((next_action_minutes IS NULL) OR ((next_action_minutes >= 0) AND (next_action_minutes <= 1440)))),
+    CONSTRAINT projects_priority_rank_check CHECK (((priority_rank IS NULL) OR ((priority_rank >= 1) AND (priority_rank <= 3)))),
+    CONSTRAINT projects_strength_check CHECK (((strength IS NULL) OR (strength = ANY (ARRAY['hot'::text, 'warm'::text, 'cold'::text])))),
     CONSTRAINT projects_status_check CHECK ((status = ANY (ARRAY['open'::text, 'closed'::text])))
 );
 
@@ -1580,6 +1596,14 @@ ALTER TABLE ONLY public.pipeline_items
 
 
 --
+-- Name: pipeline_items pipeline_items_priority_rank_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.pipeline_items
+    ADD CONSTRAINT pipeline_items_priority_rank_key UNIQUE (pipeline_id, priority_rank);
+
+
+--
 -- Name: pipeline_stages pipeline_stages_pipeline_id_name_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1617,6 +1641,14 @@ ALTER TABLE ONLY public.pipelines
 
 ALTER TABLE ONLY public.projects
     ADD CONSTRAINT projects_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: projects projects_priority_rank_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.projects
+    ADD CONSTRAINT projects_priority_rank_key UNIQUE (owner_id, priority_rank);
 
 
 --
@@ -3751,13 +3783,13 @@ begin
   insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Ask for the seller call', 2, 1, true, false);
   insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Seller call', 5, 'open', 10, '{}'::text[], null, false) returning id into v_stage;
   insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Ask for tax returns and start the model', 3, 1, true, false);
-  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Model', 6, 'open', 14, '{}'::text[], null, false) returning id into v_stage;
+  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Diligence', 6, 'open', 14, '{}'::text[], null, false) returning id into v_stage;
   insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Book the partner meeting', 5, 1, true, false);
   insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Partner presentation', 7, 'open', 14, '{}'::text[], null, false) returning id into v_stage;
   insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Submit the IOI or LOI', 5, 1, true, false);
   insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'IOI or LOI', 8, 'open', 14, array['revenue','ebitda','asking_price']::text[], null, false) returning id into v_stage;
   insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Wait for the broker, follow up in 7 days', 7, 1, true, false);
-  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Diligence', 9, 'open', 60, '{}'::text[], null, false) returning id into v_stage;
+  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Confirmatory diligence', 9, 'open', 60, '{}'::text[], null, false) returning id into v_stage;
   insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Data room, quality of earnings, lawyer review', 14, 1, true, false);
   insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Closed', 10, 'won', null, '{}'::text[], null, false) returning id into v_stage;
   insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Upload the signed closing documents', 3, 1, false, false);
@@ -3766,10 +3798,10 @@ begin
   insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Lost', 12, 'lost', null, '{}'::text[], null, false) returning id into v_stage;
   insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Write down what happened', 1, 1, false, false);
   insert into public.pipelines (owner_id, name, kind, sort_order, is_active) values (p_owner, 'Job search', 'job', 2, true) returning id into v_pipe;
-  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Contact', 1, 'open', 7, '{}'::text[], null, false) returning id into v_stage;
+  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Lead', 1, 'open', 7, '{}'::text[], null, false) returning id into v_stage;
   insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Ask for an introduction or a first conversation', 3, 1, true, false);
-  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Conversation', 2, 'open', 14, '{}'::text[], null, false) returning id into v_stage;
-  insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Send a thank-you note and ask about the next step', 2, 1, true, false);
+  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Applied', 2, 'open', 14, '{}'::text[], null, false) returning id into v_stage;
+  insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Follow up on the application', 5, 1, true, false);
   insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Interview', 3, 'open', 21, '{}'::text[], null, false) returning id into v_stage;
   insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Prepare for the interview', 3, 1, true, false);
   insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Offer', 4, 'open', 7, array['salary']::text[], null, false) returning id into v_stage;
@@ -3783,15 +3815,17 @@ begin
   insert into public.pipelines (owner_id, name, kind, sort_order, is_active) values (p_owner, 'Consulting', 'consulting', 6, true) returning id into v_pipe;
   insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Lead', 1, 'open', 7, '{}'::text[], 10, false) returning id into v_stage;
   insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Find out what they need and who decides', 3, 1, true, false);
-  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Proposal', 2, 'open', 14, array['rate_type','rate']::text[], 50, false) returning id into v_stage;
+  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Intro call', 2, 'open', 14, '{}'::text[], 25, false) returning id into v_stage;
   insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Send the scope and fee', 3, 1, true, false);
-  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Engagement', 3, 'open', 7, array['rate_type','rate','start_date']::text[], 100, true) returning id into v_stage;
+  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Proposal sent', 3, 'open', 14, array['rate_type','rate']::text[], 50, false) returning id into v_stage;
+  insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Follow up on the proposal', 5, 1, true, false);
+  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Engagement', 4, 'open', 7, array['rate_type','rate','start_date']::text[], 100, true) returning id into v_stage;
   insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Do the work and send the invoice on schedule', 7, 1, true, false);
-  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Paid', 4, 'open', null, '{}'::text[], 100, true) returning id into v_stage;
+  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Paid', 5, 'open', null, '{}'::text[], 100, true) returning id into v_stage;
   insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Ask for a referral or the next project', 7, 1, true, false);
-  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Done', 5, 'won', null, '{}'::text[], null, false) returning id into v_stage;
+  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Done', 6, 'won', null, '{}'::text[], null, false) returning id into v_stage;
   insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Ask for a referral or a testimonial', 3, 1, false, false);
-  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Lost', 6, 'lost', null, '{}'::text[], 0, false) returning id into v_stage;
+  insert into public.pipeline_stages (owner_id, pipeline_id, name, position, outcome, max_days_in_stage, required_fields, default_probability_pct, counts_as_signed) values (p_owner, v_pipe, 'Lost', 7, 'lost', null, '{}'::text[], 0, false) returning id into v_stage;
   insert into public.stage_tasks (owner_id, pipeline_stage_id, title, due_in_days, sort_order, is_next_action_default, is_commitment) values (p_owner, v_stage, 'Write down the reason', 1, 1, false, false);
   insert into public.inputs (owner_id, key, label, category, unit, value_number, value_text, description, sort_order) values (p_owner, 'waiting_threshold_days', 'Days waiting on someone before it is marked amber', 'Acquisition', 'number', 5, null, 'On Work on now and Deals, a deal waiting on someone this many days shows an amber count; at double it shows red. Follow up resets the count.', 80) on conflict (owner_id, key) do nothing;
   insert into public.inputs (owner_id, key, label, category, unit, value_number, value_text, description, sort_order) values (p_owner, 'outreach_weekly_target', 'Network outreach per week', 'Outreach', 'number', 10, null, 'The weekly counter on Outreach and Home: emails sent and calls logged to people on Outreach, Monday to Friday, out of this number.', 90) on conflict (owner_id, key) do nothing;
@@ -3984,3 +4018,31 @@ revoke all on function public.read_batch_name(text) from public, anon;
 grant execute on function public.read_batch(jsonb) to authenticated;
 grant execute on function public.read_batch_cond(jsonb) to authenticated;
 grant execute on function public.read_batch_name(text) to authenticated;
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- Decisions made (push I, 2026-11-15): one go or no-go per line, on one deal, job, consulting item or Rosara project,
+-- for the report's "Decided this week"; removed with its record.
+-- ---------------------------------------------------------------------------------------------------------------
+create table public.decisions (
+  id uuid default gen_random_uuid() not null,
+  owner_id uuid default auth.uid() not null,
+  pipeline_item_id uuid,
+  project_id uuid,
+  decided_on date not null,
+  outcome text not null,
+  line text,
+  created_at timestamp with time zone default now() not null,
+  constraint decisions_pkey primary key (id),
+  constraint decisions_one_record_check check (((pipeline_item_id is not null)::int + (project_id is not null)::int) = 1),
+  constraint decisions_outcome_check check (outcome = any (array['go'::text, 'no_go'::text])),
+  constraint decisions_line_check check (line is null or char_length(line) <= 300),
+  constraint decisions_owner_id_fkey foreign key (owner_id) references auth.users(id) on delete cascade,
+  constraint decisions_pipeline_item_id_fkey foreign key (pipeline_item_id) references public.pipeline_items(id) on delete cascade,
+  constraint decisions_project_id_fkey foreign key (project_id) references public.projects(id) on delete cascade
+);
+create index decisions_owner_idx on public.decisions using btree (owner_id, decided_on);
+create trigger log_change after insert or delete or update on public.decisions for each row execute function public.log_change();
+alter table public.decisions enable row level security;
+create policy owner_only on public.decisions to authenticated using (public.is_owner(owner_id)) with check (public.is_owner(owner_id));
+grant all on table public.decisions to authenticated;
+grant all on table public.decisions to service_role;

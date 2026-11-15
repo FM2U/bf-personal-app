@@ -11,7 +11,7 @@ describe("the three phases", () => {
     expect(PHASES.map((p) => p.name)).toEqual(["Early", "Evaluate", "Decide"]);
     expect(PHASES.map((p) => p.tagline)).toEqual(["Get the CIM", "Decide whether to bid", "Bid and close"]);
     expect(PHASES.flatMap((p) => p.stages)).toEqual([...WORK_STAGES]);
-    expect(PHASES.map((p) => [...p.stages])).toEqual([["Interested", "NDA signed"], ["CIM review", "Broker call", "Seller call", "Model"], ["Partner presentation", "IOI or LOI", "Diligence"]]);
+    expect(PHASES.map((p) => [...p.stages])).toEqual([["Interested", "NDA signed"], ["CIM review", "Broker call", "Seller call", "Diligence"], ["Partner presentation", "IOI or LOI", "Confirmatory diligence"]]);
   });
 
   it("group the stage groups under their phase and count the deals per phase", () => {
@@ -19,17 +19,18 @@ describe("the three phases", () => {
     const phased = groupByPhase(groups);
     expect(phased.map((p) => p.phase.key)).toEqual(["early", "evaluate", "decide"]);
     expect(phased[0].groups.map((g) => g.stage.name)).toEqual(["Interested", "NDA signed"]);
-    expect(phased[1].groups.map((g) => g.stage.name)).toEqual(["CIM review", "Broker call", "Seller call", "Model"]);
-    expect(phased[2].groups.map((g) => g.stage.name)).toEqual(["Partner presentation", "IOI or LOI", "Diligence"]);
+    expect(phased[1].groups.map((g) => g.stage.name)).toEqual(["CIM review", "Broker call", "Seller call", "Diligence"]);
+    expect(phased[2].groups.map((g) => g.stage.name)).toEqual(["Partner presentation", "IOI or LOI", "Confirmatory diligence"]);
     // The deals per stage are 0, 1, 2, 0, 1, 2, 0, 1, 2: Early 1, Evaluate 5, Decide 3.
     expect(phased.map((p) => p.count)).toEqual([1, 5, 3]);
   });
 
   it("leave out a stage that is not one of the nine and keep going when a stage is missing", () => {
-    const groups = [{ stage: { name: "Passed" }, deals: [1] }, { stage: { name: "Model" }, deals: [1, 2] }];
+    const groups = [{ stage: { name: "Passed" }, deals: [1] }, { stage: { name: "Diligence" }, deals: [1, 2] }, { stage: { name: "Model" }, deals: [9] }];
     const phased = groupByPhase(groups);
     expect(phased[0].groups).toEqual([]);
-    expect(phased[1].groups.map((g) => g.stage.name)).toEqual(["Model"]);
+    // "Model" is the old name of Diligence (renamed 2026-11-15): not one of the nine any more, so it is left out.
+    expect(phased[1].groups.map((g) => g.stage.name)).toEqual(["Diligence"]);
     expect(phased[1].count).toBe(2);
   });
 

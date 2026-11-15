@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { GENERAL_RULES_LINE, spotInstructions, type AiSpot } from "./instructions";
+import { financingLineFor, GENERAL_RULES_LINE, spotInstructions, stageLineFor, type AiSpot } from "./instructions";
 import { BUY_BOX_INPUT_KEYS, buyBoxSettingsFromRows, defaultBuyBoxSettings } from "@/lib/work/buy-box";
 import { answerDueDate, answerNextAction, answerNextActionDue, answerPrompt, applyKeyFindingDraft, fieldPrompt, stripDashes, nextStepsPrompt, setNextActionLabel, setNextActionNote, trimContext, validateAnswerReply, validateKeyFindingReply, type PageContext } from "@/lib/work/ask-ai";
 import { dealFactLines, dealFactsFromRow, parseFindingList } from "@/lib/work/deal-facts";
@@ -68,10 +68,10 @@ describe("strengths, risks, and growth paths as facts", () => {
     expect(parseFindingList('["x"]')).toEqual(["x"]);
     expect(parseFindingList(null)).toEqual([]);
     expect(parseFindingList({ a: 1 })).toEqual([]);
-    const lines = dealFactLines(dealFactsFromRow({ name: "X", key_finding: "K", strengths: ["S1", "S2"], risks: ["R1"], growth_paths: ["G1", "G2", "G3", "G4"] }, null, "Model", null));
+    const lines = dealFactLines(dealFactsFromRow({ name: "X", key_finding: "K", strengths: ["S1", "S2"], risks: ["R1"], growth_paths: ["G1", "G2", "G3", "G4"] }, null, "Diligence", null));
     expect(lines.slice(lines.indexOf("key finding: K"))).toEqual(["key finding: K", "strength: S1", "strength: S2", "risk: R1", "growth path (main): G1", "growth path: G2", "growth path: G3"]);
     // Financing is never a fact line (only the instructions' financing line at the later stages).
-    expect(dealFactLines(dealFactsFromRow({ name: "X", financing: "equity_plus_debt" }, null, "Model", null)).join("\n")).not.toMatch(/financing|equity/i);
+    expect(dealFactLines(dealFactsFromRow({ name: "X", financing: "equity_plus_debt" }, null, "Diligence", null)).join("\n")).not.toMatch(/financing|equity/i);
     expect(dealFactsFromRow({ name: "X" }, null, null, null).financing).toBe("equity");
   });
 });
@@ -159,5 +159,20 @@ describe("shared AI rules (fix list item 7, 2026-11-06)", () => {
     for (const rule of [AI_APP_DESCRIPTION, AI_KNOWLEDGE_RULE, AI_AUDIENCE_RULE, AI_NEXT_ACTION_RULE]) expect(AI_ROLE).toContain(rule);
     expect(AI_ROLE).not.toContain("Bram");
     expect(AI_AUDIENCE_RULE).toContain("cannot see anything inside it");
+  });
+});
+
+describe("the stage line and the financing line after the stage rename (2026-11-15)", () => {
+  it("treats Diligence (once Model) as after the CIM and Confirmatory diligence (once Diligence) as diligence", () => {
+    expect(stageLineFor("Diligence", true)).toBe("after_cim");
+    expect(stageLineFor("Confirmatory diligence", true)).toBe("diligence");
+    expect(stageLineFor("IOI or LOI", true)).toBe("diligence");
+    expect(stageLineFor("Model", true)).toBe("screening");
+    expect(stageLineFor("Diligence", false)).toBe("screening");
+  });
+  it("gives the financing line from Diligence onward", () => {
+    expect(financingLineFor("Seller call", true, "equity")).toBeNull();
+    expect(financingLineFor("Diligence", true, "equity_plus_debt")).toMatch(/equity plus debt/);
+    expect(financingLineFor("Confirmatory diligence", true, null)).toBe("Financing: all equity.");
   });
 });

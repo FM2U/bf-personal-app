@@ -1,16 +1,18 @@
 /**
  * The Job search and Consulting pages (batch B2, approved 2026-10-31), pure and tested in
- * src/lib/work/pipelines.test.ts. Job search reuses the Deals three-phase layout with two phases, Early (Contact,
- * Conversation) and Decide (Interview, Offer); its closed bar counts Declined, Not chosen, and Accepted. Consulting
- * shows its four open stages (Lead, Proposal, Engagement, Paid) as columns sized to content; its closed bar counts
- * Lost and Done. The stage rows live in the database (update 0022); these helpers read them by name.
+ * src/lib/work/pipelines.test.ts. Job search reuses the Deals three-phase layout with two phases, Early (Lead,
+ * Applied) and Decide (Interview, Offer); its closed bar counts Declined, Not chosen, and Accepted. Consulting
+ * shows its five open stages (Lead, Intro call, Proposal sent, Engagement, Paid) as columns sized to content; its
+ * closed bar counts Lost and Done. The stage rows live in the database (update 0022; renamed by database update I,
+ * 2026-11-15: Contact to Lead, Conversation to Applied, Proposal to Proposal sent, and Intro call added); these
+ * helpers read them by name.
  */
 import type { PhaseDef } from "@/lib/work/phases";
 
-export const JOB_STAGES = ["Contact", "Conversation", "Interview", "Offer"] as const;
-/** Early: get a conversation. Decide: interview and decide. */
+export const JOB_STAGES = ["Lead", "Applied", "Interview", "Offer"] as const;
+/** Early: get to an interview. Decide: interview and decide. */
 export const JOB_PHASES: readonly PhaseDef[] = [
-  { key: "early", name: "Early", tagline: "Get a conversation", stages: ["Contact", "Conversation"] },
+  { key: "early", name: "Early", tagline: "Get to an interview", stages: ["Lead", "Applied"] },
   { key: "decide", name: "Decide", tagline: "Interview and decide", stages: ["Interview", "Offer"] },
 ];
 
@@ -21,13 +23,14 @@ export const JOB_CLOSED = [
   { name: "Accepted", outcome: "won", label: "Accepted", tone: "green" },
 ] as const;
 
-export const CONSULTING_STAGES = ["Lead", "Proposal", "Engagement", "Paid"] as const;
+export const CONSULTING_STAGES = ["Lead", "Intro call", "Proposal sent", "Engagement", "Paid"] as const;
 type ConsultingStageName = (typeof CONSULTING_STAGES)[number];
 
 /** One column per open stage, with the line under its name. */
 export const CONSULTING_COLUMNS: readonly { name: ConsultingStageName; tagline: string }[] = [
   { name: "Lead", tagline: "Someone asked" },
-  { name: "Proposal", tagline: "Scope and fee sent" },
+  { name: "Intro call", tagline: "Scoping call" },
+  { name: "Proposal sent", tagline: "Awaiting a yes" },
   { name: "Engagement", tagline: "Work under way" },
   { name: "Paid", tagline: "Invoice paid" },
 ];
@@ -38,7 +41,7 @@ export const CONSULTING_CLOSED = [
   { name: "Done", outcome: "won", label: "Done", tone: "green" },
 ] as const;
 
-/** 0-based index of a stage in the four open stages of its pipeline, or -1 (closed, unknown). */
+/** 0-based index of a stage in the open stages of its pipeline, or -1 (closed, unknown). */
 export function openStageIndex(kind: "job" | "consulting", name: string | null | undefined): number {
   const list: readonly string[] = kind === "job" ? JOB_STAGES : CONSULTING_STAGES;
   return list.indexOf(String(name ?? ""));
@@ -60,12 +63,12 @@ export function closedBarLabel(kind: "job" | "consulting", counts: Record<string
     .join(" · ");
 }
 
-/** "$18K", "$4.5K", "$12K est." for the fee figure on a consulting row (est. when the item is still a lead). */
+/** "$18K", "$4.5K", "$12K est." for the fee figure on a consulting row (est. before the proposal is sent: Lead and Intro call). */
 export function feeLabel(fee: number | null | undefined, stageName: string | null | undefined): string {
   if (fee === null || fee === undefined || !Number.isFinite(Number(fee))) return "No fee yet";
   const n = Number(fee);
   const short = n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M` : n >= 1000 ? `$${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}K` : `$${Math.round(n)}`;
-  return stageName === "Lead" ? `${short} est.` : short;
+  return stageName === "Lead" || stageName === "Intro call" ? `${short} est.` : short;
 }
 
 /** The one-line note on a row: the first line of the item's notes, at most 160 characters. */

@@ -4,15 +4,15 @@ import { chipOf, linkKey, movePick, pickerResults, type LinkRecord } from "./lin
 const r = (kind: LinkRecord["kind"], name: string, extra: Partial<LinkRecord> = {}): LinkRecord => ({ kind, id: name.toLowerCase().replace(/\s+/g, "-"), name, status: "Open", closed: false, dueToday: false, ...extra });
 const records: LinkRecord[] = [
   r("deal", "Summit Logistics Group", { status: "CIM review", dueToday: true }),
-  r("deal", "Meridian Industrial Coatings", { status: "Model" }),
+  r("deal", "Meridian Industrial Coatings", { status: "Diligence" }),
   r("listing", "Summer Pool Service", { status: "Listing" }),
   r("deal", "Sunbelt Plumbing", { status: "Passed", closed: true }),
   r("person", "Mark Reed", { status: "Broker", dueToday: true }),
   r("person", "Sam Ortiz", { status: "Lender", closed: true }),
   r("organization", "Transworld Business Advisors", { status: "Broker firm" }),
   r("project", "Care plan screens", { status: "Milestone: core plan" }),
-  r("job", "Southern Staffing Group", { status: "Conversation" }),
-  r("consulting", "Sullivan Wickley", { status: "Proposal" }),
+  r("job", "Southern Staffing Group", { status: "Applied" }),
+  r("consulting", "Sullivan Wickley", { status: "Proposal sent" }),
 ];
 
 describe("the Link to picker (push C)", () => {

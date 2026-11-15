@@ -10,7 +10,7 @@ import { PhaseColumns } from "@/components/app/work/deal-columns";
 import { ItemListRow, OpportunityCard } from "@/components/app/work/item-row";
 
 /**
- * Job search (batch B2, approved 2026-10-31): the Deals layout with two phases, Early (Contact, Conversation) and
+ * Job search (batch B2, approved 2026-10-31): the Deals layout with two phases, Early (Lead, Applied) and
  * Decide (Interview, Offer); the pinned title with Add an opportunity and Ask AI, the tabs, and the filter row (All,
  * Due today, Waiting on someone, Needs a next action, Find an opportunity, Collapse all). Rows: company and role,
  * contact and location, the next action with its due, the waiting pill, the note. The closed bar: "Declined N · Not

@@ -13,7 +13,8 @@ import { FilterRow, PINNED_CARD_HEADER, PinnedBlock } from "@/components/app/wor
 import { cn } from "@/lib/utils";
 
 /**
- * Consulting (batch B2, approved 2026-10-31): the four open stages Lead, Proposal, Engagement, Paid as columns sized
+ * Consulting (batch B2, approved 2026-10-31): the five open stages Lead, Intro call, Proposal sent, Engagement, Paid (Intro call
+ * added and Proposal renamed 2026-11-15) as columns sized
  * to content (one row each on desktop, stacked on the phone), each with its line ("Someone asked") and count; rows:
  * client and project, the fee figure at the right, the next action with its due, the note. The pinned title with
  * Add a lead and Ask AI, the tabs, the pills All, Due today, Due next 7 days, Find a client. The closed bar: "Lost N
@@ -40,7 +41,7 @@ export function ConsultingBoard({ header, data, adding }: { header: React.ReactN
           <AddLeadCard today={today} onClose={() => router.push("/work/consulting")} />
         </div>
       ) : null}
-      <div className="grid grid-cols-1 items-start gap-[18px] sm:grid-cols-2 lg:grid-cols-4" data-testid="consulting-columns">
+      <div className="grid grid-cols-1 items-start gap-[18px] sm:grid-cols-2 lg:grid-cols-5" data-testid="consulting-columns">
         {CONSULTING_COLUMNS.map((col) => {
           const group = data.groups.find((g) => g.stage.name === col.name);
           const items = group?.deals ?? [];
@@ -49,8 +50,9 @@ export function ConsultingBoard({ header, data, adding }: { header: React.ReactN
             <section key={col.name} className="flex min-w-0 flex-col rounded-xl border border-border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]" data-testid="consulting-stage" data-stage={col.name} data-count={items.length}>
               <div className={cn("flex items-end justify-between gap-2.5 px-[18px] pt-4 pb-3.5", PINNED_CARD_HEADER, "border-b-2 lg:static")}>
                 <div className="min-w-0">
-                  <h2 className="text-[17px] leading-[1.2] font-bold tracking-[0.02em] text-slate-900">{col.name}</h2>
-                  <p className="mt-[5px] text-[15px] leading-[1.3] font-semibold tracking-[-0.01em] text-muted-foreground">{col.tagline}</p>
+                  <h2 className="truncate text-[17px] leading-[1.2] font-bold tracking-[0.02em] text-slate-900">{col.name}</h2>
+                  {/* One line each, so the five headers stay the same height (2026-11-15). */}
+                  <p className="mt-[5px] truncate text-[15px] leading-[1.3] font-semibold tracking-[-0.01em] text-muted-foreground" title={col.tagline}>{col.tagline}</p>
                 </div>
                 <span className="tabular shrink-0 pb-0.5 text-[12.5px] text-muted-foreground" data-testid="stage-count">
                   {items.length}

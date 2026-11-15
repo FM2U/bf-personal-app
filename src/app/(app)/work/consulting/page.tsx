@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 export const metadata = { title: "Consulting" };
 
 /**
- * Consulting (batch B2, approved 2026-10-31): the stages Lead, Proposal, Engagement, Paid as columns sized to
+ * Consulting (batch B2, approved 2026-10-31): the stages Lead, Intro call, Proposal sent, Engagement, Paid as columns sized to
  * content; Add a lead (?add=1) and Ask AI in the pinned title; the closed bar Lost and Done. A row opens the
  * consulting page.
  */

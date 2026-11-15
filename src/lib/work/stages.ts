@@ -10,7 +10,8 @@ import { daysBetween } from "@/lib/calc/dates";
 import { signOff } from "@/lib/work/names";
 
 /** The nine working stages, in order. Passed, Lost, and Closed come after them and are not part of the progress mark. */
-export const WORK_STAGES = ["Interested", "NDA signed", "CIM review", "Broker call", "Seller call", "Model", "Partner presentation", "IOI or LOI", "Diligence"] as const;
+/** Renamed 2026-11-15 (Bram; database update I): "Model" is now "Diligence" and the old after-LOI "Diligence" is now "Confirmatory diligence". */
+export const WORK_STAGES = ["Interested", "NDA signed", "CIM review", "Broker call", "Seller call", "Diligence", "Partner presentation", "IOI or LOI", "Confirmatory diligence"] as const;
 export type WorkStageName = (typeof WORK_STAGES)[number];
 
 /** The default next action per stage (also in database updates 0020, 0021, and 0024; shown as the hint on the Deals stage headings). */
@@ -20,10 +21,10 @@ export const STAGE_DEFAULTS: Record<WorkStageName, { title: string; dueInDays: n
   "CIM review": { title: "Write the key finding, research the market if interested, request 3 years of financials and unit economics", dueInDays: 3, hint: "key finding, market research, request 3 years of financials and unit economics" },
   "Broker call": { title: "Ask for the seller call", dueInDays: 2, hint: "ask for the seller call" },
   "Seller call": { title: "Ask for tax returns and start the model", dueInDays: 3, hint: "ask for tax returns, start the model" },
-  Model: { title: "Book the partner meeting", dueInDays: 5, hint: "book the partner meeting" },
+  Diligence: { title: "Book the partner meeting", dueInDays: 5, hint: "book the partner meeting" },
   "Partner presentation": { title: "Submit the IOI or LOI", dueInDays: 5, hint: "submit the IOI or LOI" },
   "IOI or LOI": { title: "Wait for the broker, follow up in 7 days", dueInDays: 7, hint: "wait for the broker, follow up in 7 days" },
-  Diligence: { title: "Data room, quality of earnings, lawyer review", dueInDays: 14, hint: "data room, quality of earnings, lawyer review" },
+  "Confirmatory diligence": { title: "Data room, quality of earnings, lawyer review", dueInDays: 14, hint: "data room, quality of earnings, lawyer review" },
 };
 
 export const DEFAULT_WAIT_THRESHOLD_DAYS = 5;
@@ -39,7 +40,7 @@ export function progressSegments(stageName: string | null | undefined): ("done" 
   return WORK_STAGES.map((_, n) => (i < 0 ? "todo" : n < i ? "done" : n === i ? "current" : "todo"));
 }
 
-/** The stage after this one in the nine, or null at Diligence and for any other stage. */
+/** The stage after this one in the nine, or null at Confirmatory diligence and for any other stage. */
 export function nextStageName(stageName: string | null | undefined): WorkStageName | null {
   const i = stageIndex(stageName);
   return i >= 0 && i < WORK_STAGES.length - 1 ? WORK_STAGES[i + 1] : null;
@@ -94,7 +95,7 @@ export function daysShort(days: number): string {
 /**
  * What Done does on a deal: when the action just done is the stage's default next action, the app asks to move the
  * deal to the next stage ("ask"); otherwise the action is simply cleared and the deal stays where it is ("clear").
- * At Diligence (no next stage) Done clears too.
+ * At Confirmatory diligence (no next stage) Done clears too.
  */
 export function doneOutcome(i: { stageName: string | null; nextAction: string | null; defaultTitle: string | null }): { kind: "ask"; nextStage: WorkStageName } | { kind: "clear" } {
   const next = nextStageName(i.stageName);

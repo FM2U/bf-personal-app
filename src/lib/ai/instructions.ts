@@ -78,12 +78,13 @@ const STAGE_LINES: Record<StageLine, string> = {
   diligence: "Stage: diligence. Focus on what still needs verifying.",
 };
 
-const AFTER_CIM = new Set(["CIM review", "Broker call", "Seller call", "Model", "Partner presentation"]);
-const DILIGENCE = new Set(["IOI or LOI", "Diligence", "Closed"]);
+// Stage names renamed 2026-11-15: "Diligence" (was "Model") is before the bid; "Confirmatory diligence" (was "Diligence") after the LOI.
+const AFTER_CIM = new Set(["CIM review", "Broker call", "Seller call", "Diligence", "Partner presentation"]);
+const DILIGENCE = new Set(["IOI or LOI", "Confirmatory diligence", "Closed"]);
 
 /**
  * The stage line of a deal: a listing (not screened yet), Interested, and NDA signed get screening; CIM review through
- * Partner presentation get after the CIM; IOI or LOI and Diligence (and Closed) get diligence. A stage the app does not
+ * Partner presentation get after the CIM; IOI or LOI and Confirmatory diligence (and Closed) get diligence. A stage the app does not
  * know (Passed, Lost, a renamed stage) gets screening.
  */
 export function stageLineFor(stage: string | null | undefined, screened: boolean): StageLine {
@@ -118,12 +119,12 @@ const FINANCING_LINES: Record<DealFinancing, string> = {
 };
 
 /**
- * The stages where the AI is told how the deal is financed (revision 2: from Model onward, so Partner presentation and
+ * The stages where the AI is told how the deal is financed (revision 2: from Diligence, once called Model, onward, so Partner presentation and
  * Closed too). Earlier stages get nothing about financing.
  */
-const FINANCING_STAGES: readonly string[] = ["Model", "Partner presentation", "IOI or LOI", "Diligence", "Closed"];
+const FINANCING_STAGES: readonly string[] = ["Diligence", "Partner presentation", "IOI or LOI", "Confirmatory diligence", "Closed"];
 
-/** The financing line of a deal from Model onward (FINANCING_STAGES); null at every other stage and on a listing. */
+/** The financing line of a deal from Diligence onward (FINANCING_STAGES); null at every other stage and on a listing. */
 export function financingLineFor(stage: string | null | undefined, screened: boolean, financing: DealFinancing | null | undefined): string | null {
   if (!screened || !FINANCING_STAGES.includes(String(stage ?? "").trim())) return null;
   return FINANCING_LINES[financing === "equity_plus_debt" ? "equity_plus_debt" : "equity"];

@@ -43,7 +43,7 @@ export type ItemRow = {
   status: string;
   stageId: string | null;
   stageName: string | null;
-  /** 0-based in the four open stages; -1 when closed. */
+  /** 0-based in the open stages of its pipeline (four for Job search, five for Consulting); -1 when closed. */
   stageIndex: number;
   dayInStage: number;
   whatItDoes: string | null;
@@ -271,7 +271,7 @@ export async function loadItemPage(sb: SupabaseClient, ownerId: string, kind: It
   }
   const lastComm = [...commRows].filter((c) => ["email", "call", "meeting", "video", "text"].includes(String(c.method))).sort((a, b) => (String(a.occurred_at) < String(b.occurred_at) ? 1 : -1))[0];
   const stageLabel = (name: string) => {
-    if (kind === "job") return name === "Contact" ? "Contact" : name === "Accepted" ? "Accepted" : name === "Declined" ? "Declined" : name === "Not chosen" ? "Not chosen" : `Moved to ${name}`;
+    if (kind === "job") return name === "Lead" ? "Lead" : name === "Accepted" ? "Accepted" : name === "Declined" ? "Declined" : name === "Not chosen" ? "Not chosen" : `Moved to ${name}`;
     return name === "Lead" ? "Lead" : name === "Done" ? "Done" : name === "Lost" ? "Lost" : `Moved to ${name}`;
   };
   const timeline: TimelineEvent[] = [
@@ -318,8 +318,8 @@ export type PipelinesHome = {
   jobs: ItemRow[];
   consulting: ItemRow[];
   tile: {
-    /** The soonest open item at Conversation (next conversation) and at Interview (next interview). */
-    nextConversation: ItemRow | null;
+    /** The soonest open item at Applied (next application to follow up) and at Interview (next interview); renamed 2026-11-15. */
+    nextApplied: ItemRow | null;
     nextInterview: ItemRow | null;
     open: number;
     needsAction: number;
@@ -342,7 +342,7 @@ export async function loadPipelinesHome(sb: SupabaseClient, ctx: WorkCtx): Promi
     jobs: openJobs.filter(due).sort(byDue),
     consulting: openCon.filter(due).sort(byDue),
     tile: {
-      nextConversation: soonest(openJobs.filter((i) => i.stageName === "Conversation")),
+      nextApplied: soonest(openJobs.filter((i) => i.stageName === "Applied")),
       nextInterview: soonest(openJobs.filter((i) => i.stageName === "Interview")),
       open: openJobs.length,
       needsAction: openJobs.filter((i) => !i.nextAction).length,

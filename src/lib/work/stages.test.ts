@@ -3,13 +3,14 @@ import { followUpDraft, dayInStage, daysLabel, daysShort, daysWaiting, doneOutco
 
 describe("the nine stages", () => {
   it("are in the approved order (Broker call after CIM review since Edit batch B) with a default next action each", () => {
-    expect(WORK_STAGES).toEqual(["Interested", "NDA signed", "CIM review", "Broker call", "Seller call", "Model", "Partner presentation", "IOI or LOI", "Diligence"]);
+    expect(WORK_STAGES).toEqual(["Interested", "NDA signed", "CIM review", "Broker call", "Seller call", "Diligence", "Partner presentation", "IOI or LOI", "Confirmatory diligence"]);
     for (const s of WORK_STAGES) expect(STAGE_DEFAULTS[s].title.length).toBeGreaterThan(5);
     expect(STAGE_DEFAULTS.Interested).toMatchObject({ title: "Sign the NDA and ask the broker for a call", dueInDays: 1 });
     expect(STAGE_DEFAULTS["NDA signed"]).toMatchObject({ title: "Ask the broker for the CIM", dueInDays: 3 });
     expect(STAGE_DEFAULTS["Broker call"]).toMatchObject({ title: "Ask for the seller call", dueInDays: 2 });
     expect(STAGE_DEFAULTS["IOI or LOI"].dueInDays).toBe(7);
-    expect(STAGE_DEFAULTS.Diligence.dueInDays).toBe(14);
+    expect(STAGE_DEFAULTS.Diligence).toMatchObject({ title: "Book the partner meeting", dueInDays: 5 });
+    expect(STAGE_DEFAULTS["Confirmatory diligence"].dueInDays).toBe(14);
   });
 
   it("progress mark: done before, current on the current one, todo after; all todo for Passed", () => {
@@ -23,18 +24,19 @@ describe("the nine stages", () => {
   it("knows the next stage", () => {
     expect(nextStageName("CIM review")).toBe("Broker call");
     expect(nextStageName("Broker call")).toBe("Seller call");
-    expect(nextStageName("Diligence")).toBeNull();
+    expect(nextStageName("Seller call")).toBe("Diligence");
+    expect(nextStageName("Confirmatory diligence")).toBeNull();
     expect(nextStageName("Passed")).toBeNull();
   });
 });
 
 describe("Done on a next action", () => {
   it("asks to move when the action is the stage's default (any letter case), otherwise clears", () => {
-    expect(doneOutcome({ stageName: "Seller call", nextAction: "Ask for tax returns and start the model", defaultTitle: "Ask for tax returns and start the model" })).toEqual({ kind: "ask", nextStage: "Model" });
-    expect(doneOutcome({ stageName: "Seller call", nextAction: "ask for tax returns and start the model ", defaultTitle: "Ask for tax returns and start the model" })).toEqual({ kind: "ask", nextStage: "Model" });
+    expect(doneOutcome({ stageName: "Seller call", nextAction: "Ask for tax returns and start the model", defaultTitle: "Ask for tax returns and start the model" })).toEqual({ kind: "ask", nextStage: "Diligence" });
+    expect(doneOutcome({ stageName: "Seller call", nextAction: "ask for tax returns and start the model ", defaultTitle: "Ask for tax returns and start the model" })).toEqual({ kind: "ask", nextStage: "Diligence" });
     expect(doneOutcome({ stageName: "CIM review", nextAction: "Review the CIM and write the key finding", defaultTitle: STAGE_DEFAULTS["CIM review"].title })).toEqual({ kind: "clear" });
-    expect(doneOutcome({ stageName: "Diligence", nextAction: STAGE_DEFAULTS.Diligence.title, defaultTitle: STAGE_DEFAULTS.Diligence.title })).toEqual({ kind: "clear" });
-    expect(doneOutcome({ stageName: "Model", nextAction: null, defaultTitle: "Book the partner meeting" })).toEqual({ kind: "clear" });
+    expect(doneOutcome({ stageName: "Confirmatory diligence", nextAction: STAGE_DEFAULTS["Confirmatory diligence"].title, defaultTitle: STAGE_DEFAULTS["Confirmatory diligence"].title })).toEqual({ kind: "clear" });
+    expect(doneOutcome({ stageName: "Diligence", nextAction: null, defaultTitle: "Book the partner meeting" })).toEqual({ kind: "clear" });
   });
 });
 

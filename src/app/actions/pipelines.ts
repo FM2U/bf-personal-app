@@ -68,15 +68,15 @@ function minutesOf(v: unknown): number | null {
 
 export type OpportunityInput = { company: string; role: string; contact: string; location: string; whatItDoes: string; source: string; link: string; payRange: string; nextAction: string; due: string; note?: string };
 
-/** Add an opportunity: a new item at Contact (the stage's default next action when none is typed). */
+/** Add an opportunity: a new item at Lead, the first stage (the stage's default next action when none is typed). */
 export async function createOpportunity(input: OpportunityInput): Promise<{ ok: true; id: string } | Fail> {
   const s = await setup("job");
   if (isFail(s)) return s;
   const { sb, ctx, pipe } = s;
   const name = clean(input.company, 200);
   if (!name) return fail("Give the opportunity a company name.");
-  const stage = pipe.byName.Contact ?? pipe.stages.find((st) => st.outcome === "open");
-  if (!stage) return fail("The Job search pipeline has no Contact stage. Run the database update again.");
+  const stage = pipe.byName.Lead ?? pipe.stages.find((st) => st.outcome === "open");
+  if (!stage) return fail("The Job search pipeline has no open stage. Run the database update again.");
   const action = clean(input.nextAction, 300);
   const due = DATE.test(String(input.due ?? "")) ? String(input.due) : null;
   const row: Row = {

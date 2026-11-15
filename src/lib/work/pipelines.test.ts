@@ -3,19 +3,20 @@ import { groupByPhase } from "./phases";
 import { closedBarLabel, CONSULTING_COLUMNS, CONSULTING_STAGES, feeLabel, findOutLines, JOB_PHASES, JOB_STAGES, matchesConsultingFilter, nextOpenStage, noteLine, openStageIndex } from "./pipelines";
 
 describe("the Job search phases", () => {
-  it("has two phases, Early (Contact, Conversation) and Decide (Interview, Offer), and groups the stages under them", () => {
+  it("has two phases, Early (Lead, Applied) and Decide (Interview, Offer), and groups the stages under them", () => {
     expect(JOB_PHASES.map((p) => p.name)).toEqual(["Early", "Decide"]);
     expect(JOB_PHASES.flatMap((p) => p.stages)).toEqual([...JOB_STAGES]);
-    const groups = JOB_STAGES.map((name) => ({ stage: { name }, deals: name === "Contact" ? [1, 2] : name === "Offer" ? [3] : [] }));
+    const groups = JOB_STAGES.map((name) => ({ stage: { name }, deals: name === "Lead" ? [1, 2] : name === "Offer" ? [3] : [] }));
     const phased = groupByPhase(groups, JOB_PHASES);
     expect(phased.map((p) => [p.phase.key, p.count])).toEqual([["early", 2], ["decide", 1]]);
-    expect(phased[0].groups.map((g) => g.stage.name)).toEqual(["Contact", "Conversation"]);
+    expect(phased[0].groups.map((g) => g.stage.name)).toEqual(["Lead", "Applied"]);
   });
 
   it("knows the open stage order, the next stage, and the closed bar label", () => {
     expect(openStageIndex("job", "Interview")).toBe(2);
     expect(openStageIndex("job", "Declined")).toBe(-1);
-    expect(nextOpenStage("job", "Contact")).toBe("Conversation");
+    expect(nextOpenStage("job", "Lead")).toBe("Applied");
+    expect(nextOpenStage("job", "Applied")).toBe("Interview");
     expect(nextOpenStage("job", "Offer")).toBeNull();
     expect(nextOpenStage("job", "Not chosen")).toBeNull();
     expect(closedBarLabel("job", { Declined: 3, "Not chosen": 2 })).toBe("Declined 3 · Not chosen 2");
@@ -28,20 +29,23 @@ describe("the Job search phases", () => {
 });
 
 describe("the Consulting columns", () => {
-  it("has four columns with their lines, the next stage, and the closed bar label", () => {
+  it("has five columns (Intro call added 2026-11-15) with their lines, the next stage, and the closed bar label", () => {
     expect(CONSULTING_COLUMNS.map((c) => c.name)).toEqual([...CONSULTING_STAGES]);
-    expect(CONSULTING_COLUMNS.map((c) => c.tagline)).toEqual(["Someone asked", "Scope and fee sent", "Work under way", "Invoice paid"]);
-    expect(nextOpenStage("consulting", "Proposal")).toBe("Engagement");
+    expect(CONSULTING_COLUMNS.map((c) => c.tagline)).toEqual(["Someone asked", "Scoping call", "Awaiting a yes", "Work under way", "Invoice paid"]);
+    expect(nextOpenStage("consulting", "Lead")).toBe("Intro call");
+    expect(nextOpenStage("consulting", "Intro call")).toBe("Proposal sent");
+    expect(nextOpenStage("consulting", "Proposal sent")).toBe("Engagement");
     expect(nextOpenStage("consulting", "Paid")).toBeNull();
     expect(openStageIndex("consulting", "Lost")).toBe(-1);
     expect(closedBarLabel("consulting", { Lost: 1, Done: 4 })).toBe("Lost 1 · Done 4");
   });
 
   it("shows the fee short, with est. on a lead, and the one-line note", () => {
-    expect(feeLabel(18000, "Proposal")).toBe("$18K");
+    expect(feeLabel(18000, "Proposal sent")).toBe("$18K");
     expect(feeLabel(4500, "Paid")).toBe("$4.5K");
     expect(feeLabel(12000, "Lead")).toBe("$12K est.");
     expect(feeLabel(800, "Lead")).toBe("$800 est.");
+    expect(feeLabel(6000, "Intro call")).toBe("$6K est.");
     expect(feeLabel(1_500_000, "Engagement")).toBe("$1.5M");
     expect(feeLabel(null, "Lead")).toBe("No fee yet");
     expect(noteLine("Two of three leases read\nMore detail")).toBe("Two of three leases read");

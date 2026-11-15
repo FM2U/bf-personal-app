@@ -147,8 +147,8 @@ describe("the push E sample (No reply yet, a person waited on, Replied)", () => 
 
 describe("the batch B2 sample (projects, opportunities, consulting)", () => {
   let k = 0;
-  const jobs = { pipelineId: "p-job", stages: Object.fromEntries(["Contact", "Conversation", "Interview", "Offer", "Accepted", "Declined", "Not chosen"].map((n, i) => [n, `j-${i}`])) };
-  const consulting = { pipelineId: "p-con", stages: Object.fromEntries(["Lead", "Proposal", "Engagement", "Paid", "Done", "Lost"].map((n, i) => [n, `c-${i}`])) };
+  const jobs = { pipelineId: "p-job", stages: Object.fromEntries(["Lead", "Applied", "Interview", "Offer", "Accepted", "Declined", "Not chosen"].map((n, i) => [n, `j-${i}`])) };
+  const consulting = { pipelineId: "p-con", stages: Object.fromEntries(["Lead", "Intro call", "Proposal sent", "Engagement", "Paid", "Done", "Lost"].map((n, i) => [n, `c-${i}`])) };
   const b = buildWorkSample({ pipelineId: "p-acq", stages, batchB: true, batchB2: true, jobs, consulting }, () => `00000000-0000-4000-8000-${String(++k).padStart(12, "0")}`, "2026-10-30");
   it("has five open opportunities across the four stages plus three closed, with one waiting and one without a next action", () => {
     const opps = b.items.filter((i) => i.pipeline_id === "p-job");
@@ -168,9 +168,9 @@ describe("the batch B2 sample (projects, opportunities, consulting)", () => {
     expect(open.every((i) => i.role_title && i.contact_name)).toBe(true);
   });
 
-  it("has four open consulting items, one per stage, plus Lost and Done, with fees, scopes, and start dates", () => {
+  it("has four open consulting items on four of the five stages (none at Proposal sent), plus Lost and Done, with fees, scopes, and start dates", () => {
     const cons = b.items.filter((i) => i.pipeline_id === "p-con");
-    const open = cons.filter((i) => ["c-0", "c-1", "c-2", "c-3"].includes(String(i.stage_id)));
+    const open = cons.filter((i) => ["c-0", "c-1", "c-2", "c-3", "c-4"].includes(String(i.stage_id)));
     expect(open).toHaveLength(4);
     expect(new Set(open.map((i) => i.stage_id)).size).toBe(4);
     expect(cons.filter((i) => i.stage_id === consulting.stages.Lost)).toHaveLength(1);
@@ -178,7 +178,7 @@ describe("the batch B2 sample (projects, opportunities, consulting)", () => {
     expect(open.every((i) => Number(i.fee) > 0 && i.what_it_does && i.contact_name)).toBe(true);
     expect(b.consultingDetails).toHaveLength(4);
     expect(b.consultingDetails.every((d) => d.scope_notes)).toBe(true);
-    const proposal = cons.find((i) => i.stage_id === consulting.stages.Proposal)!;
+    const proposal = cons.find((i) => i.stage_id === consulting.stages["Intro call"])!;
     expect(proposal.next_action).toBe("Send the scope and fee");
     expect(b.stageDates.filter((d) => cons.some((i) => i.id === d.itemId))).toHaveLength(6);
   });
@@ -255,8 +255,8 @@ describe("the batch C sample (Jake, End of day rows, work events)", () => {
 });
 
 describe("the sample's week figures (Edit batch C, item 6), counted by the app's one counting function", () => {
-  const jobsStages = ["Contact", "Conversation", "Interview", "Offer", "Accepted", "Declined", "Not chosen"];
-  const consultingStages = ["Lead", "Proposal", "Engagement", "Paid", "Done", "Lost"];
+  const jobsStages = ["Lead", "Applied", "Interview", "Offer", "Accepted", "Declined", "Not chosen"];
+  const consultingStages = ["Lead", "Intro call", "Proposal sent", "Engagement", "Paid", "Done", "Lost"];
   const dealStages = [...WORK_STAGES, "Closed", "Passed", "Lost"];
   const outcome = (name: string) => (["Passed", "Lost", "Declined", "Not chosen"].includes(name) ? "lost" : ["Accepted", "Done", "Closed"].includes(name) ? "won" : "open");
   const ids = (pipe: string, names: string[]) => Object.fromEntries(names.map((n, i) => [n, `${pipe}-${i}`]));

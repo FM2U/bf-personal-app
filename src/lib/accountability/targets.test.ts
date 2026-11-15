@@ -29,9 +29,9 @@ const facts: Facts = {
   ],
   moves: [
     { on: FRI, name: "Dalton Services", from: "CIM review", to: "Seller call", keyFinding: "70% of revenue is recurring maintenance contracts", lane: "Deals" },
-    { on: "2026-11-04", name: "Meridian Industrial Coatings", from: "Seller call", to: "Model", keyFinding: null, lane: "Deals" },
+    { on: "2026-11-04", name: "Meridian Industrial Coatings", from: "Seller call", to: "Diligence", keyFinding: null, lane: "Deals" },
     { on: "2026-11-02", name: "BrightPath Home Care", from: "Interested", to: "NDA signed", keyFinding: null, lane: "Deals" },
-    { on: "2026-10-29", name: "Pinecrest Landscaping", from: "Model", to: "IOI or LOI", keyFinding: null, lane: "Deals" },
+    { on: "2026-10-29", name: "Pinecrest Landscaping", from: "Diligence", to: "IOI or LOI", keyFinding: null, lane: "Deals" },
   ],
   comms: [
     { on: FRI, method: "call", contactId: "p1", contactName: "Priya Natarajan", broker: false },
@@ -203,7 +203,7 @@ describe("the report's numbers and the email", () => {
     expect(targetLine(fri[0], 11, countedDays(WED, []))).toBe("Listings screened: 3 of 5 today, 11 of 15 this week");
     expect(targetLine(fri.find((j) => j.name === "Rosara focus done")!, null)).toBe("Rosara focus: not done");
     expect(reportSummary(fri, n, true)).toBe("1 of 6 targets met · Dalton to Seller call · Priya Natarajan and Carla Jenkins contacted · the week added");
-    expect(reportSummary(wed, dayNumbers(facts, WED, waits, 5), false)).toBe("Listings screened 4 of 5 · Meridian to Model");
+    expect(reportSummary(wed, dayNumbers(facts, WED, waits, 5), false)).toBe("Listings screened 4 of 5 · Meridian to Diligence");
   });
   it("the email: the layout the app sends, the reasons as child lines, the text part", () => {
     const d: ReportData = {
@@ -516,7 +516,7 @@ describe("Edits of Nov 5, item 4: every End of day panel row links to its record
       ],
       events: [],
       people: [{ id: "c1", name: "Rachel Kim" }],
-      stageById: { passed: { name: "Passed", outcome: "lost" }, interested: { name: "Interested", outcome: "open" }, nda: { name: "NDA signed", outcome: "open" }, contact: { name: "Contact", outcome: "open" }, talk: { name: "Conversation", outcome: "open" } },
+      stageById: { passed: { name: "Passed", outcome: "lost" }, interested: { name: "Interested", outcome: "open" }, nda: { name: "NDA signed", outcome: "open" }, contact: { name: "Lead", outcome: "open" }, talk: { name: "Applied", outcome: "open" } },
       laneOf: { acq: "Deals", job: "Job search" },
       since: "2026-10-01",
       local: (ts) => ts.slice(0, 10),

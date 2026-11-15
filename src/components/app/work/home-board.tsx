@@ -873,8 +873,8 @@ function JobSearchTile({ pipelines, today }: { pipelines: HomeData["pipelines"];
   return (
     <WorkCard title="Job search" hint={t.open ? `${t.open} open` : "None open"} testId="home-jobs" pinned pinAt="desk">
       <div className="flex flex-col pt-1">
-        <TileBlock label="Next conversation" testId="jobs-row">
-          {line(t.nextConversation, "Nothing at Conversation yet.")}
+        <TileBlock label="Next application follow-up" testId="jobs-row">
+          {line(t.nextApplied, "Nothing at Applied yet.")}
         </TileBlock>
         <TileBlock label="Next interview" testId="jobs-row">
           {line(t.nextInterview, "No interview booked.")}

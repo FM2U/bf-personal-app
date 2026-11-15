@@ -16,8 +16,8 @@ export type PhaseDef = { key: string; name: string; tagline: string; stages: rea
 /** Early: get the CIM. Evaluate: decide whether to bid. Decide: bid and close. */
 export const PHASES: readonly Phase[] = [
   { key: "early", name: "Early", tagline: "Get the CIM", stages: ["Interested", "NDA signed"] },
-  { key: "evaluate", name: "Evaluate", tagline: "Decide whether to bid", stages: ["CIM review", "Broker call", "Seller call", "Model"] },
-  { key: "decide", name: "Decide", tagline: "Bid and close", stages: ["Partner presentation", "IOI or LOI", "Diligence"] },
+  { key: "evaluate", name: "Evaluate", tagline: "Decide whether to bid", stages: ["CIM review", "Broker call", "Seller call", "Diligence"] },
+  { key: "decide", name: "Decide", tagline: "Bid and close", stages: ["Partner presentation", "IOI or LOI", "Confirmatory diligence"] },
 ] as const;
 
 /** Groups the stage groups (the nine, in order) under their phase; a stage not in any phase is left out. Another pipeline passes its own phases. */

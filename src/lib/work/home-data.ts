@@ -89,7 +89,7 @@ export async function loadHome(sb: SupabaseClient, ownerId: string): Promise<Hom
   const empty: HomeData = {
     ...now,
     rosara: { focus: "", next: null, open: 0, dueThisWeek: 0, actions: [] },
-    pipelines: { jobs: [], consulting: [], tile: { nextConversation: null, nextInterview: null, open: 0, needsAction: 0, waiting: 0 } },
+    pipelines: { jobs: [], consulting: [], tile: { nextApplied: null, nextInterview: null, open: 0, needsAction: 0, waiting: 0 } },
     aiOrder: null,
     hourLocal: 9,
     targets: Promise.resolve(noTargets),

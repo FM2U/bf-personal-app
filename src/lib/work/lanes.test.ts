@@ -82,7 +82,7 @@ describe("the AI order", () => {
     expect(orderedAtLabel("2026-11-03T09:10:00Z", today, 14)).toBe("Ordered by the AI this afternoon");
     expect(orderedAtLabel("2026-11-03T09:10:00Z", today, 19)).toBe("Ordered by the AI this evening");
     expect(orderedAtLabel("2026-11-02T09:10:00Z", today, 9)).toBe("Ordered by the AI yesterday");
-    const prompt = aiOrderPrompt([a("Deals", "Dalton", { minutes: 60, meta: "CIM review, HVAC", waitingOn: "Rachel Kim", waitDays: 3, dayInStage: 4 }), a("Job search", "Harbor", { meta: "Conversation" })], today);
+    const prompt = aiOrderPrompt([a("Deals", "Dalton", { minutes: 60, meta: "CIM review, HVAC", waitingOn: "Rachel Kim", waitDays: 3, dayInStage: 4 }), a("Job search", "Harbor", { meta: "Applied" })], today);
     expect(prompt).toContain("TASK: ai_order");
     expect(prompt).toContain("key=deal:Dalton");
     expect(prompt).toContain("waiting_on=Rachel Kim for 3 days");

@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 export const metadata = { title: "Job search" };
 
 /**
- * Job search (batch B2, approved 2026-10-31): the Deals layout with two phases, Early (Contact, Conversation) and
+ * Job search (batch B2, approved 2026-10-31): the Deals layout with two phases, Early (Lead, Applied) and
  * Decide (Interview, Offer); Add an opportunity (?add=1) and Ask AI in the pinned title; the closed bar Declined,
  * Not chosen (and Accepted). A row opens the opportunity page.
  */
