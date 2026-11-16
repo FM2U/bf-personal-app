@@ -7,13 +7,13 @@ import { AI_REPLY_CUT_OFF, AI_REPLY_UNUSABLE, AIInvalidReply, AIUnavailable, cal
 import { loadCtx, type Ctx } from "@/lib/engine/helpers";
 import { DB_UPDATE_NOTICE_0025, DB_UPDATE_NOTICE_PUSH_D, DB_UPDATE_NOTICE_PUSH_F, isMissingSchemaError } from "@/lib/schema-guard";
 import { recordWorkEvent } from "@/lib/accountability/events";
-import { cleanOpening, loadEndOfDay, loadSentCopies, OPENING_KEY, OPENING_MAX, cleanEditedAt, EDITED_AT_KEY, GENERAL_COPY, type EndOfDayPage, type PartnerCopy } from "@/lib/accountability/data";
+import { cleanOpening, loadEndOfDay, loadSentCopies, OPENING_KEY, OPENING_MAX, cleanEditedAt, EDITED_AT_KEY, GENERAL_COPY, SECTION_EDITS_KEY, type EndOfDayPage, type PartnerCopy } from "@/lib/accountability/data";
 import { cleanPartnerSettings } from "@/lib/accountability/partners";
 import { replyTaskText } from "@/lib/gmail-replies";
 import { TODO_MAX_LENGTH } from "@/lib/work/questions";
 import { nextTodoPosition } from "@/lib/work/todos";
 import { reasonsPrompt, validateReasonsReply, type ReasonDraft } from "@/lib/accountability/ask-ai";
-import { cleanChoices, cleanNotes, cleanReview, hasChoices, NOTE_MAX, NOTES_KEY, SECTION_ORDER, type ReportChoices, type ReportNotes, type SectionKey, type WeeklyReview } from "@/lib/accountability/report-sections";
+import { cleanChoices, cleanNotes, cleanReview, hasChoices, NOTE_MAX, NOTES_KEY, SECTION_ORDER, SECTION_ORDER_OLD, type ReportChoices, type ReportNotes, type SectionKey, type WeeklyReview } from "@/lib/accountability/report-sections";
 import { personHref } from "@/lib/work/people";
 import { countable, isCountKey, owedReasons, type Cadence } from "@/lib/accountability/targets";
 import { loadWeeklyFocus } from "@/lib/work/projects-data";
@@ -313,18 +313,13 @@ export async function saveReportChoices(day: string, contactId: string | null, c
   if (copy.sentAt) return fail(`The report to ${copy.partner.first} was already sent. A sent report never changes.`);
   const cleaned = cleanChoices(choices);
   const saved = await editEod(sb, ctx.ownerId, day, ({ edits: all }) => {
-    // When each section's Edit was saved (2026-11-08): an Edit saved before a send today is marked in the window.
-    const was = cleanChoices(all[copy.partner.id]).edits ?? {};
-    const at = cleanEditedAt(all[EDITED_AT_KEY]);
-    const now = new Date().toISOString();
-    for (const k of new Set([...Object.keys(was), ...Object.keys(cleaned.edits ?? {})]) as Set<SectionKey>) {
-      const v = cleaned.edits?.[k];
-      if (!v) delete at[`${copy.partner.id}:${k}`];
-      else if (v !== was[k]) at[`${copy.partner.id}:${k}`] = now;
-    }
-    if (Object.keys(at).length) all[EDITED_AT_KEY] = at;
-    else delete all[EDITED_AT_KEY];
-    if (hasChoices(cleaned)) all[copy.partner.id] = cleaned;
+    // Edits are saved on their own, once for every copy (saveSectionEdit, 2026-11-16): this saves only include, Change
+    // and Top picks. An Edit saved before then on this copy is kept as it was.
+    const own = cleanChoices(all[copy.partner.id]);
+    const rest: ReportChoices = { ...cleaned };
+    delete rest.edits;
+    const next: ReportChoices = own.edits ? { ...rest, edits: own.edits } : rest;
+    if (hasChoices(next)) all[copy.partner.id] = next;
     else delete all[copy.partner.id];
     return { edits: all, patch: { report_html: null, report_edited: false } };
   });
@@ -333,6 +328,56 @@ export async function saveReportChoices(day: string, contactId: string | null, c
   done();
   const after = copyOf(page, copy.partner.id);
   return { ok: true, html: after?.html ?? page.reportHtml, choices: cleaned };
+}
+
+/**
+ * Edit on a report section (Bram, 2026-11-16): the section's text rewritten for today, saved once for the day and used
+ * in every copy that includes the section, like + Note. Null takes the Edit away ("Use the app's text"), also an Edit
+ * saved before then on one partner's copy, so every copy shows the app's text again.
+ */
+export async function saveSectionEdit(day: string, section: string, text: string | null): Promise<{ ok: true } | Fail> {
+  const s = await setup();
+  if (isFail(s)) return s;
+  const { sb, ctx } = s;
+  if (![...SECTION_ORDER, ...SECTION_ORDER_OLD].includes(section as SectionKey)) return fail("This section was not found.");
+  const t = text === null ? null : String(text).replace(/\r\n/g, "\n").replace(/\s+$/, "");
+  if (t !== null && t.length > 6000) return fail("An edited section can be up to 6000 characters.");
+  const row = await ensureEod(sb, ctx, day);
+  if (isFail(row)) return row;
+  if (row.status !== "open") return fail(`Today is already ${row.status}.`);
+  const key = section as SectionKey;
+  const saved = await editEod(sb, ctx.ownerId, day, ({ edits: all }) => {
+    const shared = cleanChoices({ edits: all[SECTION_EDITS_KEY] }).edits ?? {};
+    const at = cleanEditedAt(all[EDITED_AT_KEY]);
+    if (t && t.trim()) {
+      // When it was saved (2026-11-08): an Edit saved before a send today is marked in the window.
+      if (shared[key] !== t) at[`edit:${key}`] = new Date().toISOString();
+      shared[key] = t;
+    } else {
+      delete shared[key];
+      delete at[`edit:${key}`];
+      // An older Edit kept on one partner's copy (before 2026-11-16) goes too.
+      for (const [k, v] of Object.entries(all)) {
+        if (k.startsWith("_") && k !== GENERAL_COPY) continue;
+        if (!v || typeof v !== "object" || Array.isArray(v)) continue;
+        const c = cleanChoices(v);
+        delete at[`${k}:${key}`];
+        if (!c.edits?.[key]) continue;
+        delete c.edits[key];
+        if (!Object.keys(c.edits).length) delete c.edits;
+        if (hasChoices(c)) all[k] = c;
+        else delete all[k];
+      }
+    }
+    if (Object.keys(shared).length) all[SECTION_EDITS_KEY] = shared;
+    else delete all[SECTION_EDITS_KEY];
+    if (Object.keys(at).length) all[EDITED_AT_KEY] = at;
+    else delete all[EDITED_AT_KEY];
+    return { edits: all, patch: { report_html: null, report_edited: false } };
+  });
+  if (!saved.ok) return fail(saved.error);
+  done();
+  return { ok: true };
 }
 
 /**

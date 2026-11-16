@@ -104,26 +104,34 @@ export function editedHtml(text: string): string {
 const STRENGTH: Record<string, { label: string; color: string }> = { hot: { label: "Hot", color: "#dc2626" }, warm: { label: "Warm", color: "#d97706" }, cold: { label: "Cold", color: "#2563eb" } };
 const MUTED_SPAN = (t: string) => `<span style="color:${C.muted}">${t}</span>`;
 
-/** One pick: its number in cobalt, the name in bold with its facts, the stage chip and How strong, then Why, Now, Next. */
+/**
+ * One pick: its number in cobalt, the name in bold with its facts, the stage chip and How strong, then Why, Now, Next.
+ * Spacing (Bram, 2026-11-16): the line spacing stays 19 px; gaps between the lines instead (about 6 px above the chip
+ * row, 10 px above Why, 5 px above Now and Next; 16 px between picks), and the labels in the number's cobalt. Each line
+ * is a table row with top padding, which Gmail and every Outlook show the same.
+ */
 export function pickHtml(pk: ReportPick, last: boolean): string {
   const st = pk.strength ? STRENGTH[pk.strength] : null;
   const facts = [
-    pk.stage ? `<span style="display:inline-block;margin:2px 0 3px 0;padding:0 7px;border-radius:999px;border:1px solid ${C.border};background:#f8fafc;font-size:11.5px;line-height:17px;color:#334155">${escapeHtml(pk.stage)}</span>` : "",
+    pk.stage ? `<span style="display:inline-block;padding:0 7px;border-radius:999px;border:1px solid ${C.border};background:#f8fafc;font-size:11.5px;line-height:17px;color:#334155">${escapeHtml(pk.stage)}</span>` : "",
     st ? `<span style="font-size:11.5px;font-weight:bold;color:${st.color}">&#9679; ${st.label}</span>` : "",
     pk.since ? `<span style="font-size:11.5px;color:${C.muted}">${st || pk.stage ? "&middot; " : ""}${escapeHtml(pk.since)}</span>` : "",
     pk.moved ? `<span style="font-size:11.5px;font-weight:bold;color:${C.text.met}">&middot; &#9650; ${escapeHtml(pk.moved)}</span>` : "",
   ].filter(Boolean).join(" ");
+  const label = (t: string) => `<span style="color:${C.cobalt}">${t}</span>`;
+  // One table row per line, the gap as the cell's top padding: classic Outlook for Windows ignores padding on a div.
+  const row = (gap: number, html: string) => `<tr><td style="padding-top:${gap}px;font-size:13px;line-height:19px;color:${C.ink};${FONT}">${html}</td></tr>`;
   const lines = [
-    `<b>${escapeHtml(pk.name)}</b>${pk.meta ? ` ${MUTED_SPAN(`&middot; ${escapeHtml(pk.meta)}`)}` : ""}`,
-    facts,
-    pk.why ? `${MUTED_SPAN("Why:")} ${escapeHtml(pk.why)}` : "",
-    pk.now ? `${MUTED_SPAN("Now:")} ${escapeHtml(pk.now)}` : "",
-    pk.next ? `${MUTED_SPAN("Next:")} ${pk.next.amber ? `<span style="color:${C.text.soon}">${escapeHtml(pk.next.words)}</span>` : escapeHtml(pk.next.words)}` : "",
+    row(0, `<b>${escapeHtml(pk.name)}</b>${pk.meta ? ` ${MUTED_SPAN(`&middot; ${escapeHtml(pk.meta)}`)}` : ""}`),
+    facts ? row(6, facts) : "",
+    pk.why ? row(10, `${label("Why:")} ${escapeHtml(pk.why)}`) : "",
+    pk.now ? row(pk.why ? 5 : 10, `${label("Now:")} ${escapeHtml(pk.now)}`) : "",
+    pk.next ? row(pk.why || pk.now ? 5 : 10, `${label("Next:")} ${pk.next.amber ? `<span style="color:${C.text.soon}">${escapeHtml(pk.next.words)}</span>` : escapeHtml(pk.next.words)}`) : "",
   ].filter(Boolean);
   return (
-    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" data-pick="1" style="border-collapse:collapse;margin-bottom:${last ? 4 : 10}px"><tr>` +
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" data-pick="1" style="border-collapse:collapse;margin-bottom:${last ? 4 : 16}px"><tr>` +
     `<td width="22" valign="top" style="font-size:13px;line-height:19px;font-weight:bold;color:${C.cobalt};${FONT}">${pk.number}</td>` +
-    `<td valign="top" style="font-size:13px;line-height:19px;color:${C.ink};${FONT}">${lines.join("<br>")}</td></tr></table>`
+    `<td valign="top" style="font-size:13px;line-height:19px;color:${C.ink};${FONT}"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse">${lines.join("")}</table></td></tr></table>`
   );
 }
 

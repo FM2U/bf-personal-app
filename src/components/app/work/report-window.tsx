@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { saveReportChoices, saveReportNote } from "@/app/actions/accountability";
+import { saveReportChoices, saveReportNote, saveSectionEdit } from "@/app/actions/accountability";
 import type { PartnerCopy } from "@/lib/accountability/data";
 import { daysLabel } from "@/lib/accountability/partners";
 import { closingHtml, greetingHtml, headerHtml, noteHtml, sectionBodyHtml } from "@/lib/accountability/report-email";
@@ -341,6 +341,14 @@ export function CopyReview({ day, copy, startEditing, notes, onNotes, unsavedRef
   const [picking, setPicking] = useState<SectionKey | null>(null);
   const [editing, setEditing] = useState<SectionKey | null>(null);
   const [draft, setDraft] = useState("");
+  // The text the Edit box opened with (2026-11-16): only a change from it is saved, so text that changed under an open
+  // box (a pick, a Now line) is never kept as an edit.
+  const [draftBase, setDraftBase] = useState("");
+  const openEdit = (key: SectionKey, text: string) => {
+    setEditing(key);
+    setDraft(text);
+    setDraftBase(text);
+  };
   const [noting, setNoting] = useState<SectionKey | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -351,10 +359,7 @@ export function CopyReview({ day, copy, startEditing, notes, onNotes, unsavedRef
   if (startEditing && !opened && !copy.sentAt) {
     setOpened(true);
     const first = sections.find((s) => s.included);
-    if (first) {
-      setEditing(first.key);
-      setDraft(first.edited ?? first.text);
-    }
+    if (first) openEdit(first.key, first.edited ?? first.text);
   }
 
   const persistChoices = async (next: ReportChoices) => {
@@ -399,16 +404,40 @@ export function CopyReview({ day, copy, startEditing, notes, onNotes, unsavedRef
     const next = now.includes(id) ? now.filter((x) => x !== id) : now.length < TOP_N ? [...now, id] : now;
     save({ ...choices, top: next });
   };
-  const editsWith = (s: BuiltSection): ReportChoices => {
+  // The Edit box's text to save (2026-11-16): undefined when it did not change since the box opened, null when it is
+  // empty or the app's own text (the Edit goes), else the text.
+  const editText = (s: BuiltSection): string | null | undefined => {
     const text = draft.replace(/\s+$/, "");
+    if (text === draftBase.replace(/\s+$/, "")) return undefined;
+    return !text.trim() || text === s.text ? null : text;
+  };
+  // An Edit is saved once for the day, in every copy (saveSectionEdit); the past report's window keeps it locally.
+  const persistEdit = async (s: BuiltSection, text: string | null): Promise<boolean> => {
     const edits = { ...(choices.edits ?? {}) };
-    if (!text.trim() || text === s.text) delete edits[s.key];
-    else edits[s.key] = text;
-    return { ...choices, edits };
+    if (text) edits[s.key] = text;
+    else delete edits[s.key];
+    const next = { ...choices, edits };
+    setChoices(next);
+    setError(null);
+    if (local) {
+      local.onChoices(next);
+      return true;
+    }
+    const r = await saveSectionEdit(day, s.key, text);
+    if (!r.ok) {
+      setError(r.error);
+      return false;
+    }
+    router.refresh();
+    return true;
   };
   const saveEdit = (s: BuiltSection) => {
     setEditing(null);
-    save(editsWith(s));
+    const t = editText(s);
+    if (t === undefined) return;
+    start(async () => {
+      await persistEdit(s, t);
+    });
   };
   const persistNote = async (key: SectionKey, text: string) => {
     const t = text.trim();
@@ -445,10 +474,10 @@ export function CopyReview({ day, copy, startEditing, notes, onNotes, unsavedRef
     setNoteDraft(s.note ?? "");
   };
   const backToAppText = (s: BuiltSection) => {
-    const edits = { ...(choices.edits ?? {}) };
-    delete edits[s.key];
     setEditing(null);
-    save({ ...choices, edits });
+    start(async () => {
+      await persistEdit(s, null);
+    });
   };
 
   // Carried over (2026-11-08): an Edit or note saved before today's last send, so its words may be behind the numbers.
@@ -457,7 +486,7 @@ export function CopyReview({ day, copy, startEditing, notes, onNotes, unsavedRef
   const noteSec = noting && !copy.sentAt ? sections.find((s) => s.key === noting && s.included) : undefined;
   const editSec = editing && !copy.sentAt ? sections.find((s) => s.key === editing && s.included) : undefined;
   const noteDirty = !!noteSec && noteDraft.trim() !== (noteSec.note ?? "").trim();
-  const editDirty = !!editSec && draft.replace(/\s+$/, "") !== (editSec.edited ?? editSec.text).replace(/\s+$/, "");
+  const editDirty = !!editSec && draft.replace(/\s+$/, "") !== draftBase.replace(/\s+$/, "");
   useEffect(() => {
     unsavedRef.current =
       noteDirty || editDirty
@@ -468,7 +497,8 @@ export function CopyReview({ day, copy, startEditing, notes, onNotes, unsavedRef
               if (noteDirty && noteSec) ok = (await persistNote(noteSec.key, noteDraft)) && ok;
               if (editDirty && editSec) {
                 setEditing(null);
-                ok = (await persistChoices(editsWith(editSec))) && ok;
+                const t = editText(editSec);
+                if (t !== undefined) ok = (await persistEdit(editSec, t)) && ok;
               }
               return ok;
             },
@@ -520,14 +550,21 @@ export function CopyReview({ day, copy, startEditing, notes, onNotes, unsavedRef
               </p>
             ) : null}
             <div className="mb-1.5 flex flex-wrap items-center justify-between gap-x-2.5 gap-y-1 border-b border-slate-100 pb-1">
-              <label className="inline-flex min-w-0 cursor-pointer flex-wrap items-center gap-x-2 gap-y-0.5">
+              <span className="inline-flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+              <label className="inline-flex min-w-0 cursor-pointer items-center gap-x-2">
                 <input type="checkbox" checked={s.included} onChange={(e) => setInclude(s, e.target.checked)} className="h-[15px] w-[15px] accent-[var(--primary)]" aria-label={`Include ${s.title}`} data-testid="section-include" />
                 <span className={cn("text-[11px] font-semibold tracking-[0.09em] uppercase", s.included ? "text-heading" : "text-slate-400")}>{s.title}</span>
+              </label>
+                {/* Outside the label (2026-11-16): a click on "Edited" or "Note added" never unticks the section. */}
                 {!s.included ? (
                   <span className="text-[11.5px] font-medium text-status-soon">{s.note ? "Left out today, note not sent" : "Left out today"}</span>
                 ) : (
                   <>
-                    {s.edited ? <span className="text-[11.5px] font-medium text-primary-strong">Edited</span> : null}
+                    {s.edited ? (
+                      <span className="text-[11.5px] font-medium text-muted-foreground" data-testid="section-edited-mark">
+                        Edited
+                      </span>
+                    ) : null}
                     {s.note ? (
                       <span className="text-[11.5px] font-medium text-primary-strong" data-testid="section-note-mark">
                         Note added
@@ -535,7 +572,7 @@ export function CopyReview({ day, copy, startEditing, notes, onNotes, unsavedRef
                     ) : null}
                   </>
                 )}
-              </label>
+              </span>
               {s.included ? (
                 <span className="ml-auto flex shrink-0 gap-3">
                   {s.choices || s.pick ? (
@@ -546,10 +583,7 @@ export function CopyReview({ day, copy, startEditing, notes, onNotes, unsavedRef
                   {editing !== s.key ? (
                     <button
                       type="button"
-                      onClick={() => {
-                        setEditing(s.key);
-                        setDraft(s.edited ?? s.text);
-                      }}
+                      onClick={() => openEdit(s.key, s.edited ?? s.text)}
                       className={LINK}
                       data-testid="section-edit"
                     >

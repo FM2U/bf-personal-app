@@ -27,6 +27,11 @@ export type ReportPick = {
   next: { words: string; amber: boolean } | null;
 };
 export type PipelineCol = { label: string; added: number | null; inStage: number | null };
+/** A name as partners see it (Bram, 2026-11-16): the "00 " start of an unnamed listing is left out; it only sorts lists in the app. */
+export function partnerName(name: string): string {
+  return name.replace(/^00\s+/, "").trim() || name;
+}
+
 export type ReportTrack = { picks: ReportPick[]; decided: string | null; pipeline: PipelineCol[] | null };
 export type ReportTracks = { acquisition: ReportTrack; job: ReportTrack; consulting: ReportTrack; startup: ReportTrack; /** Startup work in the report's period: the Startup section shows only then. */ startupActive: boolean };
 
@@ -129,7 +134,7 @@ export function buildTracks(i: {
       return {
         id: p.id,
         number: p.number,
-        name: p.name,
+        name: partnerName(p.name),
         meta: pickMeta(kind, r, i.ebitda.get(p.id) ?? null),
         stage: p.stage,
         strength: p.strength,
@@ -142,7 +147,7 @@ export function buildTracks(i: {
     });
   const nameOf = (d: Row): string => {
     const r = d.project_id ? projectById.get(String(d.project_id)) : itemById.get(String(d.pipeline_item_id));
-    return String((r?.company_name as string) || r?.name || "A record");
+    return partnerName(String((r?.company_name as string) || r?.name || "A record"));
   };
   const kindOfDecision = (d: Row): PriorityKind | null => {
     if (d.project_id) return "startup";

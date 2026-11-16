@@ -212,7 +212,7 @@ export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; 
       : null;
   // An Edit or note saved before today's last send (2026-11-08): marked in the window, since the numbers may have moved.
   const stale = (copyId: string, section: SectionKey, kindOf: "edit" | "note") => {
-    const t = data.editedAt[kindOf === "edit" ? `${copyId}:${section}` : `note:${section}`];
+    const t = kindOf === "edit" ? (data.editedAt[`edit:${section}`] ?? data.editedAt[`${copyId}:${section}`]) : data.editedAt[`note:${section}`];
     const last = data.lastSentAt;
     if (!t || !last || t >= last) return null;
     const at = (ts: string) => new Intl.DateTimeFormat("en-US", { timeZone: data.tz, hour: "numeric", minute: "2-digit" }).format(new Date(ts)).toLowerCase();

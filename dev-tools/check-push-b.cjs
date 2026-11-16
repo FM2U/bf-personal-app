@@ -207,8 +207,10 @@ const shot = async (page, name) => {
     await sec("tomorrow").getByTestId("section-edit-save").click();
     await page.waitForTimeout(1500);
     const jakeId = (await one("select id from contacts where name = 'Jake Morgan'")).id;
-    const saved = (await one("select report_edits from end_of_day order by day desc limit 1")).report_edits[jakeId];
-    assert(saved && saved.include && saved.include.jobs === false && saved.hidden && saved.hidden.acquisition.includes(hideId) && saved.edits && saved.edits.tomorrow.includes("Mark owes"), `saved choices ${JSON.stringify(saved)}`);
+    const allEdits = (await one("select report_edits from end_of_day order by day desc limit 1")).report_edits;
+    const saved = allEdits[jakeId];
+    // Edits are saved once for the day, in every copy (Bram, 2026-11-16); include and Change stay Jake's own.
+    assert(saved && saved.include && saved.include.jobs === false && saved.hidden && saved.hidden.acquisition.includes(hideId) && !saved.edits && allEdits._section_edits && allEdits._section_edits.tomorrow.includes("Mark owes"), `saved choices ${JSON.stringify(allEdits)}`);
     const hiddenName = await one("select coalesce(company_name, name) n from pipeline_items where id = $1", [hideId]);
     await page.locator("[data-testid=report-tab][data-partner=Sarah]").click();
     await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hey Sarah,"));
@@ -228,7 +230,7 @@ const shot = async (page, name) => {
     const reports = sent.filter((m) => /Daily report/.test(m.subject));
     assert(reports.length === 2 && reports.some((m) => m.to.includes("jake.morgan")) && reports.some((m) => m.to.includes("sarah.klein")), JSON.stringify(reports.map((m) => m.to)));
     const sarahMail = reports.find((m) => m.to.includes("sarah.klein"));
-    assert(sarahMail.body.includes("Hey Sarah,") && !sarahMail.body.includes("TARGETS") && sarahMail.body.includes("JOB SEARCH · TOP PRIORITIES") && sarahMail.body.includes("ACQUISITION · TOP PRIORITIES") && !sarahMail.body.includes("CONSULTING · TOP PRIORITIES"), "Sarah's email has her sections and today's Acquisition");
+    assert(sarahMail.body.includes("Hey Sarah,") && !sarahMail.body.includes("TARGETS") && sarahMail.body.includes("JOB SEARCH · TOP PRIORITIES") && sarahMail.body.includes("ACQUISITION · TOP PRIORITIES") && !sarahMail.body.includes("CONSULTING · TOP PRIORITIES") && sarahMail.body.includes("Mark owes the seller call date"), "Sarah's email has her sections and today's Acquisition");
     const jakeMail = reports.find((m) => m.to.includes("jake.morgan"));
     assert(!jakeMail.body.includes("JOB SEARCH") && jakeMail.body.includes("Mark owes the seller call date") && !jakeMail.body.includes(`. ${hiddenName.n}`), "Jake's email has today's choices");
     const rows = await all("select r.contact_id, r.gmail_thread_id, c.name from partner_reports r join contacts c on c.id = r.contact_id where r.period_start = (select max(day) from end_of_day where status = 'sent') and r.report_kind = 'end_of_day' order by c.name");

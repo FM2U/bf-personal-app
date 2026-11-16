@@ -200,6 +200,54 @@ const idOf = async (name) => (await one("select id from pipeline_items where nam
     await page.getByTestId("priority-card").waitFor();
   });
 
+  await step("Report (2026-11-16): Why/Now/Next labels in the number's cobalt with gaps between lines; an unnamed listing shows without '00 '; an Edit box left open while the report changes saves nothing; the gray 'Edited' word never unticks; an Edit goes into every copy", async () => {
+    const eod = async () => (await one("select report_edits from end_of_day order by day desc limit 1")) || { report_edits: {} };
+    const pick = await one("select p.id, p.name, p.company_name from pipeline_items p where p.priority_rank = 1 and p.status = 'open' and p.pipeline_id = (select id from pipelines where kind = 'acquisition' limit 1)");
+    await db.query("update pipeline_items set company_name = null, name = '00 Commercial Test Services' where id = $1", [pick.id]);
+    await open("/work/end-of-day");
+    await page.getByTestId("report-view").click();
+    const prev = page.getByTestId("report-preview");
+    await prev.waitFor();
+    const html = await prev.innerHTML();
+    assert(/color:\s*(#1e40af|rgb\(30, 64, 175\))[^>]*>Why:/.test(html) && /padding-top:\s*10px/.test(html), "the Why label is not cobalt or has no gap above it");
+    const text = (await prev.innerText()).replace(/\s+/g, " ");
+    assert(text.includes("Commercial Test Services") && !text.includes("00 Commercial Test Services"), "the '00 ' start shows to partners");
+    const sec = (k) => page.locator(`[data-testid=report-section][data-section=${k}]`);
+    // An Edit box open on Acquisition while its text changes: closing asks nothing and saves no edit.
+    await sec("acquisition").getByTestId("section-edit").click();
+    await sec("acquisition").getByTestId("section-edit-text").waitFor();
+    await db.query("update pipeline_items set next_action = 'Call the owner about the lease' where id = $1", [pick.id]);
+    await sec("tomorrow").getByTestId("section-include").uncheck();
+    await page.waitForTimeout(2000);
+    await sec("tomorrow").getByTestId("section-include").check();
+    await page.waitForTimeout(1500);
+    await page.getByTestId("report-window-close").click();
+    await page.waitForTimeout(800);
+    assert(!(await page.getByTestId("unsaved-warning").count()), "closing asked to save text that was never typed");
+    const e1 = (await eod()).report_edits || {};
+    assert(!(e1._section_edits && e1._section_edits.acquisition) && !Object.values(e1).some((v) => v && v.edits && v.edits.acquisition), `an edit was saved: ${JSON.stringify(e1)}`);
+    // A real Edit: saved once for the day; the gray 'Edited' word does not untick the section when clicked.
+    await page.getByTestId("report-view").click();
+    await prev.waitFor();
+    await sec("tomorrow").getByTestId("section-edit").click();
+    await sec("tomorrow").getByTestId("section-edit-text").fill("Edited line for every copy");
+    await sec("tomorrow").getByTestId("section-edit-save").click();
+    await page.waitForTimeout(1500);
+    await sec("tomorrow").getByTestId("section-edited-mark").click();
+    await page.waitForTimeout(800);
+    assert((await sec("tomorrow").getAttribute("data-included")) === "1", "a click on 'Edited' unticked the section");
+    const e2 = (await eod()).report_edits || {};
+    assert(e2._section_edits && e2._section_edits.tomorrow === "Edited line for every copy", JSON.stringify(e2));
+    const other = page.locator("[data-testid=report-tab]").nth(1);
+    if (await other.count()) {
+      await other.click();
+      await page.waitForTimeout(1000);
+      assert((await prev.innerText()).includes("Edited line for every copy"), "the Edit is not in the other partner's copy");
+    }
+    await page.getByTestId("report-window-close").click();
+    await db.query("update pipeline_items set name = $2, company_name = $3 where id = $1", [pick.id, pick.name, pick.company_name]);
+  });
+
   await step("No page showed an error in the browser", async () => {
     assert(errors.length === 0, errors.slice(0, 3).join("\n"));
   });

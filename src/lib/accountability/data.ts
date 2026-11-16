@@ -27,7 +27,7 @@ import { DEFAULT_EOD_TIME, eodLong, eodShort, parseTime } from "@/lib/work/setti
 import type { Row } from "@/lib/types";
 import { ownerContactsLite, ownerFinancials, pickOrRead, rowsOf } from "@/lib/work/shared-reads";
 import { loadPriorities, type PrioritiesData } from "@/lib/work/priorities-data";
-import { buildTracks } from "@/lib/accountability/report-v8";
+import { buildTracks, partnerName } from "@/lib/accountability/report-v8";
 import { cleanDrafts, DRAFTS_KEY, type DraftPick, type ReportDrafts } from "@/lib/accountability/report-drafts";
 import { nextWorkDay } from "@/lib/work-week";
 
@@ -218,7 +218,7 @@ export async function loadSentCopies(sb: SupabaseClient, ownerId: string, day: s
   });
 }
 
-type EodRow = { id: string | null; day: string; status: EodState; reasons: Record<string, string>; tomorrow: string; skipReason: string | null; sentAt: string | null; reportId: string | null; reportSubject: string | null; reportHtml: string | null; reportEdited: boolean; /** Push B edits: each partner's choices for today's copy (include, Change, Edit), by contact id. */ reportEdits: Record<string, ReportChoices>; /** Today's notes by section, once for the day and shared by every copy (report_edits._notes, 2026-11-05). */ reportNotes: ReportNotes; judged: Judged[]; /** Push D: the Weekly review answers (Fridays). */ weeklyReview: WeeklyReview; /** Fix list item 1 (2026-11-06): the partners unticked for this day only (contact ids). */ skippedPartners: string[]; /** When each Edit and + Note was last saved (2026-11-08): "<copy id>:<section>" or "note:<section>". */ editedAt: Record<string, string>; /** Also send to and the note under the greeting (2026-11-08). */ extras: ReportExtras; /** The automatic send's record (2026-11-08). */ auto: ReportAuto; /** v8 (2026-11-15): the opening paragraph (report_edits._opening). */ opening: string; /** Step 4: the AI drafts and Now lines (report_edits._drafts). */ drafts: ReportDrafts };
+type EodRow = { id: string | null; day: string; status: EodState; reasons: Record<string, string>; tomorrow: string; skipReason: string | null; sentAt: string | null; reportId: string | null; reportSubject: string | null; reportHtml: string | null; reportEdited: boolean; /** Push B edits: each partner's choices for today's copy (include, Change, Edit), by contact id. */ reportEdits: Record<string, ReportChoices>; /** Today's notes by section, once for the day and shared by every copy (report_edits._notes, 2026-11-05). */ reportNotes: ReportNotes; judged: Judged[]; /** Push D: the Weekly review answers (Fridays). */ weeklyReview: WeeklyReview; /** Fix list item 1 (2026-11-06): the partners unticked for this day only (contact ids). */ skippedPartners: string[]; /** When each Edit and + Note was last saved (2026-11-08): "<copy id>:<section>" or "note:<section>". */ editedAt: Record<string, string>; /** Also send to and the note under the greeting (2026-11-08). */ extras: ReportExtras; /** The automatic send's record (2026-11-08). */ auto: ReportAuto; /** v8 (2026-11-15): the opening paragraph (report_edits._opening). */ opening: string; /** Step 4: the AI drafts and Now lines (report_edits._drafts). */ drafts: ReportDrafts; /** Edits shared by every copy (report_edits._section_edits, 2026-11-16). */ sectionEdits: NonNullable<ReportChoices["edits"]> };
 
 export async function loadEodRow(sb: SupabaseClient, ownerId: string, day: string): Promise<EodRow> {
   const { data } = await sb.from("end_of_day").select("*").eq("owner_id", ownerId).eq("day", day).maybeSingle();
@@ -247,6 +247,7 @@ export async function loadEodRow(sb: SupabaseClient, ownerId: string, day: strin
     auto: cleanAuto(r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? (r.report_edits as Record<string, unknown>)[AUTO_KEY] : null),
     opening: cleanOpening(r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? (r.report_edits as Record<string, unknown>)[OPENING_KEY] : null),
     drafts: cleanDrafts(r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? (r.report_edits as Record<string, unknown>)[DRAFTS_KEY] : null),
+    sectionEdits: cleanChoices({ edits: r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? (r.report_edits as Record<string, unknown>)[SECTION_EDITS_KEY] : null }).edits ?? {},
   };
 }
 
@@ -295,6 +296,18 @@ export function cleanAuto(v: unknown): ReportAuto {
 export const GENERAL_COPY = "_general";
 /** When each Edit and + Note of the day was saved, kept in report_edits under this key (carried-over edits are marked). */
 export const EDITED_AT_KEY = "_edited_at";
+/**
+ * Edits made in the report window, once for the day and in every copy that includes the section (Bram, 2026-11-16),
+ * like + Note. An Edit saved before then on one partner's copy (report_edits.<contact id>.edits) still shows in that
+ * copy, under the shared one, until the next save moves it here.
+ */
+export const SECTION_EDITS_KEY = "_section_edits";
+
+/** A copy's choices with the day's shared edits over its own (older) ones. */
+export function withSharedEdits(choices: ReportChoices | null, shared: NonNullable<ReportChoices["edits"]>): ReportChoices | null {
+  if (!Object.keys(shared).length) return choices;
+  return { ...(choices ?? {}), edits: { ...(choices?.edits ?? {}), ...shared } };
+}
 
 export function cleanEditedAt(v: unknown): Record<string, string> {
   if (!v || typeof v !== "object" || Array.isArray(v)) return {};
@@ -491,10 +504,10 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
   const draftInput = {
     picks: allPicks.map((p): DraftPick => {
       const r = p.table === "projects" ? projectRow.get(p.id) : itemRow.get(p.id);
-      return { id: p.id, track: p.track, name: p.name, stage: p.stage, why: p.why, nextAction: r?.next_action ? String(r.next_action) : null, nextActionDue: r?.next_action_due ? String(r.next_action_due).slice(0, 10) : null, nextDecision: p.next ? `${p.next.text}${p.next.on ? ` by ${p.next.on}` : ""}` : null, movedToday: p.movedToday, waiting: waitOf.get(p.id) ?? null, notes: notesOf(p.id) };
+      return { id: p.id, track: p.track, name: partnerName(p.name), stage: p.stage, why: p.why, nextAction: r?.next_action ? String(r.next_action) : null, nextActionDue: r?.next_action_due ? String(r.next_action_due).slice(0, 10) : null, nextDecision: p.next ? `${p.next.text}${p.next.on ? ` by ${p.next.on}` : ""}` : null, movedToday: p.movedToday, waiting: waitOf.get(p.id) ?? null, notes: notesOf(p.id) };
     }),
-    dueNext: [...bundle.raw.items.filter((r) => r.status === "open" && String(r.next_action_due ?? "").slice(0, 10) === nextDay && r.next_action).map((r) => `${String(r.next_action)} (${String(r.company_name || r.name)})`), ...(i.v8?.projects ?? []).filter((r) => r.status === "open" && String(r.next_action_due ?? "").slice(0, 10) === nextDay && r.next_action).map((r) => `${String(r.next_action)} (${String(r.name)})`)].slice(0, 15),
-    activity: [...deals, ...jobs].filter((d) => d.activity.length).map((d) => `${d.name}: ${d.activity.join("; ")}`).slice(0, 15),
+    dueNext: [...bundle.raw.items.filter((r) => r.status === "open" && String(r.next_action_due ?? "").slice(0, 10) === nextDay && r.next_action).map((r) => `${String(r.next_action)} (${partnerName(String(r.company_name || r.name))})`), ...(i.v8?.projects ?? []).filter((r) => r.status === "open" && String(r.next_action_due ?? "").slice(0, 10) === nextDay && r.next_action).map((r) => `${String(r.next_action)} (${String(r.name)})`)].slice(0, 15),
+    activity: [...deals, ...jobs].filter((d) => d.activity.length).map((d) => `${partnerName(d.name)}: ${d.activity.join("; ")}`).slice(0, 15),
   };
   const report: ReportData = {
     ...(tracks ? { layout: "v8" as const, opening: row.opening || null, tracks } : {}),
@@ -533,7 +546,7 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
       return { partner: p, report: r, html: s.html ?? reportInnerHtml(r), edited: hasChoices(s.choices) || sendsNotes(r), sentAt: s.sentAt, sentTime: time(s.sentAt), skipped: false };
     }
     // Today's choices for this partner (the review window): include, Change, Edit.
-    const choices = row.reportEdits[p.id] ?? null;
+    const choices = withSharedEdits(row.reportEdits[p.id] ?? null, row.sectionEdits);
     const r = reportFor(report, p, choices);
     return { partner: p, report: r, html: reportInnerHtml(r), edited: hasChoices(choices) || sendsNotes(r), sentAt: null, sentTime: null, skipped: row.skippedPartners.includes(p.id) };
   });
@@ -549,8 +562,9 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
     partners,
     copies,
     general: (() => {
-      const r = reportFor(report, { name: "there", first: "there", sections: REPORT_SECTIONS.map((x) => x.key) }, row.reportEdits[GENERAL_COPY] ?? null);
-      return { partner: { id: GENERAL_COPY, name: "there", first: "there", email: null, days: [], sections: REPORT_SECTIONS.map((x) => x.key) }, report: r, html: reportInnerHtml(r), edited: hasChoices(row.reportEdits[GENERAL_COPY]) || sendsNotes(r), sentAt: null, sentTime: null, skipped: false };
+      const generalChoices = withSharedEdits(row.reportEdits[GENERAL_COPY] ?? null, row.sectionEdits);
+      const r = reportFor(report, { name: "there", first: "there", sections: REPORT_SECTIONS.map((x) => x.key) }, generalChoices);
+      return { partner: { id: GENERAL_COPY, name: "there", first: "there", email: null, days: [], sections: REPORT_SECTIONS.map((x) => x.key) }, report: r, html: reportInnerHtml(r), edited: hasChoices(generalChoices) || sendsNotes(r), sentAt: null, sentTime: null, skipped: false };
     })(),
     editedAt: row.editedAt,
     extras: row.extras,
