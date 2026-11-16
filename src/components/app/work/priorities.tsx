@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { draftField } from "@/app/actions/ask-ai";
 import { markDecided, priorityCandidates, savePriorityFields, setPriorityRank, type PriorityCandidate } from "@/app/actions/priorities";
 import { cn } from "@/lib/utils";
-import { MAX_PICKS, nextWords, PRIORITY_TRACKS, shortDay, STRENGTHS, type PriorityKind, type PriorityPick, type Strength } from "@/lib/work/priorities";
+import { MAX_PICKS, nextWords, PRIORITIES_OPEN_COOKIE, PRIORITY_TRACKS, shortDay, STRENGTHS, type PriorityKind, type PriorityPick, type Strength } from "@/lib/work/priorities";
 import type { PrioritiesData, RecordPriority } from "@/lib/work/priorities-data";
 import { AiButton, RowButton, WorkCard } from "@/components/app/work/ui";
 
@@ -127,9 +127,10 @@ function ChooseSlot({ kind, place }: { kind: PriorityKind; place: number }) {
   );
 }
 
-function Track({ kind, picks, layout }: { kind: PriorityKind; picks: PriorityPick[]; layout: "column" | "row" }) {
+function Track({ kind, picks: all, layout, collapsed = false }: { kind: PriorityKind; picks: PriorityPick[]; layout: "column" | "row"; /** Work on now, closed (2026-11-16): only #1, or the "+ Choose" slot when there is none. */ collapsed?: boolean }) {
   const t = PRIORITY_TRACKS[kind];
-  const slot = picks.length < MAX_PICKS ? <ChooseSlot kind={kind} place={picks.length + 1} /> : null;
+  const picks = collapsed ? all.slice(0, 1) : all;
+  const slot = all.length < MAX_PICKS && (!collapsed || !all.length) ? <ChooseSlot kind={kind} place={all.length + 1} /> : null;
   if (layout === "row") {
     return (
       <div className="grid grid-cols-1 gap-x-7 px-[22px] pb-2 md:grid-cols-3" data-testid="priority-track" data-kind={kind}>
@@ -145,7 +146,7 @@ function Track({ kind, picks, layout }: { kind: PriorityKind; picks: PriorityPic
       <div className="flex items-baseline justify-between gap-2">
         <span className="label-caps text-heading">{t.label}</span>
         <span className="text-[12.5px] text-muted-foreground tabular" data-testid="priority-count">
-          {kind === "startup" ? "initiatives" : `${picks.length} of ${MAX_PICKS}`}
+          {kind === "startup" ? "initiatives" : `${all.length} of ${MAX_PICKS}`}
         </span>
       </div>
       <div className="mt-1">
@@ -158,9 +159,22 @@ function Track({ kind, picks, layout }: { kind: PriorityKind; picks: PriorityPic
   );
 }
 
-/** The Top priorities card: Home shows every track; a track's page shows its own. */
-export function TopPrioritiesCard({ data, kinds, className }: { data: PrioritiesData; kinds: readonly PriorityKind[]; className?: string }) {
+/**
+ * The Top priorities card: Home shows every track; a track's page shows its own. On Work on now (collapsible,
+ * Bram 2026-11-16) it opens closed: one row with each track's #1; "Show all" shows #2 and #3, and the choice is kept in
+ * this browser (a cookie, read by the page, so it is drawn open or closed from the start).
+ */
+export function TopPrioritiesCard({ data, kinds, className, collapsible = false, initialOpen = false }: { data: PrioritiesData; kinds: readonly PriorityKind[]; className?: string; collapsible?: boolean; initialOpen?: boolean }) {
   const one = kinds.length === 1;
+  const tracksId = useId();
+  const [open, setOpen] = useState(initialOpen);
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    document.cookie = `${PRIORITIES_OPEN_COOKIE}=${next ? "1" : "0"}; path=/; max-age=31536000; samesite=lax`;
+  };
+  const collapsed = collapsible && !open;
+  const hidden = data.ready ? kinds.reduce((n, k) => n + Math.max(0, data.columns[k].length - 1) + (data.columns[k].length && data.columns[k].length < MAX_PICKS ? 1 : 0), 0) : 0;
   const title = one ? `Top priorities · ${PRIORITY_TRACKS[kinds[0]].label}` : "Top priorities";
   const hint = "What you're pushing forward now. Your partners see these in every report.";
   if (!data.ready) {
@@ -173,13 +187,27 @@ export function TopPrioritiesCard({ data, kinds, className }: { data: Priorities
     );
   }
   return (
-    <WorkCard title={title} hint={hint} className={className} testId="top-priorities" bodyClassName={one ? "pt-1" : undefined}>
+    <WorkCard
+      title={title}
+      hint={collapsible ? undefined : hint}
+      sub={collapsible ? hint : undefined}
+      actions={
+        collapsible && hidden ? (
+          <RowButton onClick={toggle} aria-expanded={open} aria-controls={tracksId} data-testid="priorities-toggle">
+            {open ? "Show less" : "Show all"}
+          </RowButton>
+        ) : undefined
+      }
+      className={className}
+      testId="top-priorities"
+      bodyClassName={one ? "pt-1" : undefined}
+    >
       {one ? (
-        <Track kind={kinds[0]} picks={data.columns[kinds[0]]} layout="row" />
+        <Track kind={kinds[0]} picks={data.columns[kinds[0]]} layout="row" collapsed={collapsed} />
       ) : (
-        <div className="grid grid-cols-1 divide-y divide-rule sm:grid-cols-2 sm:divide-y-0 xl:grid-cols-4 xl:divide-x" data-testid="priority-tracks">
+        <div id={tracksId} className="grid grid-cols-1 divide-y divide-rule sm:grid-cols-2 sm:divide-y-0 xl:grid-cols-4 xl:divide-x" data-testid="priority-tracks" data-collapsed={collapsed ? "1" : "0"}>
           {kinds.map((k) => (
-            <Track key={k} kind={k} picks={data.columns[k]} layout="column" />
+            <Track key={k} kind={k} picks={data.columns[k]} layout="column" collapsed={collapsed} />
           ))}
         </div>
       )}

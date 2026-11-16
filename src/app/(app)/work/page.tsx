@@ -15,6 +15,8 @@ import { WorkShell, WorkUpdateNotice } from "@/components/app/work/shell";
 import { WorkHeader } from "@/components/app/work/ui";
 import { loadPriorities, PRIORITY_KINDS } from "@/lib/work/priorities-data";
 import { TopPrioritiesCard } from "@/components/app/work/priorities";
+import { PRIORITIES_OPEN_COOKIE } from "@/lib/work/priorities";
+import { cookies } from "next/headers";
 
 export const metadata = { title: "Work on now" };
 
@@ -27,6 +29,8 @@ export const metadata = { title: "Work on now" };
  */
 export default async function WorkNowPage() {
   const { supabase, ownerId } = await requireOwner();
+  // Top priorities open or closed (2026-11-16): kept in a cookie, so the page is drawn the right way from the start.
+  const prioOpen = (await cookies()).get(PRIORITIES_OPEN_COOKIE)?.value === "1";
   // Push B: opening Home looks for new replies to the reports and emails the app sent (at most once every few minutes).
   // Page speed (2026-11-06): after the page is on screen (ReplyCheck below), no longer before it.
   // Page speed (2026-11-06): Home's data, the email setup and the tab counts load side by side.
@@ -81,7 +85,7 @@ export default async function WorkNowPage() {
           <WorkUpdateNotice notice={d.notice} />
         </>
       ) : (
-        <HomeBoard data={d} priorities={<TopPrioritiesCard data={prio} kinds={PRIORITY_KINDS} />} dateLabel={dateLabel} askAi={askAi} tabs={tabs} waitingCard={waitingCard} personComposes={Object.fromEntries(tilePeople.map((p) => [p.id, composeForPerson(gmail, p)]))} askCompose={askCompose} />
+        <HomeBoard data={d} priorities={<TopPrioritiesCard data={prio} kinds={PRIORITY_KINDS} collapsible initialOpen={prioOpen} />} dateLabel={dateLabel} askAi={askAi} tabs={tabs} waitingCard={waitingCard} personComposes={Object.fromEntries(tilePeople.map((p) => [p.id, composeForPerson(gmail, p)]))} askCompose={askCompose} />
       )}
     </WorkShell>
   );

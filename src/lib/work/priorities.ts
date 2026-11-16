@@ -214,3 +214,6 @@ export function planRanks(current: readonly string[], id: string, to: number | n
   order.slice(0, MAX_PICKS).forEach((x, n) => out.set(x, n + 1));
   return out;
 }
+
+/** Work on now's Top priorities card open ("1") or closed (Bram, 2026-11-16), kept in this browser for a year. */
+export const PRIORITIES_OPEN_COOKIE = "work-priorities-open";

@@ -55,6 +55,9 @@ const until = async (fn, msg, tries = 40) => {
   }
   throw new Error(msg);
 };
+// While Today's calendar streams in, Home can hold the card twice for a moment (the waiting card and the arrived one,
+// seen Nov 16): wait until there is exactly one before reading it.
+let oneCalendar = async () => {};
 
 (async () => {
   await db.connect();
@@ -63,6 +66,7 @@ const until = async (fn, msg, tries = 40) => {
   if (process.env.FAKETIME) await ctx.clock.setSystemTime(Date.now());
   await ctx.addCookies([cookie]);
   const page = await ctx.newPage();
+  oneCalendar = () => until(async () => (await page.getByTestId("home-calendar").count()) === 1, "Today's calendar did not settle to one card");
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await g("/__reset", {});
@@ -488,6 +492,7 @@ const until = async (fn, msg, tries = 40) => {
 
   await step("Today's calendar on Home: Google Calendar events and the app's blocks (marked), in time order", async () => {
     await page.goto(`${BASE}/work`);
+    await oneCalendar();
     const tile = page.getByTestId("home-calendar");
     await tile.waitFor();
     const items = tile.getByTestId("calendar-item");
@@ -754,6 +759,7 @@ const until = async (fn, msg, tries = 40) => {
     await pickTile("home-tiles", "today");
     await until(async () => (await homeRow("BrightPath Home Care").getByTestId("blocked-note").count()) === 1, "the row shows Blocked");
     assert((await homeRow("BrightPath Home Care").getByTestId("blocked-note").innerText()) === "Blocked 4:30", "Blocked 4:30");
+    await oneCalendar();
     assert((await page.getByTestId("home-calendar").getByTestId("calendar-item").count()) === 5, "the tile shows the new block");
   });
 
@@ -761,6 +767,7 @@ const until = async (fn, msg, tries = 40) => {
     const before = await one("select scopes from google_connections");
     await db.query("update google_connections set scopes = $1", [before.scopes.split(" ").filter((s) => !s.includes("calendar")).join(" ")]);
     await page.goto(`${BASE}/work`);
+    await oneCalendar();
     const tile = page.getByTestId("home-calendar");
     assert((await tile.getByTestId("calendar-note").innerText()).includes("Reconnect Google to see your calendar"), "the note");
     assert((await tile.getByTestId("calendar-item").count()) === 3, "the app's three blocks still show");
@@ -792,7 +799,7 @@ const until = async (fn, msg, tries = 40) => {
     const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
     await until(async () => (await one("select value_text from inputs where key = 'counting_start'"))?.value_text === today, "Counting starts on was not set to today");
     await page.goto(`${BASE}/work`);
-    await page.getByTestId("home-calendar").waitFor();
+    await oneCalendar();
     await page.goto(`${BASE}/work/targets`);
     await page.getByTestId("targets-card").waitFor();
     assert(!(await page.getByTestId("past-weeks-line").count()), "Past weeks still shows after the sample data went");

@@ -326,9 +326,6 @@ export function HomeBoard({ data, priorities, dateLabel, askAi, tabs, waitingCar
           askAi={askAi}
         />
         {tabs}
-        <div className="mt-4" data-testid="home-area">
-          <AreaSelector options={areaOptions} selected={area} onPick={pickArea} />
-        </div>
       </header>
 
       {priorities ? (
@@ -336,6 +333,10 @@ export function HomeBoard({ data, priorities, dateLabel, askAi, tabs, waitingCar
           {priorities}
         </div>
       ) : null}
+      {/* Under Top priorities (Bram, 2026-11-16): the area row filters Next actions and the right column below it. */}
+      <div className="mb-[18px]" data-testid="home-area">
+        <AreaSelector options={areaOptions} selected={area} onPick={pickArea} />
+      </div>
 
       <div ref={bentoRef} className="grid grid-cols-1 items-start gap-[18px] lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] desk:-mb-[72px] desk:h-[calc(100vh-var(--bento-top,104px)-24px)] desk:min-h-[460px] desk:items-stretch" data-testid="home-bento">
         <div className="flex min-h-0 min-w-0 flex-col gap-6" data-testid="home-left">

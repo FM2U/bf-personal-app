@@ -73,6 +73,18 @@ const idOf = async (name) => (await one("select id from pipeline_items where nam
     await card().waitFor({ timeout: 20000 });
     const kinds = await card().getByTestId("priority-track").evaluateAll((els) => els.map((e) => e.getAttribute("data-kind")));
     assert(kinds.join(",") === "acquisition,job,consulting,startup", kinds.join(","));
+    // Closed by default (2026-11-16): each track's #1 only, no "+ Choose" under a track that has a pick; the area row sits
+    // under the card. "Show all" opens it and the choice is kept on reload.
+    assert((await card().getByTestId("priority-tracks").getAttribute("data-collapsed")) === "1", "the card is not closed by default");
+    assert((await picks("acquisition")) === "Dalton Services" && !(await card().getByTestId("priority-choose").count()), `closed: ${await picks("acquisition")}`);
+    const cardBottom = (await card().boundingBox()).y + (await card().boundingBox()).height;
+    const areaTop = (await page.getByTestId("home-area").boundingBox()).y;
+    assert(areaTop >= cardBottom, "the area row is not under Top priorities");
+    await shot("home-closed");
+    await card().getByTestId("priorities-toggle").click();
+    await open("/work");
+    await card().waitFor({ timeout: 20000 });
+    await until(async () => (await card().getByTestId("priority-tracks").getAttribute("data-collapsed")) === "0", "Show all was not kept on reload");
     assert((await picks("acquisition")) === "Dalton Services | Meridian Industrial Coatings | Pinecrest Landscaping", await picks("acquisition"));
     const d = track("acquisition").getByTestId("priority-pick").first();
     const t = (await d.innerText()).replace(/\s+/g, " ");
@@ -198,6 +210,15 @@ const idOf = async (name) => (await one("select id from pipeline_items where nam
     await open(`/work/rosara/${p.id}`);
     assert((await page.getByTestId("priority-star").innerText()).includes("#1"), "no #1 on Market research");
     await page.getByTestId("priority-card").waitFor();
+  });
+
+  await step("Work on now: 'Show less' closes Top priorities again, and it stays closed on reload", async () => {
+    await open("/work");
+    await card().waitFor({ timeout: 20000 });
+    await card().getByTestId("priorities-toggle").click();
+    assert((await card().getByTestId("priority-tracks").getAttribute("data-collapsed")) === "1", "Show less did not close the card");
+    await open("/work");
+    assert((await card().getByTestId("priority-tracks").getAttribute("data-collapsed")) === "1", "the card opened again on reload");
   });
 
   await step("Report (2026-11-16): Why/Now/Next labels in the number's cobalt with gaps between lines; an unnamed listing shows without '00 '; an Edit box left open while the report changes saves nothing; the gray 'Edited' word never unticks; an Edit goes into every copy", async () => {
