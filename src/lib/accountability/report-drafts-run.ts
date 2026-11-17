@@ -6,7 +6,7 @@ import type { Ctx } from "@/lib/engine/helpers";
 import { endOfDayLines } from "@/lib/accountability/ask-ai";
 import { cleanOpening, loadEndOfDay, OPENING_KEY } from "@/lib/accountability/data";
 import { editEod } from "@/lib/accountability/eod-write";
-import { cleanDrafts, draftsPrompt, draftTargets, DRAFTS_KEY, validateDraftsReply } from "@/lib/accountability/report-drafts";
+import { withoutPlaceholders, cleanDrafts, draftsPrompt, draftTargets, DRAFTS_KEY, validateDraftsReply } from "@/lib/accountability/report-drafts";
 
 /**
  * Writes the report's AI drafts for a day (Bram, 2026-11-15, step 4): the opening, tomorrow's line, and each top
@@ -28,7 +28,7 @@ export async function writeReportDrafts(sb: SupabaseClient, ctx: Ctx, day: strin
       sb,
       ownerId: ctx.ownerId,
       purpose: "report_drafts",
-      prompt: draftsPrompt({ dateLabel: page.dateLabel, tomorrowLabel: page.tomorrowLabel, dayLines: endOfDayLines(page).filter((l) => !l.startsWith("target:") && (want.tomorrow ? !l.startsWith("tomorrow line:") : true)), activity: page.draftInput.activity, picks: page.draftInput.picks, dueNext: page.draftInput.dueNext, want }),
+      prompt: draftsPrompt({ dateLabel: page.dateLabel, tomorrowLabel: page.tomorrowLabel, dayLines: endOfDayLines(page).filter((l) => !l.startsWith("target:") && (want.tomorrow ? !l.startsWith("tomorrow line:") : true)).map(withoutPlaceholders), activity: page.draftInput.activity.map(withoutPlaceholders), picks: page.draftInput.picks, dueNext: page.draftInput.dueNext.map(withoutPlaceholders), want }),
       maxTokens: 2000,
       shape: "none",
       // The report job must finish its run (300 s); the reminder email goes out with or without the drafts.

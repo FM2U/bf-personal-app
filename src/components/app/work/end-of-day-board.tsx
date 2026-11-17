@@ -1093,7 +1093,7 @@ function TodayTiles({ parts, onOpen }: { parts: TodayPart[]; onOpen: (p: TodayPa
     <section className="@container min-w-0" aria-label="Today" data-testid="eod-today">
       <div className="grid grid-cols-2 gap-2 @min-[560px]:grid-cols-4" data-testid="eod-today-tiles">
         {parts.map((p) => {
-          const areas = p.key === "done" && p.value && p.detail ? p.detail.split(" · ") : [];
+          const areas = (p.key === "done" || p.key === "calls") && p.value && p.detail ? p.detail.split(" · ") : [];
           const alert = p.key === "waits" && p.value > 0;
           return (
             <button
@@ -1134,7 +1134,7 @@ function TodayTiles({ parts, onOpen }: { parts: TodayPart[]; onOpen: (p: TodayPa
   );
 }
 
-const DRAWER_TITLE: Record<TodayPart["key"], string> = { screened: "Listings screened today", moved: "Deals moved today", calls: "Calls today", emails: "Emails sent today", done: "Next actions done today", todos: "To-dos done today", waits: "Waiting on someone" };
+const DRAWER_TITLE: Record<TodayPart["key"], string> = { screened: "Listings screened today", moved: "Deals moved today", calls: "Calls and meetings today", emails: "Emails sent today", done: "Next actions done today", todos: "To-dos done today", waits: "Waiting on someone" };
 
 /**
  * The drawer behind one Today tile: the items it counts, one per row. Edits of Nov 5 (item 4): each row

@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Mail, Phone } from "lucide-react";
+import { Mail, Phone, Users } from "lucide-react";
 import { addItemNote, advanceItem, closeItem, makeItemTaskNext, reopenItem, saveConsultingFacts, saveFindOut, saveItemNextAction, saveOpportunityFacts, type ConsultingFactsInput, type OpportunityFactsInput } from "@/app/actions/pipelines";
 import { ComposeEmailDialog } from "@/components/app/compose-email";
 import { useUnsavedWork } from "@/components/app/unsaved-changes";
@@ -45,6 +45,7 @@ export function ItemHeaderActions({ item, compose, advanceTo, closeTo, today, tz
   const router = useRouter();
   const [emailOpen, setEmailOpen] = useState(false);
   const [callOpen, setCallOpen] = useState(false);
+  const [meetingOpen, setMeetingOpen] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +67,9 @@ export function ItemHeaderActions({ item, compose, advanceTo, closeTo, today, tz
         ) : null}
         <RowButton onClick={() => setCallOpen(true)} className="h-9 px-3.5 text-[13px]" data-testid="item-log-call">
           <Phone className="mr-1.5 h-3.5 w-3.5" /> Log a call
+        </RowButton>
+        <RowButton onClick={() => setMeetingOpen(true)} className="h-9 px-3.5 text-[13px]" data-testid="item-log-meeting">
+          <Users className="mr-1.5 h-3.5 w-3.5" /> Log a meeting
         </RowButton>
         {open && advanceTo ? (
           <RowButton tone="cobalt" onClick={() => act(() => advanceItem(item.kind, item.id))} disabled={pending} className="h-9 px-3.5 text-[13px]" data-testid="item-advance">
@@ -104,6 +108,18 @@ export function ItemHeaderActions({ item, compose, advanceTo, closeTo, today, tz
         onOpenChange={setCallOpen}
         onSaved={(r) => {
           setNote(`Call logged on the timeline, ${r.minutes} min.${r.nextAction ? ` Next action: ${r.nextAction}.` : ""}`);
+          router.refresh();
+        }}
+      />
+      <LogCallDrawer
+        kind="meeting"
+        target={{ contactId: item.contactId, dealId: item.id, who: item.contactName ?? "", from: `From ${item.name}`, currentDate: item.nextActionDue }}
+        today={today}
+        tz={tz}
+        open={meetingOpen}
+        onOpenChange={setMeetingOpen}
+        onSaved={(r) => {
+          setNote(`Meeting logged on the timeline, ${r.minutes} min.${r.nextAction ? ` Next action: ${r.nextAction}.` : ""}`);
           router.refresh();
         }}
       />

@@ -272,13 +272,17 @@ describe("Edit batch C: the target pill, what a target counts, exceeded reads me
   });
   it("the Today strip: six figures in order with their words, each with the items behind it", () => {
     const n = dayNumbers(facts, FRI, [{ name: "Summit Logistics Group", days: 11, who: "Mark Reed", what: "A seller call", since: "Oct 26" }, { name: "Oakline Dental Lab", days: 2, who: null, what: "The CIM", since: null }], 5);
-    expect(todayStrip(n, 5).map((p) => `${p.value} ${p.words}${p.detail ? `: ${p.detail}` : ""}`)).toEqual(["3 screened", "1 moved", "2 calls", "2 emails", "2 next actions done: Deals 2", "0 to-dos done", "1 waiting 5+ days"]);
+    expect(todayStrip(n, 5).map((p) => `${p.value} ${p.words}${p.detail ? `: ${p.detail}` : ""}`)).toEqual(["3 screened", "1 moved", "2 calls and meetings", "2 emails", "2 next actions done: Deals 2", "0 to-dos done", "1 waiting 5+ days"]);
     expect(n.screenedList.map((x) => `${x.name} ${x.outcome} ${x.reason ?? ""}`.trim())).toEqual(["Fri 1 passed Too small", "Fri 2 passed Retail", "Industrial Filtration Distributor interested"]);
     expect(n.contactsList.filter((c) => c.kind === "call").map((c) => c.name)).toEqual(["Priya Natarajan", "Carla Jenkins"]);
     expect(n.contactsList.filter((c) => c.kind === "email").map((c) => c.name)).toEqual(["Tom Baker", "Someone not on Contacts"]);
     expect(n.actionsDoneList).toEqual([{ name: "Meridian Industrial Coatings", label: "Finish the model", area: "Deals", href: null }, { name: "Dalton Services", label: "Call Carla", area: "Deals", href: null }]);
     const one = dayNumbers({ ...EMPTY_FACTS, comms: [{ on: FRI, method: "call", contactId: "p1", contactName: "A", broker: false }] }, FRI, [], 5);
-    expect(todayStrip(one, 5).find((p) => p.key === "calls")!.words).toBe("call");
+    expect(todayStrip(one, 5).find((p) => p.key === "calls")!.words).toBe("call or meeting");
+    // Calls and meetings (2026-11-16): the split shows when there was a meeting.
+    const met = dayNumbers({ ...EMPTY_FACTS, comms: [{ on: FRI, method: "call", contactId: "p1", contactName: "A", broker: false }, { on: FRI, method: "meeting", contactId: "p2", contactName: "B", broker: false }] }, FRI, [], 5);
+    const part = todayStrip(met, 5).find((p) => p.key === "calls")!;
+    expect(`${part.value} ${part.words}: ${part.detail}`).toBe("2 calls and meetings: 1 call · 1 meeting");
     // A wait of exactly the threshold counts in "5+ days"; one day under does not.
     const edge = dayNumbers(EMPTY_FACTS, FRI, [{ name: "At five", days: 5, who: null, what: null, since: null }, { name: "At four", days: 4, who: null, what: null, since: null }], 5);
     expect(edge.waits.map((w) => w.name)).toEqual(["At five"]);

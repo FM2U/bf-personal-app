@@ -31,6 +31,9 @@ export type LogCallTarget = {
 const INPUT = "h-9 w-full min-w-0 rounded-[7px] border border-input bg-white px-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:bg-slate-50 disabled:text-slate-600";
 const LABEL = "text-[13px] font-medium text-slate-700";
 const LENGTHS = [10, 15, 20, 30, 45, 60];
+/** Log a meeting (Bram, 2026-11-16): the same window, saved as a meeting; meetings run longer. */
+const MEETING_LENGTHS = [15, 30, 45, 60, 90, 120];
+export type LogKind = "call" | "meeting";
 
 /** Now in the owner's time zone as a datetime-local value ("2026-11-03T10:40"), whatever the browser's clock zone. */
 function nowLocal(tz: string): string {
@@ -39,33 +42,33 @@ function nowLocal(tz: string): string {
   return `${get("year")}-${get("month")}-${get("day")}T${get("hour") === "24" ? "00" : get("hour")}:${get("minute")}`;
 }
 
-export function LogCallDrawer({ target, today, tz, open, onOpenChange, onSaved }: { target: LogCallTarget; today: string; /** The owner's time zone (the date and time default to now there). */ tz: string; open: boolean; onOpenChange: (open: boolean) => void; /** Called after the save with what to say on the row ("Call logged, 20 min"). */ onSaved?: (r: { minutes: number; nextDate: string | null | "keep"; nextAction: string | null }) => void }) {
+export function LogCallDrawer({ target, today, tz, open, onOpenChange, onSaved, kind = "call" }: { kind?: LogKind; target: LogCallTarget; today: string; /** The owner's time zone (the date and time default to now there). */ tz: string; open: boolean; onOpenChange: (open: boolean) => void; /** Called after the save with what to say on the row ("Call logged, 20 min"). */ onSaved?: (r: { minutes: number; nextDate: string | null | "keep"; nextAction: string | null }) => void }) {
   return (
-    <Drawer open={open} onOpenChange={onOpenChange} title="Log a call" sub={target.from} testId="log-call-drawer">
+    <Drawer open={open} onOpenChange={onOpenChange} title={kind === "meeting" ? "Log a meeting" : "Log a call"} sub={target.from} testId={kind === "meeting" ? "log-meeting-drawer" : "log-call-drawer"}>
       {/* The form mounts fresh each time the drawer opens (the drawer's content unmounts when closed), so every field starts clean. */}
-      <CallForm target={target} today={today} tz={tz} onOpenChange={onOpenChange} onSaved={onSaved} />
+      <CallForm target={target} today={today} tz={tz} onOpenChange={onOpenChange} onSaved={onSaved} kind={kind} />
     </Drawer>
   );
 }
 
-function CallForm({ target, today, tz, onOpenChange, onSaved }: { target: LogCallTarget; today: string; tz: string; onOpenChange: (open: boolean) => void; onSaved?: (r: { minutes: number; nextDate: string | null | "keep"; nextAction: string | null }) => void }) {
+function CallForm({ target, today, tz, onOpenChange, onSaved, kind }: { kind: LogKind; target: LogCallTarget; today: string; tz: string; onOpenChange: (open: boolean) => void; onSaved?: (r: { minutes: number; nextDate: string | null | "keep"; nextAction: string | null }) => void }) {
   const ids = useId();
   const [who, setWho] = useState(target.who);
   const [when, setWhen] = useState(() => nowLocal(tz));
-  const [minutes, setMinutes] = useState("20");
+  const [minutes, setMinutes] = useState(kind === "meeting" ? "60" : "20");
   const [said, setSaid] = useState("");
   const [next, setNext] = useState("");
   const [nextDate, setNextDate] = useState("keep");
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const dirty = said.trim() !== "" || next.trim() !== "";
-  useUnsavedWork(dirty, "The call is not logged yet.");
+  useUnsavedWork(dirty, kind === "meeting" ? "The meeting is not logged yet." : "The call is not logged yet.");
   const choices = nextDateChoices(today);
   const person = !!target.contactId && !target.dealId;
   const save = () =>
     start(async () => {
       setError(null);
-      const r = await logCall({ contactId: target.contactId, dealId: target.dealId, organizationId: target.organizationId ?? null, who, when, minutes, said, nextAction: next, nextDate });
+      const r = await logCall({ contactId: target.contactId, dealId: target.dealId, organizationId: target.organizationId ?? null, who, when, minutes, said, nextAction: next, nextDate, kind });
       if (!r.ok) return setError(r.error);
       onOpenChange(false);
       onSaved?.({ minutes: Number(minutes) || 0, nextDate: nextDate === "keep" ? "keep" : nextDate === "none" ? null : nextDate, nextAction: next.trim() || null });
@@ -76,7 +79,7 @@ function CallForm({ target, today, tz, onOpenChange, onSaved }: { target: LogCal
         <label htmlFor={`${ids}-who`} className={LABEL}>
           Who
         </label>
-        <input id={`${ids}-who`} value={who} onChange={(e) => setWho(e.target.value)} disabled={!!target.contactId} className={INPUT} placeholder="Who you spoke with" data-testid="call-who" />
+        <input id={`${ids}-who`} value={who} onChange={(e) => setWho(e.target.value)} disabled={!!target.contactId} className={INPUT} placeholder={kind === "meeting" ? "Who you met with" : "Who you spoke with"} data-testid="call-who" />
         <label htmlFor={`${ids}-when`} className={LABEL}>
           Date and time
         </label>
@@ -85,14 +88,14 @@ function CallForm({ target, today, tz, onOpenChange, onSaved }: { target: LogCal
           Length
         </label>
         <select id={`${ids}-len`} value={minutes} onChange={(e) => setMinutes(e.target.value)} className={INPUT} data-testid="call-minutes">
-          {LENGTHS.map((n) => (
+          {(kind === "meeting" ? MEETING_LENGTHS : LENGTHS).map((n) => (
             <option key={n} value={String(n)}>
               {n} min
             </option>
           ))}
         </select>
         <label htmlFor={`${ids}-said`} className={cn(LABEL, "sm:self-start sm:pt-2")}>
-          What was said
+          {kind === "meeting" ? "What was discussed" : "What was said"}
         </label>
         <textarea id={`${ids}-said`} value={said} onChange={(e) => setSaid(e.target.value)} rows={3} placeholder="Two or three lines are enough" className={cn(INPUT, "h-auto min-h-[76px] py-2 leading-[22px]")} data-testid="call-said" />
         <div className="label-caps mt-2 border-b border-border pb-[7px] sm:col-span-2">Outcome</div>
@@ -126,7 +129,7 @@ function CallForm({ target, today, tz, onOpenChange, onSaved }: { target: LogCal
           {pending ? "Saving..." : "Save"}
         </RowButton>
       </div>
-      <p className="mt-4 text-[12.5px] leading-5 text-muted-foreground">Saved calls appear on the timeline as a call entry and count toward the weekly outreach target when the person is on Contacts.</p>
+      <p className="mt-4 text-[12.5px] leading-5 text-muted-foreground">{kind === "meeting" ? "Saved meetings appear on the timeline as a meeting entry and count toward the weekly outreach target when the person is on Contacts." : "Saved calls appear on the timeline as a call entry and count toward the weekly outreach target when the person is on Contacts."}</p>
     </>
   );
 }

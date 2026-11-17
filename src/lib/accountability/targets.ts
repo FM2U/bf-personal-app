@@ -685,12 +685,22 @@ export type TodayPart = { key: "screened" | "moved" | "calls" | "emails" | "done
  * one; "0 next actions done" when none), then "N to-dos done" (personal to-dos checked off today), and "N waiting 5+
  * days" counts the deals and the people waited on.
  */
+/** "2 calls · 1 meeting", or null when there was no meeting (the count says it all). */
+export function callSplit(n: Pick<DayNumbers, "contactsList">): string | null {
+  const calls = n.contactsList.filter((c) => c.kind === "call");
+  const meetings = calls.filter((c) => c.method === "meeting").length;
+  if (!meetings) return null;
+  const other = calls.length - meetings;
+  return [other ? `${other} ${other === 1 ? "call" : "calls"}` : null, `${meetings} ${meetings === 1 ? "meeting" : "meetings"}`].filter(Boolean).join(" · ");
+}
+
 export function todayStrip(n: DayNumbers, threshold: number): TodayPart[] {
   const todos = n.todosDone?.value ?? 0;
   return [
     { key: "screened", value: n.screened.value, words: "screened" },
     { key: "moved", value: n.moves.length, words: "moved" },
-    { key: "calls", value: n.calls.value, words: n.calls.value === 1 ? "call" : "calls" },
+    // Calls and meetings (Bram, 2026-11-16): one count, the split after a colon when there were meetings.
+    { key: "calls", value: n.calls.value, words: n.calls.value === 1 ? "call or meeting" : "calls and meetings", detail: callSplit(n) ?? undefined },
     { key: "emails", value: n.emails.value, words: n.emails.value === 1 ? "email" : "emails" },
     { key: "done", value: n.actionsDone.value, words: n.actionsDone.value === 1 ? "next action done" : "next actions done", detail: n.actionsDone.value && n.actionsByArea?.length ? n.actionsByArea.map((a) => `${a.area} ${a.count}`).join(" · ") : null },
     { key: "todos", value: todos, words: todos === 1 ? "to-do done" : "to-dos done" },

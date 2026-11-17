@@ -200,6 +200,8 @@ type LogCallInput = {
   nextAction: string;
   /** Outcome: the next follow-up date: "keep", "none", or YYYY-MM-DD. */
   nextDate: string;
+  /** Log a meeting (2026-11-16): the same entry, saved as a meeting. */
+  kind?: "call" | "meeting";
 };
 
 /**
@@ -234,7 +236,8 @@ export async function logCall(input: LogCallInput): Promise<{ ok: true; commId: 
     if (!deal) return fail("This deal was not found.");
   }
   const who = person ? String(person.name) : clean(input.who, 120);
-  if (!who) return fail("Say who the call was with.");
+  const meeting = input.kind === "meeting";
+  if (!who) return fail(meeting ? "Say who the meeting was with." : "Say who the call was with.");
   const minutesRaw = Number(String(input.minutes ?? "").replace(/[^\d.]/g, ""));
   const minutes = Number.isFinite(minutesRaw) && minutesRaw > 0 ? Math.min(1440, Math.round(minutesRaw)) : null;
   // The drawer's time is to the minute. A call logged in the current minute is logged as of now (to the second), so it
@@ -247,11 +250,11 @@ export async function logCall(input: LogCallInput): Promise<{ ok: true; commId: 
   const row: Row = {
     owner_id: ctx.ownerId,
     occurred_at: when,
-    method: "call",
+    method: meeting ? "meeting" : "call",
     direction: "outgoing",
     contact_id: person ? person.id : (deal?.primary_contact_id ?? null),
     organization_id: person?.organization_id ?? deal?.organization_id ?? org?.id ?? null,
-    subject: `Call with ${who}`,
+    subject: `${meeting ? "Meeting" : "Call"} with ${who}`,
     summary: said,
     is_outreach: !!person,
     purpose: deal ? "general" : person?.is_consulting_lead ? "consulting" : person?.is_deal_source ? "deal_sourcing" : "general",
@@ -270,7 +273,7 @@ export async function logCall(input: LogCallInput): Promise<{ ok: true; commId: 
     if (date !== "keep") update.follow_up_date = date;
     if (Object.keys(update).length) {
       const { error: e2 } = await sb.from("contacts").update(update).eq("id", person.id);
-      if (e2) return fail(`The call was logged, but the follow-up was not saved: ${e2.message}`);
+      if (e2) return fail(`The ${meeting ? "meeting" : "call"} was logged, but the follow-up was not saved: ${e2.message}`);
     }
   } else if (org && !deal) {
     // The outcome on an organization (nobody at it named): its next action.
@@ -281,7 +284,7 @@ export async function logCall(input: LogCallInput): Promise<{ ok: true; commId: 
     } else if (date !== "keep" && org.next_action) update.next_action_due = date;
     if (Object.keys(update).length) {
       const { error: e2 } = await sb.from("organizations").update(update).eq("id", org.id);
-      if (e2) return fail(`The call was logged, but the next action was not saved: ${e2.message}`);
+      if (e2) return fail(`The ${meeting ? "meeting" : "call"} was logged, but the next action was not saved: ${e2.message}`);
     }
   } else if (deal) {
     const update: Row = {};
@@ -292,7 +295,7 @@ export async function logCall(input: LogCallInput): Promise<{ ok: true; commId: 
     } else if (date !== "keep" && deal.next_action) update.next_action_due = date;
     if (Object.keys(update).length) {
       const { error: e2 } = await sb.from("pipeline_items").update(update).eq("id", deal.id);
-      if (e2) return fail(`The call was logged, but the next action was not saved: ${e2.message}`);
+      if (e2) return fail(`The ${meeting ? "meeting" : "call"} was logged, but the next action was not saved: ${e2.message}`);
     }
   }
   doneQuietly();

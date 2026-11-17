@@ -4,7 +4,7 @@
  * of day, and Reports (what the AI reads; nothing more).
  */
 import type { EndOfDayPage, ReportsPage, TargetsPage } from "@/lib/accountability/data";
-import { judgedMark, MARK_WORD, type Judged } from "@/lib/accountability/targets";
+import { callSplit, judgedMark, MARK_WORD, type Judged } from "@/lib/accountability/targets";
 
 export type ReasonDraft = { targetId: string; name: string; reason: string };
 
@@ -17,7 +17,7 @@ export function endOfDayLines(p: EndOfDayPage): string[] {
     `day: ${p.dateLabel}${p.friday ? " (Friday: the week is judged tonight)" : ""}`,
     `listings screened: ${n.screened.value}${n.screened.detail ? ` (${n.screened.detail})` : ""}`,
     `deals moved: ${n.moves.length}${n.moves.length ? ` (${n.moves.map((m) => `${m.name} to ${m.to}${m.keyFinding ? `, key finding: ${m.keyFinding}` : ""}`).join("; ")})` : ""}`,
-    `calls: ${n.calls.value}${n.calls.detail ? ` (${n.calls.detail})` : ""}; emails: ${n.emails.value}${n.emails.detail ? ` (${n.emails.detail})` : ""}`,
+    `calls and meetings: ${n.calls.value}${callSplit(n) ? ` (${callSplit(n)})` : ""}${n.calls.detail ? ` (${n.calls.detail})` : ""}; emails: ${n.emails.value}${n.emails.detail ? ` (${n.emails.detail})` : ""}`,
     `network outreach: ${n.outreachToday.value} today, ${n.outreachWeek.value} this week`,
     `next actions done: ${n.actionsDone.value}${n.actionsByArea?.length ? ` (by area: ${n.actionsByArea.map((a) => `${a.area} ${a.count}`).join(", ")})` : ""}${n.actionsDone.detail ? ` (${n.actionsDone.detail})` : ""}`,
     `to-dos done: ${n.todosDone?.value ?? 0}`,

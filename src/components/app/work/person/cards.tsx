@@ -3,7 +3,7 @@
 import { useId, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Mail, Phone } from "lucide-react";
+import { Mail, Phone, Users } from "lucide-react";
 import { addPersonNote, archivePerson, completeFollowUp, deferFollowUp, logIncoming, makePersonTaskNext, reopenPerson, saveFollowUp, type PersonInput } from "@/app/actions/outreach";
 import { ComposeEmailDialog } from "@/components/app/compose-email";
 import { useUnsavedWork } from "@/components/app/unsaved-changes";
@@ -47,6 +47,7 @@ export function PersonHeaderActions({ person, compose, today, tz }: { person: Pe
   const router = useRouter();
   const [emailOpen, setEmailOpen] = useState(false);
   const [callOpen, setCallOpen] = useState(false);
+  const [meetingOpen, setMeetingOpen] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   return (
     <div className="flex flex-col items-end gap-1.5">
@@ -58,6 +59,9 @@ export function PersonHeaderActions({ person, compose, today, tz }: { person: Pe
         ) : null}
         <RowButton onClick={() => setCallOpen(true)} className="h-9 px-3.5 text-[13px]" data-testid="person-page-log-call">
           <Phone className="mr-1.5 h-3.5 w-3.5" /> Log a call
+        </RowButton>
+        <RowButton onClick={() => setMeetingOpen(true)} className="h-9 px-3.5 text-[13px]" data-testid="person-page-log-meeting">
+          <Users className="mr-1.5 h-3.5 w-3.5" /> Log a meeting
         </RowButton>
       </div>
       {note ? (
@@ -85,6 +89,18 @@ export function PersonHeaderActions({ person, compose, today, tz }: { person: Pe
         onOpenChange={setCallOpen}
         onSaved={(r) => {
           setNote(`Call logged on the timeline, ${r.minutes} min.`);
+          router.refresh();
+        }}
+      />
+      <LogCallDrawer
+        kind="meeting"
+        target={{ contactId: person.id, dealId: null, who: person.name, from: `From ${person.name}'s page`, currentDate: person.nextFollowUp }}
+        today={today}
+        tz={tz}
+        open={meetingOpen}
+        onOpenChange={setMeetingOpen}
+        onSaved={(r) => {
+          setNote(`Meeting logged on the timeline, ${r.minutes} min.`);
           router.refresh();
         }}
       />

@@ -46,9 +46,14 @@ export function cleanDrafts(v: unknown): ReportDrafts {
 export type DraftPick = { id: string; track: string; name: string; stage: string | null; why: string | null; nextAction: string | null; nextActionDue: string | null; nextDecision: string | null; movedToday: boolean; waiting: string | null; notes: string[] };
 
 /** The request: the day's lines (as on End of day), what moved, each pick, and the next working day's actions. */
+/** A listing's "00 " start is never shown to partners (2026-11-16), so it never reaches the AI either. */
+export function withoutPlaceholders(line: string): string {
+  return line.replace(/(^|[\s(,;])00 (?=\S)/g, "$1");
+}
+
 export function draftsPrompt(i: { dateLabel: string; tomorrowLabel: string; dayLines: string[]; activity: string[]; picks: DraftPick[]; dueNext: string[]; want: { opening: boolean; tomorrow: boolean; now: string[] } }): string {
   const asks: string[] = [];
-  if (i.want.opening) asks.push('"opening": 3 to 5 plain sentences on what the day was about: the main move, what was learned, what is stuck. Concrete names and facts from the lines below only.');
+  if (i.want.opening) asks.push('"opening": 3 to 5 plain sentences on what the day was about: the main move, what was learned, what is stuck. Concrete names and facts from the lines below only. Do not state counts of calls, emails, outreach, to-dos or next actions: the report shows the day\'s counts, and the day is not over when this is written.');
   if (i.want.tomorrow) asks.push(`"tomorrow": one line (at most 30 words) on what matters most on ${i.tomorrowLabel === "Tomorrow" ? "the next working day" : i.tomorrowLabel}, from the next actions due and the open waits.`);
   if (i.want.now.length) asks.push('"now": for each top priority listed with "now: write", one line (at most 25 words): where it stands now and what to focus on next, from its stage, next action, notes, waits and today\'s moves.');
   return [

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanDrafts, draftsPrompt, draftTargets, NO_DRAFTS, validateDraftsReply } from "./report-drafts";
+import { cleanDrafts, draftsPrompt, draftTargets, NO_DRAFTS, validateDraftsReply, withoutPlaceholders } from "./report-drafts";
 
 const A = "11111111-1111-4111-8111-111111111111";
 const B = "22222222-2222-4222-8222-222222222222";
@@ -46,5 +46,17 @@ describe("the 4:00 pm AI drafts (step 4, 2026-11-15)", () => {
     expect(validateDraftsReply({ tomorrow: "x" }, want)).toMatchObject({ ok: false });
     expect(validateDraftsReply({ opening: "x", tomorrow: "y", now: [] }, want)).toMatchObject({ ok: false });
     expect(validateDraftsReply({ opening: "x" }, { opening: true, tomorrow: false, now: [] })).toEqual({ ok: true, value: { opening: "x", tomorrow: null, now: {} } });
+  });
+
+  it("never passes the '00 ' start of a listing name to the AI (2026-11-16)", () => {
+    expect(withoutPlaceholders("deals moved: 2 (00 AI-Enabled Back-Office to NDA signed; Industrial Crating to NDA signed)")).toBe("deals moved: 2 (AI-Enabled Back-Office to NDA signed; Industrial Crating to NDA signed)");
+    expect(withoutPlaceholders("00 Established Testing Laboratory: moved to Interested")).toBe("Established Testing Laboratory: moved to Interested");
+    expect(withoutPlaceholders("calls: 0; emails: 1")).toBe("calls: 0; emails: 1");
+    expect(withoutPlaceholders("Call Mark at 4:00 pm (Summit)")).toBe("Call Mark at 4:00 pm (Summit)");
+  });
+
+  it("asks the opening not to state the day's counts", () => {
+    const prompt = draftsPrompt({ dateLabel: "Mon", tomorrowLabel: "Tomorrow", dayLines: [], activity: [], picks: [], dueNext: [], want: { opening: true, tomorrow: false, now: [] } });
+    expect(prompt).toContain("Do not state counts of calls, emails, outreach");
   });
 });

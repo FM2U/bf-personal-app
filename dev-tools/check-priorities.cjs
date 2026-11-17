@@ -269,6 +269,26 @@ const idOf = async (name) => (await one("select id from pipeline_items where nam
     await db.query("update pipeline_items set name = $2, company_name = $3 where id = $1", [pick.id, pick.name, pick.company_name]);
   });
 
+  await step("Log a meeting (2026-11-16): next to Log a call on a person's page; saved as a meeting on the timeline; End of day counts calls and meetings together with the split", async () => {
+    const mark = await one("select id from contacts where name = 'Mark Reed'");
+    await open(`/work/people/${mark.id}`);
+    await page.getByTestId("person-page-log-meeting").click();
+    const d = page.getByTestId("log-meeting-drawer");
+    await d.waitFor();
+    assert((await d.innerText()).includes("Log a meeting") && (await d.getByTestId("call-minutes").inputValue()) === "60", "the meeting window");
+    const day = await one("select to_char(now() at time zone 'America/New_York', 'YYYY-MM-DD') d");
+    await d.getByTestId("call-when").fill(`${day.d}T11:00`);
+    await d.getByTestId("call-said").fill("Coffee on East Tennessee owners");
+    await d.getByTestId("call-save").click();
+    await until(async () => !!(await one("select id from communications where contact_id = $1 and method = 'meeting' and subject = 'Meeting with Mark Reed'", [mark.id])), "the meeting was not saved");
+    await open(`/work/people/${mark.id}`);
+    assert((await page.locator("main").innerText()).includes("Meeting with Mark Reed, 60 min"), "the timeline does not show the meeting");
+    await open("/work/end-of-day");
+    const tile = page.locator("[data-testid=eod-today-part][data-key=calls]");
+    const t = (await tile.innerText()).replace(/\s+/g, " ");
+    assert(/calls and meetings|call or meeting/i.test(t) && /meeting/i.test(t), `the tile reads: ${t}`);
+  });
+
   await step("No page showed an error in the browser", async () => {
     assert(errors.length === 0, errors.slice(0, 3).join("\n"));
   });

@@ -722,7 +722,7 @@ const until = async (fn, msg, tries = 60) => {
 
   await step("End of day: each Today tile opens its panel (the existing side panel), listing what it counts", async () => {
     await eodTop();
-    const titles = { screened: "Listings screened today", moved: "Deals moved today", calls: "Calls today", emails: "Emails sent today", done: "Next actions done today", todos: "To-dos done today", waits: "Waiting on someone" };
+    const titles = { screened: "Listings screened today", moved: "Deals moved today", calls: "Calls and meetings today", emails: "Emails sent today", done: "Next actions done today", todos: "To-dos done today", waits: "Waiting on someone" };
     const tiles = await page.getByTestId("eod-today-part").evaluateAll((els) => els.map((e) => [e.dataset.key, Number(e.dataset.count)]));
     for (const [key, n] of tiles) {
       await page.locator(`[data-testid=eod-today-part][data-key=${key}]`).click();
