@@ -150,7 +150,7 @@ export async function getGmailThread(sb: SupabaseClient, ownerId: string, thread
 }
 
 /** One event of a day from Google Calendar (push C): its id, title, and start and end as ISO instants (all-day events are left out). */
-export type CalendarEvent = { id: string; title: string; start: string; end: string };
+export type CalendarEvent = { id: string; title: string; start: string; end: string; /** The other people invited, by email, lower case (Today's activity, 2026-11-16). */ attendees?: string[] };
 
 /**
  * The events on the owner's primary calendar between two instants (Today's calendar on Home, "Already on" in Block
@@ -163,7 +163,7 @@ export async function listCalendarEvents(sb: SupabaseClient, ownerId: string, ti
   const res = await timeGoogle("calendar events", () => calendar.events.list({ calendarId: "primary", timeMin, timeMax, singleEvents: true, orderBy: "startTime", maxResults: 100 }));
   return (res.data.items ?? [])
     .filter((e) => e.status !== "cancelled" && !!e.start?.dateTime && !!e.end?.dateTime)
-    .map((e) => ({ id: String(e.id ?? ""), title: String(e.summary ?? "(No title)"), start: String(e.start!.dateTime), end: String(e.end!.dateTime) }));
+    .map((e) => ({ id: String(e.id ?? ""), title: String(e.summary ?? "(No title)"), start: String(e.start!.dateTime), end: String(e.end!.dateTime), attendees: (e.attendees ?? []).filter((a) => !a.self && a.email).map((a) => String(a.email).toLowerCase()) }));
 }
 
 /** Creates one event on the owner's primary calendar (Block time, push C). Returns its id, or null when Google is not connected. Throws Google's error. */

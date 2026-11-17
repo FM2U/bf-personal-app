@@ -276,7 +276,8 @@ const idOf = async (name) => (await one("select id from pipeline_items where nam
     const d = page.getByTestId("log-meeting-drawer");
     await d.waitFor();
     assert((await d.innerText()).includes("Log a meeting") && (await d.getByTestId("call-minutes").inputValue()) === "60", "the meeting window");
-    const day = await one("select to_char(now() at time zone 'America/New_York', 'YYYY-MM-DD') d");
+    // The app's today (the test clock), not the database's: the check runs on the same clock as the app.
+    const day = { d: new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date()) };
     await d.getByTestId("call-when").fill(`${day.d}T11:00`);
     await d.getByTestId("call-said").fill("Coffee on East Tennessee owners");
     await d.getByTestId("call-save").click();
@@ -286,7 +287,37 @@ const idOf = async (name) => (await one("select id from pipeline_items where nam
     await open("/work/end-of-day");
     const tile = page.locator("[data-testid=eod-today-part][data-key=calls]");
     const t = (await tile.innerText()).replace(/\s+/g, " ");
-    assert(/calls and meetings|call or meeting/i.test(t) && /meeting/i.test(t), `the tile reads: ${t}`);
+    assert(/calls and meetings|call or meeting/i.test(t) && /\b1 meeting\b/i.test(t), `the tile reads: ${t}`);
+  });
+
+  await step("Today's activity (release 3b): End of day lists the day (the meeting logged above); + Log work adds a row; Drop grays a row and is kept with the day; Keep brings it back", async () => {
+    await open("/work/end-of-day");
+    const card = page.getByTestId("eod-activity");
+    await card.waitFor();
+    const rows = card.getByTestId("activity-row");
+    assert((await card.innerText()).includes("Meeting with Mark Reed"), "the logged meeting is not in Today's activity");
+    await card.getByTestId("activity-add").click();
+    const d = page.getByTestId("log-work-drawer");
+    await d.waitFor();
+    await d.getByTestId("work-text").fill("Market research on two new listings");
+    await d.getByTestId("work-minutes").selectOption("45");
+    await d.getByTestId("work-save").click();
+    await until(async () => (await card.innerText()).includes("Market research on two new listings, 45 min"), "the logged work is not in the list");
+    const work = rows.filter({ hasText: "Market research on two new listings" });
+    assert((await work.getAttribute("data-kind")) === "work", "the row is not Work");
+    await work.getByTestId("activity-toggle").click();
+    await until(async () => (await work.getAttribute("data-off")) === "1", "Drop did not gray the row");
+    const id = await work.getAttribute("data-id");
+    await until(async () => ((await one("select report_edits from end_of_day order by day desc limit 1")).report_edits._activity_dropped || []).includes(id), "the drop was not saved");
+    await open("/work/end-of-day");
+    const again = page.getByTestId("eod-activity").getByTestId("activity-row").filter({ hasText: "Market research on two new listings" });
+    assert((await again.getAttribute("data-off")) === "1", "the drop was not kept on reload");
+    await again.getByTestId("activity-toggle").click();
+    await until(async () => !((await one("select report_edits from end_of_day order by day desc limit 1")).report_edits._activity_dropped || []).includes(id), "Keep did not save");
+    await page.getByTestId("activity-calendar-note").waitFor();
+    await until(async () => !(await page.getByTestId("activity-calendar-note").innerText()).includes("Reading your calendar"), "the calendar part never finished");
+    const w = await one("select method, subject, call_minutes from communications where subject = 'Market research on two new listings'");
+    assert(w && w.method === "other" && w.call_minutes === 45, JSON.stringify(w));
   });
 
   await step("No page showed an error in the browser", async () => {

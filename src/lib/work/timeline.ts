@@ -8,7 +8,7 @@ export type TimelineEvent = { id: string; kind: "note" | "finding" | "email" | "
 
 /** "Email received: CIM received", "Call with Rachel Kim, 20 min" (no "Call:" twice), "Meeting: ...". */
 export function commTitle(c: Row): string {
-  const kind = c.method === "email" ? (c.direction === "incoming" ? "Email received" : "Email sent") : c.method === "call" ? "Call" : c.method === "meeting" ? "Meeting" : c.method === "video" ? "Video call" : "Contact";
+  const kind = c.method === "email" ? (c.direction === "incoming" ? "Email received" : "Email sent") : c.method === "call" ? "Call" : c.method === "meeting" ? "Meeting" : c.method === "video" ? "Video call" : c.method === "other" ? "Work" : "Contact";
   const subject = c.subject ? String(c.subject).slice(0, 120) : "";
   const minutes = c.call_minutes && c.method !== "email" && !/\d+ min\b/.test(subject) ? `, ${Number(c.call_minutes)} min` : "";
   if (!subject) return `${kind}${minutes}`;

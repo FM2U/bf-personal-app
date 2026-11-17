@@ -4,6 +4,7 @@ import { addDaysISO, monthStart, todayInTz } from "@/lib/calc/dates";
 import type { Ctx } from "@/lib/engine/helpers";
 import { date as fmtDate, formatInZone } from "@/lib/format";
 import { displayName, signOffName } from "@/lib/work/names";
+import { isoToZoned } from "@/lib/work/time-blocks";
 import { loadPipelineOfKind, loadWorkCtx, type WorkCtx, type WorkPipeline } from "@/lib/work/data";
 import { weekdayShort } from "@/lib/work/outreach";
 import { stalledAt } from "@/lib/work/stages";
@@ -29,6 +30,7 @@ import { ownerContactsLite, ownerFinancials, pickOrRead, rowsOf } from "@/lib/wo
 import { loadPriorities, type PrioritiesData } from "@/lib/work/priorities-data";
 import { buildTracks, partnerName } from "@/lib/accountability/report-v8";
 import { cleanDrafts, DRAFTS_KEY, type DraftPick, type ReportDrafts } from "@/lib/accountability/report-drafts";
+import { ACTIVITY_DROPPED_KEY, cleanDropped, sortActivity, uniqueIds, type ActivityRow } from "@/lib/accountability/activity";
 import { nextWorkDay } from "@/lib/work-week";
 
 /**
@@ -114,7 +116,7 @@ export async function loadFacts(sb: SupabaseClient, ctx: WorkCtx, since: string)
   const [[acq, job, con], { data: items }, { data: hist }, { data: comms }, { data: events }, { data: eods }, { data: people }, { data: notes }, waitRows, { data: doneTasks }] = await Promise.all([
     sb.from("pipeline_items").select("id,name,company_name,pipeline_id,status,stage_id,pass_reason,key_finding,next_action,next_action_due,screened,broker_name,primary_contact_id,updated_at,role_title,what_it_does,location,pay_range,fee").eq("owner_id", ctx.ownerId).limit(5000),
     sb.from("stage_history").select("id,item_id,stage_id,entered_at").eq("owner_id", ctx.ownerId).order("entered_at").limit(20000),
-    sb.from("communications").select("id,occurred_at,method,direction,contact_id,awaiting_log,pipeline_item_id,subject,call_minutes").eq("owner_id", ctx.ownerId).gte("occurred_at", `${since}T00:00:00Z`).limit(5000),
+    sb.from("communications").select("id,occurred_at,method,direction,contact_id,awaiting_log,pipeline_item_id,subject,call_minutes,partner_report_id").eq("owner_id", ctx.ownerId).gte("occurred_at", `${since}T00:00:00Z`).limit(5000),
     sb.from("work_events").select("kind,record_type,record_id,label,happened_on,happened_at,on_time,meta").eq("owner_id", ctx.ownerId).gte("happened_on", since).limit(5000),
     sb.from("end_of_day").select("day,status").eq("owner_id", ctx.ownerId).eq("status", "skipped").gte("day", since).limit(500),
     sb.from("contacts").select("id,name,outreach_role,organization_id,archived_at").eq("owner_id", ctx.ownerId).limit(5000),
@@ -218,7 +220,7 @@ export async function loadSentCopies(sb: SupabaseClient, ownerId: string, day: s
   });
 }
 
-type EodRow = { id: string | null; day: string; status: EodState; reasons: Record<string, string>; tomorrow: string; skipReason: string | null; sentAt: string | null; reportId: string | null; reportSubject: string | null; reportHtml: string | null; reportEdited: boolean; /** Push B edits: each partner's choices for today's copy (include, Change, Edit), by contact id. */ reportEdits: Record<string, ReportChoices>; /** Today's notes by section, once for the day and shared by every copy (report_edits._notes, 2026-11-05). */ reportNotes: ReportNotes; judged: Judged[]; /** Push D: the Weekly review answers (Fridays). */ weeklyReview: WeeklyReview; /** Fix list item 1 (2026-11-06): the partners unticked for this day only (contact ids). */ skippedPartners: string[]; /** When each Edit and + Note was last saved (2026-11-08): "<copy id>:<section>" or "note:<section>". */ editedAt: Record<string, string>; /** Also send to and the note under the greeting (2026-11-08). */ extras: ReportExtras; /** The automatic send's record (2026-11-08). */ auto: ReportAuto; /** v8 (2026-11-15): the opening paragraph (report_edits._opening). */ opening: string; /** Step 4: the AI drafts and Now lines (report_edits._drafts). */ drafts: ReportDrafts; /** Edits shared by every copy (report_edits._section_edits, 2026-11-16). */ sectionEdits: NonNullable<ReportChoices["edits"]> };
+type EodRow = { id: string | null; day: string; status: EodState; reasons: Record<string, string>; tomorrow: string; skipReason: string | null; sentAt: string | null; reportId: string | null; reportSubject: string | null; reportHtml: string | null; reportEdited: boolean; /** Push B edits: each partner's choices for today's copy (include, Change, Edit), by contact id. */ reportEdits: Record<string, ReportChoices>; /** Today's notes by section, once for the day and shared by every copy (report_edits._notes, 2026-11-05). */ reportNotes: ReportNotes; judged: Judged[]; /** Push D: the Weekly review answers (Fridays). */ weeklyReview: WeeklyReview; /** Fix list item 1 (2026-11-06): the partners unticked for this day only (contact ids). */ skippedPartners: string[]; /** When each Edit and + Note was last saved (2026-11-08): "<copy id>:<section>" or "note:<section>". */ editedAt: Record<string, string>; /** Also send to and the note under the greeting (2026-11-08). */ extras: ReportExtras; /** The automatic send's record (2026-11-08). */ auto: ReportAuto; /** v8 (2026-11-15): the opening paragraph (report_edits._opening). */ opening: string; /** Step 4: the AI drafts and Now lines (report_edits._drafts). */ drafts: ReportDrafts; /** Edits shared by every copy (report_edits._section_edits, 2026-11-16). */ sectionEdits: NonNullable<ReportChoices["edits"]>; /** Today's activity rows dropped (release 3b, 2026-11-16). */ activityDropped: string[] };
 
 export async function loadEodRow(sb: SupabaseClient, ownerId: string, day: string): Promise<EodRow> {
   const { data } = await sb.from("end_of_day").select("*").eq("owner_id", ownerId).eq("day", day).maybeSingle();
@@ -248,6 +250,7 @@ export async function loadEodRow(sb: SupabaseClient, ownerId: string, day: strin
     opening: cleanOpening(r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? (r.report_edits as Record<string, unknown>)[OPENING_KEY] : null),
     drafts: cleanDrafts(r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? (r.report_edits as Record<string, unknown>)[DRAFTS_KEY] : null),
     sectionEdits: cleanChoices({ edits: r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? (r.report_edits as Record<string, unknown>)[SECTION_EDITS_KEY] : null }).edits ?? {},
+    activityDropped: cleanDropped(r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? (r.report_edits as Record<string, unknown>)[ACTIVITY_DROPPED_KEY] : null),
   };
 }
 
@@ -389,6 +392,11 @@ export type EndOfDayPage = {
   v8: boolean;
   /** Step 4 (2026-11-15): which text is still an AI draft, and each pick's Now line (with the next-action line it replaces). */
   drafts: ReportDrafts;
+  /** Today's activity (release 3b, 2026-11-16): what the app recorded and the work logged; the calendar rows come after the page shows. */
+  activity: ActivityRow[];
+  activityDropped: string[];
+  /** The open deals, jobs and consulting leads Log work can be about. */
+  workTargets: { id: string; name: string; track: string }[];
   nowLines: { id: string; name: string; track: string; text: string; fallback: string | null; ai: boolean; saved: boolean }[];
   /** What the AI drafts are written from: each pick with its facts, and the next working day's actions. */
   draftInput: { picks: DraftPick[]; dueNext: string[]; activity: string[] };
@@ -500,6 +508,42 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
       .slice(0, 2)
       .map((n) => String(n.body ?? "").replace(/\s+/g, " ").trim().slice(0, 200))
       .filter(Boolean);
+  // Today's activity (release 3b): one row per thing the app recorded today, and each piece of work logged by hand.
+  const timeOf = (ts: unknown) => (ts ? isoToZoned(String(ts), i.tz).time : null);
+  const itemById = new Map(bundle.raw.items.map((r) => [String(r.id), r]));
+  const personById = new Map(bundle.raw.people.map((p) => [String(p.id), p]));
+  const itemName = (id: unknown) => {
+    const r = id ? itemById.get(String(id)) : null;
+    return r ? displayName({ name: String(r.name), companyName: (r.company_name as string | null) ?? null }) : null;
+  };
+  const trackOf = (r: Row) => (String(r.pipeline_id) === String(bundle.raw.jobId) ? "Job search" : String(r.pipeline_id) === String(bundle.raw.conId) ? "Consulting" : "Acquisition");
+  const activity: ActivityRow[] = sortActivity(uniqueIds([
+    ...numbers.screenedList.map((x): ActivityRow => ({ id: `listing:${x.name}`, kind: "listing", text: x.outcome === "interested" ? "Screened and marked Interested" : `Screened and passed${x.reason ? ` (${x.reason})` : ""}`, record: x.name, time: null, href: x.href ?? null })),
+    ...numbers.moves.map((m): ActivityRow => ({ id: `move:${m.name}:${m.to}`, kind: "move", text: `Moved ${m.from ? `from ${m.from} ` : ""}to ${m.to}`, record: m.name, time: null, href: m.href ?? null })),
+    ...numbers.actionsDoneList.map((a): ActivityRow => ({ id: `done:${a.name}:${a.label ?? ""}`, kind: "done", text: a.label ? `${a.label}` : "Next action done", record: a.name, time: null, href: a.href ?? null })),
+    ...bundle.raw.comms
+      .filter((c) => local(String(c.occurred_at)) === day && !c.awaiting_log && !c.partner_report_id && ["call", "meeting", "video", "email", "other"].includes(String(c.method)) && !(c.method === "email" && c.direction === "incoming"))
+      .map((c): ActivityRow => {
+        const m = String(c.method);
+        const kind: ActivityRow["kind"] = m === "other" ? "work" : m === "email" ? "email" : m === "meeting" ? "meeting" : "call";
+        const who = c.contact_id ? String(personById.get(String(c.contact_id))?.name ?? "") || null : null;
+        const about = itemName(c.pipeline_item_id);
+        const mins = c.call_minutes ? `, ${Number(c.call_minutes)} min` : "";
+        const subject = String(c.subject ?? "").trim();
+        const text = kind === "work" ? `${subject || "Work"}${mins}` : kind === "email" ? `Email to ${who ?? "someone not on Contacts"}${subject ? `: ${subject}` : ""}` : `${subject || `${kind === "meeting" ? "Meeting" : "Call"}${who ? ` with ${who}` : ""}`}${mins}`;
+        return { id: `comm:${c.id}`, kind, text, record: about ?? who, time: timeOf(c.occurred_at), href: c.pipeline_item_id ? recordHref({ kind: "deal", id: String(c.pipeline_item_id) }) : c.contact_id ? recordHref({ kind: "person", id: String(c.contact_id) }) : null };
+      }),
+    ...bundle.raw.notes
+      .filter((n) => local(String(n.created_at)) === day && n.body)
+      .map((n): ActivityRow => ({ id: `note:${n.record_id}:${n.created_at}`, kind: "note", text: String(n.body).replace(/\s+/g, " ").trim().slice(0, 160), record: itemName(n.record_id), time: timeOf(n.created_at), href: recordHref({ kind: "deal", id: String(n.record_id) }) })),
+  ]));
+  // The three tracked pipelines only; listings not yet screened are left out; up to 150 a track.
+  const tracked = new Set([bundle.raw.acqId, bundle.raw.jobId, bundle.raw.conId].filter(Boolean).map(String));
+  const workTargets = bundle.raw.items
+    .filter((r) => r.status === "open" && r.stage_id && r.screened !== false && tracked.has(String(r.pipeline_id)))
+    .map((r) => ({ id: String(r.id), name: displayName({ name: String(r.name), companyName: (r.company_name as string | null) ?? null }), track: trackOf(r) }))
+    .sort((a, b) => a.track.localeCompare(b.track) || a.name.localeCompare(b.name))
+    .filter((t, n, all) => all.slice(0, n).filter((x) => x.track === t.track).length < 150);
   const nextDay = nextWorkDay(day);
   const draftInput = {
     picks: allPicks.map((p): DraftPick => {
@@ -583,6 +627,9 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
     drafts: row.drafts,
     nowLines,
     draftInput,
+    activity,
+    activityDropped: row.activityDropped,
+    workTargets,
     state: row.status,
     sentAt: row.sentAt,
     sentTime: row.sentAt ? formatInZone(row.sentAt, "h:mm a", i.tz).toLowerCase() : null,

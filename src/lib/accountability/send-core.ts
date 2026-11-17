@@ -16,6 +16,7 @@ import { noReasonText, owedReasons, reportSummary } from "@/lib/accountability/t
 import { date as fmtDate } from "@/lib/format";
 import type { Row } from "@/lib/types";
 import { editEod } from "@/lib/accountability/eod-write";
+import { ACTIVITY_DROPPED_KEY } from "@/lib/accountability/activity";
 
 /**
  * Sending the report (one place for every way it goes out, 2026-11-08): Approve and send (End of day), the automatic
@@ -56,7 +57,8 @@ export function owedCount(page: EndOfDayPage): number {
 /** What stays in report_edits once the day is sent: the people under Also send to (until their own send) and the automatic send's record. */
 function keptAfterSend(v: unknown): Record<string, unknown> {
   const o = (v && typeof v === "object" && !Array.isArray(v) ? v : {}) as Record<string, unknown>;
-  return Object.fromEntries(Object.entries(o).filter(([k]) => k === EXTRAS_KEY || k === AUTO_KEY));
+  // Today's activity's dropped rows stay with the sent day too (release 3b, 2026-11-16).
+  return Object.fromEntries(Object.entries(o).filter(([k]) => k === EXTRAS_KEY || k === AUTO_KEY || k === ACTIVITY_DROPPED_KEY));
 }
 
 /** Saves today's Also send to list and note under the greeting (merged into the day's report_edits). */

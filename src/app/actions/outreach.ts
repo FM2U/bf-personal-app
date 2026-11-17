@@ -421,3 +421,37 @@ export async function makePersonTaskNext(taskId: string): Promise<{ ok: true; ne
   done();
   return { ok: true, nextAction: text, due, kept: keep };
 }
+
+// ---------- Log work (release 3b, Bram 2026-11-16) ----------
+
+/**
+ * Log work: one line of work done that no other entry records (research, financial modeling, a deal structure), with
+ * optional minutes and an optional deal, job or consulting lead. Saved as a communication of method "other" (no
+ * database change): it shows on the record's timeline as "Work: <line>, 60 min" and in End of day's Today's activity.
+ * It never counts as a call, an email or outreach, and never moves a person's last contact.
+ */
+export async function logWork(input: { text: string; minutes?: string | number | null; dealId?: string | null }): Promise<{ ok: true; id: string } | Fail> {
+  const s = await setup();
+  if (isFail(s)) return s;
+  const { sb, ctx } = s;
+  const text = clean(input.text, 200);
+  if (!text) return fail("Say what you worked on, in one line.");
+  const minutesRaw = Number(String(input.minutes ?? "").replace(/[^\d.]/g, ""));
+  const minutes = Number.isFinite(minutesRaw) && minutesRaw > 0 ? Math.min(1440, Math.round(minutesRaw)) : null;
+  let dealId: string | null = null;
+  if (input.dealId) {
+    if (!UUID.test(String(input.dealId))) return fail("This record was not found.");
+    const { data } = await sb.from("pipeline_items").select("id").eq("owner_id", ctx.ownerId).eq("id", input.dealId).maybeSingle();
+    if (!data) return fail("This record was not found.");
+    dealId = String((data as Row).id);
+  }
+  const { data, error } = await sb
+    .from("communications")
+    .insert({ owner_id: ctx.ownerId, occurred_at: new Date().toISOString(), method: "other", direction: "outgoing", contact_id: null, subject: text, summary: null, is_outreach: false, purpose: "general", pipeline_item_id: dealId, call_minutes: minutes })
+    .select("id")
+    .single();
+  if (error) return notSaved(error);
+  if (dealId) await sb.from("record_links").insert({ owner_id: ctx.ownerId, from_type: "communications", from_id: data.id, to_type: "pipeline_items", to_id: dealId, relation: "concerns" });
+  doneQuietly();
+  return { ok: true, id: String(data.id) };
+}

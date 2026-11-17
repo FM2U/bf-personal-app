@@ -47,7 +47,7 @@ export async function loadDayCalendar(sb: SupabaseClient, ownerId: string, tz: s
         if (!t) continue;
         const block = blockByEvent.get(e.id);
         if (block) seen.add(String(block.id));
-        items.push({ id: e.id, title: e.title, ...t, kind: block ? "block" : "event", from: block ? BLOCK_FROM : "Google Calendar" });
+        items.push({ id: e.id, title: e.title, ...t, kind: block ? "block" : "event", from: block ? BLOCK_FROM : "Google Calendar", attendees: e.attendees ?? [], blockId: block ? String(block.id) : null });
       }
     } catch (e) {
       const code = Number((e as { code?: unknown; response?: { status?: unknown } })?.response?.status ?? (e as { code?: unknown })?.code);
@@ -58,7 +58,7 @@ export async function loadDayCalendar(sb: SupabaseClient, ownerId: string, tz: s
   for (const b of blocks) {
     if (seen.has(String(b.id))) continue;
     const t = localTimes(String(b.starts_at), String(b.ends_at), date, tz);
-    if (t) items.push({ id: `block:${b.id}`, title: String(b.title ?? ""), ...t, kind: "block", from: BLOCK_FROM });
+    if (t) items.push({ id: `block:${b.id}`, title: String(b.title ?? ""), ...t, kind: "block", from: BLOCK_FROM, blockId: String(b.id) });
   }
   items.sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : a.end < b.end ? -1 : 1));
   return { date, status, email, items };

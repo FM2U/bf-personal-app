@@ -214,7 +214,7 @@ async function dealContext(sb: SupabaseClient, pipe: WorkPipeline, item: Row): P
   ]);
   const timeline = [
     ...((notes ?? []) as Row[]).map((n) => ({ when: String(n.created_at), text: `note: ${String(n.body ?? "").slice(0, 300)}` })),
-    ...((comms ?? []) as Row[]).map((c) => ({ when: String(c.occurred_at), text: `${c.method === "email" ? (c.direction === "incoming" ? "email received" : "email sent") : String(c.method)}: ${[c.subject, c.summary].filter(Boolean).join(". ")}` })),
+    ...((comms ?? []) as Row[]).map((c) => ({ when: String(c.occurred_at), text: `${c.method === "email" ? (c.direction === "incoming" ? "email received" : "email sent") : c.method === "other" ? "work logged" : String(c.method)}: ${[c.subject, c.summary].filter(Boolean).join(". ")}` })),
   ]
     .sort((a, b) => (a.when < b.when ? 1 : -1))
     .map((e) => `${fmtDate(e.when, "MMM d")}, ${e.text}`);

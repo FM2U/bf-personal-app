@@ -22,6 +22,7 @@ import { AccountabilityTabs, type EodBadge } from "@/components/app/nav-links";
 import { AiCardStar, AiFieldStar, AskAiPill, type EodExtras } from "@/components/app/work/ask-ai";
 import { StatusMark } from "@/components/app/work/targets-ui";
 import { Drawer } from "@/components/app/work/drawer";
+import { TodaysActivityCard } from "@/components/app/work/todays-activity";
 import { AiButton, Confirm, Figure, Line1, Line2, Name, Pill, PinnedBlock, ROW_GRIDS, RowButton, Rows, WorkCard, WorkHeader } from "@/components/app/work/ui";
 import { eodCountdown, minutesLeftWords } from "@/lib/work/settings";
 import { personHref } from "@/lib/work/people";
@@ -501,6 +502,7 @@ export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; 
       <div className="grid grid-cols-1 items-start gap-4 min-[1000px]:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]" data-testid="eod-columns">
         <div className="flex min-w-0 flex-col gap-4" data-testid="eod-left">
           <TodayTiles parts={todayStrip(n, data.threshold)} onOpen={setDrawer} />
+          {data.state === "open" || data.activity.length ? <TodaysActivityCard day={data.day} rows={data.activity} dropped={data.activityDropped} targets={data.workTargets} closed={closed} /> : null}
 
           <WorkCard
             id="eod-targets"

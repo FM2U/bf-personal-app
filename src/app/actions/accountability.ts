@@ -18,9 +18,12 @@ import { personHref } from "@/lib/work/people";
 import { countable, isCountKey, owedReasons, type Cadence } from "@/lib/accountability/targets";
 import { loadWeeklyFocus } from "@/lib/work/projects-data";
 import type { Row } from "@/lib/types";
+import { recordHref } from "@/lib/work/task-records";
 import { approveAndSendCore, type SendResult } from "@/lib/accountability/send-core";
 import { cleanDrafts, DRAFTS_KEY, NOW_MAX } from "@/lib/accountability/report-drafts";
 import { editEod } from "@/lib/accountability/eod-write";
+import { ACTIVITY_DROPPED_KEY, cleanDropped, matchCalendar, type ActivityRow } from "@/lib/accountability/activity";
+import { loadDayCalendar } from "@/lib/work/calendar-data";
 import { writeReportDrafts } from "@/lib/accountability/report-drafts-run";
 
 /**
@@ -571,4 +574,51 @@ export async function taskFromReply(contactId: string, first: string, text: stri
   if (error) return notSaved(error);
   done();
   return { ok: true, href: personHref(contactId) };
+}
+
+// ---------- Today's activity (release 3b, Bram 2026-11-16) ----------
+
+/** Keep or drop one row of Today's activity on End of day (a meeting that did not happen). Saved with the day. */
+export async function setActivityKept(day: string, id: string, keep: boolean): Promise<{ ok: true } | Fail> {
+  const s = await setup();
+  if (isFail(s)) return s;
+  const { sb, ctx } = s;
+  const key = String(id ?? "").slice(0, 200);
+  if (!key) return fail("This row was not found.");
+  const row = await ensureEod(sb, ctx, day);
+  if (isFail(row)) return row;
+  if (row.status !== "open") return fail(`Today is already ${row.status}.`);
+  const r = await editEod(sb, ctx.ownerId, day, ({ edits: all }) => {
+    const dropped = new Set(cleanDropped(all[ACTIVITY_DROPPED_KEY]));
+    if (keep) dropped.delete(key);
+    else dropped.add(key);
+    if (dropped.size) all[ACTIVITY_DROPPED_KEY] = [...dropped];
+    else delete all[ACTIVITY_DROPPED_KEY];
+    return { edits: all };
+  });
+  if (!r.ok) return fail(r.error);
+  // No page reload: the card shows the change at once.
+  return { ok: true };
+}
+
+/**
+ * The day's Google Calendar events that belong in Today's activity (release 3b): those with a contact among the people
+ * invited or named in the title, or a record named in the title, and the app's blocks. Read after End of day shows,
+ * so the page opens at its normal speed. Personal events are never returned.
+ */
+export async function calendarActivity(day: string): Promise<{ ok: true; status: string; rows: ActivityRow[] } | Fail> {
+  const s = await setup();
+  if (isFail(s)) return s;
+  const { sb, ctx } = s;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(day))) return fail("This day was not found.");
+  const [cal, { data: people }, { data: items }] = await Promise.all([
+    loadDayCalendar(sb, ctx.ownerId, ctx.tz, day),
+    sb.from("contacts").select("id,name,email,relationship_group,outreach_role,purposes").eq("owner_id", ctx.ownerId).is("archived_at", null).limit(5000),
+    sb.from("pipeline_items").select("id,name,company_name").eq("owner_id", ctx.ownerId).eq("status", "open").limit(5000),
+  ]);
+  // Privacy (2026-11-16): close friends and friends stay out unless they are part of the work (a role or a purpose).
+  const persons = ((people ?? []) as Row[]).filter((p) => String(p.name ?? "").trim() && (!["close", "friend"].includes(String(p.relationship_group ?? "")) || !!p.outreach_role || (Array.isArray(p.purposes) && p.purposes.length > 0))).map((p) => ({ id: String(p.id), name: String(p.name), email: p.email ? String(p.email) : null, href: recordHref({ kind: "person", id: String(p.id) }) }));
+  const records = ((items ?? []) as Row[]).flatMap((r) => [r.company_name, r.name].filter((n): n is string => typeof n === "string" && !!n.trim()).map((n) => ({ id: String(r.id), name: n, href: recordHref({ kind: "deal", id: String(r.id) }) })));
+  // A block keeps one id whether Google lists it or not, so a dropped block stays dropped.
+  return { ok: true, status: cal.status, rows: matchCalendar(cal.items.map((e) => ({ id: e.blockId ? `block:${e.blockId}` : e.id, title: e.title, start: e.start, end: e.end, kind: e.kind, attendees: e.attendees ?? [] })), persons, records) };
 }

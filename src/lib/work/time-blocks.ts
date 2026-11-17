@@ -6,7 +6,7 @@
  */
 
 /** One thing on a day: a Google Calendar event or one of the app's blocks, as local "HH:MM" times. */
-export type DayItem = { id: string; title: string; start: string; end: string; kind: "event" | "block"; /** Where a block came from ("Blocked from Next actions"). */ from?: string | null };
+export type DayItem = { id: string; title: string; start: string; end: string; kind: "event" | "block"; /** Where a block came from ("Blocked from Next actions"). */ from?: string | null; /** The other people invited, by email (Today's activity, 2026-11-16). */ attendees?: string[]; /** The app's own block id, also when Google lists it. */ blockId?: string | null };
 
 export const DEFAULT_BLOCK_MINUTES = 60;
 export const LENGTH_CHOICES = [15, 30, 45, 60, 90, 120] as const;
