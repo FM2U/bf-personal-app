@@ -9,6 +9,7 @@ import { approveAndSendCore, ensureEodRow, owedCount } from "@/lib/accountabilit
 import { loadWorkCtx } from "@/lib/work/data";
 import { eodLong, parseTime } from "@/lib/work/settings";
 import { reportStep } from "@/lib/accountability/auto-report-rules";
+import { refreshCalendarActivity } from "@/lib/accountability/calendar-activity";
 import { writeReportDrafts } from "@/lib/accountability/report-drafts-run";
 import { editEod } from "@/lib/accountability/eod-write";
 
@@ -16,7 +17,7 @@ import { editEod } from "@/lib/accountability/eod-write";
  * The report sends itself (Bram, 2026-11-08; claude/2026-11-08-auto-send-report-plan.md). The report job runs every
  * 5 minutes (Supabase Cron calls /api/cron/report). On a day a partner is due and the report is not sent yet:
  *  - 2 hours before the send time (Settings, Work settings, "Send by"): the AI drafts the opening, tomorrow's line and
- *    each top priority's Now line (step 4, 2026-11-15; only what is empty or still its draft), then a reminder email;
+ *    each record worked on today's Today line (step 4, 2026-11-15; release 4, 2026-11-16; only what is empty or still its draft), then a reminder email;
  *  - 30 minutes before: the same email again;
  *  - at the send time, when "Send automatically" is on: the report goes out as End of day shows it (Approve and send
  *    without the reasons question; anything not filled in goes as "(still to give)"), then the people under Also send to;
@@ -46,8 +47,8 @@ async function saveAuto(sb: SupabaseClient, day: string, ownerId: string, patch:
 }
 
 /** The reminder's line on the AI drafts (step 4), naming only what was written; null when nothing was. */
-export function draftsReadyLine(w: { opening: boolean; tomorrow: boolean; now: number }): string | null {
-  const parts = [w.opening ? "the opening" : null, w.tomorrow ? "tomorrow's line" : null, w.now ? (w.now === 1 ? "a Now line" : `${w.now} Now lines`) : null].filter((x): x is string => !!x);
+export function draftsReadyLine(w: { opening: boolean; tomorrow: boolean; today: number }): string | null {
+  const parts = [w.opening ? "the opening" : null, w.tomorrow ? "tomorrow's line" : null, w.today ? (w.today === 1 ? "a Today line" : `${w.today} Today lines`) : null].filter((x): x is string => !!x);
   if (!parts.length) return null;
   const list = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
   return `AI drafts of ${list} are ready to check on End of day.`;
@@ -124,6 +125,8 @@ export async function runReportJob(sb: SupabaseClient, ownerId: string, now: Dat
     return { day, step, detail: ok ? "emailed" : "no email (Google not connected)" };
   }
   if (step === "send") {
+    // Release 4: the day's calendar rows are matched and saved first, so a meeting on a deal after 4:00 pm still counts.
+    await refreshCalendarActivity(sb, ctx, day).catch(() => null);
     const r = await approveAndSendCore(sb, ctx, day, `auto-${day}`, true, null, "auto");
     if (r.ok) {
       await saveAuto(sb, day, ownerId, { sentAt: now.toISOString() });

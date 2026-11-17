@@ -191,8 +191,8 @@ const shot = async (page, name) => {
     await page.getByTestId("report-window").waitFor();
     assert((await page.getByTestId("report-tab").count()) === 2, "a tab per partner");
     const jakeText = await page.getByTestId("report-preview").innerText();
-    // The new layout (2026-11-15): the opening, the tracks' top priorities, the week, the Monday line.
-    assert(jakeText.includes("Hey Jake,") && /ACQUISITION · TOP PRIORITIES/i.test(jakeText) && !/TOP 3 DEALS/i.test(jakeText), "Jake's copy");
+    // Release 4 (2026-11-16): the opening, the tracks worked on today, the week, the Monday line.
+    assert(jakeText.includes("Hey Jake,") && /ACQUISITION · WORKED ON TODAY/i.test(jakeText) && !/TOP 3 DEALS/i.test(jakeText), "Jake's copy");
     const included = async () => page.$$eval("[data-testid=report-section]", (els) => els.filter((e) => e.getAttribute("data-included") === "1").map((e) => e.getAttribute("data-section")));
     // Jake, today only: Job search left out, one acquisition pick hidden (Change), the Monday line rewritten (Edit).
     const sec = (k) => page.locator(`[data-testid=report-section][data-section=${k}]`);
@@ -230,7 +230,7 @@ const shot = async (page, name) => {
     const reports = sent.filter((m) => /Daily report/.test(m.subject));
     assert(reports.length === 2 && reports.some((m) => m.to.includes("jake.morgan")) && reports.some((m) => m.to.includes("sarah.klein")), JSON.stringify(reports.map((m) => m.to)));
     const sarahMail = reports.find((m) => m.to.includes("sarah.klein"));
-    assert(sarahMail.body.includes("Hey Sarah,") && !sarahMail.body.includes("TARGETS") && sarahMail.body.includes("JOB SEARCH · TOP PRIORITIES") && sarahMail.body.includes("ACQUISITION · TOP PRIORITIES") && !sarahMail.body.includes("CONSULTING · TOP PRIORITIES") && sarahMail.body.includes("Mark owes the seller call date"), "Sarah's email has her sections and today's Acquisition");
+    assert(sarahMail.body.includes("Hey Sarah,") && !sarahMail.body.includes("TARGETS") && sarahMail.body.includes("JOB SEARCH · WORKED ON TODAY") && sarahMail.body.includes("ACQUISITION · WORKED ON TODAY") && !sarahMail.body.includes("CONSULTING · ") && sarahMail.body.includes("Mark owes the seller call date"), "Sarah's email has her sections and today's Acquisition");
     const jakeMail = reports.find((m) => m.to.includes("jake.morgan"));
     assert(!jakeMail.body.includes("JOB SEARCH") && jakeMail.body.includes("Mark owes the seller call date") && !jakeMail.body.includes(`. ${hiddenName.n}`), "Jake's email has today's choices");
     const rows = await all("select r.contact_id, r.gmail_thread_id, c.name from partner_reports r join contacts c on c.id = r.contact_id where r.period_start = (select max(day) from end_of_day where status = 'sent') and r.report_kind = 'end_of_day' order by c.name");

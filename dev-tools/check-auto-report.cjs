@@ -156,61 +156,61 @@ const auto = async (day) => ((await one("select report_edits from end_of_day whe
     }
     const a = await auto(day);
     assert(a.reminded1 && a.reminded2, JSON.stringify(a));
-    assert(/AI drafts of the opening(, tomorrow's line)? and \d+ Now lines are ready to check on End of day\./.test(String(mails[0].body)) && !String(mails[1].body).includes("AI drafts"), `the drafts line is in the first reminder only: ${mails[0].body}`);
+    assert(/AI drafts of the opening(, tomorrow's line)? and \d+ Today lines are ready to check on End of day\./.test(String(mails[0].body)) && !String(mails[1].body).includes("AI drafts"), `the drafts line is in the first reminder only: ${mails[0].body}`);
   });
 
-  await step("End of day after the 4:00 pm drafts: 'AI draft' on the opening and the Now lines; Keep, typing over, and a Now line edit make them yours; Redraft writes only what is still the AI's; the report shows the Now lines", async () => {
+  await step("End of day after the 4:00 pm drafts (release 4): 'AI draft' on the opening and the Today lines; Keep, typing over, and a Today line edit make them yours; Redraft writes only what is still the AI's; the report shows the Today lines", async () => {
     const edits = async () => (await one("select report_edits from end_of_day where day = $1", [day])).report_edits;
     let e = await edits();
     assert(e._opening && e._opening.startsWith("Mock opening") && e._drafts && e._drafts.opening === true, JSON.stringify(e._drafts));
-    const ids = Object.keys(e._drafts.now || {});
-    assert(ids.length >= 3 && ids.every((id) => e._drafts.now[id].ai === true), JSON.stringify(e._drafts.now));
+    const ids = Object.keys(e._drafts.today || {});
+    assert(ids.length >= 2 && ids.every((id) => e._drafts.today[id].ai === true), JSON.stringify(e._drafts.today));
     await open("/work/end-of-day");
     assert((await page.getByTestId("opening-input").inputValue()).startsWith("Mock opening"), "the opening box does not show the draft");
     await page.getByTestId("draft-mark-opening").waitFor();
-    const lines = page.getByTestId("now-line");
-    assert((await lines.count()) === ids.length && (await page.locator("[data-testid=now-line][data-ai='1']").count()) === ids.length, `${await lines.count()} Now lines`);
-    // The report shows the AI's Now line in place of the next action.
+    const lines = page.getByTestId("today-line");
+    assert((await lines.count()) === ids.length && (await page.locator("[data-testid=today-line][data-ai='1']").count()) === ids.length, `${await lines.count()} Today lines`);
+    // The report shows the AI's Today line on each record worked on today.
     await page.getByTestId("report-view").click();
-    await until(async () => (await page.getByTestId("report-preview").innerText()).includes("Now: Mock now for"), "the report does not show the Now lines");
+    await until(async () => (await page.getByTestId("report-preview").innerText()).includes("Today: mock today for"), "the report does not show the Today lines");
     await page.getByTestId("report-window-close").click();
-    // Keep the opening; type one Now line over; then Redraft: the kept and typed text stay, the other Now lines are drafted again.
+    // Keep the opening; type one Today line over; then Redraft: the kept and typed text stay, the other Today lines are drafted again.
     await page.getByTestId("draft-keep-opening").click();
     await until(async () => (await edits())._drafts.opening === false, "Keep did not save");
     const first = lines.first();
-    await first.getByTestId("now-input").fill("Owner call booked for Thursday; financials asked for");
+    await first.getByTestId("today-input").fill("Owner call booked for Thursday; financials asked for");
     await page.getByTestId("opening-input").click();
-    await until(async () => Object.values((await edits())._drafts.now).some((n) => n.text === "Owner call booked for Thursday; financials asked for" && n.ai === false), "the typed Now line was not saved as yours");
+    await until(async () => Object.values((await edits())._drafts.today).some((n) => n.text === "Owner call booked for Thursday; financials asked for" && n.ai === false), "the typed Today line was not saved as yours");
     await db.query("update end_of_day set report_edits = jsonb_set(report_edits, '{_opening}', '\"Kept by hand.\"') where day = $1", [day]);
     await open("/work/end-of-day");
     await page.getByTestId("redraft").click();
     await page.getByTestId("redraft-note").waitFor({ timeout: 30000 });
     e = await edits();
     assert(e._opening === "Kept by hand.", `the kept opening was replaced: ${e._opening}`);
-    const now = Object.values(e._drafts.now);
-    assert(now.filter((n) => n.ai === false).length === 1 && now.filter((n) => n.ai === true).length === ids.length - 1, JSON.stringify(e._drafts.now));
+    const now = Object.values(e._drafts.today);
+    assert(now.filter((n) => n.ai === false).length === 1 && now.filter((n) => n.ai === true).length === ids.length - 1, JSON.stringify(e._drafts.today));
     // Typing while Redraft runs: the AI's answer (3 seconds in the stand-in) never replaces text typed meanwhile, in the
     // box or in the saved day (the opening is an AI draft again first, so Redraft may write it).
     await db.query("update end_of_day set report_edits = jsonb_set(report_edits, '{_drafts,opening}', 'true') where day = $1", [day]);
     await open("/work/end-of-day");
     await page.getByTestId("redraft").click();
     await page.getByTestId("opening-input").fill("Typed while the AI was writing.");
-    const second = page.getByTestId("now-line").nth(1).getByTestId("now-input");
-    await second.fill("Typed Now line while the AI was writing");
+    const second = page.getByTestId("today-line").nth(1).getByTestId("today-input");
+    await second.fill("Typed Today line while the AI was writing");
     await page.getByTestId("opening-input").click();
     await page.getByTestId("redraft-note").waitFor({ timeout: 30000 });
     await page.waitForTimeout(1500);
     assert((await page.getByTestId("opening-input").inputValue()) === "Typed while the AI was writing.", `the opening box was replaced: ${await page.getByTestId("opening-input").inputValue()}`);
-    assert((await second.inputValue()) === "Typed Now line while the AI was writing", `the Now box was replaced: ${await second.inputValue()}`);
-    await page.getByTestId("now-line").first().getByTestId("now-input").click();
+    assert((await second.inputValue()) === "Typed Today line while the AI was writing", `the Today box was replaced: ${await second.inputValue()}`);
+    await page.getByTestId("today-line").first().getByTestId("today-input").click();
     await until(async () => {
       const x = await edits();
-      return x._opening === "Typed while the AI was writing." && x._drafts.opening === false && Object.values(x._drafts.now).some((n) => n.text === "Typed Now line while the AI was writing" && n.ai === false);
+      return x._opening === "Typed while the AI was writing." && x._drafts.opening === false && Object.values(x._drafts.today).some((n) => n.text === "Typed Today line while the AI was writing" && n.ai === false);
     }, "the text typed during Redraft was not the saved text");
-    // Clearing a Now line goes back to the next action.
-    await page.getByTestId("now-line").first().getByTestId("now-input").fill("");
+    // Clearing a Today line goes back to the kept rows of Today's activity.
+    await page.getByTestId("today-line").first().getByTestId("today-input").fill("");
     await page.getByTestId("opening-input").click();
-    await until(async () => Object.keys((await edits())._drafts.now).length === ids.length - 1, "clearing a Now line did not remove it");
+    await until(async () => Object.keys((await edits())._drafts.today).length === ids.length - 1, "clearing a Today line did not remove it");
   });
 
   await step("Send automatically off: 6:00 pm sends no report, one 'ready and not sent' email to you (once), and the day stays open", async () => {

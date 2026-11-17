@@ -29,8 +29,9 @@ import type { Row } from "@/lib/types";
 import { ownerContactsLite, ownerFinancials, pickOrRead, rowsOf } from "@/lib/work/shared-reads";
 import { loadPriorities, type PrioritiesData } from "@/lib/work/priorities-data";
 import { buildTracks, partnerName } from "@/lib/accountability/report-v8";
-import { cleanDrafts, DRAFTS_KEY, type DraftPick, type ReportDrafts } from "@/lib/accountability/report-drafts";
-import { ACTIVITY_DROPPED_KEY, cleanDropped, sortActivity, uniqueIds, type ActivityRow } from "@/lib/accountability/activity";
+import { cleanDrafts, DRAFTS_KEY, type DraftRecord, type ReportDrafts } from "@/lib/accountability/report-drafts";
+import { ACTIVITY_CALENDAR_KEY, ACTIVITY_DROPPED_KEY, cleanCalendarRows, cleanDropped, sortActivity, uniqueIds, type ActivityRow } from "@/lib/accountability/activity";
+import { buildWorked, keptBox, rowsByRecord, rowWords } from "@/lib/accountability/report-worked";
 import { nextWorkDay } from "@/lib/work-week";
 
 /**
@@ -114,7 +115,7 @@ export async function loadFacts(sb: SupabaseClient, ctx: WorkCtx, since: string)
   const pipesP = Promise.all([loadPipelineOfKind(sb, ctx.ownerId, "acquisition"), loadPipelineOfKind(sb, ctx.ownerId, "job"), loadPipelineOfKind(sb, ctx.ownerId, "consulting")]);
   pipesP.catch(() => {});
   const [[acq, job, con], { data: items }, { data: hist }, { data: comms }, { data: events }, { data: eods }, { data: people }, { data: notes }, waitRows, { data: doneTasks }] = await Promise.all([
-    sb.from("pipeline_items").select("id,name,company_name,pipeline_id,status,stage_id,pass_reason,key_finding,next_action,next_action_due,screened,broker_name,primary_contact_id,updated_at,role_title,what_it_does,location,pay_range,fee").eq("owner_id", ctx.ownerId).limit(5000),
+    sb.from("pipeline_items").select("id,name,company_name,pipeline_id,status,stage_id,pass_reason,key_finding,next_action,next_action_due,screened,broker_name,primary_contact_id,updated_at,role_title,what_it_does,location,pay_range,fee,created_at,stage_entered_at,why_fits,strength").eq("owner_id", ctx.ownerId).limit(5000),
     sb.from("stage_history").select("id,item_id,stage_id,entered_at").eq("owner_id", ctx.ownerId).order("entered_at").limit(20000),
     sb.from("communications").select("id,occurred_at,method,direction,contact_id,awaiting_log,pipeline_item_id,subject,call_minutes,partner_report_id").eq("owner_id", ctx.ownerId).gte("occurred_at", `${since}T00:00:00Z`).limit(5000),
     sb.from("work_events").select("kind,record_type,record_id,label,happened_on,happened_at,on_time,meta").eq("owner_id", ctx.ownerId).gte("happened_on", since).limit(5000),
@@ -220,7 +221,7 @@ export async function loadSentCopies(sb: SupabaseClient, ownerId: string, day: s
   });
 }
 
-type EodRow = { id: string | null; day: string; status: EodState; reasons: Record<string, string>; tomorrow: string; skipReason: string | null; sentAt: string | null; reportId: string | null; reportSubject: string | null; reportHtml: string | null; reportEdited: boolean; /** Push B edits: each partner's choices for today's copy (include, Change, Edit), by contact id. */ reportEdits: Record<string, ReportChoices>; /** Today's notes by section, once for the day and shared by every copy (report_edits._notes, 2026-11-05). */ reportNotes: ReportNotes; judged: Judged[]; /** Push D: the Weekly review answers (Fridays). */ weeklyReview: WeeklyReview; /** Fix list item 1 (2026-11-06): the partners unticked for this day only (contact ids). */ skippedPartners: string[]; /** When each Edit and + Note was last saved (2026-11-08): "<copy id>:<section>" or "note:<section>". */ editedAt: Record<string, string>; /** Also send to and the note under the greeting (2026-11-08). */ extras: ReportExtras; /** The automatic send's record (2026-11-08). */ auto: ReportAuto; /** v8 (2026-11-15): the opening paragraph (report_edits._opening). */ opening: string; /** Step 4: the AI drafts and Now lines (report_edits._drafts). */ drafts: ReportDrafts; /** Edits shared by every copy (report_edits._section_edits, 2026-11-16). */ sectionEdits: NonNullable<ReportChoices["edits"]>; /** Today's activity rows dropped (release 3b, 2026-11-16). */ activityDropped: string[] };
+type EodRow = { id: string | null; day: string; status: EodState; reasons: Record<string, string>; tomorrow: string; skipReason: string | null; sentAt: string | null; reportId: string | null; reportSubject: string | null; reportHtml: string | null; reportEdited: boolean; /** Push B edits: each partner's choices for today's copy (include, Change, Edit), by contact id. */ reportEdits: Record<string, ReportChoices>; /** Today's notes by section, once for the day and shared by every copy (report_edits._notes, 2026-11-05). */ reportNotes: ReportNotes; judged: Judged[]; /** Push D: the Weekly review answers (Fridays). */ weeklyReview: WeeklyReview; /** Fix list item 1 (2026-11-06): the partners unticked for this day only (contact ids). */ skippedPartners: string[]; /** When each Edit and + Note was last saved (2026-11-08): "<copy id>:<section>" or "note:<section>". */ editedAt: Record<string, string>; /** Also send to and the note under the greeting (2026-11-08). */ extras: ReportExtras; /** The automatic send's record (2026-11-08). */ auto: ReportAuto; /** v8 (2026-11-15): the opening paragraph (report_edits._opening). */ opening: string; /** Step 4: the AI drafts and Now lines (report_edits._drafts). */ drafts: ReportDrafts; /** Edits shared by every copy (report_edits._section_edits, 2026-11-16). */ sectionEdits: NonNullable<ReportChoices["edits"]>; /** Today's activity rows dropped (release 3b, 2026-11-16). */ activityDropped: string[]; /** The calendar rows saved with the day (release 4). */ calendarRows: ActivityRow[] };
 
 export async function loadEodRow(sb: SupabaseClient, ownerId: string, day: string): Promise<EodRow> {
   const { data } = await sb.from("end_of_day").select("*").eq("owner_id", ownerId).eq("day", day).maybeSingle();
@@ -251,6 +252,7 @@ export async function loadEodRow(sb: SupabaseClient, ownerId: string, day: strin
     drafts: cleanDrafts(r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? (r.report_edits as Record<string, unknown>)[DRAFTS_KEY] : null),
     sectionEdits: cleanChoices({ edits: r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? (r.report_edits as Record<string, unknown>)[SECTION_EDITS_KEY] : null }).edits ?? {},
     activityDropped: cleanDropped(r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? (r.report_edits as Record<string, unknown>)[ACTIVITY_DROPPED_KEY] : null),
+    calendarRows: cleanCalendarRows(r?.report_edits && typeof r.report_edits === "object" && !Array.isArray(r.report_edits) ? (r.report_edits as Record<string, unknown>)[ACTIVITY_CALENDAR_KEY] : null),
   };
 }
 
@@ -397,9 +399,10 @@ export type EndOfDayPage = {
   activityDropped: string[];
   /** The open deals, jobs and consulting leads Log work can be about. */
   workTargets: { id: string; name: string; track: string }[];
-  nowLines: { id: string; name: string; track: string; text: string; fallback: string | null; ai: boolean; saved: boolean }[];
-  /** What the AI drafts are written from: each pick with its facts, and the next working day's actions. */
-  draftInput: { picks: DraftPick[]; dueNext: string[]; activity: string[] };
+  /** Release 4 (2026-11-16): each record worked on today, with its Today line (saved, or empty for the kept rows in plain words). */
+  todayLines: { id: string; name: string; track: string; text: string; fallback: string | null; ai: boolean; saved: boolean }[];
+  /** What the AI drafts are written from: each record worked on today with its kept rows, and the next working day's actions. */
+  draftInput: { records: DraftRecord[]; dueNext: string[]; activity: string[] };
   state: EodState;
   sentAt: string | null;
   sentTime: string | null;
@@ -440,7 +443,7 @@ export async function loadReportV8(sb: SupabaseClient, ownerId: string, day: str
   const [priorities, fin, projects, decisions, notes] = await Promise.all([
     loadPriorities(sb, ownerId),
     ownerFinancials(sb, ownerId),
-    sb.from("projects").select("id,name,goal,milestone,status,next_action,next_action_due,updated_at").eq("owner_id", ownerId).limit(1000),
+    sb.from("projects").select("id,name,goal,milestone,status,next_action,next_action_due,updated_at,created_at,why_fits,strength").eq("owner_id", ownerId).limit(1000),
     sb.from("decisions").select("pipeline_item_id,project_id,decided_on,outcome,line").eq("owner_id", ownerId).gte("decided_on", since).limit(500),
     sb.from("notes").select("record_id,body,created_at").eq("owner_id", ownerId).eq("record_type", "projects").gte("created_at", `${since}T00:00:00Z`).limit(2000),
   ]);
@@ -489,18 +492,9 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
   const tracks = i.v8 && i.v8.priorities.ready
     ? buildTracks({ columns: i.v8.priorities.columns, items: bundle.raw.items, projects: i.v8.projects, ebitda: i.v8.ebitda, history: bundle.raw.history, stageById: bundle.raw.stageById, pipes: { acquisition: bundle.raw.acqId, job: bundle.raw.jobId, consulting: bundle.raw.conId ?? null }, decisions: i.v8.decisions, screenedThisWeek: countIn("listings_screened", bundle.facts, weekStart, day).value, weekStart, day, local, startupActive, nowOverride: Object.fromEntries(Object.entries(row.drafts.now).map(([id, n]) => [id, n.text])) })
     : null;
-  // Step 4 (2026-11-15): the picks' Now lines for End of day, and what the AI drafts are written from.
   const trackLabel: Record<string, string> = { acquisition: "Acquisition", job: "Job search", consulting: "Consulting", startup: "Startup" };
-  const allPicks = i.v8 && i.v8.priorities.ready ? (["acquisition", "job", "consulting", "startup"] as const).filter((k) => k !== "startup" || startupActive).flatMap((k) => i.v8!.priorities.ready ? i.v8!.priorities.columns[k].map((p) => ({ ...p, track: trackLabel[k] })) : []) : [];
   const itemRow = new Map(bundle.raw.items.map((r) => [String(r.id), r]));
   const projectRow = new Map((i.v8?.projects ?? []).map((r) => [String(r.id), r]));
-  const nextLineOf = (r: Row | undefined) => (r?.next_action ? `${String(r.next_action)}${r.next_action_due ? `, due ${String(r.next_action_due).slice(0, 10)}` : ""}` : null);
-  const nowLines = allPicks.map((p) => {
-    const r = p.table === "projects" ? projectRow.get(p.id) : itemRow.get(p.id);
-    const saved = row.drafts.now[p.id];
-    const fallback = nextLineOf(r);
-    return { id: p.id, name: p.name, track: p.track, text: saved?.text ?? "", fallback, ai: !!saved?.ai, saved: !!saved };
-  });
   const waitOf = new Map(bundle.waits.map((w) => [w.dealId, `${w.days} days${w.who ? ` on ${w.who}` : ""}${w.what ? ` for ${w.what}` : ""}`]));
   const notesOf = (id: string) =>
     [...bundle.raw.notes.filter((n) => String(n.record_id) === id), ...(i.v8?.projectNotes ?? []).filter((n) => String(n.record_id) === id)]
@@ -544,17 +538,42 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
     .map((r) => ({ id: String(r.id), name: displayName({ name: String(r.name), companyName: (r.company_name as string | null) ?? null }), track: trackOf(r) }))
     .sort((a, b) => a.track.localeCompare(b.track) || a.name.localeCompare(b.name))
     .filter((t, n, all) => all.slice(0, n).filter((x) => x.track === t.track).length < 150);
+  // Release 4 (2026-11-16): the report is built from Today's activity, kept rows only (the app's rows and the calendar
+  // rows saved with the day), so a dropped row never reaches the report or the AI.
+  const droppedSet = new Set(row.activityDropped);
+  const kept = sortActivity([...activity, ...row.calendarRows]).filter((r) => !droppedSet.has(r.id));
+  const keptByRecord = rowsByRecord(kept);
+  const worked = i.v8 && i.v8.priorities.ready
+    ? buildWorked({ rows: kept, items: bundle.raw.items, projects: i.v8.projects, pipes: { acquisition: bundle.raw.acqId, job: bundle.raw.jobId, consulting: bundle.raw.conId ?? null }, stageById: bundle.raw.stageById, history: bundle.raw.history, columns: i.v8.priorities.columns, ebitda: i.v8.ebitda, day, local, todayText: Object.fromEntries(Object.entries(row.drafts.today).map(([id, n]) => [id, n.text])) })
+    : null;
+  // The gray Today box: the day's counts less the rows dropped (the same rules as the targets).
+  const box = keptBox({
+    kept,
+    dropped: droppedSet,
+    comms: bundle.raw.comms
+      .filter((c) => local(String(c.occurred_at)) === day && c.direction !== "incoming" && !c.awaiting_log)
+      .map((c) => ({ rowId: `comm:${c.id}`, contactId: c.contact_id ? String(c.contact_id) : null, broker: personById.get(String(c.contact_id ?? ""))?.outreach_role === "broker", method: String(c.method) })),
+    acquisitionIds: new Set(bundle.raw.items.filter((r) => String(r.pipeline_id) === String(bundle.raw.acqId)).map((r) => String(r.id).toLowerCase())),
+  });
+  const workedList = worked ? (["acquisition", "job", "consulting", "startup"] as const).flatMap((k) => worked[k].map((w) => ({ ...w, kind: k, track: trackLabel[k] }))) : [];
+  const todayLines = workedList.map((w) => {
+    const saved = row.drafts.today[w.id];
+    const fallback = w.today && !saved ? w.today : (keptByRecord.get(w.id) ?? []).map(rowWords).join("; ") || null;
+    return { id: w.id, name: w.name, track: w.track, text: saved?.text ?? "", fallback, ai: !!saved?.ai, saved: !!saved };
+  });
   const nextDay = nextWorkDay(day);
   const draftInput = {
-    picks: allPicks.map((p): DraftPick => {
-      const r = p.table === "projects" ? projectRow.get(p.id) : itemRow.get(p.id);
-      return { id: p.id, track: p.track, name: partnerName(p.name), stage: p.stage, why: p.why, nextAction: r?.next_action ? String(r.next_action) : null, nextActionDue: r?.next_action_due ? String(r.next_action_due).slice(0, 10) : null, nextDecision: p.next ? `${p.next.text}${p.next.on ? ` by ${p.next.on}` : ""}` : null, movedToday: p.movedToday, waiting: waitOf.get(p.id) ?? null, notes: notesOf(p.id) };
+    records: workedList.map((w): DraftRecord => {
+      const r = w.kind === "startup" ? projectRow.get(w.id) : itemRow.get(w.id);
+      return { id: w.id, track: w.track, name: w.name, stage: w.stage, topPriority: typeof w.mark === "number" ? w.mark : null, newToday: w.mark === "+" || w.since === "new today", moved: w.moved, activity: (keptByRecord.get(w.id) ?? []).map((x) => rowWords({ kind: x.kind === "note" ? "work" : x.kind, text: x.text })).slice(0, 12), nextAction: r?.next_action ? String(r.next_action) : null, nextActionDue: r?.next_action_due ? String(r.next_action_due).slice(0, 10) : null, waiting: waitOf.get(w.id) ?? null, notes: notesOf(w.id) };
     }),
     dueNext: [...bundle.raw.items.filter((r) => r.status === "open" && String(r.next_action_due ?? "").slice(0, 10) === nextDay && r.next_action).map((r) => `${String(r.next_action)} (${partnerName(String(r.company_name || r.name))})`), ...(i.v8?.projects ?? []).filter((r) => r.status === "open" && String(r.next_action_due ?? "").slice(0, 10) === nextDay && r.next_action).map((r) => `${String(r.next_action)} (${String(r.name)})`)].slice(0, 15),
-    activity: [...deals, ...jobs].filter((d) => d.activity.length).map((d) => `${partnerName(d.name)}: ${d.activity.join("; ")}`).slice(0, 15),
+    activity: kept.map((r) => `${r.record ? `${partnerName(r.record)}: ` : ""}${rowWords({ kind: r.kind === "note" ? "work" : r.kind, text: r.text })}`).slice(0, 40),
   };
   const report: ReportData = {
     ...(tracks ? { layout: "v8" as const, opening: row.opening || null, tracks } : {}),
+    // Release 4 (2026-11-16): the tracks as "worked on today" and the gray Today box.
+    ...(tracks && worked ? { worked, box } : {}),
     signName: i.signName ?? null,
     partnerName: "Partner",
     partnerFirst: "there",
@@ -625,7 +644,7 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
     opening: row.opening,
     v8: report.layout === "v8",
     drafts: row.drafts,
-    nowLines,
+    todayLines,
     draftInput,
     activity,
     activityDropped: row.activityDropped,

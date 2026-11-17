@@ -12,6 +12,7 @@
  */
 import type { ReportTile } from "@/lib/accountability/targets";
 import type { PipelineCol, ReportPick, ReportTracks } from "@/lib/accountability/report-v8";
+import type { TodayCount, WorkedRecord, WorkedTracks } from "@/lib/accountability/report-worked";
 import { stalledAt } from "@/lib/work/stages";
 import type { TileStatus } from "@/lib/calc/partner-report";
 
@@ -74,6 +75,13 @@ export type ReportData = {
   opening?: string | null;
   /** v8: the four tracks (top priorities, decided this week, pipeline). */
   tracks?: ReportTracks | null;
+  /**
+   * Release 4 (2026-11-16): each track's records worked on today (from Today's activity, kept rows only). With it the
+   * tracks read "<Track> · worked on today"; reports built before it keep the top priorities.
+   */
+  worked?: WorkedTracks | null;
+  /** Release 4: the gray Today box under the opening (Listings added · Deals moved · Brokers contacted · Calls and meetings · Network outreach). */
+  box?: TodayCount[] | null;
   /** Send a report (Bram, 2026-11-07): a short note of your own under the greeting, for that send only. */
   intro?: string | null;
   /** Fix list item 10 (2026-11-06): the name under "Thank you," (the first word of the Name in Settings); none when not set. */
@@ -170,9 +178,13 @@ export type Block = { title?: string; tone?: "red" | "amber" | "green"; items: I
 export type BuiltSection = {
   key: SectionKey;
   title: string;
-  kind: "tiles" | "list" | "line" | "priorities";
+  kind: "tiles" | "list" | "line" | "priorities" | "worked";
   /** v8 "priorities": the picks shown (after Change), the decided line, and the Pipeline table. */
   picks?: ReportPick[];
+  /** Release 4 "worked": the records worked on today shown (after Change), and the Pipeline table. */
+  worked?: WorkedRecord[];
+  /** Release 4: the gray Today box, on the opening. */
+  box?: TodayCount[] | null;
   decided?: string | null;
   pipeline?: PipelineCol[] | null;
   tiles: ReportTile[];
@@ -487,6 +499,18 @@ export function pickText(p: ReportPick): string {
     .join("\n");
 }
 
+/** A record worked on today as plain text (Edit starts from it): the name line, Upside, the facts line, Today, Next. */
+export function workedText(w: WorkedRecord): string {
+  const facts = [w.stage, w.strength ? w.strength[0].toUpperCase() + w.strength.slice(1) : null, w.since, w.moved ? `▲ ${w.moved}` : null].filter(Boolean).join(" · ");
+  const mark = typeof w.mark === "number" ? `${w.mark}.` : w.mark === "+" ? "+" : "-";
+  return [`${mark} ${w.name}${w.meta ? ` · ${w.meta}` : ""}`, w.upside ? `  Upside: ${w.upside}` : "", facts ? `  ${facts}` : "", w.today ? `  Today: ${w.today}` : "", w.next ? `  Next: ${w.next}` : ""].filter(Boolean).join("\n");
+}
+
+/** The gray Today box as plain text: "Today: Listings added 2 · Deals moved 3 · ...". */
+export function boxText(box: readonly TodayCount[]): string {
+  return `Today: ${box.map((c) => `${c.label} ${c.value}`).join(" · ")}`;
+}
+
 /** The Pipeline table as plain text: "Pipeline: Screened +14 · CIM review +2, 4 in stage · ...". */
 export function pipelineText(cols: readonly PipelineCol[]): string {
   return `Pipeline: ${cols.map((c) => `${c.label} ${c.added ? `+${c.added}` : "–"}${c.inStage === null ? "" : `, ${c.inStage} in stage`}`).join(" · ")}`;
@@ -505,12 +529,37 @@ function buildV8Sections(d: ReportData): BuiltSection[] {
   };
   const base: Pick<BuiltSection, "tiles" | "blocks" | "pick"> = { tiles: [], blocks: [], pick: null };
 
-  // The opening: the few lines typed on End of day (no heading in the email).
+  // The opening: the few lines typed on End of day (no heading in the email); release 4: the gray Today box under it.
   const opening = String(d.opening ?? "").trim() || null;
-  push({ ...base, key: "opening", kind: "line", line: opening, text: opening ?? "", choices: null, emptyAfterChange: false, quiet: opening ? null : "(no opening yet)" });
+  push({ ...base, key: "opening", kind: "line", line: opening, text: opening ?? "", choices: null, emptyAfterChange: false, quiet: opening ? null : "(no opening yet)", box: d.worked && d.box ? d.box : null });
 
-  // The tracks: the picks (Change hides one), Decided this week, the Pipeline table.
-  for (const key of ["acquisition", "jobs", "consulting", "startup"] as const) {
+  // Release 4 (2026-11-16): "<Track> · worked on today", the records with kept activity today; a track with no work is left out.
+  if (d.worked) {
+    const titleOf: Record<"acquisition" | "jobs" | "consulting" | "startup", string> = { acquisition: "Acquisition · worked on today", jobs: "Job search · worked on today", consulting: "Consulting · worked on today", startup: "Startup · worked on today" };
+    for (const key of ["acquisition", "jobs", "consulting", "startup"] as const) {
+      const all = d.worked[TRACK_OF[key]] ?? [];
+      if (!all.length) continue;
+      const h = new Set(c.hidden?.[key] ?? []);
+      const shown = all.filter((w) => !h.has(w.id));
+      const pipeline = key === "acquisition" ? (d.tracks?.acquisition.pipeline ?? null) : null;
+      push({
+        ...base,
+        key,
+        title: titleOf[key],
+        kind: "worked",
+        line: null,
+        worked: shown,
+        pipeline,
+        text: [...shown.map(workedText), pipeline ? pipelineText(pipeline) : ""].filter(Boolean).join("\n"),
+        choices: all.map((w) => ({ id: w.id, label: w.name, on: !h.has(w.id) })),
+        emptyAfterChange: !shown.length,
+        quiet: null,
+      });
+    }
+  }
+
+  // The tracks: the picks (Change hides one), Decided this week, the Pipeline table (reports built before release 4).
+  for (const key of d.worked ? [] : (["acquisition", "jobs", "consulting", "startup"] as const)) {
     const t = d.tracks?.[TRACK_OF[key]];
     if (!t) continue;
     if (key === "startup" && (!t.picks.length || !d.tracks?.startupActive)) continue;

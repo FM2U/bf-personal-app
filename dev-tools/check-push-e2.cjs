@@ -612,11 +612,11 @@ const until = async (fn, msg, tries = 60) => {
     assert(waitItems.length === waiting.deals + waiting.people && waitItems.some((t) => t.startsWith("Priya Natarajan") && t.includes("· Contacts")), JSON.stringify(waitItems));
     await page.keyboard.press("Escape");
     await drawer.waitFor({ state: "hidden" });
-    // The report (new layout, 2026-11-15) lists top priorities, never the people waited on.
+    // The report (release 4) lists the deals worked on today, never the people waited on.
     await page.getByTestId("report-view").click();
     await page.getByTestId("report-window").waitFor();
     const preview = await page.getByTestId("report-preview").innerText();
-    assert(/Acquisition · top priorities/i.test(preview) && !preview.includes("Priya Natarajan"), preview.slice(0, 400));
+    assert(/Acquisition · worked on today/i.test(preview) && !preview.includes("Priya Natarajan"), preview.slice(0, 400));
     await page.keyboard.press("Escape");
   });
 
@@ -942,7 +942,7 @@ const until = async (fn, msg, tries = 60) => {
     assert((await wsec("acquisition").getByTestId("section-note-open").innerText()) === "Edit note" && (await wsec("acquisition").getByTestId("section-note-remove").innerText()) === "Remove note", "Edit note and Remove note");
     await until(async () => (await notesInDb()).acquisition === TOP_NOTE, "saved in report_edits._notes");
     const saved = (await one("select report_edits from end_of_day where day = $1", [today])).report_edits;
-    assert(Object.keys(saved).every((k) => k === "_notes" || k === "_edited_at" || k === "_rev" || /^[0-9a-f-]{36}$/.test(k)), JSON.stringify(Object.keys(saved)));
+    assert(Object.keys(saved).every((k) => k === "_notes" || k === "_edited_at" || k === "_rev" || k === "_activity_calendar" || /^[0-9a-f-]{36}$/.test(k)), JSON.stringify(Object.keys(saved)));
     await wsec("acquisition").getByTestId("section-note").evaluate((e) => e.scrollIntoView({ block: "center" }));
     if (SHOTS) await win().screenshot({ path: path.join(SHOTS, "report-note-top-3-deals-1440.png") });
   });

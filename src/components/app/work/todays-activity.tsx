@@ -14,7 +14,8 @@ import { cn } from "@/lib/utils";
 /**
  * Today's activity on End of day (Bram, 2026-11-16, release 3b): one list of the day from what the app recorded, the
  * work logged with "+ Log work", and the matching Google Calendar events (read after the page shows). Each row has
- * Drop (or Keep again); a dropped row is grayed and left out of the report built from this list (release 4).
+ * Drop (or Keep again); a dropped row is grayed and left out of the report built from this list (release 4: the tracks
+ * "worked on today", their Today lines and the 4:00 pm drafts).
  */
 
 const INPUT = "h-9 w-full min-w-0 rounded-[7px] border border-input bg-white px-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
@@ -32,6 +33,8 @@ export function TodaysActivityCard({ day, rows, dropped, targets, closed }: { da
     let live = true;
     calendarActivity(day)
       .then((r) => {
+        // Release 4: when new calendar rows were saved with the day, the page's report and Today lines are read again
+        // by the save itself (one page read, no reload).
         if (live) setCal(r.ok ? { status: r.status, rows: r.rows } : { status: "unavailable", rows: [] });
       })
       .catch(() => live && setCal({ status: "unavailable", rows: [] }));
@@ -51,7 +54,9 @@ export function TodaysActivityCard({ day, rows, dropped, targets, closed }: { da
     });
     start(async () => {
       setError(null);
-      const r = await setActivityKept(day, id, keep);
+      // Release 4: the save reads the page's report and Today lines again (one page read, no reload); the list stays as it is.
+      const row = all.find((x) => x.id === id);
+      const r = await setActivityKept(day, id, keep, row ? (row.recordHref ?? row.href) : null);
       if (!r.ok) {
         setError(r.error);
         setOff((s) => {

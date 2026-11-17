@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clock12, cleanDropped, matchCalendar, sortActivity, uniqueIds, type ActivityRow } from "./activity";
+import { cleanCalendarRows, clock12, cleanDropped, matchCalendar, sortActivity, uniqueIds, type ActivityRow } from "./activity";
 
 const people = [
   { id: "p1", name: "David Aferiat", email: "david@avid.example", href: "/work/people/p1" },
@@ -32,6 +32,16 @@ describe("Today's activity (release 3b, 2026-11-16)", () => {
       ["cal:e4", "00 Established Testing Laboratory Business", "Established Testing Laboratory Business broker call, 30 min"],
       ["cal:b1", null, "Finish the 7-year model, 60 min"],
     ]);
+    // Release 4: a record named in the title is kept as the row's record, also when the link goes to a person.
+    expect(rows.map((r) => r.recordHref ?? null)).toEqual([null, null, "/work/deals/d1", "/work/deals/d2", null]);
+  });
+
+  it("reads the saved calendar rows back clean (release 4)", () => {
+    expect(cleanCalendarRows([{ id: "cal:e3", kind: "calendar", text: "Model review, 60 min", record: "Moody", time: "13:00", href: "/work/deals/d1", recordHref: "/work/deals/d1" }, { id: "comm:1", text: "not a calendar row" }, { id: "cal:x", text: "" }, "junk", { id: "cal:e9", text: "Call", time: "1pm" }])).toEqual([
+      { id: "cal:e3", kind: "calendar", text: "Model review, 60 min", record: "Moody", time: "13:00", href: "/work/deals/d1", recordHref: "/work/deals/d1" },
+      { id: "cal:e9", kind: "calendar", text: "Call", record: null, time: null, href: null, recordHref: null },
+    ]);
+    expect(cleanCalendarRows(null)).toEqual([]);
   });
 
   it("orders timed rows by time, then the rest; keeps the dropped ids clean", () => {

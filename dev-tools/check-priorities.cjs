@@ -221,16 +221,19 @@ const idOf = async (name) => (await one("select id from pipeline_items where nam
     assert((await card().getByTestId("priority-tracks").getAttribute("data-collapsed")) === "1", "the card opened again on reload");
   });
 
-  await step("Report (2026-11-16): Why/Now/Next labels in the number's cobalt with gaps between lines; an unnamed listing shows without '00 '; an Edit box left open while the report changes saves nothing; the gray 'Edited' word never unticks; an Edit goes into every copy", async () => {
+  await step("Report (2026-11-16; release 4): Upside/Today/Next labels in the number's cobalt with gaps between lines; an unnamed listing shows without '00 '; an Edit box left open while the report changes saves nothing; the gray 'Edited' word never unticks; an Edit goes into every copy", async () => {
     const eod = async () => (await one("select report_edits from end_of_day order by day desc limit 1")) || { report_edits: {} };
-    const pick = await one("select p.id, p.name, p.company_name from pipeline_items p where p.priority_rank = 1 and p.status = 'open' and p.pipeline_id = (select id from pipelines where kind = 'acquisition' limit 1)");
-    await db.query("update pipeline_items set company_name = null, name = '00 Commercial Test Services' where id = $1", [pick.id]);
+    const pick = await one("select p.id, p.name, p.company_name, p.why_fits, p.owner_id from pipeline_items p where p.priority_rank = 1 and p.status = 'open' and p.pipeline_id = (select id from pipelines where kind = 'acquisition' limit 1)");
+    await db.query("update pipeline_items set company_name = null, name = '00 Commercial Test Services', why_fits = 'Steady testing demand from regulated industries' where id = $1", [pick.id]);
+    // Release 4: the report lists the records worked on today, so the pick gets an hour of work today (the app's clock).
+    await db.query("insert into communications (owner_id, occurred_at, method, direction, pipeline_item_id, subject, call_minutes) values ($1, $2, 'other', 'outgoing', $3, 'Deal structure review', 60)", [pick.owner_id, new Date().toISOString(), pick.id]);
     await open("/work/end-of-day");
     await page.getByTestId("report-view").click();
     const prev = page.getByTestId("report-preview");
     await prev.waitFor();
     const html = await prev.innerHTML();
-    assert(/color:\s*(#1e40af|rgb\(30, 64, 175\))[^>]*>Why:/.test(html) && /padding-top:\s*10px/.test(html), "the Why label is not cobalt or has no gap above it");
+    assert(/color:\s*(#1e40af|rgb\(30, 64, 175\))[^>]*>Upside:/.test(html) && /padding-top:\s*10px[^>]*><span[^>]*>Today:/.test(html), "the Upside label is not cobalt, or Today has no gap above it");
+    assert(!html.includes(">Why:<") && !html.includes(">Now:<"), "the report still shows Why or Now");
     const text = (await prev.innerText()).replace(/\s+/g, " ");
     assert(text.includes("Commercial Test Services") && !text.includes("00 Commercial Test Services"), "the '00 ' start shows to partners");
     const sec = (k) => page.locator(`[data-testid=report-section][data-section=${k}]`);
@@ -266,7 +269,7 @@ const idOf = async (name) => (await one("select id from pipeline_items where nam
       assert((await prev.innerText()).includes("Edited line for every copy"), "the Edit is not in the other partner's copy");
     }
     await page.getByTestId("report-window-close").click();
-    await db.query("update pipeline_items set name = $2, company_name = $3 where id = $1", [pick.id, pick.name, pick.company_name]);
+    await db.query("update pipeline_items set name = $2, company_name = $3, why_fits = $4 where id = $1", [pick.id, pick.name, pick.company_name, pick.why_fits]);
   });
 
   await step("Log a meeting (2026-11-16): next to Log a call on a person's page; saved as a meeting on the timeline; End of day counts calls and meetings together with the split", async () => {
@@ -341,6 +344,56 @@ const idOf = async (name) => (await one("select id from pipeline_items where nam
     await pick("all");
     const incoming = page.getByTestId("incoming-empty");
     if (await incoming.count()) assert((await incoming.innerText()).includes("Replies to your reports and to emails sent from the app show here."), "the Incoming wording");
+  });
+
+  await step("The new daily report (release 4): '<Track> · worked on today' lists only records with kept activity; the gray Today box under the opening; Upside above the pill line; the Today line typed on End of day shows; Drop takes a record out; the subject has the day's counts", async () => {
+    const pick = await one("select p.id, p.name, p.company_name from pipeline_items p where p.priority_rank = 1 and p.status = 'open' and p.pipeline_id = (select id from pipelines where kind = 'acquisition' limit 1)");
+    const name = pick.company_name || pick.name;
+    await open("/work/end-of-day");
+    const lines = page.getByTestId("eod-today-lines");
+    await lines.waitFor({ timeout: 20000 });
+    const line = lines.getByTestId("today-line").filter({ hasText: name });
+    assert(await line.count(), `${name} has no Today line on End of day`);
+    await line.getByTestId("today-input").fill("about an hour on the deal structure");
+    await page.getByTestId("opening-input").click();
+    await until(async () => Object.values(((await one("select report_edits from end_of_day order by day desc limit 1")).report_edits._drafts || {}).today || {}).some((n) => n.text === "about an hour on the deal structure"), "the Today line was not saved");
+    await open("/work/end-of-day");
+    await page.getByTestId("report-view").click();
+    const prev = page.getByTestId("report-preview");
+    await prev.waitFor();
+    let text = (await prev.innerText()).replace(/\s+/g, " ");
+    assert(/Acquisition · worked on today/i.test(text), `no Acquisition track: ${text.slice(0, 300)}`);
+    assert(!/top priorities/i.test(text.replace("1 to 3 are my top priorities", "")), "a track still reads 'top priorities'");
+    assert(text.includes("Today: about an hour on the deal structure"), "the typed Today line is not in the report");
+    for (const label of ["Listings added", "Deals moved", "Brokers contacted", "Calls and meetings", "Network outreach"]) assert(text.includes(label), `the Today box has no ${label}`);
+    const html = await prev.innerHTML();
+    assert(html.indexOf("data-today-box") > -1 && html.indexOf("data-today-box") < html.search(/Acquisition · worked on today/i), "the Today box is not under the opening");
+    const block = html.slice(html.indexOf(name.replace(/&/g, "&amp;")));
+    assert(block.indexOf("Upside:") > -1 && block.indexOf("Upside:") < block.indexOf("Today:"), "Upside is not above the pill line and Today");
+    await shot("report-release4");
+    await page.getByTestId("report-window-close").click();
+    // Drop every row about the pick: it leaves the report.
+    const card = page.getByTestId("eod-activity");
+    const rows = card.getByTestId("activity-row").filter({ hasText: name });
+    const n = await rows.count();
+    assert(n >= 1, "no activity row names the pick");
+    const ids = [];
+    for (let k = 0; k < n; k++) {
+      ids.push(await rows.nth(k).getAttribute("data-id"));
+      await rows.nth(k).getByTestId("activity-toggle").click();
+      await until(async () => (await rows.nth(k).getAttribute("data-off")) === "1", "Drop did not gray the row");
+    }
+    await until(async () => {
+      const saved = (await one("select report_edits from end_of_day order by day desc limit 1")).report_edits._activity_dropped || [];
+      return ids.every((id) => saved.includes(id));
+    }, "the drops were not saved");
+    await open("/work/end-of-day");
+    await page.getByTestId("report-view").click();
+    await prev.waitFor();
+    text = (await prev.innerText()).replace(/\s+/g, " ");
+    assert(!text.includes("Today: about an hour on the deal structure"), "a dropped record is still in the report");
+    await page.getByTestId("report-window-close").click();
+    await db.query("update end_of_day set report_edits = report_edits - '_activity_dropped' where day = (select max(day) from end_of_day)");
   });
 
   await step("No page showed an error in the browser", async () => {

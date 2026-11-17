@@ -12,11 +12,12 @@ import { workWeekNow } from "@/lib/work-week";
  */
 export const REPORT_SECTIONS = [
   // The report's sections since the redesign (v8, Bram 2026-11-15).
-  { key: "opening", label: "Opening", hint: "A few lines on the day, under the greeting" },
-  { key: "acquisition", label: "Acquisition", hint: "Top priorities, decided this week, the pipeline" },
-  { key: "jobs", label: "Job search", hint: "Top priorities, decided this week, the pipeline" },
-  { key: "consulting", label: "Consulting", hint: "Top priorities, decided this week, the pipeline" },
-  { key: "startup", label: "Startup", hint: "Initiatives, on days with startup work" },
+  // Release 4 (2026-11-16): the tracks list the records worked on that day; a track with no work is left out.
+  { key: "opening", label: "Opening", hint: "A few lines on the day and the Today box, under the greeting" },
+  { key: "acquisition", label: "Acquisition", hint: "Deals worked on today, and the pipeline" },
+  { key: "jobs", label: "Job search", hint: "Jobs worked on today" },
+  { key: "consulting", label: "Consulting", hint: "Consulting leads worked on today" },
+  { key: "startup", label: "Startup", hint: "Rosara projects worked on today" },
   { key: "review", label: "The week", hint: "Fridays: what went well, what slipped, next week's focus" },
   { key: "tomorrow", label: "Tomorrow's line", hint: null },
 ] as const;

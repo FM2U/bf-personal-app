@@ -6,46 +6,46 @@ const B = "22222222-2222-4222-8222-222222222222";
 
 describe("the 4:00 pm AI drafts (step 4, 2026-11-15)", () => {
   it("writes only what is empty or still an AI draft; typed, edited and kept text stays", () => {
-    expect(draftTargets({ opening: "", tomorrow: "", drafts: NO_DRAFTS, pickIds: [A, B] })).toEqual({ opening: true, tomorrow: true, now: [A, B] });
-    expect(draftTargets({ opening: "Typed by hand", tomorrow: "Typed", drafts: NO_DRAFTS, pickIds: [A] })).toEqual({ opening: false, tomorrow: false, now: [A] });
-    const drafts = { at: "x", opening: true, tomorrow: false, now: { [A]: { text: "AI line", ai: true }, [B]: { text: "Kept line", ai: false } } };
-    expect(draftTargets({ opening: "AI text", tomorrow: "Typed", drafts, pickIds: [A, B] })).toEqual({ opening: true, tomorrow: false, now: [A] });
+    expect(draftTargets({ opening: "", tomorrow: "", drafts: NO_DRAFTS, recordIds: [A, B] })).toEqual({ opening: true, tomorrow: true, today: [A, B] });
+    expect(draftTargets({ opening: "Typed by hand", tomorrow: "Typed", drafts: NO_DRAFTS, recordIds: [A] })).toEqual({ opening: false, tomorrow: false, today: [A] });
+    const drafts = { at: "x", opening: true, tomorrow: false, now: {}, today: { [A]: { text: "AI line", ai: true }, [B]: { text: "Kept line", ai: false } } };
+    expect(draftTargets({ opening: "AI text", tomorrow: "Typed", drafts, recordIds: [A, B] })).toEqual({ opening: true, tomorrow: false, today: [A] });
   });
 
-  it("keeps the saved drafts clean", () => {
+  it("keeps the saved drafts clean (the old Now lines are read but no longer drafted)", () => {
     expect(cleanDrafts(null)).toEqual(NO_DRAFTS);
-    expect(cleanDrafts({ at: "2026-11-15T21:00:00Z", opening: true, tomorrow: "yes", now: { [A]: { text: "  a  line ", ai: true }, "not-an-id": { text: "x", ai: true }, [B]: { text: "", ai: true } } })).toEqual({ at: "2026-11-15T21:00:00Z", opening: true, tomorrow: false, now: { [A]: { text: "a line", ai: true } } });
+    expect(cleanDrafts({ at: "2026-11-15T21:00:00Z", opening: true, tomorrow: "yes", now: { [A]: { text: "  a  line ", ai: true }, "not-an-id": { text: "x", ai: true }, [B]: { text: "", ai: true } }, today: { [B.toUpperCase()]: { text: "signed the NDA", ai: false } } })).toEqual({ at: "2026-11-15T21:00:00Z", opening: true, tomorrow: false, now: { [A]: { text: "a line", ai: true } }, today: { [B]: { text: "signed the NDA", ai: false } } });
   });
 
-  it("asks only for the parts it may write, with each pick's facts and its id", () => {
+  it("asks for each record worked on today's Today line from its kept rows (release 4)", () => {
     const prompt = draftsPrompt({
       dateLabel: "Monday, Nov 16",
       tomorrowLabel: "Tomorrow",
       dayLines: ["listings screened: 4"],
-      activity: ["Dalton Services: moved to Seller call"],
-      picks: [
-        { id: A, track: "Acquisition", name: "Dalton Services", stage: "Seller call", why: "Recurring contracts", nextAction: "Call the owner", nextActionDue: "2026-11-17", nextDecision: "Go or no-go by 2026-11-25", movedToday: true, waiting: "3 days on Rachel Kim for the CIM", notes: ["Owner wants out within a year"] },
-        { id: B, track: "Job search", name: "COO, Acme", stage: "Interview", why: null, nextAction: null, nextActionDue: null, nextDecision: null, movedToday: false, waiting: null, notes: [] },
+      activity: ["Dalton Services: Moved from Broker call to Seller call"],
+      records: [
+        { id: A, track: "Acquisition", name: "Dalton Services", stage: "Seller call", topPriority: 1, newToday: false, moved: "moved from Broker call today", activity: ["Moved from Broker call to Seller call", "Deal structure, 60 min"], nextAction: "Call the owner", nextActionDue: "2026-11-17", waiting: "3 days on Rachel Kim for the CIM", notes: ["Owner wants out within a year"] },
+        { id: B, track: "Job search", name: "COO, Acme", stage: "Interview", topPriority: null, newToday: true, moved: null, activity: ["Call with Dana, 45 min"], nextAction: null, nextActionDue: null, waiting: null, notes: [] },
       ],
       dueNext: ["Call the owner (Dalton Services)"],
-      want: { opening: false, tomorrow: true, now: [A] },
+      want: { opening: false, tomorrow: true, today: [A] },
     });
     expect(prompt).toContain("TASK: report_drafts");
     expect(prompt).toContain("The signed-in user sends");
-    expect(prompt).toContain(`- id ${A} | Acquisition | Dalton Services | stage Seller call (moved there today) | why it fits: Recurring contracts | next action: Call the owner (due 2026-11-17)`);
-    expect(prompt).toContain("waiting: 3 days on Rachel Kim for the CIM | note: Owner wants out within a year | now: write");
-    expect(prompt).toContain(`- id ${B} | Job search | COO, Acme | stage Interview | no next action set | now: keep`);
+    expect(prompt).toContain(`- id ${A} | Acquisition | Dalton Services | top priority 1 | stage Seller call | moved from Broker call today | done today: Moved from Broker call to Seller call | done today: Deal structure, 60 min | next action: Call the owner (due 2026-11-17)`);
+    expect(prompt).toContain("waiting: 3 days on Rachel Kim for the CIM | note: Owner wants out within a year | today: write");
+    expect(prompt).toContain(`- id ${B} | Job search | COO, Acme | new today | stage Interview | done today: Call with Dana, 45 min | no next action set | today: keep`);
     expect(prompt).not.toContain('"opening"');
-    expect(prompt).toContain('{"tomorrow": "...", "now": [{"id": "<id>", "text": "..."}]}');
+    expect(prompt).toContain('{"tomorrow": "...", "today": [{"id": "<id>", "text": "..."}]}');
   });
 
-  it("reads the reply: the parts asked for, Now lines only for the ids asked, no dashes", () => {
-    const want = { opening: true, tomorrow: true, now: [A] };
-    const r = validateDraftsReply({ opening: "Most of today went to Dalton — the owner wants out.", tomorrow: "Call the owner at 10.", now: [{ id: A, text: "Seller call held; financials requested" }, { id: B, text: "not asked" }] }, want);
-    expect(r).toEqual({ ok: true, value: { opening: "Most of today went to Dalton, the owner wants out.", tomorrow: "Call the owner at 10.", now: { [A]: "Seller call held; financials requested" } } });
+  it("reads the reply: the parts asked for, Today lines only for the ids asked, no dashes", () => {
+    const want = { opening: true, tomorrow: true, today: [A] };
+    const r = validateDraftsReply({ opening: "Most of today went to Dalton — the owner wants out.", tomorrow: "Call the owner at 10.", today: [{ id: A, text: "seller call held; financials requested" }, { id: B, text: "not asked" }] }, want);
+    expect(r).toEqual({ ok: true, value: { opening: "Most of today went to Dalton, the owner wants out.", tomorrow: "Call the owner at 10.", today: { [A]: "seller call held; financials requested" } } });
     expect(validateDraftsReply({ tomorrow: "x" }, want)).toMatchObject({ ok: false });
-    expect(validateDraftsReply({ opening: "x", tomorrow: "y", now: [] }, want)).toMatchObject({ ok: false });
-    expect(validateDraftsReply({ opening: "x" }, { opening: true, tomorrow: false, now: [] })).toEqual({ ok: true, value: { opening: "x", tomorrow: null, now: {} } });
+    expect(validateDraftsReply({ opening: "x", tomorrow: "y", today: [] }, want)).toMatchObject({ ok: false });
+    expect(validateDraftsReply({ opening: "x" }, { opening: true, tomorrow: false, today: [] })).toEqual({ ok: true, value: { opening: "x", tomorrow: null, today: {} } });
   });
 
   it("never passes the '00 ' start of a listing name to the AI (2026-11-16)", () => {
@@ -55,8 +55,9 @@ describe("the 4:00 pm AI drafts (step 4, 2026-11-15)", () => {
     expect(withoutPlaceholders("Call Mark at 4:00 pm (Summit)")).toBe("Call Mark at 4:00 pm (Summit)");
   });
 
-  it("asks the opening not to state the day's counts", () => {
-    const prompt = draftsPrompt({ dateLabel: "Mon", tomorrowLabel: "Tomorrow", dayLines: [], activity: [], picks: [], dueNext: [], want: { opening: true, tomorrow: false, now: [] } });
-    expect(prompt).toContain("Do not state counts of calls, emails, outreach");
+  it("asks the opening for 2 or 3 sentences that state no counts", () => {
+    const prompt = draftsPrompt({ dateLabel: "Mon", tomorrowLabel: "Tomorrow", dayLines: [], activity: [], records: [], dueNext: [], want: { opening: true, tomorrow: false, today: [] } });
+    expect(prompt).toContain("2 or 3 plain sentences");
+    expect(prompt).toContain("Do not state any counts");
   });
 });

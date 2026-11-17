@@ -844,14 +844,15 @@ const ai = http.createServer(async (req, res) => {
         };
         return send(res, 200, maybeCut("key_finding", JSON.stringify(reply), body));
       }
-      // Step 4 (2026-11-15): the 4:00 pm drafts: the opening, tomorrow's line, and a Now line for each pick marked "now: write".
+      // Step 4 (2026-11-15): the 4:00 pm drafts: the opening, tomorrow's line, and the Today lines.
       if (text.includes("TASK: report_drafts")) {
         aiCalls.push("report_drafts");
-        const ids = [...text.matchAll(/^- id ([0-9a-f-]{36}) \| [^|]+ \| ([^|]+) \|.*now: write$/gm)].map((m) => ({ id: m[1], name: m[2].trim() }));
+        // Release 4 (2026-11-16): a Today line for each record worked on today marked "today: write".
+        const ids = [...text.matchAll(/^- id ([0-9a-f-]{36}) \| [^|]+ \| ([^|]+) \|.*today: write$/gm)].map((m) => ({ id: m[1], name: m[2].trim() }));
         const reply = {};
         if (text.includes('"opening"')) reply.opening = "Mock opening: most of today went to the top deal, the broker call is set, and one deal is still waiting on numbers.";
         if (text.includes('"tomorrow"')) reply.tomorrow = "Mock tomorrow: the seller call prep first, then the two broker follow-ups.";
-        if (ids.length) reply.now = ids.map((x) => ({ id: x.id, text: `Mock now for ${x.name}: next step booked, waiting on numbers` }));
+        if (ids.length) reply.today = ids.map((x) => ({ id: x.id, text: `mock today for ${x.name}: call held, numbers asked for` }));
         // Answers after 3 seconds, like the real AI, so the checks can type while it writes.
         return setTimeout(() => send(res, 200, aiMessage(JSON.stringify(reply))), 3000);
       }

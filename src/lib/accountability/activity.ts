@@ -20,9 +20,31 @@ export type ActivityRow = {
   /** "9:00" (24-hour, the owner's time zone) when the time is known, for the order. */
   time: string | null;
   href: string | null;
+  /** A calendar row about a deal, job or lead named in its title (release 4): the record's page, also when the link goes to a person. */
+  recordHref?: string | null;
 };
 
 export const ACTIVITY_DROPPED_KEY = "_activity_dropped";
+/** The calendar rows matched for the day, saved with it so the report and the 4:00 pm drafts can use them (release 4). */
+export const ACTIVITY_CALENDAR_KEY = "_activity_calendar";
+
+/** The saved calendar rows as read back: calendar rows only, the fields cleaned, at most 60. */
+export function cleanCalendarRows(v: unknown): ActivityRow[] {
+  if (!Array.isArray(v)) return [];
+  const s = (x: unknown, n: number) => (typeof x === "string" && x.trim() ? x.slice(0, n) : null);
+  const out: ActivityRow[] = [];
+  for (const x of v) {
+    if (!x || typeof x !== "object") continue;
+    const o = x as Record<string, unknown>;
+    const id = s(o.id, 200);
+    const text = s(o.text, 300);
+    if (!id || !id.startsWith("cal:") || !text) continue;
+    const time = s(o.time, 5);
+    out.push({ id, kind: "calendar", text, record: s(o.record, 200), time: time && /^\d{1,2}:\d{2}$/.test(time) ? time : null, href: s(o.href, 200), recordHref: s(o.recordHref, 200) });
+    if (out.length >= 60) break;
+  }
+  return out;
+}
 
 export const ACTIVITY_LABEL: Record<ActivityKind, string> = {
   listing: "Listing",
@@ -99,6 +121,7 @@ export function matchCalendar(events: CalendarEventIn[], people: MatchPerson[], 
       record: person?.name ?? record?.name ?? null,
       time: e.start,
       href: person?.href ?? record?.href ?? null,
+      recordHref: record?.href ?? null,
     });
   }
   return out;
