@@ -282,7 +282,7 @@ const shot = async (page, name) => {
       return same;
     }, 20000);
     const reads = (await g("/__replies")).threadReads;
-    await page.goto(`${BASE}/work`);
+    await page.goto(`${BASE}/work/next-actions`);
     await page.waitForTimeout(2500);
     assert((await g("/__replies")).threadReads === reads, "Gmail was asked again within five minutes");
     await page.goto(`${BASE}/work/reports?view=sent`);
@@ -317,7 +317,7 @@ const shot = async (page, name) => {
     await page.getByTestId("send-success").waitFor({ timeout: 20000 });
     const r = await g("/__reply", { to: "dana.whitfield@example.com", text: "Two landscaping owners. Call me." });
     await db.query("update google_connections set replies_checked_at = null");
-    await page.goto(`${BASE}/work`);
+    await page.goto(`${BASE}/work/next-actions`);
     // Page speed (2026-11-06): Home looks for replies after it is on screen; the reply is stored a moment later.
     await poll(async () => !!(await one("select id from communications where gmail_message_id = $1", [r.id])), 20000);
     await page.goto(`${BASE}/work/people/${dana.id}`);

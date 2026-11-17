@@ -255,7 +255,7 @@ const until = async (fn, msg, tries = 60) => {
   // ---------- Work on now: the Monthly review row ----------
   // Fix list item 4 (approved 2026-11-06): the row moved from Due today to Due later, labeled "Open since <first workday>".
   await step("Work on now: 'Monthly review: <month>' leads Due later ('Open since <date>'), counts in Due later and not in Due today, and leaves on picking an area", async () => {
-    await page.goto(`${BASE}/work`);
+    await page.goto(`${BASE}/work/next-actions`);
     await pickTile("later");
     const row = page.getByTestId("monthly-review-home-row");
     await row.waitFor();
@@ -282,7 +282,7 @@ const until = async (fn, msg, tries = 60) => {
   });
 
   await step("Contacts rows on Home: a click on the row opens the person page", async () => {
-    await page.goto(`${BASE}/work`);
+    await page.goto(`${BASE}/work/next-actions`);
     const r = page.getByTestId("home-outreach-row").first();
     await r.waitFor();
     const id = await r.getAttribute("data-person");
@@ -424,7 +424,7 @@ const until = async (fn, msg, tries = 60) => {
 
   // ---------- The Monthly review ----------
   await step("The Monthly review page: how the month went, next month's targets, Export not yet; Open from Work on now", async () => {
-    await page.goto(`${BASE}/work`);
+    await page.goto(`${BASE}/work/next-actions`);
     await pickTile("later");
     await page.getByTestId("monthly-review-open").click();
     await page.waitForURL(new RegExp(`/work/reports/monthly/${slug}`));
@@ -476,7 +476,7 @@ const until = async (fn, msg, tries = 60) => {
     await page.getByTestId("monthly-as-set").waitFor();
     assert((await page.getByTestId("monthly-finish").count()) === 0 && (await page.getByTestId("monthly-next-number").count()) === 0, "read only");
     assert((await page.getByTestId("monthly-as-set-row").filter({ hasText: "Network outreach" }).innerText()).includes("12"), "as set");
-    await page.goto(`${BASE}/work`);
+    await page.goto(`${BASE}/work/next-actions`);
     await pickTile("today");
     assert((await page.getByTestId("monthly-review-home-row").count()) === 0, "the row left Work on now");
   });
@@ -544,7 +544,7 @@ const until = async (fn, msg, tries = 60) => {
     const v = await all("select key, value_number::float n, value_text t from inputs where key in ('waiting_threshold_days', 'outreach_weekly_target', 'end_of_day_time') order by key");
     const b = await one("select default_block_minutes m from owner_profile");
     assert(JSON.stringify(v.map((x) => x.n ?? x.t)) === JSON.stringify(["17:45", 10, 6]) && b.m === 45, JSON.stringify([v, b]));
-    await page.goto(`${BASE}/work`);
+    await page.goto(`${BASE}/work/next-actions`);
     // The Waiting on someone card: the fixed subtitle, and the two groups named from the threshold.
     const waitText = await page.getByTestId("home-right").getByTestId("now-wait").innerText();
     assert(waitText.includes("Items waiting on external parties"), "the waiting subtitle");

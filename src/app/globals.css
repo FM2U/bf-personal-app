@@ -495,3 +495,34 @@ select:not([multiple]):not([size]) {
 .slim-docked-icons :is(button, a):has(> svg) > svg {
   margin: 0 !important;
 }
+
+/*
+ * The new Home (release H1 of the Home redesign, approved by Bram 2026-11-17; claude/2026-11-17-home-layout-proposal.md).
+ * These named colors are used only by Home (src/components/app/work/home-bento.tsx and home-day-calendar.tsx) until
+ * the other pages are redesigned. Red: late. Amber: due today, needs you. Green: positive or increasing only. Indigo:
+ * fixed points (the End of day time, #1 of Top priorities) and every thin bar, with pale indigo as its second tone.
+ * Calendar: soft blue for Google Calendar events, soft green for time blocked in the app.
+ */
+.home-v2 {
+  --h-page: #fafaf9;
+  --h-ink: #1c1917;
+  --h-ink2: #635d58;
+  --h-faint: #8b847e;
+  --h-line: #ecebe8;
+  --h-hair: #f3f2f0;
+  --h-late: #b42318;
+  --h-today: #b5650d;
+  --h-ok: #3f7d58;
+  --h-indigo: #3b4a8c;
+  --h-indigo-mid: #8590c8;
+  --h-indigo-pale: #c7cdec;
+  --h-hot: #c2410c;
+  --h-gcal: #f9fbff;
+  --h-block: #f6fbf7;
+  --h-block-ink: #1d5a36;
+  color: var(--h-ink);
+  font-feature-settings: "tnum";
+}
+body:has(.home-v2) {
+  background: #fafaf9;
+}

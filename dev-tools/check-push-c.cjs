@@ -137,7 +137,7 @@ let oneCalendar = async () => {};
   const homeRowsShown = (p = page) => p.locator('[data-testid="home-all"] [data-testid="home-row"], [data-testid="home-list"] [data-testid="home-row"]').evaluateAll((els) => els.map((e) => ({ section: e.getAttribute("data-section"), area: e.getAttribute("data-area"), lane: e.getAttribute("data-lane") })));
 
   await step("Work on now: All plus four tiles work like tabs; All is selected and shows every row in four sections with grey bands; Due later holds rows due after today; the tile is kept for the day", async () => {
-    await page.goto(`${BASE}/work`);
+    await page.goto(`${BASE}/work/next-actions`);
     await page.getByTestId("home-tiles").waitFor();
     const keys = await tileKeys("home-tiles");
     const counts = await tileCounts("home-tiles");
@@ -196,7 +196,7 @@ let oneCalendar = async () => {};
   };
 
   await step("Work on now: the Area selector above the tiles picks one area; it narrows Next actions and the tile numbers; zero areas are greyed; no Filter button; Waiting on someone is not narrowed", async () => {
-    await page.goto(`${BASE}/work`);
+    await page.goto(`${BASE}/work/next-actions`);
     await page.getByTestId("home-tiles").waitFor();
     assert((await page.getByTestId("filter-open").count()) === 0 && (await page.getByTestId("slim-filter").count()) === 0, "no Filter button on Work on now");
     const before = await tileCounts("home-tiles");
@@ -249,7 +249,7 @@ let oneCalendar = async () => {};
   await step("Next actions title row: Work through right after the title and count, Order and the AI star on the right", async () => {
     for (const w of [1440, 1280, 1100]) {
       await page.setViewportSize({ width: w, height: 900 });
-      await page.goto(`${BASE}/work`);
+      await page.goto(`${BASE}/work/next-actions`);
       const card = page.getByTestId("now-actions");
       await card.waitFor();
       const title = await card.locator("h2").first().boundingBox();
@@ -273,7 +273,7 @@ let oneCalendar = async () => {};
   });
 
   await step("By the AI: no tile selected, the full ranked list of the three kinds due today or earlier (no Due later); a tile click goes back to Soonest first; a new day starts on Soonest first", async () => {
-    await page.goto(`${BASE}/work`);
+    await page.goto(`${BASE}/work/next-actions`);
     await page.getByTestId("home-tiles").waitFor();
     const counts = await tileCounts("home-tiles");
     await page.getByTestId("home-order-ai").click();
@@ -408,13 +408,13 @@ let oneCalendar = async () => {};
   });
 
   await step("No top menu row at 1440 (the left menu has the pages and badges); the row shows at 400; Settings keeps its tabs; no 'lane' in the text", async () => {
-    for (const p of ["/work", "/work/people", "/work/todos", "/work/deals", "/work/targets"]) {
+    for (const p of ["/work/next-actions", "/work/people", "/work/todos", "/work/deals", "/work/targets"]) {
       await page.goto(`${BASE}${p}`);
       await page.waitForLoadState("networkidle");
       assert(!(await page.getByTestId("top-menu-row").isVisible()), `no top menu row on ${p}`);
     }
     assert(await page.getByTestId("accountability-subnav").isVisible(), "the left menu lists Accountability's pages");
-    await page.goto(`${BASE}/work`);
+    await page.goto(`${BASE}/work/next-actions`);
     assert(await page.getByTestId("work-subnav").isVisible(), "the left menu lists Work's pages");
     assert(!/\blanes?\b/i.test(await page.locator("main").innerText()), "no 'lane' on Work on now");
     await page.goto(`${BASE}/settings`);
@@ -422,7 +422,7 @@ let oneCalendar = async () => {};
     const phone = await ctx.browser().newContext({ viewport: { width: 400, height: 860 } });
     await phone.addCookies([cookie]);
     const pp = await phone.newPage();
-    await pp.goto(`${BASE}/work`);
+    await pp.goto(`${BASE}/work/next-actions`);
     await pp.getByTestId("home-tiles").waitFor();
     assert(await pp.getByTestId("top-menu-row").isVisible(), "the top menu row at 400");
     await oneHeaderAtATime(pp, "home-tiles");
@@ -434,7 +434,7 @@ let oneCalendar = async () => {};
     const short = await ctx.browser().newContext({ viewport: { width: 1440, height: 700 } });
     await short.addCookies([cookie]);
     const sp = await short.newPage();
-    await sp.goto(`${BASE}/work`);
+    await sp.goto(`${BASE}/work/next-actions`);
     await sp.getByTestId("home-tiles").waitFor();
     await sp.waitForLoadState("networkidle");
     await oneHeaderAtATime(sp, "home-tiles");
@@ -491,7 +491,7 @@ let oneCalendar = async () => {};
   });
 
   await step("Today's calendar on Home: Google Calendar events and the app's blocks (marked), in time order", async () => {
-    await page.goto(`${BASE}/work`);
+    await page.goto(`${BASE}/work/next-actions`);
     await oneCalendar();
     const tile = page.getByTestId("home-calendar");
     await tile.waitFor();
@@ -529,7 +529,7 @@ let oneCalendar = async () => {};
   });
 
   await step("Work through: steps one row at a time across every lane due today or earlier, with the progress bar", async () => {
-    await page.goto(`${BASE}/work`);
+    await page.goto(`${BASE}/work/next-actions`);
     await page.getByTestId("home-tiles").waitFor();
     // Push D: the Monthly review row counts in Due today but is a page to open, not a step of Work through.
     await pickTile("home-tiles", "today");
@@ -689,7 +689,7 @@ let oneCalendar = async () => {};
     await page.goto(`${BASE}/work/todos`);
     const line = todoLine("Send Mark Reed my questions on the CIM");
     assert((await line.getByTestId("record-pill").innerText()).includes("Summit Logistics Group"), "record pill on To-dos");
-    await page.goto(`${BASE}/work`);
+    await page.goto(`${BASE}/work/next-actions`);
     await pickTile("home-tiles", "overdue");
     const row = homeRow("Send Mark Reed my questions on the CIM");
     if (process.env.DEBUG) {
@@ -729,7 +729,7 @@ let oneCalendar = async () => {};
   });
 
   await step("Block time: the drawer shows the day, warns on an overlap, and adds a real event; the row shows Blocked", async () => {
-    await page.goto(`${BASE}/work`);
+    await page.goto(`${BASE}/work/next-actions`);
     await pickTile("home-tiles", "today");
     const row = homeRow("BrightPath Home Care");
     await row.getByTestId("block-time").click();
@@ -766,7 +766,7 @@ let oneCalendar = async () => {};
   await step("Without the calendar permission the tile shows a plain note, never an error; the blocks still show", async () => {
     const before = await one("select scopes from google_connections");
     await db.query("update google_connections set scopes = $1", [before.scopes.split(" ").filter((s) => !s.includes("calendar")).join(" ")]);
-    await page.goto(`${BASE}/work`);
+    await page.goto(`${BASE}/work/next-actions`);
     await oneCalendar();
     const tile = page.getByTestId("home-calendar");
     assert((await tile.getByTestId("calendar-note").innerText()).includes("Reconnect Google to see your calendar"), "the note");
@@ -798,7 +798,7 @@ let oneCalendar = async () => {};
     // Counting starts on (Bram, 2026-11-09): removing the sample data sets it to today.
     const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
     await until(async () => (await one("select value_text from inputs where key = 'counting_start'"))?.value_text === today, "Counting starts on was not set to today");
-    await page.goto(`${BASE}/work`);
+    await page.goto(`${BASE}/work/next-actions`);
     await oneCalendar();
     await page.goto(`${BASE}/work/targets`);
     await page.getByTestId("targets-card").waitFor();

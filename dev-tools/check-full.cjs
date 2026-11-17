@@ -159,7 +159,7 @@ const until = async (fn, msg, tries = 80) => {
     assert((await mainText()).includes("Check Logistics"), "the item page does not show the company");
     await open("/work/jobs");
     await until(async () => (await mainText()).includes("Check Logistics"), "not on the Job search board");
-    await open("/work");
+    await open("/work/next-actions");
     await page.getByTestId("now-actions").waitFor();
     await until(async () => (await page.getByTestId("now-actions").innerText()).includes("Email the Check Logistics recruiter"), "its next action is not on Home");
   });
@@ -194,14 +194,14 @@ const until = async (fn, msg, tries = 80) => {
     await page.getByTestId("work-threshold").fill("6");
     await page.getByTestId("work-settings-save").click();
     await page.getByTestId("work-settings-note").waitFor({ timeout: 15000 });
-    await open("/work");
+    await open("/work/next-actions");
     await page.getByTestId("home-right").getByTestId("now-wait").waitFor();
     await until(async () => /6\+ DAYS/i.test(await page.getByTestId("home-right").getByTestId("now-wait").innerText()), `the Waiting card shows: ${(await page.getByTestId("home-right").getByTestId("now-wait").innerText()).slice(0, 120)}`);
     await open("/settings");
     await page.getByTestId("work-threshold").fill("5");
     await page.getByTestId("work-settings-save").click();
     await page.getByTestId("work-settings-note").waitFor({ timeout: 15000 });
-    await open("/work");
+    await open("/work/next-actions");
     await page.getByTestId("home-right").getByTestId("now-wait").waitFor();
     await until(async () => /5\+ DAYS/i.test(await page.getByTestId("home-right").getByTestId("now-wait").innerText()), "the Waiting card did not go back to 5+ days");
   });
@@ -443,7 +443,7 @@ const until = async (fn, msg, tries = 80) => {
     assert(!(await page.getByTestId("past-weeks").count()), "Past weeks still shows on Reports");
     await open("/work/end-of-day");
     await page.getByTestId("eod-targets-note").waitFor({ timeout: 15000 });
-    await open("/work");
+    await open("/work/next-actions");
     await page.getByTestId("home-right").waitFor({ timeout: 15000 });
   });
 

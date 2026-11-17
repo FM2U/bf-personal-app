@@ -69,7 +69,7 @@ const idOf = async (name) => (await one("select id from pipeline_items where nam
   });
 
   await step("Home: Top priorities above the tiles, four tracks; Dalton is #1 with its stage, Hot, day N, Why and Next; one '+ Choose' slot under a track with fewer than three", async () => {
-    await open("/work");
+    await open("/work/next-actions");
     await card().waitFor({ timeout: 20000 });
     const kinds = await card().getByTestId("priority-track").evaluateAll((els) => els.map((e) => e.getAttribute("data-kind")));
     assert(kinds.join(",") === "acquisition,job,consulting,startup", kinds.join(","));
@@ -82,7 +82,7 @@ const idOf = async (name) => (await one("select id from pipeline_items where nam
     assert(areaTop >= cardBottom, "the area row is not under Top priorities");
     await shot("home-closed");
     await card().getByTestId("priorities-toggle").click();
-    await open("/work");
+    await open("/work/next-actions");
     await card().waitFor({ timeout: 20000 });
     await until(async () => (await card().getByTestId("priority-tracks").getAttribute("data-collapsed")) === "0", "Show all was not kept on reload");
     assert((await picks("acquisition")) === "Dalton Services | Meridian Industrial Coatings | Pinecrest Landscaping", await picks("acquisition"));
@@ -162,7 +162,7 @@ const idOf = async (name) => (await one("select id from pipeline_items where nam
     await c.getByTestId("priority-next-on").fill(later);
     await c.getByTestId("priority-next").click();
     await until(async () => (await one("select next_decision_on::text d, next_decision from pipeline_items where id = $1", [id])).d === later, "the date was not saved");
-    await open("/work");
+    await open("/work/next-actions");
     const pick = track("acquisition").getByTestId("priority-pick").filter({ hasText: "Dalton Services" });
     const next = pick.getByTestId("pick-next");
     assert((await next.getAttribute("data-amber")) === "1" && (await next.innerText()).includes("moved to"), await next.innerText());
@@ -200,7 +200,7 @@ const idOf = async (name) => (await one("select id from pipeline_items where nam
     await open(`/work/deals/${listing.id}`);
     assert(!(await page.getByTestId("priority-star").count()) && !(await page.getByTestId("priority-card").count()), "a listing has the priority controls");
     await db.query("update pipeline_items set status = 'lost' where name = 'Dalton Services'");
-    await open("/work");
+    await open("/work/next-actions");
     assert((await picks("acquisition")) === "Meridian Industrial Coatings", await picks("acquisition"));
     await db.query("update pipeline_items set status = 'open' where name = 'Dalton Services'");
   });
@@ -213,11 +213,11 @@ const idOf = async (name) => (await one("select id from pipeline_items where nam
   });
 
   await step("Work on now: 'Show less' closes Top priorities again, and it stays closed on reload", async () => {
-    await open("/work");
+    await open("/work/next-actions");
     await card().waitFor({ timeout: 20000 });
     await card().getByTestId("priorities-toggle").click();
     assert((await card().getByTestId("priority-tracks").getAttribute("data-collapsed")) === "1", "Show less did not close the card");
-    await open("/work");
+    await open("/work/next-actions");
     assert((await card().getByTestId("priority-tracks").getAttribute("data-collapsed")) === "1", "the card opened again on reload");
   });
 
@@ -414,7 +414,7 @@ const idOf = async (name) => (await one("select id from pipeline_items where nam
     const fRow = page.getByTestId("person-row").first();
     if (await fRow.count()) assert(await fRow.getByTestId("row-log-meeting").count(), "Follow-ups rows have no Log a meeting");
     await shot("people-log-meeting");
-    await open("/work");
+    await open("/work/next-actions");
     const homeBtn = page.getByTestId("home-person-log-meeting").first();
     if (await homeBtn.count()) {
       await homeBtn.click();

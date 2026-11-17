@@ -14,7 +14,7 @@ const BASE = process.argv[2] || "http://localhost:3000";
 const LOG = path.join(process.env.LOG_DIR || "/tmp", "next.log");
 // Trips per page on a full load, including the left menu's badges. Home also fills Waiting on someone and Targets
 // today after the page is on screen (their own reads wait on each other), so it has more.
-const LIMITS = { "/work": 4, "/work/listings": 2, "/work/deals": 2, "/work/people": 2, "/work/rosara": 2, "/work/jobs": 2, "/work/consulting": 2, "/work/todos": 2, "/work/targets": 2, "/work/end-of-day": 2, "/work/reports": 2, "/settings": 2 };
+const LIMITS = { "/work": 4, "/work/next-actions": 4, "/work/listings": 2, "/work/deals": 2, "/work/people": 2, "/work/rosara": 2, "/work/jobs": 2, "/work/consulting": 2, "/work/todos": 2, "/work/targets": 2, "/work/end-of-day": 2, "/work/reports": 2, "/settings": 2 };
 
 let failed = 0;
 const ok = (good, name, detail) => {

@@ -45,7 +45,7 @@ import { OpenRow } from "@/components/app/work/open-row";
 import { BlockTimeProvider } from "@/components/app/work/block-time";
 import { CalendarTile } from "@/components/app/work/calendar-tile";
 import { WorkThrough, type WorkStep } from "@/components/app/work/work-through";
-import { recordPillText } from "@/lib/work/task-records";
+import { recordHref as recordHrefOf, recordPillText } from "@/lib/work/task-records";
 import { blockSlots } from "@/components/app/work/block-time";
 import type { MonthlyDue } from "@/lib/accountability/monthly-data";
 import { Play } from "lucide-react";
@@ -83,7 +83,9 @@ const FIND_ID = "home-find";
 /** A desktop window tall enough for the cards to scroll on their own (the desk variant in globals.css); otherwise the page scrolls. */
 const DESK = "(min-width: 1024px) and (min-height: 720px)";
 
-type Row = { key: string; lane: Lane; area: AreaKey; section: HomeSectionKey; action: HomeAction; render: (reason: string | null) => React.ReactNode; /** Work through's view of the row (push C). */ step: WorkStep | null };
+/** The short form of a row on the new Home (2026-11-17): the action, the record it belongs to, its kind, and where a click goes. */
+export type RowBrief = { title: string; record: string | null; kind: string; href: string };
+export type Row = { key: string; lane: Lane; area: AreaKey; section: HomeSectionKey; action: HomeAction; render: (reason: string | null) => React.ReactNode; /** Work through's view of the row (push C). */ step: WorkStep | null; brief: RowBrief };
 
 // Fix list items 2 and 3 (approved 2026-11-06): All first and selected by default, then the four sections.
 const TILE_LABEL: Record<HomeTileKey, string> = { all: "All", overdue: "Overdue", today: "Due today", needs: "Needs a next action", later: "Due later" };
@@ -92,14 +94,14 @@ const TILE_EMPTY: Record<HomeTileKey, string> = { all: "Nothing to do.", overdue
 /** The Waiting card's data with each wait's Follow up email setup (push E2: by the wait's id); arrives after the page (2026-11-07). */
 export type WaitingCardData = { board: WaitingBoard; composes: Record<string, ComposeSetup> };
 
-export function HomeBoard({ data, priorities, dateLabel, askAi, tabs, waitingCard, personComposes, askCompose }: { data: HomeData; /** Top priorities (2026-11-15), above the tiles. */ priorities?: React.ReactNode; /** The date at the right of the title, long and short. */ dateLabel: { long: string; short: string }; /** Ask AI (server-rendered). */ askAi: React.ReactNode; /** The top menu row (under 1024px). */ tabs: React.ReactNode; /** Waiting on someone, on its way when the page is first sent (page speed 2026-11-07). */ waitingCard: Promise<WaitingCardData>; /** The email setup per person on the Outreach tile. */ personComposes: Record<string, ComposeSetup>; /** The email setup for "Open in email" in the Ask AI panel (a typed address). */ askCompose?: ComposeSetup | null }) {
+export function HomeBoard({ data, priorities, dateLabel, askAi, tabs, waitingCard, personComposes, askCompose, title = "Work on now", initialQuery = "", showAll = false }: { /** From Home's "All N next actions" (2026-11-17): start on All areas and the All tile, whatever was picked earlier today. */ showAll?: boolean; /** The page title (2026-11-17: "Next actions" on the full list page; Home has its own board). */ title?: string; /** Find's text from Home's Find box (2026-11-17). */ initialQuery?: string; data: HomeData; /** Top priorities (2026-11-15), above the tiles. */ priorities?: React.ReactNode; /** The date at the right of the title, long and short. */ dateLabel: { long: string; short: string }; /** Ask AI (server-rendered). */ askAi: React.ReactNode; /** The top menu row (under 1024px). */ tabs: React.ReactNode; /** Waiting on someone, on its way when the page is first sent (page speed 2026-11-07). */ waitingCard: Promise<WaitingCardData>; /** The email setup per person on the Outreach tile. */ personComposes: Record<string, ComposeSetup>; /** The email setup for "Open in email" in the Ask AI panel (a typed address). */ askCompose?: ComposeSetup | null }) {
   const router = useRouter();
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery);
   const [personEmail, setPersonEmail] = useState<PersonRowData | null>(null);
   const [personCall, setPersonCall] = useState<PersonRowData | null>(null);
   const [personCallKind, setPersonCallKind] = useState<"call" | "meeting">("call");
   const [personLogged, setPersonLogged] = useState<Record<string, string>>({});
-  const { deals, today, threshold } = data;
+  const { today, threshold } = data;
 
   // ---------- The AI order: By the AI is remembered for the rest of the day it was picked (read once, without an effect) ----------
   const savedOrder = useSyncExternalStore(noSubscribe, () => parseOrderChoice(readRaw(ORDER_STORAGE_KEY), today), () => "soonest" as OrderChoice);
@@ -139,38 +141,11 @@ export function HomeBoard({ data, priorities, dateLabel, askAi, tabs, waitingCar
 
   // ---------- The Area selector: one area or All, remembered for the rest of the day only ----------
   const savedArea = useSyncExternalStore(noSubscribe, () => parseAreaChoice(readRaw(AREA_STORAGE_KEY), today), () => null);
-  const [chosenArea, setChosenArea] = useState<{ area: AreaKey | null } | null>(null);
+  const [chosenArea, setChosenArea] = useState<{ area: AreaKey | null } | null>(showAll ? { area: null } : null);
   const area = chosenArea ? chosenArea.area : savedArea;
 
-  // ---------- The rows of every area ----------
-  const allRows = useMemo<Row[]>(() => {
-    const out: Row[] = [];
-    const push = (lane: Lane, area: AreaKey, action: HomeAction, render: Row["render"], step: WorkStep | null = null) => {
-      const section = homeSectionOf(action, today);
-      if (section) out.push({ key: action.key, lane, area, section, action, render, step });
-    };
-    // Edit batch C round 3: a listing to screen with a next action (optional on a listing) shows with the deals.
-    for (const d of [...deals, ...(data.listingActions ?? [])]) {
-      push("Deals", "deals", { key: actionKey("Deals", d.id), lane: "Deals", id: d.id, name: d.name, action: d.nextAction, due: d.nextActionDue, minutes: d.nextActionMinutes, meta: [d.stageName, d.whatItDoes, d.location].filter(Boolean).join(", ") }, (reason) => (d.nextAction ? <NextActionRow deal={d} today={today} reason={reason} /> : <NeedsActionRow deal={d} />), d.nextAction ? { kind: "deal", key: actionKey("Deals", d.id), deal: d } : null);
-    }
-    // Fix list item 3: people with a follow-up after today are Due later rows.
-    for (const p of [...data.outreach.due, ...(data.outreach.later ?? [])]) {
-      push("People", "contacts", { key: actionKey("People", p.id), lane: "People", id: p.id, name: p.name, action: p.followUpFor ?? "Follow up", due: p.nextFollowUp, minutes: null, meta: orgRoleLine(p) }, (reason) => <OutreachActionRow person={p} today={today} reason={reason} />, { kind: "person", key: actionKey("People", p.id), person: p });
-    }
-    for (const pr of data.rosara.actions) {
-      push("Rosara", "rosara", { key: actionKey("Rosara", pr.id), lane: "Rosara", id: pr.id, name: pr.name, action: pr.nextAction, due: pr.nextActionDue, minutes: pr.nextActionMinutes, meta: pr.milestone ?? "" }, (reason) => <ProjectActionRow project={pr} today={today} reason={reason} />, pr.nextAction ? { kind: "project", key: actionKey("Rosara", pr.id), project: pr } : null);
-    }
-    for (const i of [...data.pipelines.jobs, ...data.pipelines.consulting]) {
-      const lane: Lane = i.kind === "job" ? "Job search" : "Consulting";
-      push(lane, areaOf(lane), { key: actionKey(lane, i.id), lane, id: i.id, name: i.name, action: i.nextAction, due: i.nextActionDue, minutes: i.nextActionMinutes, meta: [i.stageName, i.title].filter(Boolean).join(", ") }, (reason) => <ItemActionRow item={i} today={today} reason={reason} />, i.nextAction ? { kind: "item", key: actionKey(lane, i.id), item: i } : null);
-    }
-    // Personal to-dos due today or earlier (the To-do pill) and dated record tasks (the Task pill and the gray record pill).
-    // Fix list item 3: items due after today are Due later rows.
-    for (const t of [...data.todos, ...(data.laterTodos ?? [])]) {
-      push("To-dos", areaOf("To-dos", !!t.record), { key: actionKey("To-dos", t.id), lane: "To-dos", id: t.id, name: t.text, action: t.text, due: t.dueOn, minutes: null, meta: t.record ? recordPillText(t.record) : "Personal to-do" }, (reason) => <TodoActionRow todo={t} today={today} reason={reason} />, { kind: "todo", key: actionKey("To-dos", t.id), todo: t });
-    }
-    return out;
-  }, [deals, data.listingActions, data.outreach.due, data.outreach.later, data.rosara.actions, data.pipelines.jobs, data.pipelines.consulting, data.todos, data.laterTodos, today]);
+  // ---------- The rows of every area (buildHomeRows, shared with the new Home of 2026-11-17) ----------
+  const allRows = useMemo<Row[]>(() => buildHomeRows(data), [data]);
   const rows = useMemo(() => allRows.filter((r) => !area || r.area === area), [allRows, area]);
 
   // The four lists, each sorted (Soonest first; Due later soonest first too); the tile numbers follow the Area choice, not Find.
@@ -194,7 +169,7 @@ export function HomeBoard({ data, priorities, dateLabel, askAi, tabs, waitingCar
 
   // ---------- The tiles: the choice is kept for the rest of the day (like Area); each day starts on All ----------
   const savedTile = useSyncExternalStore(noSubscribe, () => parseTileChoice(readRaw(TILE_STORAGE_KEY), today), () => null);
-  const [chosenTile, setChosenTile] = useState<HomeTileKey | null>(null);
+  const [chosenTile, setChosenTile] = useState<HomeTileKey | null>(showAll ? "all" : null);
   const selected = selectedTile(chosenTile ?? savedTile, tiles, order);
   const keepTile = (k: HomeTileKey) => {
     setChosenTile(k);
@@ -310,7 +285,7 @@ export function HomeBoard({ data, priorities, dateLabel, askAi, tabs, waitingCar
   return (
     <BlockTimeProvider today={today} nowLocal={data.nowLocal} blockMinutes={data.blockMinutes} rowBlocks={data.rowBlocks} calendar={data.calendar}>
       <SlimBar
-        title="Work on now"
+        title={title}
         chips={
           <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
             <AreaChip options={areaOptions} selected={area} onPick={pickArea} />
@@ -321,7 +296,7 @@ export function HomeBoard({ data, priorities, dateLabel, askAi, tabs, waitingCar
       />
       <header className="pb-5" data-testid="home-header">
         <TitleRow
-          title="Work on now"
+          title={title}
           date={dateLabel}
           tools={<FindBox id={FIND_ID} value={query} onChange={setQuery} testId="home-search" />}
           askAi={askAi}
@@ -486,6 +461,41 @@ export function HomeBoard({ data, priorities, dateLabel, askAi, tabs, waitingCar
       {working ? <WorkThrough steps={steps} today={today} onClose={() => setWorking(false)} /> : null}
     </BlockTimeProvider>
   );
+}
+
+/**
+ * Every next action of every area as rows (the deals and listings, people, Rosara projects, jobs and consulting items,
+ * to-dos and record tasks), each with its section (overdue, today, needs, later). Shared by the Next actions list and,
+ * since 2026-11-17, the Next actions card of the new Home (which shows `brief`: the action, the record, the kind).
+ */
+export function buildHomeRows(data: HomeData): Row[] {
+  const { deals, today } = data;
+  const out: Row[] = [];
+  const push = (lane: Lane, area: AreaKey, action: HomeAction, render: Row["render"], step: WorkStep | null, brief: RowBrief) => {
+    const section = homeSectionOf(action, today);
+    if (section) out.push({ key: action.key, lane, area, section, action, render, step, brief });
+  };
+  // Edit batch C round 3: a listing to screen with a next action (optional on a listing) shows with the deals.
+  for (const d of [...deals, ...(data.listingActions ?? [])]) {
+    push("Deals", "deals", { key: actionKey("Deals", d.id), lane: "Deals", id: d.id, name: d.name, action: d.nextAction, due: d.nextActionDue, minutes: d.nextActionMinutes, meta: [d.stageName, d.whatItDoes, d.location].filter(Boolean).join(", ") }, (reason) => (d.nextAction ? <NextActionRow deal={d} today={today} reason={reason} /> : <NeedsActionRow deal={d} />), d.nextAction ? { kind: "deal", key: actionKey("Deals", d.id), deal: d } : null, { title: d.nextAction ?? "No next action set", record: d.name, kind: d.screened ? ["Deal", d.stageName].filter(Boolean).join(", ") : "Listing", href: `/work/deals/${d.id}` });
+  }
+  // Fix list item 3: people with a follow-up after today are Due later rows.
+  for (const p of [...data.outreach.due, ...(data.outreach.later ?? [])]) {
+    push("People", "contacts", { key: actionKey("People", p.id), lane: "People", id: p.id, name: p.name, action: p.followUpFor ?? "Follow up", due: p.nextFollowUp, minutes: null, meta: orgRoleLine(p) }, (reason) => <OutreachActionRow person={p} today={today} reason={reason} />, { kind: "person", key: actionKey("People", p.id), person: p }, { title: p.followUpFor ?? "Follow up", record: [p.name, p.organization].filter(Boolean).join(", "), kind: "Contact", href: personHref(p.id) });
+  }
+  for (const pr of data.rosara.actions) {
+    push("Rosara", "rosara", { key: actionKey("Rosara", pr.id), lane: "Rosara", id: pr.id, name: pr.name, action: pr.nextAction, due: pr.nextActionDue, minutes: pr.nextActionMinutes, meta: pr.milestone ?? "" }, (reason) => <ProjectActionRow project={pr} today={today} reason={reason} />, pr.nextAction ? { kind: "project", key: actionKey("Rosara", pr.id), project: pr } : null, { title: pr.nextAction ?? "No next action set", record: pr.name, kind: "Rosara", href: `/work/rosara/${pr.id}` });
+  }
+  for (const i of [...data.pipelines.jobs, ...data.pipelines.consulting]) {
+    const lane: Lane = i.kind === "job" ? "Job search" : "Consulting";
+    push(lane, areaOf(lane), { key: actionKey(lane, i.id), lane, id: i.id, name: i.name, action: i.nextAction, due: i.nextActionDue, minutes: i.nextActionMinutes, meta: [i.stageName, i.title].filter(Boolean).join(", ") }, (reason) => <ItemActionRow item={i} today={today} reason={reason} />, i.nextAction ? { kind: "item", key: actionKey(lane, i.id), item: i } : null, { title: i.nextAction ?? "No next action set", record: i.name, kind: [lane, i.stageName].filter(Boolean).join(", "), href: itemHref(i) });
+  }
+  // Personal to-dos due today or earlier (the To-do pill) and dated record tasks (the Task pill and the gray record pill).
+  // Fix list item 3: items due after today are Due later rows.
+  for (const t of [...data.todos, ...(data.laterTodos ?? [])]) {
+    push("To-dos", areaOf("To-dos", !!t.record), { key: actionKey("To-dos", t.id), lane: "To-dos", id: t.id, name: t.text, action: t.text, due: t.dueOn, minutes: null, meta: t.record ? recordPillText(t.record) : "Personal to-do" }, (reason) => <TodoActionRow todo={t} today={today} reason={reason} />, { kind: "todo", key: actionKey("To-dos", t.id), todo: t }, { title: t.text, record: t.record ? t.record.name : null, kind: t.record ? "Task" : "Personal to-do", href: t.record ? recordHrefOf(t.record) : "/work/todos" });
+  }
+  return out;
 }
 
 /** Shows a part of Home once its data has arrived (page speed 2026-11-07); until then the Suspense placeholder shows. */
