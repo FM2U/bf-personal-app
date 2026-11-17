@@ -81,6 +81,7 @@ export function PeopleBoard({ view: viewAtStart, data, orgs, adding, saved, tick
   const [email, setEmail] = useState<{ key: string; setup: ComposeSetup } | null>(null);
   const [call, setCall] = useState<LogCallTarget | null>(null);
   const [callKey, setCallKey] = useState<string | null>(null);
+  const [callKind, setCallKind] = useState<"call" | "meeting">("call");
   /** What was logged on a row on this visit ("Call logged, 20 min"), kept until the page re-reads. */
   const [logged, setLogged] = useState<Record<string, string>>({});
   const [showArchived, setShowArchived] = useState(false);
@@ -144,7 +145,8 @@ export function PeopleBoard({ view: viewAtStart, data, orgs, adding, saved, tick
   const openFilter = (el: HTMLElement) => (small ? setFilterAnchor((a) => (a === el ? null : el)) : setFilterOpen(true));
 
   const onEmailPerson = (p: PersonRowData) => data.composes[p.id] && setEmail({ key: p.id, setup: data.composes[p.id] });
-  const onCallPerson = (p: PersonRowData) => {
+  const onCallPerson = (p: PersonRowData, kind: "call" | "meeting" = "call") => {
+    setCallKind(kind);
     setCallKey(p.id);
     setCall({ contactId: p.id, dealId: null, who: p.name, from: view === "follow" ? "From Contacts, Follow-ups" : "From Contacts, People", currentDate: p.nextFollowUp });
   };
@@ -210,7 +212,7 @@ export function PeopleBoard({ view: viewAtStart, data, orgs, adding, saved, tick
                       <div className="-mx-[22px] flex flex-col" data-testid="section-body">
                         {listed.map((p) => (
                           <div key={p.id} className="border-t border-slate-100 first:border-t-0" data-testid="outreach-row">
-                            <PersonRow person={p} today={today} onEmail={onEmailPerson} onCall={onCallPerson} done={logged[p.id]} />
+                            <PersonRow person={p} today={today} onEmail={onEmailPerson} onCall={onCallPerson} onMeeting={(x) => onCallPerson(x, "meeting")} done={logged[p.id]} />
                           </div>
                         ))}
                       </div>
@@ -233,7 +235,7 @@ export function PeopleBoard({ view: viewAtStart, data, orgs, adding, saved, tick
             <div className="flex flex-col pb-1" data-testid="everyone-rows">
               {peopleRows.map((p) => (
                 <div key={p.id} className="border-t border-slate-100 first:border-t-0" data-testid="everyone-row" data-role={p.roleKey ?? ""}>
-                  <PersonRow person={p} today={today} onEmail={onEmailPerson} onCall={onCallPerson} done={logged[p.id]} showDone={false} />
+                  <PersonRow person={p} today={today} onEmail={onEmailPerson} onCall={onCallPerson} onMeeting={(x) => onCallPerson(x, "meeting")} done={logged[p.id]} showDone={false} />
                 </div>
               ))}
               {!peopleRows.length ? (peopleBase.length ? noMatch("one") : <Quiet testId="everyone-empty">No one here yet. Add a person to start keeping in touch.</Quiet>) : null}
@@ -279,6 +281,8 @@ export function PeopleBoard({ view: viewAtStart, data, orgs, adding, saved, tick
       ) : null}
       {call && callKey ? (
         <LogCallDrawer
+          key={`${callKey}-${callKind}`}
+          kind={callKind}
           target={call}
           today={today}
           tz={data.tz}
@@ -287,7 +291,7 @@ export function PeopleBoard({ view: viewAtStart, data, orgs, adding, saved, tick
             if (!o) setCall(null);
           }}
           onSaved={(r) => {
-            setLogged((m) => ({ ...m, [callKey]: `Call logged, ${r.minutes} min` }));
+            setLogged((m) => ({ ...m, [callKey]: `${callKind === "meeting" ? "Meeting" : "Call"} logged, ${r.minutes} min` }));
             setTimeout(() => router.refresh(), CONFIRM_SHORT_MS);
           }}
         />

@@ -396,6 +396,36 @@ const idOf = async (name) => (await one("select id from pipeline_items where nam
     await db.query("update end_of_day set report_edits = report_edits - '_activity_dropped' where day = (select max(day) from end_of_day)");
   });
 
+  await step("Log a meeting on Contacts rows and Home's Contacts tile (2026-11-17): the meeting window opens from the row, saves a meeting, and the row says 'Meeting logged, 60 min'", async () => {
+    await open("/work/people?view=people");
+    const row = page.getByTestId("person-row").first();
+    await row.waitFor({ timeout: 20000 });
+    const who = await row.getAttribute("data-person");
+    assert(await row.getByTestId("row-log-call").count(), "the row lost Log a call");
+    await row.getByTestId("row-log-meeting").click();
+    const d = page.getByTestId("log-meeting-drawer");
+    await d.waitFor();
+    assert((await d.innerText()).includes("Log a meeting") && (await d.getByTestId("call-minutes").inputValue()) === "60", "the meeting window");
+    await d.getByTestId("call-said").fill("Coffee about two referrals");
+    await d.getByTestId("call-save").click();
+    await until(async () => !!(await one("select id from communications where contact_id = $1 and method = 'meeting' and subject like 'Meeting with %'", [who])), "the meeting was not saved");
+    await until(async () => (await page.locator(`[data-testid=person-row][data-person="${who}"]`).innerText()).includes("Meeting logged, 60 min"), "the row does not say Meeting logged");
+    await open("/work/people?view=follow");
+    const fRow = page.getByTestId("person-row").first();
+    if (await fRow.count()) assert(await fRow.getByTestId("row-log-meeting").count(), "Follow-ups rows have no Log a meeting");
+    await shot("people-log-meeting");
+    await open("/work");
+    const homeBtn = page.getByTestId("home-person-log-meeting").first();
+    if (await homeBtn.count()) {
+      await homeBtn.click();
+      const hd = page.getByTestId("log-meeting-drawer");
+      await hd.waitFor();
+      assert((await hd.innerText()).includes("From Home"), "the Home meeting window");
+      await shot("home-log-meeting");
+      await page.keyboard.press("Escape");
+    } else console.log("     (nobody is due today on Home's Contacts tile; the button was checked on Contacts only)");
+  });
+
   await step("No page showed an error in the browser", async () => {
     assert(errors.length === 0, errors.slice(0, 3).join("\n"));
   });

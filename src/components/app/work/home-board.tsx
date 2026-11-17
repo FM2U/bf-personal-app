@@ -97,6 +97,7 @@ export function HomeBoard({ data, priorities, dateLabel, askAi, tabs, waitingCar
   const [query, setQuery] = useState("");
   const [personEmail, setPersonEmail] = useState<PersonRowData | null>(null);
   const [personCall, setPersonCall] = useState<PersonRowData | null>(null);
+  const [personCallKind, setPersonCallKind] = useState<"call" | "meeting">("call");
   const [personLogged, setPersonLogged] = useState<Record<string, string>>({});
   const { deals, today, threshold } = data;
 
@@ -443,7 +444,7 @@ export function HomeBoard({ data, priorities, dateLabel, askAi, tabs, waitingCar
           <Suspense fallback={<CardPlaceholder title="Targets today" rows={4} card="targets" pinAt="desk" />}>
             <Arrived value={data.targets} render={(t) => <TargetsTodayTile tile={t} />} />
           </Suspense>
-          <OutreachTile outreach={data.outreach} today={today} logged={personLogged} onEmail={setPersonEmail} onCall={setPersonCall} />
+          <OutreachTile outreach={data.outreach} today={today} logged={personLogged} onEmail={setPersonEmail} onCall={(p) => { setPersonCallKind("call"); setPersonCall(p); }} onMeeting={(p) => { setPersonCallKind("meeting"); setPersonCall(p); }} />
           <RosaraTile rosara={data.rosara} today={today} />
           <JobSearchTile pipelines={data.pipelines} today={today} />
           <ListingsTile count={data.toScreen} listings={data.listings} />
@@ -467,6 +468,8 @@ export function HomeBoard({ data, priorities, dateLabel, askAi, tabs, waitingCar
       ) : null}
       {personCall ? (
         <LogCallDrawer
+          key={`${personCall.id}-${personCallKind}`}
+          kind={personCallKind}
           target={{ contactId: personCall.id, dealId: null, who: personCall.name, from: "From Home", currentDate: personCall.nextFollowUp }}
           today={today}
           tz={data.tz}
@@ -475,7 +478,7 @@ export function HomeBoard({ data, priorities, dateLabel, askAi, tabs, waitingCar
             if (!o) setPersonCall(null);
           }}
           onSaved={(r) => {
-            setPersonLogged((m) => ({ ...m, [personCall.id]: `Call logged, ${r.minutes} min` }));
+            setPersonLogged((m) => ({ ...m, [personCall.id]: `${personCallKind === "meeting" ? "Meeting" : "Call"} logged, ${r.minutes} min` }));
             setTimeout(() => router.refresh(), CONFIRM_SHORT_MS);
           }}
         />
@@ -696,8 +699,8 @@ function NeedsActionRow({ deal }: { deal: DealRow }) {
   );
 }
 
-/** The People tile (batch B; Outreach renamed in push B): the weekly counter with its bar, up to three people due today with Email and Log a call, the link, and the overdue count. */
-function OutreachTile({ outreach, today, logged, onEmail, onCall }: { outreach: WorkNowData["outreach"]; today: string; logged: Record<string, string>; onEmail: (p: PersonRowData) => void; onCall: (p: PersonRowData) => void }) {
+/** The People tile (batch B; Outreach renamed in push B): the weekly counter with its bar, up to three people due today with Email, Log a call and (2026-11-17) Log a meeting, the link, and the overdue count. */
+function OutreachTile({ outreach, today, logged, onEmail, onCall, onMeeting }: { outreach: WorkNowData["outreach"]; today: string; logged: Record<string, string>; onEmail: (p: PersonRowData) => void; onCall: (p: PersonRowData) => void; onMeeting: (p: PersonRowData) => void }) {
   return (
     <WorkCard title="Contacts" hint={`${outreach.due.length} due`} testId="home-outreach" pinned pinAt="desk">
       <TargetBar count={outreach.counter.count} target={outreach.counter.target} pct={outreach.counter.pct} className="py-2.5" testId="home-outreach-counter" />
@@ -731,6 +734,9 @@ function OutreachTile({ outreach, today, logged, onEmail, onCall }: { outreach: 
                 </RowButton>
                 <RowButton onClick={() => onCall(p)} className="h-7 px-2.5 text-xs" data-testid="home-person-log-call">
                   Log a call
+                </RowButton>
+                <RowButton onClick={() => onMeeting(p)} className="h-7 px-2.5 text-xs" data-testid="home-person-log-meeting">
+                  Log a meeting
                 </RowButton>
               </div>
             </div>

@@ -29,6 +29,8 @@ to-dos) plus Accountability (targets, End of day report to partners, weekly and 
   `node dev-tools/check-full.cjs` (Screen listings, Rosara, Job search, Consulting, Settings; replaces the
   old `check-flows.cjs`, which tests pages that no longer exist),
   `node dev-tools/check-auto-report.cjs` (the report timer on a fake clock; Bram, 2026-11-08),
+  `node dev-tools/check-priorities.cjs` (Top priorities, the daily report, Today's activity, Log a meeting;
+  Bram, 2026-11-17),
   `node dev-tools/check-ai-rules.cjs` (after any prompt change).
 - Afterwards: `git checkout -- docs/screenshots` and remove untracked images.
 - Vercel build status: `gh api repos/FM2U/bf-personal-app/commits/<sha>/statuses`.

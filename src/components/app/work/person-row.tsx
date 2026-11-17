@@ -33,10 +33,10 @@ export function PurposePills({ purposes, className }: { purposes: readonly strin
  * One person on Outreach: name with the organization and role line, the one-line note, then the purpose pills on a
  * third line (Edit batch C, item 4: the text wraps before the reserved 32px gap and never reaches the figures); at the right
  * the figures LAST CONTACT and NEXT FOLLOW-UP (red when overdue) and the buttons Email (the editor, prefilled and
- * logged by the send), Log a call (the drawer), and Done (asks for the next date and what for, then the row moves).
+ * logged by the send), Log a call and (2026-11-17) Log a meeting (the drawer), and Done (asks for the next date and what for, then the row moves).
  * The row opens the person page. The editor and the drawer are held by the board, so they survive the row moving.
  */
-export function PersonRow({ person, today, onEmail, onCall, done: doneText, showDone = true }: { person: PersonRowData; today: string; onEmail: (p: PersonRowData) => void; onCall: (p: PersonRowData) => void; /** A line to show after a call or an email was logged on this visit ("Call logged, 20 min"). */ done?: string | null; /** Done (the follow-up is done) shows on Follow-ups only (push B: Everyone has Email and Log a call). */ showDone?: boolean }) {
+export function PersonRow({ person, today, onEmail, onCall, onMeeting, done: doneText, showDone = true }: { person: PersonRowData; today: string; onEmail: (p: PersonRowData) => void; onCall: (p: PersonRowData) => void; /** Log a meeting (Bram, 2026-11-17): the same drawer as Log a call, 60 min, saved as a meeting. */ onMeeting?: (p: PersonRowData) => void; /** A line to show after a call or an email was logged on this visit ("Call logged, 20 min"). */ done?: string | null; /** Done (the follow-up is done) shows on Follow-ups only (push B: Everyone has Email and Log a call). */ showDone?: boolean }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [state, setState] = useState<{ kind: "idle" } | { kind: "ask" } | { kind: "done"; text: string } | { kind: "error"; text: string }>({ kind: "idle" });
@@ -85,6 +85,11 @@ export function PersonRow({ person, today, onEmail, onCall, done: doneText, show
             <RowButton onClick={() => onCall(person)} data-testid="row-log-call">
               Log a call
             </RowButton>
+            {onMeeting ? (
+              <RowButton onClick={() => onMeeting(person)} data-testid="row-log-meeting">
+                Log a meeting
+              </RowButton>
+            ) : null}
             {showDone ? (
               <RowButton tone="cobalt" disabled={pending} onClick={() => setState(asking ? { kind: "idle" } : { kind: "ask" })} className={ROW_COLS.button.cls} data-testid="row-done">
                 Done
