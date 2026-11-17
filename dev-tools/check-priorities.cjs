@@ -320,6 +320,29 @@ const idOf = async (name) => (await one("select id from pipeline_items where nam
     assert(w && w.method === "other" && w.call_minutes === 45, JSON.stringify(w));
   });
 
+  await step("Contact timeline (release 3c): Gmail threads with the person appear a moment after the page (read-only, Open in Gmail); the filter shows All, App only, Emails, Calls and meetings", async () => {
+    await open("/api/google/connect");
+    const mark = await one("select id from contacts where name = 'Mark Reed'");
+    await open(`/work/people/${mark.id}`);
+    const card = page.getByTestId("person-timeline");
+    await until(async () => (await card.innerText()).includes("Gmail: Owners selling in 2027"), "the Gmail thread did not show");
+    assert((await card.getByTestId("timeline-link").filter({ hasText: "Open in Gmail" }).count()) >= 1, "no Open in Gmail link");
+    const pick = async (k) => {
+      await card.locator(`[data-testid=timeline-filter-option][data-key=${k}]`).click();
+      await page.waitForTimeout(300);
+      return (await card.getByTestId("timeline-events").innerText()).replace(/\s+/g, " ");
+    };
+    const app = await pick("app");
+    assert(!app.includes("Gmail:") && app.includes("Meeting with Mark Reed"), `App only: ${app.slice(0, 300)}`);
+    const mails = await pick("email");
+    assert(mails.includes("Gmail:") && !mails.includes("Meeting with Mark Reed"), `Emails: ${mails.slice(0, 300)}`);
+    const calls = await pick("calls");
+    assert(calls.includes("Meeting with Mark Reed") && !calls.includes("Gmail:"), `Calls and meetings: ${calls.slice(0, 300)}`);
+    await pick("all");
+    const incoming = page.getByTestId("incoming-empty");
+    if (await incoming.count()) assert((await incoming.innerText()).includes("Replies to your reports and to emails sent from the app show here."), "the Incoming wording");
+  });
+
   await step("No page showed an error in the browser", async () => {
     assert(errors.length === 0, errors.slice(0, 3).join("\n"));
   });

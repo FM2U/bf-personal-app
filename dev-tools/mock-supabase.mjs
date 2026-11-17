@@ -507,6 +507,22 @@ const google = http.createServer(async (req, res) => {
       greplies.push({ id, threadId: sent.threadId, from, subject: `Re: ${sent.subject}`, text: b.text || "Good day. What happened with Summit?", at });
       return send(res, 200, { id, threadId: sent.threadId });
     }
+    // Release 3c (contact timelines): a search of the mailbox returns two sample threads for any address asked about.
+    if (p === "/gmail/v1/users/me/threads" && req.method === "GET") {
+      if (!gmode.grantRead) return send(res, 403, { error: { code: 403, message: "Request had insufficient authentication scopes.", status: "PERMISSION_DENIED" } });
+      const q = url.searchParams.get("q") || "";
+      const who = ((q.match(/from:"?([^"\s]+)"?/) || [])[1] || "").toLowerCase();
+      return send(res, 200, { threads: who ? [{ id: `inbox-1-${who}` }, { id: `inbox-2-${who}` }] : [] });
+    }
+    {
+      const m = p.match(/^\/gmail\/v1\/users\/me\/threads\/(inbox-\d-[^/]+)$/);
+      if (m && req.method === "GET") {
+        const id = decodeURIComponent(m[1]);
+        const n = id.startsWith("inbox-1") ? 1 : 2;
+        const at = Date.now() - n * 3 * 86400e3;
+        return send(res, 200, { id, messages: [{ id: `${id}-m`, threadId: id, internalDate: String(at), snippet: n === 1 ? "Two owners are ready to talk this month." : "Thanks for the call, here is the list.", payload: { headers: [{ name: "Subject", value: n === 1 ? "Owners selling in 2027" : "Follow-up from our call" }] } }] });
+      }
+    }
     {
       const m = p.match(/^\/gmail\/v1\/users\/me\/threads\/([^/]+)$/);
       if (m && req.method === "GET") {

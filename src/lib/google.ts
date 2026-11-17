@@ -192,3 +192,62 @@ export async function checkGoogle(sb: SupabaseClient, ownerId: string): Promise<
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 }
+
+
+
+/** One signed-in Google client for several reads in a row (contact timelines, release 3c). Null when not connected. */
+export async function googleAuth(sb: SupabaseClient, ownerId: string) {
+  return authed(sb, ownerId);
+}
+type GoogleAuth = NonNullable<Awaited<ReturnType<typeof authed>>>;
+
+/** Each Google read for a contact's timeline stops after this long, so a slow Google never holds the page. */
+const TIMELINE_TIMEOUT_MS = 8000;
+
+/**
+ * Contact timelines (release 3c, Bram 2026-11-16): the events on the owner's primary calendar between two instants
+ * that Google's search matches to the words (a contact's email or name; Google searches titles, descriptions and the
+ * people invited), newest window first, up to 250. Throws Google's error.
+ */
+export async function searchCalendarEvents(auth: GoogleAuth, q: string, timeMin: string, timeMax: string): Promise<CalendarEvent[]> {
+  const calendar = google.calendar({ version: "v3", auth, ...apiOptions() });
+  const res = await timeGoogle("calendar search", () => calendar.events.list({ calendarId: "primary", q, timeMin, timeMax, singleEvents: true, orderBy: "startTime", maxResults: 250 }, { timeout: TIMELINE_TIMEOUT_MS }));
+  return (res.data.items ?? [])
+    .filter((e) => e.status !== "cancelled" && !!e.start?.dateTime && !!e.end?.dateTime)
+    .map((e) => ({ id: String(e.id ?? ""), title: String(e.summary ?? "(No title)"), start: String(e.start!.dateTime), end: String(e.end!.dateTime), attendees: (e.attendees ?? []).filter((a) => !a.self && a.email).map((a) => String(a.email).toLowerCase()) }));
+}
+
+export type GmailThreadSummary = { id: string; subject: string; at: string; snippet: string; count: number };
+
+/**
+ * Contact timelines (release 3c): the latest Gmail threads to, from or copying one address, read-only (subject, the
+ * latest message's date and first line). Threads in `skip` (already on the timeline from the app) are left out before
+ * any thread is opened; threads are opened 10 at a time, which stays inside Gmail's per-second limit. Nothing is
+ * stored. Throws Google's error.
+ */
+export async function searchGmailThreads(auth: GoogleAuth, email: string, max: number, skip: Set<string>): Promise<GmailThreadSummary[]> {
+  const gmail = google.gmail({ version: "v1", auth, ...apiOptions() });
+  const q = `from:"${email}" OR to:"${email}" OR cc:"${email}"`;
+  const list = await timeGoogle("gmail search", () => gmail.users.threads.list({ userId: "me", q, maxResults: Math.min(100, max * 3) }, { timeout: TIMELINE_TIMEOUT_MS }));
+  const ids = (list.data.threads ?? []).map((t) => String(t.id ?? "")).filter((id) => id && !skip.has(id)).slice(0, max);
+  const out: GmailThreadSummary[] = [];
+  for (let n = 0; n < ids.length; n += 10) {
+    const batch = await Promise.all(
+      ids.slice(n, n + 10).map(async (id) => {
+        try {
+          const t = await timeGoogle("gmail thread", () => gmail.users.threads.get({ userId: "me", id, format: "metadata", metadataHeaders: ["Subject", "Date"] }, { timeout: TIMELINE_TIMEOUT_MS }));
+          const msgs = t.data.messages ?? [];
+          const last = msgs[msgs.length - 1];
+          const first = msgs[0];
+          const header = (m: typeof first, name: string) => String(m?.payload?.headers?.find((h) => String(h.name ?? "").toLowerCase() === name.toLowerCase())?.value ?? "");
+          const at = last?.internalDate ? new Date(Number(last.internalDate)).toISOString() : new Date(header(last, "Date") || Date.now()).toISOString();
+          return { id, subject: header(first, "Subject") || "(No subject)", at, snippet: String(last?.snippet ?? "").replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, "&").slice(0, 160), count: msgs.length };
+        } catch {
+          return null;
+        }
+      }),
+    );
+    out.push(...batch.filter((x): x is GmailThreadSummary => !!x));
+  }
+  return out;
+}

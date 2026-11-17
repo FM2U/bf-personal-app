@@ -4,8 +4,9 @@ export const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 /** Reads Gmail settings, used only to copy the signature (users.settings.sendAs.list). */
 export const GMAIL_SETTINGS_SCOPE = "https://www.googleapis.com/auth/gmail.settings.basic";
 /**
- * Reads Gmail (push B), used only to look in the threads of what the app sent (End of day reports, emails sent from
- * the app) for replies. Other mail is never read into the app.
+ * Reads Gmail (push B): the threads of what the app sent (End of day reports, emails sent from the app) for replies,
+ * and (release 3c, Bram 2026-11-16) a contact's threads by their address for the contact's timeline, read-only and
+ * never stored.
  */
 export const GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 

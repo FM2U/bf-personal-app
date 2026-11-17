@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState, useTransition } from "react";
+import { useEffect, useId, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Mail, Phone, Users } from "lucide-react";
@@ -14,7 +14,7 @@ import { personAsk } from "@/lib/work/ask-ai";
 import { followUpHint, lastContactLabel, nextDateChoices, purposesText } from "@/lib/work/outreach";
 import { organizationHref } from "@/lib/work/people";
 import type { IncomingReply, PersonRecordLink, PersonRow } from "@/lib/work/outreach-data";
-import type { TimelineEvent } from "@/lib/work/timeline";
+import type { ContactExtras, TimelineEvent } from "@/lib/work/timeline";
 import type { DealTodo } from "@/lib/work/todos";
 import { PersonFactsForm } from "@/components/app/work/add-person";
 import { AiCardStar, AiFieldStar } from "@/components/app/work/ask-ai";
@@ -418,7 +418,7 @@ export function IncomingCard({ incoming }: { incoming: IncomingReply[] }) {
           />
         ) : (
           <p className="py-2 text-[13px] text-muted-foreground" data-testid="incoming-empty">
-            Nothing waiting. Replies pulled from Gmail will show here once Gmail reading is connected.
+            Nothing waiting. Replies to your reports and to emails sent from the app show here.
           </p>
         )}
         {error ? (
@@ -433,13 +433,100 @@ export function IncomingCard({ incoming }: { incoming: IncomingReply[] }) {
 
 // ---------- Timeline ----------
 
+type TimelineFilter = "all" | "app" | "email" | "calls";
+
+/** GET /api/contacts/<id>/google (release 3c); null when it could not be read. Stops after 12 seconds. */
+async function readExtras(id: string, all = false): Promise<ContactExtras | null> {
+  const r = await fetch(`/api/contacts/${id}/google${all ? "?all=1&only=gmail" : ""}`, { signal: AbortSignal.timeout(12000), cache: "no-store" });
+  return r.ok ? ((await r.json()) as ContactExtras) : null;
+}
+const TIMELINE_FILTERS: { key: TimelineFilter; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "app", label: "App only" },
+  { key: "email", label: "Emails" },
+  { key: "calls", label: "Calls and meetings" },
+];
+
+/**
+ * Release 3c (Bram, 2026-11-16): the timeline also shows the person's Google Calendar meetings and Gmail threads,
+ * read after the page shows and never stored; a filter picks All, App only, Emails, or Calls and meetings. A calendar
+ * event on a day with a call or meeting logged for this person is left out, so the meeting shows once.
+ */
 export function PersonTimelineCard({ person, events }: { person: PersonRow; events: TimelineEvent[] }) {
   const { pending, state, run } = useSave();
   const [note, setNote] = useState("");
+  const [filter, setFilter] = useState<TimelineFilter>("all");
+  const [extras, setExtras] = useState<ContactExtras | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [loadingMore, startMore] = useTransition();
   useUnsavedWork(note.trim() !== "", "The note is not saved yet.");
+  useEffect(() => {
+    let live = true;
+    readExtras(person.id)
+      .then((r) => {
+        if (!live) return;
+        if (r) setExtras(r);
+        else setFailed(true);
+      })
+      .catch(() => live && setFailed(true));
+    return () => {
+      live = false;
+    };
+  }, [person.id]);
+  // A calendar meeting within 3 hours of a call or meeting logged for this person is the same meeting: it shows once.
+  const logged = events.filter((e) => e.kind === "call").map((e) => Date.parse(e.when));
+  const outside = (extras?.events ?? []).filter((e) => !(e.source === "calendar" && logged.some((t) => Math.abs(t - Date.parse(e.when)) <= 3 * 3600e3)));
+  const merged = [...events, ...outside].sort((a, b) => Date.parse(b.when) - Date.parse(a.when));
+  const shown = merged.filter((e) => (filter === "all" ? true : filter === "app" ? !e.source || e.source === "app" : filter === "email" ? e.kind === "email" || e.kind === "reply" || e.kind === "report" : e.kind === "call"));
+  const note3c =
+    failed
+      ? "Your calendar and Gmail could not be read just now."
+      : extras === null
+      ? "Reading your calendar and Gmail..."
+      : [
+          extras.calendar === "reconnect" ? "Reconnect Google (Settings, Connections) to see calendar meetings." : extras.calendar === "off" ? "Connect Google (Settings, Connections) to see calendar meetings." : extras.calendar === "unavailable" ? "The calendar could not be read just now." : null,
+          extras.gmail === "no_email" ? "Add an email address in Facts to see Gmail threads." : extras.gmail === "reconnect" ? "Reconnect Google (Settings, Connections) to see Gmail threads." : extras.gmail === "off" ? "Connect Google (Settings, Connections) to see Gmail threads." : extras.gmail === "unavailable" ? "Gmail could not be read just now." : null,
+        ]
+          .filter(Boolean)
+          .join(" ");
   return (
-    <WorkCard title="Timeline" hint={["Newest first", cappedNote(events.length)].filter(Boolean).join(" · ")} testId="person-timeline">
-      <TimelineEvents events={events} empty="Nothing yet. Notes, emails, and calls show here." windowTitle={`Timeline · ${person.name}`} windowSub={`All ${events.length} entries, newest first`} />
+    <WorkCard title="Timeline" hint={["Newest first", cappedNote(shown.length)].filter(Boolean).join(" · ")} testId="person-timeline">
+      <div className="flex flex-wrap gap-1.5 px-[22px] pt-2" role="group" aria-label="Show" data-testid="timeline-filter">
+        {TIMELINE_FILTERS.map((f) => (
+          <button
+            key={f.key}
+            type="button"
+            onClick={() => setFilter(f.key)}
+            aria-pressed={filter === f.key}
+            className={cn("rounded-full border px-2.5 py-0.5 text-[12.5px] font-medium", filter === f.key ? "border-primary-strong bg-primary-soft text-primary-strong" : "border-border bg-white text-slate-700 hover:bg-slate-50")}
+            data-testid="timeline-filter-option"
+            data-key={f.key}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+      <TimelineEvents events={shown} empty={filter === "all" ? "Nothing yet. Notes, emails, calls and meetings show here." : "Nothing of this kind yet."} windowTitle={`Timeline · ${person.name}`} windowSub={`All ${shown.length} entries, newest first`} />
+      {/* Always on the page, so a screen reader reads the note when it changes. */}
+      <p className="flex flex-wrap items-center gap-x-3 px-[22px] pt-1 text-[12px] text-muted-foreground empty:hidden" aria-live="polite" data-testid="timeline-google-note">
+          {note3c ? <span>{note3c}</span> : null}
+          {extras?.more ? (
+            <button
+              type="button"
+              disabled={loadingMore}
+              onClick={() =>
+                startMore(async () => {
+                  const r = await readExtras(person.id, true);
+                  if (r && extras) setExtras({ ...r, calendar: extras.calendar, events: [...extras.events.filter((e) => e.source === "calendar"), ...r.events] });
+                })
+              }
+              className="font-medium text-primary-strong hover:underline"
+              data-testid="timeline-more-gmail"
+            >
+              {loadingMore ? "Reading..." : "More from Gmail"}
+            </button>
+          ) : null}
+      </p>
       <div className="flex flex-col gap-2 px-[22px] pt-2 pb-4" data-testid="note-form">
         <div className="flex items-start gap-2">
           <GrowingTextarea id="person-note" value={note} onChange={setNote} minRows={1} placeholder="Add a note" className="flex-1" data-testid="person-note" />
