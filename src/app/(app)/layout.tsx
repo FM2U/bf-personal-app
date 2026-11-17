@@ -29,7 +29,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const [toScreen, outreachDue, eodBadge] = await Promise.all([countToScreen(supabase, ownerId), countOutreachDue(supabase, ownerId, today), loadEodBadge(supabase, ownerId, today)]);
   return (
     <div className="min-h-screen lg:pl-60">
-      <aside className="no-print fixed inset-y-0 left-0 hidden w-60 flex-col border-r border-border bg-white px-3 py-4 lg:flex">
+      {/* The menu takes the paper color of the page (Bram, 2026-11-17, decisions 27 and 31 of the Home redesign plan). */}
+      <aside className="no-print fixed inset-y-0 left-0 hidden w-60 flex-col border-r border-[#ecebe8] bg-[#faf9f7] px-3 py-4 lg:flex">
         <Link href="/" className="mb-6 flex items-center gap-2 px-3 text-base font-semibold tracking-tight text-slate-900">
           <span aria-hidden className="h-2.5 w-2.5 rotate-45 rounded-[2px] bg-primary" />
           BF Personal App

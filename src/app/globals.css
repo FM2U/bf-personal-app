@@ -504,7 +504,7 @@ select:not([multiple]):not([size]) {
  * Calendar: soft blue for Google Calendar events, soft green for time blocked in the app.
  */
 .home-v2 {
-  --h-page: #fafaf9;
+  --h-page: #faf9f7;
   --h-ink: #1c1917;
   --h-ink2: #635d58;
   --h-faint: #8b847e;
@@ -517,12 +517,17 @@ select:not([multiple]):not([size]) {
   --h-indigo-mid: #8590c8;
   --h-indigo-pale: #c7cdec;
   --h-hot: #c2410c;
-  --h-gcal: #f9fbff;
-  --h-block: #f6fbf7;
+  --h-gcal: #f2f6fd;
+  --h-block: #ecf6ef;
   --h-block-ink: #1d5a36;
   color: var(--h-ink);
   font-feature-settings: "tnum";
 }
 body:has(.home-v2) {
-  background: #fafaf9;
+  background: #faf9f7;
+}
+/* Home fits a laptop screen above the fold (Bram, 2026-11-17): a little less space above the title. */
+main:has(.home-v2) {
+  padding-top: 14px;
+  padding-bottom: 16px;
 }

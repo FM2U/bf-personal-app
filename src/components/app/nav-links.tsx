@@ -59,9 +59,9 @@ export function SidebarLinks({ toScreen, outreachDue, eodBadge }: { toScreen?: n
             <Link
               href={m.href}
               className={cn(
-                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900",
-                // Left menu edits (Bram, 2026-11-07): the open section shows in blue text only, no fill behind it.
-                active === m.key && "text-primary-strong",
+                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-slate-600 hover:bg-black/[0.04] hover:text-slate-900",
+                // Left menu (Bram, 2026-11-17, replacing the blue of 2026-11-07): the open section in near-black text, no fill.
+                active === m.key && "font-semibold text-[#1c1917]",
               )}
             >
               <ModuleIcon module={m.key} />
@@ -74,7 +74,7 @@ export function SidebarLinks({ toScreen, outreachDue, eodBadge }: { toScreen?: n
                   <Link
                     key={t.href}
                     href={t.href}
-                    className={cn("flex items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-slate-600 hover:bg-slate-100", active === "work" && tab?.href === t.href && "font-semibold text-primary-strong")}
+                    className={cn("flex items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-slate-600 hover:bg-black/[0.04]", active === "work" && tab?.href === t.href && "font-semibold text-[#1c1917]")}
                   >
                     {t.label}
                     {tabBadge(t.href, toScreen, outreachDue, "subnav")}
@@ -88,7 +88,7 @@ export function SidebarLinks({ toScreen, outreachDue, eodBadge }: { toScreen?: n
                   <Link
                     key={t.href}
                     href={t.href}
-                    className={cn("flex items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-slate-600 hover:bg-slate-100", active === "accountability" && accTab?.href === t.href && "font-semibold text-primary-strong")}
+                    className={cn("flex items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-slate-600 hover:bg-black/[0.04]", active === "accountability" && accTab?.href === t.href && "font-semibold text-[#1c1917]")}
                   >
                     {t.label}
                     {t.href === "/work/end-of-day" ? <EodBadgeChip badge={eodBadge} testId="subnav-eod-badge" /> : null}

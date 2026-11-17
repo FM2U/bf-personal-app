@@ -1,6 +1,5 @@
 "use client";
 
-import { CONFIRM_SHORT_MS } from "@/lib/confirm-timing";
 import { Suspense, use, useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -28,7 +27,7 @@ import { personFollowUpDraft, waitGroups, waitItem, type NoReplyRow as NoReplyDa
 import { clickTile, selectedTile, tileAfterFilter, type Tile } from "@/lib/work/tiles";
 import { AiCardStar } from "@/components/app/work/ask-ai";
 import { ItemActionRow, itemHref } from "@/components/app/work/item-row";
-import { LogCallDrawer } from "@/components/app/work/log-call-drawer";
+import { useContactActions } from "@/components/app/work/contact-actions";
 import { NextActionRow } from "@/components/app/work/next-action-row";
 import { OutreachActionRow, PurposePills } from "@/components/app/work/person-row";
 import { ProjectActionRow } from "@/components/app/work/project-row";
@@ -94,18 +93,16 @@ const TILE_EMPTY: Record<HomeTileKey, string> = { all: "Nothing to do.", overdue
 /** The Waiting card's data with each wait's Follow up email setup (push E2: by the wait's id); arrives after the page (2026-11-07). */
 export type WaitingCardData = { board: WaitingBoard; composes: Record<string, ComposeSetup> };
 
-export function HomeBoard({ data, priorities, dateLabel, askAi, tabs, waitingCard, personComposes, askCompose, title = "Work on now", initialQuery = "", showAll = false }: { /** From Home's "All N next actions" (2026-11-17): start on All areas and the All tile, whatever was picked earlier today. */ showAll?: boolean; /** The page title (2026-11-17: "Next actions" on the full list page; Home has its own board). */ title?: string; /** Find's text from Home's Find box (2026-11-17). */ initialQuery?: string; data: HomeData; /** Top priorities (2026-11-15), above the tiles. */ priorities?: React.ReactNode; /** The date at the right of the title, long and short. */ dateLabel: { long: string; short: string }; /** Ask AI (server-rendered). */ askAi: React.ReactNode; /** The top menu row (under 1024px). */ tabs: React.ReactNode; /** Waiting on someone, on its way when the page is first sent (page speed 2026-11-07). */ waitingCard: Promise<WaitingCardData>; /** The email setup per person on the Outreach tile. */ personComposes: Record<string, ComposeSetup>; /** The email setup for "Open in email" in the Ask AI panel (a typed address). */ askCompose?: ComposeSetup | null }) {
-  const router = useRouter();
+export function HomeBoard({ data, priorities, dateLabel, askAi, tabs, waitingCard, personComposes, askCompose, title = "Work on now", initialQuery = "", showAll = false, startTile, listOnly = false }: { /** From Home's "All N next actions" (2026-11-17): start on All areas and the All tile, whatever was picked earlier today. */ showAll?: boolean; /** Home's large window (2026-11-17, layout v5): start on this tile, every area. */ startTile?: HomeTileKey; /** Home's large window: only the area row, the tiles and the Next actions list (no header, no right column). */ listOnly?: boolean; /** The page title (2026-11-17: "Next actions" on the full list page; Home has its own board). */ title?: string; /** Find's text from Home's Find box (2026-11-17). */ initialQuery?: string; data: HomeData; /** Top priorities (2026-11-15), above the tiles. */ priorities?: React.ReactNode; /** The date at the right of the title, long and short. */ dateLabel: { long: string; short: string }; /** Ask AI (server-rendered). */ askAi: React.ReactNode; /** The top menu row (under 1024px). */ tabs: React.ReactNode; /** Waiting on someone, on its way when the page is first sent (page speed 2026-11-07). */ waitingCard: Promise<WaitingCardData>; /** The email setup per person on the Outreach tile. */ personComposes: Record<string, ComposeSetup>; /** The email setup for "Open in email" in the Ask AI panel (a typed address). */ askCompose?: ComposeSetup | null }) {
   const [query, setQuery] = useState(initialQuery);
-  const [personEmail, setPersonEmail] = useState<PersonRowData | null>(null);
-  const [personCall, setPersonCall] = useState<PersonRowData | null>(null);
-  const [personCallKind, setPersonCallKind] = useState<"call" | "meeting">("call");
-  const [personLogged, setPersonLogged] = useState<Record<string, string>>({});
   const { today, threshold } = data;
+  // Email, Log a call, Log a meeting on the Contacts tile (src/components/app/work/contact-actions.tsx).
+  const people = useContactActions({ composes: personComposes, today, tz: data.tz });
 
   // ---------- The AI order: By the AI is remembered for the rest of the day it was picked (read once, without an effect) ----------
   const savedOrder = useSyncExternalStore(noSubscribe, () => parseOrderChoice(readRaw(ORDER_STORAGE_KEY), today), () => "soonest" as OrderChoice);
-  const [chosenOrder, setOrder] = useState<OrderChoice | null>(null);
+  // Home's large window opens on its tile, soonest first, whatever order was picked earlier today.
+  const [chosenOrder, setOrder] = useState<OrderChoice | null>(startTile ? "soonest" : null);
   const order: OrderChoice = chosenOrder ?? savedOrder;
   const [aiOrder, setAiOrder] = useState<AiOrder | null>(data.aiOrder);
   const [prevAi, setPrevAi] = useState(data.aiOrder);
@@ -125,13 +122,20 @@ export function HomeBoard({ data, priorities, dateLabel, askAi, tabs, waitingCar
   };
   const listRef = useRef<HTMLElement>(null);
   const toListTop = () => {
+    // In Home's large window the window itself scrolls, not the card.
+    if (listOnly) {
+      const box = listRef.current?.closest(".overflow-y-auto");
+      if (box) box.scrollTop = 0;
+      return;
+    }
     if (listRef.current && window.matchMedia(DESK).matches) listRef.current.scrollTop = 0;
   };
   const pickOrder = (c: OrderChoice) => {
     if (c === order) return;
     setOrder(c);
     try {
-      window.localStorage.setItem(ORDER_STORAGE_KEY, orderToStore(c, today));
+      // Choices made in Home's large window are not kept for the list page.
+      if (!listOnly) window.localStorage.setItem(ORDER_STORAGE_KEY, orderToStore(c, today));
     } catch {
       /* no storage */
     }
@@ -141,7 +145,7 @@ export function HomeBoard({ data, priorities, dateLabel, askAi, tabs, waitingCar
 
   // ---------- The Area selector: one area or All, remembered for the rest of the day only ----------
   const savedArea = useSyncExternalStore(noSubscribe, () => parseAreaChoice(readRaw(AREA_STORAGE_KEY), today), () => null);
-  const [chosenArea, setChosenArea] = useState<{ area: AreaKey | null } | null>(showAll ? { area: null } : null);
+  const [chosenArea, setChosenArea] = useState<{ area: AreaKey | null } | null>(showAll || startTile ? { area: null } : null);
   const area = chosenArea ? chosenArea.area : savedArea;
 
   // ---------- The rows of every area (buildHomeRows, shared with the new Home of 2026-11-17) ----------
@@ -169,12 +173,13 @@ export function HomeBoard({ data, priorities, dateLabel, askAi, tabs, waitingCar
 
   // ---------- The tiles: the choice is kept for the rest of the day (like Area); each day starts on All ----------
   const savedTile = useSyncExternalStore(noSubscribe, () => parseTileChoice(readRaw(TILE_STORAGE_KEY), today), () => null);
-  const [chosenTile, setChosenTile] = useState<HomeTileKey | null>(showAll ? "all" : null);
+  const [chosenTile, setChosenTile] = useState<HomeTileKey | null>(startTile ?? (showAll ? "all" : null));
   const selected = selectedTile(chosenTile ?? savedTile, tiles, order);
   const keepTile = (k: HomeTileKey) => {
     setChosenTile(k);
     try {
-      window.localStorage.setItem(TILE_STORAGE_KEY, tileToStore(k, today));
+      // Choices made in Home's large window are not kept for the list page.
+      if (!listOnly) window.localStorage.setItem(TILE_STORAGE_KEY, tileToStore(k, today));
     } catch {
       /* no storage: the choice holds until the page reloads */
     }
@@ -189,7 +194,8 @@ export function HomeBoard({ data, priorities, dateLabel, askAi, tabs, waitingCar
   const pickArea = (a: AreaKey | null) => {
     setChosenArea({ area: a });
     try {
-      window.localStorage.setItem(AREA_STORAGE_KEY, areaToStore(a, today));
+      // Choices made in Home's large window are not kept for the list page.
+      if (!listOnly) window.localStorage.setItem(AREA_STORAGE_KEY, areaToStore(a, today));
     } catch {
       /* no storage: the choice holds until the page reloads */
     }
@@ -282,6 +288,112 @@ export function HomeBoard({ data, priorities, dateLabel, askAi, tabs, waitingCar
   const allFoundCount = HOME_SECTION_KEYS.reduce((n, k) => n + sectionsOf[k].filter(found).length, 0) + (reviewShown ? 1 : 0);
   const aiList = aiRows.filter(found);
 
+  // The Next actions column: the tiles over the list (on the page, and alone in Home's large window).
+  const left = (
+        <div className="flex min-h-0 min-w-0 flex-col gap-6" data-testid="home-left">
+            <StatusTiles tiles={tiles} selected={selected} onPick={pickTile} label="Next actions" idPrefix="home-tile" panelId={PANEL_ID} testId="home-tiles" />
+            <WorkCard
+              id={PANEL_ID}
+              ref={listRef}
+              role="tabpanel"
+              labelledBy={selected ? `home-tile-${selected}` : undefined}
+              title="Next actions"
+              count={shownCount}
+              lead={
+                  <button type="button" onClick={() => setWorking(true)} disabled={!steps.length} className="inline-flex h-[30px] items-center gap-1.5 rounded-[7px] border border-primary-solid bg-primary-solid px-3 text-[13px] font-medium whitespace-nowrap text-white hover:border-primary-solid-hover hover:bg-primary-solid-hover disabled:opacity-50" data-testid="work-through-open" title={steps.length ? `Step through the ${steps.length} due today or earlier, one at a time` : "Nothing is due today"}>
+                    <Play className="h-3 w-3 fill-current" aria-hidden />
+                    Work through
+                  </button>
+              }
+              sub={`${areaWord}, ${byAi ? "in the AI's order; one reason under each row" : "soonest first"}`}
+              actions={
+                <>
+                  <span className="inline-flex items-center gap-2 whitespace-nowrap">
+                  <span className="text-[12.5px] text-muted-foreground">Order:</span>
+                  <div className="inline-flex rounded-full border border-border bg-white p-px" role="radiogroup" aria-label="Order" data-testid="home-order">
+                    {(["soonest", "ai"] as OrderChoice[]).map((c) => (
+                      <button key={c} type="button" role="radio" aria-checked={order === c} onClick={() => pickOrder(c)} className={cn("rounded-full px-3 py-1 text-[12.5px] font-medium whitespace-nowrap", order === c ? "bg-primary-soft text-primary-strong shadow-[inset_0_0_0_1.5px_var(--primary)]" : "text-heading hover:bg-slate-100")} data-testid={`home-order-${c}`}>
+                        {c === "soonest" ? "Soonest first" : "By the AI"}
+                      </button>
+                    ))}
+                  </div>
+                  </span>
+                  <AiCardStar context={{ ...HOME_ASK, card: "Next actions" }} compose={askCompose} />
+                </>
+              }
+              testId="now-actions"
+              pinned
+              scroll
+              pinAt="desk"
+              className="desk:min-h-0 desk:flex-1 desk:overscroll-contain"
+            >
+              <StickySections under="card" media={DESK} className="px-[22px] pb-3">
+                {order === "ai" ? (
+                  <>
+                    <div className={cn(BAND_CLS, "cursor-default flex-wrap justify-between gap-x-3 gap-y-1 text-violet")} data-testid="ai-order-heading">
+                      <span>{aiOrder ? orderedAtLabel(aiOrder.createdAt, today, data.hourLocal) : ordering ? "Asking the AI for the order..." : "By the AI"}</span>
+                      <span className="flex items-center gap-3 text-[12.5px] font-normal tracking-normal text-slate-400 normal-case">
+                        {aiOrder ? <span className="hidden sm:inline">One reason under each row</span> : null}
+                        <button type="button" onClick={() => askOrder(true)} disabled={ordering} className="font-medium text-violet hover:underline disabled:text-slate-400 disabled:no-underline" data-testid="ai-order-again">
+                          {ordering ? <Thinking /> : aiOrder ? "Order again" : "Ask now"}
+                        </button>
+                      </span>
+                    </div>
+                    {orderError ? (
+                      <p className="mt-3 rounded-lg border border-status-missed-border bg-status-missed-bg px-3.5 py-2 text-[13px] text-status-missed" role="alert" data-testid="ai-order-error">
+                        {orderError.error}
+                        {orderError.reply ? (
+                          <>
+                            {" "}
+                            Its reply: <q className="text-slate-700 italic" data-testid="ai-order-error-reply">{orderError.reply}</q>
+                          </>
+                        ) : null}{" "}
+                        Pick a tile to see the lists soonest first.{" "}
+                        <button type="button" onClick={() => askOrder(true)} disabled={ordering} className="font-medium text-primary-strong hover:underline" data-testid="ai-order-retry">
+                          Try again
+                        </button>
+                      </p>
+                    ) : null}
+                    {byAi ? (
+                      aiList.length || reviewShown ? (
+                        <div className="-mx-[22px] flex flex-col" data-testid="ai-order-rows">
+                          {reviewShown && review ? <MonthlyReviewRow review={review} /> : null}
+                          {aiList.map((r, n) => rowBox(r, n + 1))}
+                        </div>
+                      ) : (
+                        <div className="-mx-[22px]">{empty(null)}</div>
+                      )
+                    ) : null}
+                  </>
+                ) : selected === "all" ? (
+                  // Fix list item 2: under All, every row in four sections, in tile order, each under its grey band.
+                  allFoundCount ? (
+                    <div data-testid="home-all" data-section="all">
+                      {HOME_SECTION_KEYS.map((k) => sectionBlock(k, sectionsOf[k].filter(found), false))}
+                    </div>
+                  ) : (
+                    <div className="-mx-[22px]" data-testid="home-all" data-section="all">
+                      {empty("all")}
+                    </div>
+                  )
+                ) : selected ? (
+                  sectionBlock(selected, list, true)
+                ) : null}
+              </StickySections>
+            </WorkCard>
+          </div>
+  );
+  if (listOnly) {
+    return (
+      <BlockTimeProvider today={today} nowLocal={data.nowLocal} blockMinutes={data.blockMinutes} rowBlocks={data.rowBlocks} calendar={data.calendar}>
+        <div className="mb-4" data-testid="home-area">
+          <AreaSelector options={areaOptions} selected={area} onPick={pickArea} />
+        </div>
+        {left}
+        {working ? <WorkThrough steps={steps} today={today} onClose={() => setWorking(false)} /> : null}
+      </BlockTimeProvider>
+    );
+  }
   return (
     <BlockTimeProvider today={today} nowLocal={data.nowLocal} blockMinutes={data.blockMinutes} rowBlocks={data.rowBlocks} calendar={data.calendar}>
       <SlimBar
@@ -315,98 +427,7 @@ export function HomeBoard({ data, priorities, dateLabel, askAi, tabs, waitingCar
       </div>
 
       <div ref={bentoRef} className="grid grid-cols-1 items-start gap-[18px] lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] desk:-mb-[72px] desk:h-[calc(100vh-var(--bento-top,104px)-24px)] desk:min-h-[460px] desk:items-stretch" data-testid="home-bento">
-        <div className="flex min-h-0 min-w-0 flex-col gap-6" data-testid="home-left">
-          <StatusTiles tiles={tiles} selected={selected} onPick={pickTile} label="Next actions" idPrefix="home-tile" panelId={PANEL_ID} testId="home-tiles" />
-          <WorkCard
-            id={PANEL_ID}
-            ref={listRef}
-            role="tabpanel"
-            labelledBy={selected ? `home-tile-${selected}` : undefined}
-            title="Next actions"
-            count={shownCount}
-            lead={
-                <button type="button" onClick={() => setWorking(true)} disabled={!steps.length} className="inline-flex h-[30px] items-center gap-1.5 rounded-[7px] border border-primary-solid bg-primary-solid px-3 text-[13px] font-medium whitespace-nowrap text-white hover:border-primary-solid-hover hover:bg-primary-solid-hover disabled:opacity-50" data-testid="work-through-open" title={steps.length ? `Step through the ${steps.length} due today or earlier, one at a time` : "Nothing is due today"}>
-                  <Play className="h-3 w-3 fill-current" aria-hidden />
-                  Work through
-                </button>
-            }
-            sub={`${areaWord}, ${byAi ? "in the AI's order; one reason under each row" : "soonest first"}`}
-            actions={
-              <>
-                <span className="inline-flex items-center gap-2 whitespace-nowrap">
-                <span className="text-[12.5px] text-muted-foreground">Order:</span>
-                <div className="inline-flex rounded-full border border-border bg-white p-px" role="radiogroup" aria-label="Order" data-testid="home-order">
-                  {(["soonest", "ai"] as OrderChoice[]).map((c) => (
-                    <button key={c} type="button" role="radio" aria-checked={order === c} onClick={() => pickOrder(c)} className={cn("rounded-full px-3 py-1 text-[12.5px] font-medium whitespace-nowrap", order === c ? "bg-primary-soft text-primary-strong shadow-[inset_0_0_0_1.5px_var(--primary)]" : "text-heading hover:bg-slate-100")} data-testid={`home-order-${c}`}>
-                      {c === "soonest" ? "Soonest first" : "By the AI"}
-                    </button>
-                  ))}
-                </div>
-                </span>
-                <AiCardStar context={{ ...HOME_ASK, card: "Next actions" }} compose={askCompose} />
-              </>
-            }
-            testId="now-actions"
-            pinned
-            scroll
-            pinAt="desk"
-            className="desk:min-h-0 desk:flex-1 desk:overscroll-contain"
-          >
-            <StickySections under="card" media={DESK} className="px-[22px] pb-3">
-              {order === "ai" ? (
-                <>
-                  <div className={cn(BAND_CLS, "cursor-default flex-wrap justify-between gap-x-3 gap-y-1 text-violet")} data-testid="ai-order-heading">
-                    <span>{aiOrder ? orderedAtLabel(aiOrder.createdAt, today, data.hourLocal) : ordering ? "Asking the AI for the order..." : "By the AI"}</span>
-                    <span className="flex items-center gap-3 text-[12.5px] font-normal tracking-normal text-slate-400 normal-case">
-                      {aiOrder ? <span className="hidden sm:inline">One reason under each row</span> : null}
-                      <button type="button" onClick={() => askOrder(true)} disabled={ordering} className="font-medium text-violet hover:underline disabled:text-slate-400 disabled:no-underline" data-testid="ai-order-again">
-                        {ordering ? <Thinking /> : aiOrder ? "Order again" : "Ask now"}
-                      </button>
-                    </span>
-                  </div>
-                  {orderError ? (
-                    <p className="mt-3 rounded-lg border border-status-missed-border bg-status-missed-bg px-3.5 py-2 text-[13px] text-status-missed" role="alert" data-testid="ai-order-error">
-                      {orderError.error}
-                      {orderError.reply ? (
-                        <>
-                          {" "}
-                          Its reply: <q className="text-slate-700 italic" data-testid="ai-order-error-reply">{orderError.reply}</q>
-                        </>
-                      ) : null}{" "}
-                      Pick a tile to see the lists soonest first.{" "}
-                      <button type="button" onClick={() => askOrder(true)} disabled={ordering} className="font-medium text-primary-strong hover:underline" data-testid="ai-order-retry">
-                        Try again
-                      </button>
-                    </p>
-                  ) : null}
-                  {byAi ? (
-                    aiList.length || reviewShown ? (
-                      <div className="-mx-[22px] flex flex-col" data-testid="ai-order-rows">
-                        {reviewShown && review ? <MonthlyReviewRow review={review} /> : null}
-                        {aiList.map((r, n) => rowBox(r, n + 1))}
-                      </div>
-                    ) : (
-                      <div className="-mx-[22px]">{empty(null)}</div>
-                    )
-                  ) : null}
-                </>
-              ) : selected === "all" ? (
-                // Fix list item 2: under All, every row in four sections, in tile order, each under its grey band.
-                allFoundCount ? (
-                  <div data-testid="home-all" data-section="all">
-                    {HOME_SECTION_KEYS.map((k) => sectionBlock(k, sectionsOf[k].filter(found), false))}
-                  </div>
-                ) : (
-                  <div className="-mx-[22px]" data-testid="home-all" data-section="all">
-                    {empty("all")}
-                  </div>
-                )
-              ) : selected ? (
-                sectionBlock(selected, list, true)
-              ) : null}
-            </StickySections>
-          </WorkCard>
-        </div>
+        {left}
 
         <div className="flex min-w-0 flex-col gap-[18px] desk:h-full desk:overflow-y-auto desk:overscroll-contain desk:pb-0.5" data-testid="home-right">
           {/* Page speed (2026-11-07): these three cards fill in after the page is on screen, each behind a grey placeholder. */}
@@ -419,45 +440,14 @@ export function HomeBoard({ data, priorities, dateLabel, askAi, tabs, waitingCar
           <Suspense fallback={<CardPlaceholder title="Targets today" rows={4} card="targets" pinAt="desk" />}>
             <Arrived value={data.targets} render={(t) => <TargetsTodayTile tile={t} />} />
           </Suspense>
-          <OutreachTile outreach={data.outreach} today={today} logged={personLogged} onEmail={setPersonEmail} onCall={(p) => { setPersonCallKind("call"); setPersonCall(p); }} onMeeting={(p) => { setPersonCallKind("meeting"); setPersonCall(p); }} />
+          <OutreachTile outreach={data.outreach} today={today} logged={people.logged} onEmail={people.onEmail} onCall={people.onCall} onMeeting={people.onMeeting} />
           <RosaraTile rosara={data.rosara} today={today} />
           <JobSearchTile pipelines={data.pipelines} today={today} />
           <ListingsTile count={data.toScreen} listings={data.listings} />
           <GlanceTile glance={data.glance} threshold={threshold} />
         </div>
       </div>
-      {personEmail && personComposes[personEmail.id] ? (
-        <ComposeEmailDialog
-          key={`p-${personEmail.id}`}
-          setup={personComposes[personEmail.id]}
-          open
-          ask={{ page: "person", recordId: personEmail.id, label: personEmail.name }}
-          onOpenChange={(o) => {
-            if (!o) setPersonEmail(null);
-          }}
-          onSent={() => {
-            setPersonLogged((m) => ({ ...m, [personEmail.id]: "Email sent and logged" }));
-            router.refresh();
-          }}
-        />
-      ) : null}
-      {personCall ? (
-        <LogCallDrawer
-          key={`${personCall.id}-${personCallKind}`}
-          kind={personCallKind}
-          target={{ contactId: personCall.id, dealId: null, who: personCall.name, from: "From Home", currentDate: personCall.nextFollowUp }}
-          today={today}
-          tz={data.tz}
-          open
-          onOpenChange={(o) => {
-            if (!o) setPersonCall(null);
-          }}
-          onSaved={(r) => {
-            setPersonLogged((m) => ({ ...m, [personCall.id]: `${personCallKind === "meeting" ? "Meeting" : "Call"} logged, ${r.minutes} min` }));
-            setTimeout(() => router.refresh(), CONFIRM_SHORT_MS);
-          }}
-        />
-      ) : null}
+      {people.dialogs}
       {working ? <WorkThrough steps={steps} today={today} onClose={() => setWorking(false)} /> : null}
     </BlockTimeProvider>
   );
@@ -526,7 +516,7 @@ function CardPlaceholder({ title, sub, rows, card, className, pinAt }: { title: 
  * Waiting on someone (push E; never filtered): deals and people in "N+ days" and "< N days", then "No reply yet".
  * Page speed (2026-11-07): its own part, filled in after the page is on screen.
  */
-function WaitingCard({ data, threshold }: { data: Promise<WaitingCardData>; threshold: number }) {
+export function WaitingCard({ data, threshold, className }: { data: Promise<WaitingCardData>; threshold: number; /** Replaces the card's height limit (Home's large window, 2026-11-17). */ className?: string }) {
   const { board, composes } = use(data);
   const router = useRouter();
   /** Deals and people followed up on this visit (by row key): the row keeps its "Followed up" line after it moves under the threshold. */
@@ -564,7 +554,7 @@ function WaitingCard({ data, threshold }: { data: Promise<WaitingCardData>; thre
 
   return (
     <>
-          <WorkCard id="now-wait" title="Waiting on someone" count={waitCount} sub="Items waiting on external parties" testId="now-wait" pinned headerClassName="sticky top-0 z-[2]" className="max-h-[340px] shrink-0 overflow-y-auto overscroll-contain">
+          <WorkCard id="now-wait" title="Waiting on someone" count={waitCount} sub="Items waiting on external parties" testId="now-wait" pinned headerClassName="sticky top-0 z-[2]" className={className ?? "max-h-[340px] shrink-0 overflow-y-auto overscroll-contain"}>
             {waitError ? (
               <p className="border-b border-status-missed-border bg-status-missed-bg px-[22px] py-2 text-[13px] text-status-missed" role="alert" data-testid="now-wait-error">
                 {waitError}
@@ -710,7 +700,7 @@ function NeedsActionRow({ deal }: { deal: DealRow }) {
 }
 
 /** The People tile (batch B; Outreach renamed in push B): the weekly counter with its bar, up to three people due today with Email, Log a call and (2026-11-17) Log a meeting, the link, and the overdue count. */
-function OutreachTile({ outreach, today, logged, onEmail, onCall, onMeeting }: { outreach: WorkNowData["outreach"]; today: string; logged: Record<string, string>; onEmail: (p: PersonRowData) => void; onCall: (p: PersonRowData) => void; onMeeting: (p: PersonRowData) => void }) {
+export function OutreachTile({ outreach, today, logged, onEmail, onCall, onMeeting }: { outreach: WorkNowData["outreach"]; today: string; logged: Record<string, string>; onEmail: (p: PersonRowData) => void; onCall: (p: PersonRowData) => void; onMeeting: (p: PersonRowData) => void }) {
   return (
     <WorkCard title="Contacts" hint={`${outreach.due.length} due`} testId="home-outreach" pinned pinAt="desk">
       <TargetBar count={outreach.counter.count} target={outreach.counter.target} pct={outreach.counter.pct} className="py-2.5" testId="home-outreach-counter" />
@@ -773,7 +763,7 @@ function OutreachTile({ outreach, today, logged, onEmail, onCall, onMeeting }: {
  * figure, Targets met this week, and End of day with its badge (5:30, Sent, Skipped) and the reasons-left line, then
  * Open End of day. Before database update 0025 it shows the update notice line.
  */
-function TargetsTodayTile({ tile }: { tile: TargetsTile }) {
+export function TargetsTodayTile({ tile }: { tile: TargetsTile }) {
   const eodTone: PillTone = tile.eod.state === "sent" ? "green" : tile.eod.state === "skipped" ? "gray" : "amber";
   return (
     <WorkCard title="Targets today" hint={tile.available ? (tile.lines.length ? "Counted from the app" : "No targets yet") : "Update needed"} testId="home-targets" pinned pinAt="desk">
