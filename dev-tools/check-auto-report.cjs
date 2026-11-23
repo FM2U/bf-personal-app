@@ -162,11 +162,14 @@ const auto = async (day) => ((await one("select report_edits from end_of_day whe
   await step("End of day after the 4:00 pm drafts (release 4): 'AI draft' on the opening and the Today lines; Keep, typing over, and a Today line edit make them yours; Redraft writes only what is still the AI's; the report shows the Today lines", async () => {
     const edits = async () => (await one("select report_edits from end_of_day where day = $1", [day])).report_edits;
     let e = await edits();
-    assert(e._opening && e._opening.startsWith("Mock opening") && e._drafts && e._drafts.opening === true, JSON.stringify(e._drafts));
+    assert(e._opening && e._opening.startsWith("**Mock opening") && e._opening.includes("\n- **Seller and broker calls:** the broker call is set.") && e._drafts && e._drafts.opening === true, JSON.stringify(e._drafts));
     const ids = Object.keys(e._drafts.today || {});
     assert(ids.length >= 2 && ids.every((id) => e._drafts.today[id].ai === true), JSON.stringify(e._drafts.today));
     await open("/work/end-of-day");
-    assert((await page.getByTestId("opening-input").inputValue()).startsWith("Mock opening"), "the opening box does not show the draft");
+    // 2026-11-23: the opening box is an editor with Bold and Bulleted list; the draft shows with a bold lead line and bullets.
+    await page.getByTestId("opening-input").waitFor({ timeout: 20000 });
+    assert((await page.getByTestId("opening-input").innerText()).startsWith("Mock opening"), "the opening box does not show the draft");
+    assert((await page.locator("[data-testid=opening-input] strong").count()) === 3 && (await page.locator("[data-testid=opening-input] ul > li").count()) === 2, "the opening box does not show the bold lead line and two bullets");
     await page.getByTestId("draft-mark-opening").waitFor();
     const lines = page.getByTestId("today-line");
     assert((await lines.count()) === ids.length && (await page.locator("[data-testid=today-line][data-ai='1']").count()) === ids.length, `${await lines.count()} Today lines`);
@@ -200,7 +203,7 @@ const auto = async (day) => ((await one("select report_edits from end_of_day whe
     await page.getByTestId("opening-input").click();
     await page.getByTestId("redraft-note").waitFor({ timeout: 30000 });
     await page.waitForTimeout(1500);
-    assert((await page.getByTestId("opening-input").inputValue()) === "Typed while the AI was writing.", `the opening box was replaced: ${await page.getByTestId("opening-input").inputValue()}`);
+    assert((await page.getByTestId("opening-input").innerText()).trim() === "Typed while the AI was writing.", `the opening box was replaced: ${await page.getByTestId("opening-input").innerText()}`);
     assert((await second.inputValue()) === "Typed Today line while the AI was writing", `the Today box was replaced: ${await second.inputValue()}`);
     await page.getByTestId("today-line").first().getByTestId("today-input").click();
     await until(async () => {

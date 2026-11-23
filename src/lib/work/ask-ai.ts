@@ -272,7 +272,7 @@ export function fieldPrompt(c: PageContext, field: AskField): string {
     find_out: "one question to find out before the next conversation about this opportunity (at most 20 words)",
     tomorrow_line: "the one line about the next working day for the end-of-day report: what matters most first, from the next actions due and the open waits, in the signed-in user's own voice (at most 30 words, no greeting)",
     eod_reason: "the one-line reason a missed commitment gets in the end-of-day report: what took the time, from what the day shows, and what carries to the next working day (at most 25 words, first person, no apology)",
-    why_fits: "why this record is one of the signed-in user's top priorities, in three short parts joined by ' · ': what it is, why it is open now, and why it fits the signed-in user (at most 25 words, plain words, no full sentences needed)",
+    why_fits: "why this record is one of the signed-in user's top priorities, in three short parts joined by ' · ': what it is, why it is open now, and why it fits the signed-in user (24 words or less, aim for 15 to 20; plain words, no full sentences needed). The report shows it word for word as the record's Upside line",
     weekly_review: "the answer to one question of the Friday weekly review (the field label names the question) for the report to the accountability partners: from the week's figures, targets, and deals on the page, first person, one or two plain sentences (at most 35 words)",
   };
   return [

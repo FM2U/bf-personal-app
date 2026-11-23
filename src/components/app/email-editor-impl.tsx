@@ -47,7 +47,8 @@ function linkAddress(raw: string): string | null {
   return safeHref(withScheme) && !/\s/.test(withScheme) ? withScheme : null;
 }
 
-export default function EmailEditorImpl({ value, onChange, labelId, testId = "email-body", apiRef, placeholder }: EmailEditorBoxProps) {
+export default function EmailEditorImpl({ value, onChange, labelId, testId = "email-body", apiRef, placeholder, tools = "all" }: EmailEditorBoxProps) {
+  const basic = tools === "basic";
   const ids = useId();
   const lastValue = useRef(value);
   const openLinkRef = useRef<() => void>(() => {});
@@ -63,7 +64,10 @@ export default function EmailEditorImpl({ value, onChange, labelId, testId = "em
   const editor = useEditor({
     immediatelyRender: true,
     shouldRerenderOnTransaction: false,
-    extensions: [
+    extensions: basic
+      ? // The report's opening (2026-11-23): bold and bullets only, so the box shows exactly what is saved and sent.
+        [Document, Paragraph, Text, Bold, HardBreak, BulletList, ListItem, ListKeymap.configure({ listTypes: [{ itemName: "listItem", wrapperNames: ["bulletList"] }] }), UndoRedo, Placeholder.configure({ placeholder: placeholder ?? "" })]
+      : [
       Document,
       Paragraph,
       Text,
@@ -104,7 +108,7 @@ export default function EmailEditorImpl({ value, onChange, labelId, testId = "em
         "aria-multiline": "true",
         "aria-labelledby": labelId,
         "data-testid": testId,
-        class: "email-editor-content email-editor-height px-3 py-2 text-sm leading-6 text-slate-900 focus:outline-none",
+        class: cn("email-editor-content px-3 py-2 text-sm leading-6 text-slate-900 focus:outline-none", basic ? "min-h-[7.5rem]" : "email-editor-height"),
       },
       // Pasted HTML: the email sanitizer first (same rules as the signature), then the editor keeps only its formatting.
       transformPastedHTML: (html) => sanitizeEmailBodyHtml(html),
@@ -217,12 +221,16 @@ export default function EmailEditorImpl({ value, onChange, labelId, testId = "em
       <div className="flex min-w-0 flex-col overflow-hidden rounded-md border border-input bg-background shadow-xs focus-within:ring-2 focus-within:ring-ring">
         <div role="toolbar" aria-label="Formatting" className="flex flex-wrap items-center gap-0.5 border-b border-slate-200 bg-slate-50 px-1.5 py-1">
           {tool(state?.bold, "Bold", `${MOD}+B`, () => editor?.chain().focus().toggleBold().run(), <BoldIcon />, "editor-bold")}
-          {tool(state?.italic, "Italic", `${MOD}+I`, () => editor?.chain().focus().toggleItalic().run(), <ItalicIcon />, "editor-italic")}
+          {basic ? null : tool(state?.italic, "Italic", `${MOD}+I`, () => editor?.chain().focus().toggleItalic().run(), <ItalicIcon />, "editor-italic")}
           <span className="mx-1 h-5 w-px bg-slate-200" aria-hidden />
           {tool(state?.bullets, "Bulleted list", null, () => editor?.chain().focus().toggleBulletList().run(), <List />, "editor-bullets")}
-          {tool(state?.numbers, "Numbered list", null, () => editor?.chain().focus().toggleOrderedList().run(), <ListOrdered />, "editor-numbers")}
-          <span className="mx-1 h-5 w-px bg-slate-200" aria-hidden />
-          {tool(state?.link || linkOpen, state?.link ? "Edit link" : "Add link", `${MOD}+K`, openLink, <Link2 />, "editor-link")}
+          {basic ? null : (
+            <>
+              {tool(state?.numbers, "Numbered list", null, () => editor?.chain().focus().toggleOrderedList().run(), <ListOrdered />, "editor-numbers")}
+              <span className="mx-1 h-5 w-px bg-slate-200" aria-hidden />
+              {tool(state?.link || linkOpen, state?.link ? "Edit link" : "Add link", `${MOD}+K`, openLink, <Link2 />, "editor-link")}
+            </>
+          )}
         </div>
         {linkOpen ? (
           <div className="flex flex-col gap-2 border-b border-slate-200 bg-primary-soft/40 px-3 py-2" data-testid="editor-link-form">

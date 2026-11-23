@@ -22,6 +22,8 @@ type EmailEditorProps = {
   /** Set by the editor: focus() puts the cursor at the end of the message (used by Edit in "Send this email?"). */
   apiRef?: React.RefObject<EmailEditorApi | null>;
   placeholder?: string;
+  /** "basic" (the report's opening, 2026-11-23): only Bold and Bulleted list, in a shorter box. Default: every tool. */
+  tools?: "all" | "basic";
 };
 
 export type EmailEditorBoxProps = Omit<EmailEditorProps, "label" | "labelClassName" | "apiRef"> & {

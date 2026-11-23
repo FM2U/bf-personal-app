@@ -978,15 +978,28 @@ const until = async (fn, msg, tries = 60) => {
     // A typed edit with a note: the note follows the edited text.
     await page.locator("[data-testid=report-tab][data-partner=Jake]").click();
     await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hey Jake,"));
-    await wsec("jobs").getByTestId("section-edit").click();
-    await wsec("jobs").getByTestId("section-edit-text").fill("Targets\n  - Two CIMs to screen first thing");
-    await wsec("jobs").getByTestId("section-edit-save").click();
+    // 2026-11-23: a section of record cards has no section Edit (each card has "Edit Today line"). A section edited the
+    // old way before that release keeps its text and its Edit, so "Use the app's text" can bring the cards back.
+    assert((await wsec("jobs").getByTestId("section-edit").count()) === 0 && (await wsec("jobs").getByTestId("today-line-edit").count()) >= 1, "Job search needs Edit Today line on its cards and no section Edit");
+    await page.getByTestId("report-window-close").click();
+    await win().waitFor({ state: "detached" });
+    await db.query(`update end_of_day set report_edits = jsonb_set(report_edits, '{_section_edits}', coalesce(report_edits->'_section_edits', '{}'::jsonb) || '{"jobs":"Targets\\n  - Two CIMs to screen first thing"}'::jsonb) where day = $1`, [today]);
+    await page.reload();
+    await page.getByTestId("report-view").click();
+    await win().waitFor();
+    await page.locator("[data-testid=report-tab][data-partner=Jake]").click();
+    await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hey Jake,"));
     await until(async () => (await wsec("jobs").getAttribute("data-edited")) === "1", "edited");
+    assert((await wsec("jobs").getByTestId("section-edit").count()) === 1 && (await wsec("jobs").getByTestId("today-line-edit").count()) === 0, "a section edited the old way keeps its Edit");
     const order = await wsec("jobs").evaluate((e) => {
       const t = e.textContent;
       return [t.indexOf("Two CIMs to screen first thing"), t.indexOf("Two CIMs came in late")];
     });
     assert(order[1] >= 0 && order[0] > order[1], `the note is above the edited text (2026-11-06) ${JSON.stringify(order)}`);
+    // "Use the app's text" brings the cards back, each with Edit Today line.
+    await wsec("jobs").getByTestId("section-edit").click();
+    await wsec("jobs").getByTestId("section-edit-reset").click();
+    await until(async () => (await wsec("jobs").getAttribute("data-edited")) === "0" && (await wsec("jobs").getByTestId("today-line-edit").count()) >= 1, "Use the app's text did not bring the cards back");
   });
 
   await step("+ Note: Remove note takes it away (the button reads + Note again; the saved notes lose it)", async () => {
@@ -1027,11 +1040,23 @@ const until = async (fn, msg, tries = 60) => {
     await page.locator("[data-testid=report-tab][data-partner=Jake]").click();
     await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hey Jake,"));
     // An Edit typed and not saved asks the same way.
-    await wsec("jobs").getByTestId("section-edit").click();
-    await wsec("jobs").getByTestId("section-edit-text").fill("Targets\n  - Typed in Edit, not saved");
+    await wsec("tomorrow").getByTestId("section-edit").click();
+    await wsec("tomorrow").getByTestId("section-edit-text").fill("Typed in Edit, not saved");
     await page.getByTestId("report-window-close").click();
     await box.waitFor();
     assert(/^Your edit to the .+ section is not saved\.$/.test(await line()), await line());
+    await page.getByTestId("unsaved-discard").click();
+    await win().waitFor({ state: "detached" });
+    // 2026-11-23: a Today line typed on a card and not saved asks the same way, by the record's name.
+    await page.getByTestId("report-view").click();
+    await win().waitFor();
+    await page.locator("[data-testid=report-tab][data-partner=Jake]").click();
+    await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hey Jake,"));
+    await win().getByTestId("today-line-edit").first().click();
+    await win().getByTestId("today-line-text").fill("Typed on the card, not saved");
+    await page.getByTestId("report-window-close").click();
+    await box.waitFor();
+    assert(/^Your Today line for .+ is not saved\.$/.test(await line()), await line());
     await page.getByTestId("unsaved-discard").click();
     await win().waitFor({ state: "detached" });
     // Save from the question saves the note, then closes the window.
@@ -1039,7 +1064,7 @@ const until = async (fn, msg, tries = 60) => {
     await win().waitFor();
     await page.locator("[data-testid=report-tab][data-partner=Jake]").click();
     await page.waitForFunction(() => document.querySelector("[data-testid=report-preview]")?.textContent?.includes("Hey Jake,"));
-    assert(!(await wsec("jobs").innerText()).includes("Typed in Edit, not saved"), "the discarded Edit is gone");
+    assert(!(await wsec("tomorrow").innerText()).includes("Typed in Edit, not saved") && !(await win().innerText()).includes("Typed on the card, not saved"), "the discarded Edit is gone");
     await wsec("tomorrow").getByTestId("section-note-open").click();
     await wsec("tomorrow").getByTestId("section-note-text").fill("Saved from the question.");
     await page.getByTestId("report-window-close").click();

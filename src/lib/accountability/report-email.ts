@@ -13,6 +13,7 @@ import { blocksText, boxText, buildSections, parseEdited, pickText, pipelineText
 import { subjectCounts, type TodayCount, type WorkedRecord } from "@/lib/accountability/report-worked";
 import type { PipelineCol, ReportPick } from "@/lib/accountability/report-v8";
 import { signOff } from "@/lib/work/names";
+import { openingInlineHtml, openingLines, openingPlain } from "@/lib/accountability/opening-format";
 
 export type { ReportData, ReportChoices };
 
@@ -65,6 +66,35 @@ export function blocksHtml(blocks: readonly Block[]): string {
       return `<div style="margin:0 0 8px 0">${title}${items}</div>`;
     })
     .join("");
+}
+
+/**
+ * The opening as sent (2026-11-23): each line of the saved opening, "- " lines as real bullets, "**words**" bold.
+ * An opening with no bold marks (written before the release, or typed plain) keeps the old Edit look: a line right
+ * above bullets is bold. `h` is layout H's calm type; `lead` the space above the first line.
+ */
+export function openingBodyHtml(text: string, h = false, lead = 0): string {
+  const lines = openingLines(text);
+  const marked = text.includes("**");
+  const size = h ? `font-size:14.5px;line-height:23px;color:${H.ink};${H_FONT}` : `font-size:13px;line-height:19px;color:${C.ink};${FONT}`;
+  const ul = h ? `margin:6px 0 0 0;padding:0 0 0 20px;list-style-type:disc;${size}` : UL;
+  const li = h ? "margin:0 0 6px 0" : LI;
+  let html = "";
+  let inList = false;
+  lines.forEach((l, i) => {
+    if (l.bullet) {
+      if (!inList) html += `<ul style="${ul}">`;
+      inList = true;
+      html += `<li style="${li}">${openingInlineHtml(l.text)}</li>`;
+      return;
+    }
+    if (inList) html += "</ul>";
+    inList = false;
+    const heading = !marked && !!lines[i + 1]?.bullet;
+    html += `<div style="${size};margin:${i ? (h ? 10 : 4) : lead}px 0 0 0;${heading ? `font-weight:${h ? 600 : "bold"};` : ""}">${openingInlineHtml(l.text)}</div>`;
+  });
+  if (inList) html += "</ul>";
+  return `<div data-opening="1">${html}</div>`;
 }
 
 /** A section as rewritten with Edit: lines starting with "- " become bullets (indent for a level deeper). */
@@ -281,10 +311,15 @@ function trackHeadingHtml(title: string): string {
   return `<div style="padding:30px 6px 0 6px;font-size:17px;line-height:24px;font-weight:600;color:${H.ink};${H_FONT}">${escapeHtml(title)}</div>`;
 }
 
+/** A worked section's pipeline card, or "" (also drawn on its own by the report window, under the cards with their Edit links). */
+export function workedPipelineHtml(s: BuiltSection): string {
+  const track = s.key === "jobs" ? "Job search" : s.key === "consulting" ? "Consulting" : s.key === "startup" ? "Startup" : "Acquisition";
+  return s.pipeline ? pipelineHtml(s.pipeline, track) : "";
+}
+
 function workedSectionHtml(s: BuiltSection): string {
   const list = s.worked ?? [];
-  const track = s.key === "jobs" ? "Job search" : s.key === "consulting" ? "Consulting" : s.key === "startup" ? "Startup" : "Acquisition";
-  return list.map((w, n) => workedHtml(w, n + 1)).join("") + (s.pipeline ? pipelineHtml(s.pipeline, track) : "");
+  return list.map((w, n) => workedHtml(w, n + 1)).join("") + workedPipelineHtml(s);
 }
 
 function prioritiesHtml(s: BuiltSection): string {
@@ -298,9 +333,9 @@ function prioritiesHtml(s: BuiltSection): string {
 /** The body of a section as sent (no heading): its edited text, its tiles or lists, or its line. */
 export function sectionBodyHtml(s: BuiltSection): string {
   // Layout H (2026-11-23): the opening in the calm type, the six day counts under it, also after Edit.
-  if (s.key === "opening" && s.box) return (s.edited ? editedHtml(s.edited, true) : s.line ? `<div style="font-size:14.5px;line-height:23px;color:${H.ink};margin-top:14px;${H_FONT}">${escapeHtml(s.line).replace(/\n/g, "<br>")}</div>` : `<div style="font-size:14px;line-height:20px;color:${H.amber};margin-top:14px;${H_FONT}">(no opening yet)</div>`) + boxHtml(s.box);
+  if (s.key === "opening" && s.box) return (s.edited || s.line ? openingBodyHtml(s.edited ?? s.line ?? "", true, 14) : `<div style="font-size:14px;line-height:20px;color:${H.amber};margin-top:14px;${H_FONT}">(no opening yet)</div>`) + boxHtml(s.box);
   // Release 4 (kept for reports built before layout H; not reached now that the box is drawn above).
-  if (s.key === "opening" && s.box) return (s.edited ? editedHtml(s.edited) : s.line ? p(escapeHtml(s.line).replace(/\n/g, "<br>"), ";margin-bottom:4px;font-size:13px;line-height:19px") : `<div style="font-size:13px;line-height:18px;color:${C.text.soon};${FONT}">(no opening yet)</div>`) + boxHtml(s.box);
+  if (s.key === "opening" && s.box) return (s.edited || s.line ? openingBodyHtml(s.edited ?? s.line ?? "") : `<div style="font-size:13px;line-height:18px;color:${C.text.soon};${FONT}">(no opening yet)</div>`) + boxHtml(s.box);
   if (s.edited) return editedHtml(s.edited);
   if (s.kind === "priorities") return prioritiesHtml(s);
   if (s.kind === "worked") return workedSectionHtml(s);
@@ -438,7 +473,7 @@ export function reportText(d: ReportData): string {
   const lines: string[] = [`Hey ${d.partnerFirst},`, "", ...(d.intro?.trim() ? [d.intro.trim(), ""] : []), `Here is my report for ${d.dateShort}.${d.withWeek && !v8 ? ` It is ${d.dateShort.split(",")[0]}, so the week is at the end.` : ""}`, ...(v8 ? [] : [`${d.pill.text}.`])];
   for (const s of sentSections(d)) {
     if (v8 && s.key === "opening") {
-      if (s.edited || s.line) lines.push("", (s.edited ?? s.line ?? "").trim());
+      if (s.edited || s.line) lines.push("", openingPlain(s.edited ?? s.line));
       if (s.box) lines.push("", boxText(s.box));
       if (s.note) lines.push(noteText(s.note));
       continue;

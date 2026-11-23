@@ -23,6 +23,8 @@ import { AiCardStar, AiFieldStar, AskAiPill, type EodExtras } from "@/components
 import { StatusMark } from "@/components/app/work/targets-ui";
 import { Drawer } from "@/components/app/work/drawer";
 import { TodaysActivityCard } from "@/components/app/work/todays-activity";
+import { OPENING_MAX } from "@/lib/accountability/opening-format";
+import { OpeningEditor, OpeningShown } from "@/components/app/work/opening-editor";
 import { AiButton, Confirm, Figure, Line1, Line2, Name, Pill, PinnedBlock, ROW_BUTTON_BASE, ROW_GRIDS, RowButton, Rows, WorkCard, WorkHeader } from "@/components/app/work/ui";
 import { ListingsReviewedButton } from "@/components/app/work/listings-reviewed";
 import { eodCountdown, minutesLeftWords } from "@/lib/work/settings";
@@ -822,21 +824,25 @@ export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; 
                     {draftNote}
                   </p>
                 ) : null}
-                <textarea
-                  rows={4}
-                  value={opening}
-                  onChange={(e) => setOpening(e.target.value)}
-                  onBlur={(e) => {
-                    if (e.target.value !== data.opening) saveOpeningText(e.target.value);
-                  }}
-                  placeholder="What the day was about: the main move, what you learned, what is stuck"
-                  disabled={closed}
-                  maxLength={1500}
-                  className="block w-full resize-y rounded-[7px] border border-input bg-white px-3 py-2.5 text-sm leading-[1.5] text-slate-900 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:bg-slate-50 disabled:text-slate-600"
-                  aria-label="Opening"
-                  data-testid="opening-input"
-                />
-                <p className="mt-2 text-[12.5px] text-muted-foreground">Two or three sentences under the greeting, with no counts (the report shows them in the Today box). Redraft writes the opening, tomorrow&apos;s line and the Today lines again where they are empty or still an AI draft.</p>
+                {closed ? (
+                  <OpeningShown value={opening} />
+                ) : (
+                  <OpeningEditor
+                    label="Opening"
+                    value={opening}
+                    onChange={setOpening}
+                    onLeave={(text) => {
+                      if (text !== data.opening) saveOpeningText(text);
+                    }}
+                    placeholder="Where most of the day went, then a line for each kind of work with its result"
+                  />
+                )}
+                {opening.length > OPENING_MAX ? (
+                  <p className="mt-2 text-[12.5px] font-medium text-status-soon" data-testid="opening-too-long">
+                    The opening can be up to {OPENING_MAX} characters. This one has {opening.length}; the text after that is not saved.
+                  </p>
+                ) : null}
+                <p className="mt-2 text-[12.5px] text-muted-foreground">One bold line on where most of the day went, then a bullet for each kind of work with its result. No counts: the report shows them under the opening. Redraft writes the opening, tomorrow&apos;s line and the Today lines again where they are empty or still an AI draft.</p>
               </div>
             </WorkCard>
           ) : null}

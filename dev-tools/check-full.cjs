@@ -245,7 +245,10 @@ const until = async (fn, msg, tries = 80) => {
     await rw().getByTestId("report-also-picker").waitFor({ timeout: 20000 });
     assert((await rw().getByTestId("report-day-select").inputValue()).match(/^\d{4}-\d{2}-\d{2}$/), "no day chosen");
     assert(await rw().getByTestId("report-intro").count(), "no note box");
-    assert((await sec("acquisition").getByTestId("section-edit").count()) && (await sec("acquisition").getByTestId("section-note-open").count()), "no Edit or + Note");
+    // 2026-11-23: a section of record cards has "Edit Today line" on each card in place of the section's Edit (which turned
+    // the cards into plain text); the opening and tomorrow's line keep Edit.
+    assert(((await sec("acquisition").getByTestId("today-line-edit").count()) || (await sec("acquisition").getByTestId("section-edit").count())) && (await sec("acquisition").getByTestId("section-note-open").count()), "no Edit or + Note");
+    assert((await sec("tomorrow").getByTestId("section-edit").count()) === 1 && (await sec("opening").getByTestId("section-edit").count()) === 1, "the opening and tomorrow's line need Edit");
   });
 
   await step("Sending only to people under Also send to (partner unticked) sends them the report with the note, the section note and the edit, and the day stays open; the edit and the note stay in today's draft", async () => {

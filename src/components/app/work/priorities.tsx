@@ -9,6 +9,10 @@ import { cn } from "@/lib/utils";
 import { MAX_PICKS, nextWords, PRIORITIES_OPEN_COOKIE, PRIORITY_TRACKS, shortDay, STRENGTHS, type PriorityKind, type PriorityPick, type Strength } from "@/lib/work/priorities";
 import type { PrioritiesData, RecordPriority } from "@/lib/work/priorities-data";
 import { AiButton, RowButton, WorkCard } from "@/components/app/work/ui";
+import { wordCount } from "@/lib/accountability/opening-format";
+
+/** The most words the report's Upside line reads well at (Bram, 2026-11-18): Why it fits past this turns amber. */
+const UPSIDE_WORDS = 24;
 
 /**
  * Top priorities (Bram, 2026-11-15; mockup 2026-11-15-top-priorities-app-mockup.png). The card: on Home the four
@@ -312,6 +316,7 @@ export function PriorityCard({ data, label, open = true }: { data: RecordPriorit
       router.refresh();
     });
   const base = { table: data.table, id: data.id };
+  const whyWords = wordCount(why);
   const saveWhy = (text = why) => {
     if (text.trim() === saved.why.trim()) return;
     save({ ...base, whyFits: text }, () => setSaved((s) => ({ ...s, why: text })));
@@ -349,7 +354,14 @@ export function PriorityCard({ data, label, open = true }: { data: RecordPriorit
         <div className={ROW}>
           <span className={LABEL}>Why it fits</span>
           <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start">
-            <textarea value={why} onChange={(e) => setWhy(e.target.value)} onBlur={() => saveWhy()} readOnly={drafting} rows={2} maxLength={400} placeholder="What it is · why now · why it fits you" className={cn(INPUT, "h-auto min-h-[58px] resize-y py-2 leading-[19px]")} data-testid="priority-why" />
+            <div className="min-w-0 flex-1">
+              <textarea value={why} onChange={(e) => setWhy(e.target.value)} onBlur={() => saveWhy()} readOnly={drafting} rows={2} maxLength={400} placeholder="What it is · why now · why it fits you" className={cn(INPUT, "block h-auto min-h-[58px] w-full resize-y py-2 leading-[19px]")} aria-describedby="priority-why-count" data-testid="priority-why" />
+              {/* 2026-11-23: the report shows this text word for word as the Upside line, which reads best at 24 words or less. */}
+              <p id="priority-why-count" className={cn("mt-1 text-[12px] leading-[16px]", whyWords > UPSIDE_WORDS ? "font-medium text-status-soon" : "text-muted-foreground")} data-testid="priority-why-count" data-over={whyWords > UPSIDE_WORDS ? "1" : "0"}>
+                {whyWords} {whyWords === 1 ? "word" : "words"}
+                {whyWords > UPSIDE_WORDS ? ` (the report's Upside line reads best at ${UPSIDE_WORDS} or less)` : ` of ${UPSIDE_WORDS} for the report's Upside line`}
+              </p>
+            </div>
             <AiButton busy={drafting} onClick={draft} tone="soft" className="shrink-0" data-testid="priority-draft">
               Draft with AI
             </AiButton>

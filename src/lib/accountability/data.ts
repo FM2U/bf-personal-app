@@ -1,4 +1,5 @@
 import "server-only";
+import { OPENING_MAX } from "@/lib/accountability/opening-format";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDaysISO, monthStart, todayInTz } from "@/lib/calc/dates";
 import type { Ctx } from "@/lib/engine/helpers";
@@ -259,7 +260,7 @@ export async function loadEodRow(sb: SupabaseClient, ownerId: string, day: strin
 
 /** The report's opening paragraph (v8, 2026-11-15): saved with the day under this key of report_edits. */
 export const OPENING_KEY = "_opening";
-export const OPENING_MAX = 1500;
+export { OPENING_MAX };
 export function cleanOpening(v: unknown): string {
   return typeof v === "string" ? v.replace(/\r\n?/g, "\n").trim().slice(0, OPENING_MAX) : "";
 }

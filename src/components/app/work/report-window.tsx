@@ -3,10 +3,12 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { saveReportChoices, saveReportNote, saveSectionEdit } from "@/app/actions/accountability";
+import { saveReportChoices, saveReportNote, saveSectionEdit, saveTodayLine } from "@/app/actions/accountability";
 import type { PartnerCopy } from "@/lib/accountability/data";
 import { daysLabel } from "@/lib/accountability/partners";
-import { closingHtml, greetingHtml, headerHtml, isLayoutH, noteHtml, sectionBodyHtml } from "@/lib/accountability/report-email";
+import { closingHtml, greetingHtml, headerHtml, isLayoutH, noteHtml, sectionBodyHtml, workedHtml, workedPipelineHtml } from "@/lib/accountability/report-email";
+import { NOW_MAX } from "@/lib/accountability/report-drafts";
+import { OpeningEditor } from "@/components/app/work/opening-editor";
 import { buildSections, NOTE_MAX, TOP_N, type BuiltSection, type ReportChoices, type ReportNotes, type SectionKey } from "@/lib/accountability/report-sections";
 import { personHref } from "@/lib/work/people";
 import { CenteredWindow } from "@/components/app/window";
@@ -28,11 +30,11 @@ export const PARTNER_BOX = "h-4 w-4 shrink-0 cursor-pointer rounded-[4px] accent
  * mark, Escape, a click outside, another partner's tab, a link inside) or Approve and send first asks: Save, Discard
  * (Send without it), or Keep editing. Reloading or closing the browser tab gets the browser's own "Leave site?" question.
  */
-export type Unsaved = { items: { kind: "note" | "edit"; title: string }[]; save: () => Promise<boolean>; discard: () => void };
+export type Unsaved = { items: { kind: "note" | "edit" | "line"; title: string }[]; save: () => Promise<boolean>; discard: () => void };
 type LeaveTo = { to: "close" } | { to: "tab"; id: string; name: string } | { to: "link"; href: string } | { to: "send"; btn: HTMLButtonElement };
 
 function unsavedLine(items: Unsaved["items"]): string {
-  const parts = items.map((i) => (i.kind === "note" ? `note in the ${i.title} section` : `edit to the ${i.title} section`));
+  const parts = items.map((i) => (i.kind === "note" ? `note in the ${i.title} section` : i.kind === "line" ? `Today line for ${i.title}` : `edit to the ${i.title} section`));
   const joined = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(", ")} and your ${parts[parts.length - 1]}`;
   return `Your ${joined} ${parts.length === 1 ? "is" : "are"} not saved.`;
 }
@@ -351,6 +353,15 @@ export function CopyReview({ day, copy, startEditing, notes, onNotes, unsavedRef
   };
   const [noting, setNoting] = useState<SectionKey | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
+  // One record's Today line (2026-11-23): Edit on its card changes that line only, so the section keeps its cards.
+  const [lineEditing, setLineEditing] = useState<string | null>(null);
+  const [lineDraft, setLineDraft] = useState("");
+  const [lineBase, setLineBase] = useState("");
+  const openLine = (id: string, text: string) => {
+    setLineEditing(id);
+    setLineDraft(text);
+    setLineBase(text);
+  };
   const [error, setError] = useState<string | null>(null);
   const [, start] = useTransition();
   const report = { ...copy.report, choices, notes };
@@ -473,6 +484,32 @@ export function CopyReview({ day, copy, startEditing, notes, onNotes, unsavedRef
     setNoting(s.key);
     setNoteDraft(s.note ?? "");
   };
+  // Saved like the Today line typed on End of day (saveTodayLine): yours from then on; empty goes back to the kept rows.
+  const persistLine = async (id: string, text: string): Promise<boolean> => {
+    setError(null);
+    const r = await saveTodayLine(day, id, text);
+    if (!r.ok) {
+      setError(r.error);
+      return false;
+    }
+    router.refresh();
+    return true;
+  };
+  const saveLine = () => {
+    const id = lineEditing;
+    const text = lineDraft.replace(/\s+/g, " ").trim();
+    setLineEditing(null);
+    if (!id || text === lineBase.replace(/\s+/g, " ").trim()) return;
+    start(async () => {
+      await persistLine(id, text);
+    });
+  };
+  /**
+   * Layout H, today's report (2026-11-23): a worked section shows its cards one by one, each with Edit for its Today
+   * line, in place of the section's Edit (which turned the cards into plain text). A section already edited that way
+   * keeps its Edit, so "Use the app's text" brings the cards back; a section with no cards keeps it too.
+   */
+  const byCard = (s: BuiltSection) => s.kind === "worked" && isLayoutH(report) && !s.edited && !local && !copy.sentAt && !s.emptyAfterChange && !!s.worked?.length;
   const backToAppText = (s: BuiltSection) => {
     setEditing(null);
     start(async () => {
@@ -487,11 +524,13 @@ export function CopyReview({ day, copy, startEditing, notes, onNotes, unsavedRef
   const editSec = editing && !copy.sentAt ? sections.find((s) => s.key === editing && s.included) : undefined;
   const noteDirty = !!noteSec && noteDraft.trim() !== (noteSec.note ?? "").trim();
   const editDirty = !!editSec && draft.replace(/\s+$/, "") !== draftBase.replace(/\s+$/, "");
+  const lineRec = lineEditing && !copy.sentAt ? sections.flatMap((s) => (s.included ? s.worked ?? [] : [])).find((w) => w.id === lineEditing) : undefined;
+  const lineDirty = !!lineRec && lineDraft.replace(/\s+/g, " ").trim() !== lineBase.replace(/\s+/g, " ").trim();
   useEffect(() => {
     unsavedRef.current =
-      noteDirty || editDirty
+      noteDirty || editDirty || lineDirty
         ? {
-            items: [...(noteDirty && noteSec ? [{ kind: "note" as const, title: noteSec.title }] : []), ...(editDirty && editSec ? [{ kind: "edit" as const, title: editSec.title }] : [])],
+            items: [...(noteDirty && noteSec ? [{ kind: "note" as const, title: noteSec.title }] : []), ...(editDirty && editSec ? [{ kind: "edit" as const, title: editSec.title }] : []), ...(lineDirty && lineRec ? [{ kind: "line" as const, title: lineRec.name }] : [])],
             save: async () => {
               let ok = true;
               if (noteDirty && noteSec) ok = (await persistNote(noteSec.key, noteDraft)) && ok;
@@ -500,11 +539,16 @@ export function CopyReview({ day, copy, startEditing, notes, onNotes, unsavedRef
                 const t = editText(editSec);
                 if (t !== undefined) ok = (await persistEdit(editSec, t)) && ok;
               }
+              if (lineDirty && lineRec) {
+                setLineEditing(null);
+                ok = (await persistLine(lineRec.id, lineDraft.replace(/\s+/g, " ").trim())) && ok;
+              }
               return ok;
             },
             discard: () => {
               setNoting(null);
               setEditing(null);
+              setLineEditing(null);
             },
           }
         : null;
@@ -580,7 +624,7 @@ export function CopyReview({ day, copy, startEditing, notes, onNotes, unsavedRef
                       Change
                     </button>
                   ) : null}
-                  {editing !== s.key ? (
+                  {editing !== s.key && !byCard(s) ? (
                     <button
                       type="button"
                       onClick={() => openEdit(s.key, s.edited ?? s.text)}
@@ -612,7 +656,11 @@ export function CopyReview({ day, copy, startEditing, notes, onNotes, unsavedRef
             ) : null}
             {editing === s.key && s.included ? (
               <div className="grid gap-2" data-testid="section-editor">
-                <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={Math.min(14, Math.max(4, draft.split("\n").length + 1))} className="w-full rounded-[7px] border border-input bg-white px-2.5 py-2 text-[13px] leading-[1.5] text-slate-900 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-label={`Edit ${s.title}`} data-testid="section-edit-text" autoFocus />
+                {s.key === "opening" ? (
+                  <OpeningEditor label={`Edit ${s.title}`} value={draft} onChange={setDraft} testId="section-edit-text" />
+                ) : (
+                  <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={Math.min(14, Math.max(4, draft.split("\n").length + 1))} className="w-full rounded-[7px] border border-input bg-white px-2.5 py-2 text-[13px] leading-[1.5] text-slate-900 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-label={`Edit ${s.title}`} data-testid="section-edit-text" autoFocus />
+                )}
                 <div className="flex flex-wrap items-center gap-2">
                   <button type="button" onClick={() => saveEdit(s)} className="inline-flex h-[30px] items-center rounded-[7px] border border-primary-solid bg-primary-solid px-3 text-[12.5px] font-medium text-white hover:bg-primary-solid-hover" data-testid="section-edit-save">
                     Save
@@ -625,8 +673,54 @@ export function CopyReview({ day, copy, startEditing, notes, onNotes, unsavedRef
                       Use the app&apos;s text
                     </button>
                   ) : null}
-                  <span className="text-[12px] text-muted-foreground">Start a line with &ldquo;- &rdquo; for a bullet; two spaces before it for a line under it.</span>
+                  {s.key === "opening" ? null : <span className="text-[12px] text-muted-foreground">Start a line with &ldquo;- &rdquo; for a bullet; two spaces before it for a line under it.</span>}
                 </div>
+              </div>
+            ) : byCard(s) && s.included ? (
+              <div data-testid="section-body" data-by-card="1">
+                {(s.worked ?? []).map((w, n) => (
+                  <div key={w.id} data-testid="worked-card" data-record={w.id}>
+                    <div dangerouslySetInnerHTML={{ __html: workedHtml(w, n + 1) }} />
+                    {lineEditing === w.id ? (
+                      <div className="-mt-1 mb-3 grid gap-2 rounded-[10px] border border-input bg-white px-3 py-2.5" data-testid="today-line-editor">
+                        <label className="text-[12px] font-medium text-slate-700" htmlFor={`today-line-${w.id}`}>
+                          Today line for {w.name}
+                        </label>
+                        <input
+                          id={`today-line-${w.id}`}
+                          value={lineDraft}
+                          onChange={(e) => setLineDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              saveLine();
+                            }
+                          }}
+                          maxLength={NOW_MAX}
+                          className="h-[34px] w-full rounded-[7px] border border-input bg-white px-2.5 text-[13px] text-slate-900 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                          data-testid="today-line-text"
+                          autoFocus
+                        />
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button type="button" onClick={saveLine} className="inline-flex h-[30px] items-center rounded-[7px] border border-primary-solid bg-primary-solid px-3 text-[12.5px] font-medium text-white hover:bg-primary-solid-hover" data-testid="today-line-save">
+                            Save
+                          </button>
+                          <button type="button" onClick={() => setLineEditing(null)} className="inline-flex h-[30px] items-center rounded-[7px] border border-input bg-white px-3 text-[12.5px] font-medium text-slate-800 hover:bg-slate-50">
+                            Cancel
+                          </button>
+                          <span className="text-[12px] text-muted-foreground">Changes this record&apos;s Today line only. Saved empty, the line shows today&apos;s activity on the record.</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="-mt-1 mb-2.5 flex justify-end pr-1.5">
+                        <button type="button" onClick={() => openLine(w.id, w.today ?? "")} className={LINK} aria-label={`Edit the Today line for ${w.name}`} data-testid="today-line-edit">
+                          Edit Today line
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {s.pipeline ? <div dangerouslySetInnerHTML={{ __html: workedPipelineHtml(s) }} /> : null}
               </div>
             ) : (
               <div className={cn(!s.included && "opacity-[0.38]")} dangerouslySetInnerHTML={{ __html: s.emptyAfterChange && !s.edited ? `<div style="font-size:12.5px;color:#64748b">Nothing shown in this section today. Press Change to show items again, or untick the section.</div>` : sectionBodyHtml(s) }} data-testid="section-body" />

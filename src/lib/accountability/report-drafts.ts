@@ -6,6 +6,7 @@
  * edits it or presses Keep, and a redraft never writes over text the owner typed or kept.
  */
 import { stripDashes } from "@/lib/work/ask-ai";
+import { openingLines } from "@/lib/accountability/opening-format";
 
 /** Where the drafts are kept: this key of the day's end_of_day.report_edits. */
 export const DRAFTS_KEY = "_drafts";
@@ -27,7 +28,7 @@ export const NO_DRAFTS: ReportDrafts = { at: null, opening: false, tomorrow: fal
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const NOW_MAX = 220;
-export const OPENING_DRAFT_MAX = 1200;
+export const OPENING_DRAFT_MAX = 1500;
 export const TOMORROW_MAX = 600;
 
 /** The drafts as saved (unknown keys out, text trimmed and cut). */
@@ -56,9 +57,33 @@ export function withoutPlaceholders(line: string): string {
   return line.replace(/(^|[\s(,;])00 (?=\S)/g, "$1");
 }
 
+/**
+ * The opening as a summary by kind of work (Bram, 2026-11-18: rules settled 7:23 pm, example approved 7:26 pm;
+ * claude/2026-11-18-fix-queue.md). Saved with "**" for bold and "- " for bullets (src/lib/accountability/opening-format.ts).
+ */
+export const OPENING_KINDS = ["Sourcing and screening", "Diligence and modeling", "Seller and broker calls", "Deal structuring", "Relationships and referrals", "Job search", "Building the app"] as const;
+export const OPENING_EXAMPLE = [
+  "**Today was mostly seller and broker conversations on three active deals, plus two new deals taken from first look to CIM:**",
+  "- **Seller and broker calls:** worked through open diligence questions with the Moody Law seller; The Association Partner and Catalyst Evaluation Group are both heading to seller calls.",
+  "- **Sourcing and screening:** Assura DSO Division and Catalyst both went from first look to CIM in one day.",
+  "- **Relationships and referrals:** first call with a new broker, and passed Assura to two buyers looking for MSSPs.",
+].join("\n");
+const OPENING_ASK = [
+  '"opening": a summary picture of how the day was spent and how productive it was, as one string with a line break (\\n) between lines. The detail of each record is shown in the report under the opening, so the opening does not repeat it.',
+  '  - First line: one lead line that names where most of the day went ("Today was mostly ...:"), ending in a colon, with ** before it and ** after it (bold).',
+  `  - Then one line per kind of work, each starting with "- " and the kind of work between ** and ** with its colon inside ("- **Job search:** ..."). Pick the kinds from this list only, and only those with work that day, usually two to four: ${OPENING_KINDS.join(", ")}. The kind with the most work comes first.`,
+  "  - After each kind of work: one line (two sentences at most) that names the deals or people and ends with a result or a next step (a stage moved, a decision, something learned, the next call). Never a line that only says someone was contacted or something was shared.",
+  '  - Show how much work it was without time: no hours and no minutes. Use the order, the results, words for scope ("three active deals", "both in one day") and specific verbs ("worked through the open diligence questions").',
+  "  - No step-by-step detail, no internal task names, at most 12 lines in all. No other ** marks and no other formatting.",
+  "  - Numbers: never a number that repeats a figure in the today box or the Pipeline (listings reviewed, deals added, deals moved, brokers contacted, calls and meetings, network outreach, deals in a stage). Other numbers that add something are allowed: a deal's financials ($1.3M EBITDA), webinars attended, options found, \"2nd broker call\", days in a stage.",
+  "  - Names and facts only from the lines below.",
+  "  Example of the format and the voice (its names and facts are from another day; never reuse them):",
+  ...OPENING_EXAMPLE.split("\n").map((l) => `    ${l}`),
+].join("\n");
+
 export function draftsPrompt(i: { dateLabel: string; tomorrowLabel: string; dayLines: string[]; activity: string[]; records: DraftRecord[]; dueNext: string[]; want: { opening: boolean; tomorrow: boolean; today: string[] } }): string {
   const asks: string[] = [];
-  if (i.want.opening) asks.push('"opening": 2 or 3 plain sentences on what the day was about: the main work, what was learned, what is stuck. Concrete names and facts from the lines below only. Do not state any counts (of listings, deals, brokers, calls, meetings, emails, outreach, to-dos or next actions): the report shows the day\'s counts in a box under the opening.');
+  if (i.want.opening) asks.push(OPENING_ASK);
   if (i.want.tomorrow) asks.push(`"tomorrow": one line (at most 30 words) on what matters most on ${i.tomorrowLabel === "Tomorrow" ? "the next working day" : i.tomorrowLabel}, from the next actions due and the open waits.`);
   if (i.want.today.length) asks.push('"today": for each record listed with "today: write", one line (at most 20 words) on what was done on it today, from its "done today" lines only. Past tense, starting in lower case, with no "I" at the start (for example "signed the NDA and asked the broker for the CIM", "about an hour on the deal structure"). Do not repeat its stage, its next action or why it fits; the report shows those.');
   return [
@@ -98,6 +123,17 @@ export function draftsPrompt(i: { dateLabel: string; tomorrowLabel: string; dayL
   ].join("\n");
 }
 
+/** The AI's opening as saved: one line each, blank lines out, a typed "\\n" read as a line break, marks in pairs. */
+export function tidyOpening(raw: string): string {
+  return openingLines(raw.replace(/\\n/g, "\n"))
+    .map((l) => {
+      const t = l.text.replace(/\s+/g, " ");
+      const even = (t.split("**").length - 1) % 2 === 0;
+      return `${l.bullet ? "- " : ""}${even ? t : t.replace(/\*\*/g, "")}`;
+    })
+    .join("\n");
+}
+
 export type DraftsReply = { opening: string | null; tomorrow: string | null; today: Record<string, string> };
 
 const line = (v: unknown, max: number) => (typeof v === "string" ? stripDashes(v.replace(/\s+/g, " ")).trim().slice(0, max) : "");
@@ -106,7 +142,7 @@ const line = (v: unknown, max: number) => (typeof v === "string" ? stripDashes(v
 export function validateDraftsReply(value: unknown, want: { opening: boolean; tomorrow: boolean; today: string[] }): { ok: true; value: DraftsReply } | { ok: false; error: string } {
   const v = (value && typeof value === "object" && !Array.isArray(value) ? value : null) as Record<string, unknown> | null;
   if (!v) return { ok: false, error: "the reply needs a JSON object" };
-  const opening = want.opening ? stripDashes(String(v.opening ?? "").replace(/\r/g, "")).trim().slice(0, OPENING_DRAFT_MAX) : "";
+  const opening = want.opening ? tidyOpening(stripDashes(String(v.opening ?? "").replace(/\r/g, ""))).slice(0, OPENING_DRAFT_MAX) : "";
   const tomorrow = want.tomorrow ? line(v.tomorrow, TOMORROW_MAX) : "";
   if (want.opening && !opening) return { ok: false, error: 'the reply needs "opening"' };
   if (want.tomorrow && !tomorrow) return { ok: false, error: 'the reply needs "tomorrow"' };

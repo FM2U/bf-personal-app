@@ -152,7 +152,12 @@ const idOf = async (name) => (await one("select id from pipeline_items where nam
     const id = await idOf("Dalton Services");
     await open(`/work/deals/${id}`);
     const c = page.getByTestId("priority-card");
+    // 2026-11-23: the word count under Why it fits turns amber past 24 words (the report's Upside line).
+    await c.getByTestId("priority-why").fill("one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twenty-one twenty-two twenty-three twenty-four twenty-five");
+    await until(async () => (await c.getByTestId("priority-why-count").getAttribute("data-over")) === "1", "the word count did not turn amber past 24 words");
+    assert((await c.getByTestId("priority-why-count").innerText()).startsWith("25 words"), await c.getByTestId("priority-why-count").innerText());
     await c.getByTestId("priority-why").fill("Service contracts · owner retiring · my field ops background");
+    assert((await c.getByTestId("priority-why-count").getAttribute("data-over")) === "0" && (await c.getByTestId("priority-why-count").innerText()).startsWith("8 words"), await c.getByTestId("priority-why-count").innerText());
     await c.getByTestId("priority-strength-option").filter({ hasText: "Cold" }).click();
     await until(async () => (await one("select strength, why_fits from pipeline_items where id = $1", [id])).strength === "cold", "How strong not saved");
     assert((await one("select why_fits from pipeline_items where id = $1", [id])).why_fits === "Service contracts · owner retiring · my field ops background", "Why it fits not saved on leaving the box");
@@ -238,9 +243,23 @@ const idOf = async (name) => (await one("select id from pipeline_items where nam
     const text = (await prev.innerText()).replace(/\s+/g, " ");
     assert(text.includes("Commercial Test Services") && !text.includes("00 Commercial Test Services"), "the '00 ' start shows to partners");
     const sec = (k) => page.locator(`[data-testid=report-section][data-section=${k}]`);
-    // An Edit box open on Acquisition while its text changes: closing asks nothing and saves no edit.
-    await sec("acquisition").getByTestId("section-edit").click();
-    await sec("acquisition").getByTestId("section-edit-text").waitFor();
+    // 2026-11-23: Acquisition keeps its cards. No section Edit; each card has "Edit Today line", which changes that
+    // record's Today line only and leaves the cards, the Upside and the pipeline card in place.
+    assert((await sec("acquisition").getByTestId("section-edit").count()) === 0, "Acquisition still has the section Edit that turns the cards into plain text");
+    const cards = sec("acquisition").getByTestId("worked-card");
+    assert((await cards.count()) >= 1 && (await sec("acquisition").getByTestId("today-line-edit").count()) === (await cards.count()), "every card needs Edit Today line");
+    const card = cards.filter({ hasText: "Commercial Test Services" });
+    await card.getByTestId("today-line-edit").click();
+    const todayWas = await card.getByTestId("today-line-text").inputValue();
+    assert(todayWas && (await card.innerText()).includes(todayWas), `the box does not open with the record's Today line: ${todayWas}`);
+    await card.getByTestId("today-line-text").fill("walked the owner through the deal structure");
+    await card.getByTestId("today-line-save").click();
+    await until(async () => Object.values((((await eod()).report_edits || {})._drafts || {}).today || {}).some((n) => n.text === "walked the owner through the deal structure" && n.ai === false), "the Today line edit was not saved");
+    await until(async () => (await card.innerText()).includes("walked the owner through the deal structure"), "the card does not show the new Today line");
+    assert((await sec("acquisition").locator("[data-worked='1']").count()) === (await cards.count()) && (await sec("acquisition").getAttribute("data-edited")) === "0" && (await card.innerText()).includes("Upside"), "the section lost its cards after the Today line edit");
+    // A Today line box open on a card while the record changes: closing asks nothing and saves no edit.
+    await card.getByTestId("today-line-edit").click();
+    await card.getByTestId("today-line-text").waitFor();
     await db.query("update pipeline_items set next_action = 'Call the owner about the lease' where id = $1", [pick.id]);
     await sec("tomorrow").getByTestId("section-include").uncheck();
     await page.waitForTimeout(2000);

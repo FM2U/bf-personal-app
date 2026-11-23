@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanDrafts, draftsPrompt, draftTargets, NO_DRAFTS, validateDraftsReply, withoutPlaceholders } from "./report-drafts";
+import { cleanDrafts, draftsPrompt, OPENING_EXAMPLE, OPENING_KINDS, tidyOpening, draftTargets, NO_DRAFTS, validateDraftsReply, withoutPlaceholders } from "./report-drafts";
 
 const A = "11111111-1111-4111-8111-111111111111";
 const B = "22222222-2222-4222-8222-222222222222";
@@ -55,9 +55,19 @@ describe("the 4:00 pm AI drafts (step 4, 2026-11-15)", () => {
     expect(withoutPlaceholders("Call Mark at 4:00 pm (Summit)")).toBe("Call Mark at 4:00 pm (Summit)");
   });
 
-  it("asks the opening for 2 or 3 sentences that state no counts", () => {
+  it("asks the opening for a summary by kind of work, with the approved example and no repeated counts (2026-11-23)", () => {
     const prompt = draftsPrompt({ dateLabel: "Mon", tomorrowLabel: "Tomorrow", dayLines: [], activity: [], records: [], dueNext: [], want: { opening: true, tomorrow: false, today: [] } });
-    expect(prompt).toContain("2 or 3 plain sentences");
-    expect(prompt).toContain("Do not state any counts");
+    expect(prompt).not.toContain("2 or 3 plain sentences");
+    expect(prompt).toContain("Today was mostly");
+    for (const k of OPENING_KINDS) expect(prompt).toContain(k);
+    expect(prompt).toContain("no hours and no minutes");
+    expect(prompt).toContain("never a number that repeats a figure in the today box");
+    expect(prompt).toContain(OPENING_EXAMPLE.split("\n")[1]);
+  });
+
+  it("keeps the opening's lines, bold marks and bullets from the reply", () => {
+    const r = validateDraftsReply({ opening: "**Today was mostly calls:**\n\n- **Seller and broker calls:** two calls — both moved.\n• **Job search:** found three options.\n- **Broken: no closing mark" }, { opening: true, tomorrow: false, today: [] });
+    expect(r).toEqual({ ok: true, value: { opening: "**Today was mostly calls:**\n- **Seller and broker calls:** two calls, both moved.\n- **Job search:** found three options.\n- Broken: no closing mark", tomorrow: null, today: {} } });
+    expect(tidyOpening("**Lead:**\\n- **Job search:** x")).toBe("**Lead:**\n- **Job search:** x");
   });
 });
