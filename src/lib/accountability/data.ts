@@ -33,6 +33,7 @@ import { cleanDrafts, DRAFTS_KEY, type DraftRecord, type ReportDrafts } from "@/
 import { ACTIVITY_CALENDAR_KEY, ACTIVITY_DROPPED_KEY, cleanCalendarRows, cleanDropped, sortActivity, uniqueIds, type ActivityRow } from "@/lib/accountability/activity";
 import { buildWorked, keptBox, rowsByRecord, rowWords } from "@/lib/accountability/report-worked";
 import { nextWorkDay } from "@/lib/work-week";
+import { dayTotal, reviewedRows, toEntry, type ReviewedEntry } from "@/lib/accountability/listings-reviewed";
 
 /**
  * Everything Targets, End of day, Reports, and the Targets today tile read (batch C, database update 0025). One
@@ -397,6 +398,8 @@ export type EndOfDayPage = {
   /** Today's activity (release 3b, 2026-11-16): what the app recorded and the work logged; the calendar rows come after the page shows. */
   activity: ActivityRow[];
   activityDropped: string[];
+  /** Listings reviewed (push J, 2026-11-23): the day's total and whether anything was entered; null before UPDATE_PREVIEW_PUSH_J.sql runs. */
+  reviewed: { total: number; entered: boolean; sources: string[] } | null;
   /** The open deals, jobs and consulting leads Log work can be about. */
   workTargets: { id: string; name: string; track: string }[];
   /** Release 4 (2026-11-16): each record worked on today, with its Today line (saved, or empty for the kept rows in plain words). */
@@ -436,19 +439,21 @@ export async function loadEndOfDay(sb: SupabaseClient, ctx: Ctx, day = ctx.today
 }
 
 /** What the new report layout reads besides the facts (v8, 2026-11-15): the picks, EBITDA, projects, decisions, project notes. */
-export type ReportV8Input = { priorities: PrioritiesData; ebitda: Map<string, number>; projects: Row[]; decisions: Row[]; projectNotes: Row[] };
+export type ReportV8Input = { priorities: PrioritiesData; ebitda: Map<string, number>; projects: Row[]; decisions: Row[]; projectNotes: Row[]; /** Push J (2026-11-23): the day's Listings reviewed entries; null before UPDATE_PREVIEW_PUSH_J.sql runs. */ reviewed?: ReviewedEntry[] | null; /** Layout H (2026-11-23): revenue by deal, for the Size line. */ revenue?: Map<string, number> };
 
 export async function loadReportV8(sb: SupabaseClient, ownerId: string, day: string): Promise<ReportV8Input> {
   const since = addDaysISO(day, -16);
-  const [priorities, fin, projects, decisions, notes] = await Promise.all([
+  const [priorities, fin, projects, decisions, notes, reviewed] = await Promise.all([
     loadPriorities(sb, ownerId),
     ownerFinancials(sb, ownerId),
     sb.from("projects").select("id,name,goal,milestone,status,next_action,next_action_due,updated_at,created_at,why_fits,strength").eq("owner_id", ownerId).limit(1000),
     sb.from("decisions").select("pipeline_item_id,project_id,decided_on,outcome,line").eq("owner_id", ownerId).gte("decided_on", since).limit(500),
     sb.from("notes").select("record_id,body,created_at").eq("owner_id", ownerId).eq("record_type", "projects").gte("created_at", `${since}T00:00:00Z`).limit(2000),
+    sb.from("listings_reviewed").select("id,day,reviewed,source,created_at").eq("owner_id", ownerId).eq("day", day).order("created_at").limit(200),
   ]);
   const ebitda = new Map(((fin.data ?? []) as Row[]).filter((f) => f.ebitda !== null && f.ebitda !== undefined).map((f) => [String(f.item_id), Number(f.ebitda)]));
-  return { priorities, ebitda, projects: (projects.data ?? []) as Row[], decisions: decisions.error ? [] : ((decisions.data ?? []) as Row[]), projectNotes: (notes.data ?? []) as Row[] };
+  const revenue = new Map(((fin.data ?? []) as Row[]).filter((f) => f.revenue !== null && f.revenue !== undefined).map((f) => [String(f.item_id), Number(f.revenue)]));
+  return { priorities, ebitda, revenue, projects: (projects.data ?? []) as Row[], decisions: decisions.error ? [] : ((decisions.data ?? []) as Row[]), projectNotes: (notes.data ?? []) as Row[], reviewed: reviewed.error ? null : ((reviewed.data ?? []) as Row[]).map(toEntry).filter((e): e is ReviewedEntry => !!e) };
 }
 
 /** Builds the End of day page from loaded rows (shared with the send action, which judges the same way). */
@@ -530,6 +535,14 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
     ...bundle.raw.notes
       .filter((n) => local(String(n.created_at)) === day && n.body)
       .map((n): ActivityRow => ({ id: `note:${n.record_id}:${n.created_at}`, kind: "note", text: String(n.body).replace(/\s+/g, " ").trim().slice(0, 160), record: itemName(n.record_id), time: timeOf(n.created_at), href: recordHref({ kind: "deal", id: String(n.record_id) }) })),
+    ...reviewedRows(i.v8?.reviewed ?? [], day, (ts) => timeOf(ts)),
+    // Push J (2026-11-23): a job or consulting lead added today counts as work (a deal comes in through Screen listings).
+    ...bundle.raw.items
+      .filter((r) => r.created_at && local(String(r.created_at)) === day && r.status === "open" && (String(r.pipeline_id) === String(bundle.raw.jobId) || String(r.pipeline_id) === String(bundle.raw.conId)))
+      .map((r): ActivityRow => {
+        const job = String(r.pipeline_id) === String(bundle.raw.jobId);
+        return { id: `added:${r.id}`, kind: "added", text: `Added to ${job ? "Job search" : "Consulting"}`, record: itemName(r.id), time: timeOf(r.created_at), href: recordHref({ kind: job ? "job" : "consulting", id: String(r.id) }) };
+      }),
   ]));
   // The three tracked pipelines only; listings not yet screened are left out; up to 150 a track.
   const tracked = new Set([bundle.raw.acqId, bundle.raw.jobId, bundle.raw.conId].filter(Boolean).map(String));
@@ -544,7 +557,7 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
   const kept = sortActivity([...activity, ...row.calendarRows]).filter((r) => !droppedSet.has(r.id));
   const keptByRecord = rowsByRecord(kept);
   const worked = i.v8 && i.v8.priorities.ready
-    ? buildWorked({ rows: kept, items: bundle.raw.items, projects: i.v8.projects, pipes: { acquisition: bundle.raw.acqId, job: bundle.raw.jobId, consulting: bundle.raw.conId ?? null }, stageById: bundle.raw.stageById, history: bundle.raw.history, columns: i.v8.priorities.columns, ebitda: i.v8.ebitda, day, local, todayText: Object.fromEntries(Object.entries(row.drafts.today).map(([id, n]) => [id, n.text])) })
+    ? buildWorked({ rows: kept, items: bundle.raw.items, projects: i.v8.projects, pipes: { acquisition: bundle.raw.acqId, job: bundle.raw.jobId, consulting: bundle.raw.conId ?? null }, stageById: bundle.raw.stageById, history: bundle.raw.history, columns: i.v8.priorities.columns, ebitda: i.v8.ebitda, revenue: i.v8.revenue, day, local, todayText: Object.fromEntries(Object.entries(row.drafts.today).map(([id, n]) => [id, n.text])) })
     : null;
   // The gray Today box: the day's counts less the rows dropped (the same rules as the targets).
   const box = keptBox({
@@ -554,6 +567,7 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
       .filter((c) => local(String(c.occurred_at)) === day && c.direction !== "incoming" && !c.awaiting_log)
       .map((c) => ({ rowId: `comm:${c.id}`, contactId: c.contact_id ? String(c.contact_id) : null, broker: personById.get(String(c.contact_id ?? ""))?.outreach_role === "broker", method: String(c.method) })),
     acquisitionIds: new Set(bundle.raw.items.filter((r) => String(r.pipeline_id) === String(bundle.raw.acqId)).map((r) => String(r.id).toLowerCase())),
+    reviewed: i.v8?.reviewed ? dayTotal(i.v8.reviewed, day).total : 0,
   });
   const workedList = worked ? (["acquisition", "job", "consulting", "startup"] as const).flatMap((k) => worked[k].map((w) => ({ ...w, kind: k, track: trackLabel[k] }))) : [];
   const todayLines = workedList.map((w) => {
@@ -648,6 +662,7 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
     draftInput,
     activity,
     activityDropped: row.activityDropped,
+    reviewed: i.v8 && i.v8.reviewed ? dayTotal(i.v8.reviewed, day) : null,
     workTargets,
     state: row.status,
     sentAt: row.sentAt,

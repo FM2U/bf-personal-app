@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { saveReportChoices, saveReportNote, saveSectionEdit } from "@/app/actions/accountability";
 import type { PartnerCopy } from "@/lib/accountability/data";
 import { daysLabel } from "@/lib/accountability/partners";
-import { closingHtml, greetingHtml, headerHtml, noteHtml, sectionBodyHtml } from "@/lib/accountability/report-email";
+import { closingHtml, greetingHtml, headerHtml, isLayoutH, noteHtml, sectionBodyHtml } from "@/lib/accountability/report-email";
 import { buildSections, NOTE_MAX, TOP_N, type BuiltSection, type ReportChoices, type ReportNotes, type SectionKey } from "@/lib/accountability/report-sections";
 import { personHref } from "@/lib/work/people";
 import { CenteredWindow } from "@/components/app/window";
@@ -539,7 +539,7 @@ export function CopyReview({ day, copy, startEditing, notes, onNotes, unsavedRef
           {error}
         </p>
       ) : null}
-      <div className="report-preview report-window min-w-0 text-[13px] leading-[1.45] text-slate-900" data-testid="report-preview" data-edited={copy.edited ? "1" : "0"}>
+      <div className={cn("report-preview report-window min-w-0 text-[13px] leading-[1.45] text-slate-900", isLayoutH(report) && "rounded-[12px] bg-[#faf9f7] px-4 py-4")} data-testid="report-preview" data-layout={isLayoutH(report) ? "h" : undefined} data-edited={copy.edited ? "1" : "0"}>
         <div dangerouslySetInnerHTML={{ __html: headerHtml(report) }} />
         <div dangerouslySetInnerHTML={{ __html: greetingHtml(report) }} />
         {sections.map((s) => (
@@ -633,7 +633,7 @@ export function CopyReview({ day, copy, startEditing, notes, onNotes, unsavedRef
             )}
           </div>
         ))}
-        <div className="mt-3" dangerouslySetInnerHTML={{ __html: closingHtml(copy.report.signName, copy.report.layout === "v8") }} />
+        <div className="mt-3" dangerouslySetInnerHTML={{ __html: closingHtml(copy.report.signName, copy.report.layout === "v8", isLayoutH(copy.report)) }} />
       </div>
     </>
   );

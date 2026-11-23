@@ -18,6 +18,7 @@ import { personHref, PEOPLE_HREF } from "@/lib/work/people";
 import { contactKindLabel, orgRoleLine } from "@/lib/work/outreach";
 import { date as fmtDate } from "@/lib/format";
 import { buildHomeRows, HomeBoard, TargetsTodayTile, WaitingCard, type Row, type WaitingCardData } from "@/components/app/work/home-board";
+import { ListingsReviewedButton } from "@/components/app/work/listings-reviewed";
 import { HomeDayCalendar } from "@/components/app/work/home-day-calendar";
 import { BlockTimeProvider } from "@/components/app/work/block-time";
 import { WorkThrough, type WorkStep } from "@/components/app/work/work-through";
@@ -63,6 +64,10 @@ export function HomeBento({ data, priorities, waitingCard, personComposes, askCo
             title="Work on now"
             date={dateLabel}
             tools={
+              <span className="flex items-center gap-4">
+              <ListingsReviewedButton className="text-[12.5px] whitespace-nowrap text-[var(--h-ink2)] underline decoration-[#d6d3d1] underline-offset-[3px] hover:text-[var(--h-ink)]" testId="home-reviewed-open">
+                + Listings reviewed
+              </ListingsReviewedButton>
               <form
                 role="search"
                 onSubmit={(e) => {
@@ -72,6 +77,7 @@ export function HomeBento({ data, priorities, waitingCard, personComposes, askCo
               >
                 <FindBox id={FIND_ID} value={find} onChange={setFind} placeholder="Find a next action" testId="home-search" />
               </form>
+              </span>
             }
             askAi={askAi}
           />

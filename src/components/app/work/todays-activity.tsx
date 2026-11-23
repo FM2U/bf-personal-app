@@ -8,7 +8,8 @@ import { logWork } from "@/app/actions/outreach";
 import { ACTIVITY_LABEL, clock12, sortActivity, type ActivityRow } from "@/lib/accountability/activity";
 import { useUnsavedWork } from "@/components/app/unsaved-changes";
 import { Drawer } from "@/components/app/work/drawer";
-import { RowButton, WorkCard } from "@/components/app/work/ui";
+import { ListingsReviewedButton } from "@/components/app/work/listings-reviewed";
+import { ROW_BUTTON_BASE, RowButton, WorkCard } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
 
 /**
@@ -76,9 +77,12 @@ export function TodaysActivityCard({ day, rows, dropped, targets, closed }: { da
       sub="What the app recorded, the work you logged, and your matching calendar. Drop anything that did not happen."
       actions={
         !closed ? (
-          <RowButton onClick={() => setAdding(true)} data-testid="activity-add">
-            + Log work
-          </RowButton>
+          <span className="flex items-center gap-2">
+            <ListingsReviewedButton day={day} className={cn(ROW_BUTTON_BASE, "border-input bg-white text-slate-800 hover:bg-slate-50")} />
+            <RowButton onClick={() => setAdding(true)} data-testid="activity-add">
+              + Log work
+            </RowButton>
+          </span>
         ) : undefined
       }
       testId="eod-activity"
@@ -109,7 +113,11 @@ export function TodaysActivityCard({ day, rows, dropped, targets, closed }: { da
                     </span>
                   ) : null}
                 </span>
-                {!closed ? (
+                {!closed && r.kind === "reviewed" ? (
+                  <ListingsReviewedButton day={day} className="pt-px text-[12.5px] font-medium text-primary-strong hover:underline" testId="activity-reviewed-change">
+                    Change
+                  </ListingsReviewedButton>
+                ) : !closed ? (
                   <button type="button" onClick={() => toggle(r.id)} aria-label={`${isOff ? "Keep" : "Drop"} ${r.text}`} aria-pressed={isOff} className="pt-px text-[12.5px] font-medium text-primary-strong hover:underline" data-testid="activity-toggle">
                     {isOff ? "Keep" : "Drop"}
                   </button>

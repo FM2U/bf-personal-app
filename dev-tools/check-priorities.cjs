@@ -232,7 +232,8 @@ const idOf = async (name) => (await one("select id from pipeline_items where nam
     const prev = page.getByTestId("report-preview");
     await prev.waitFor();
     const html = await prev.innerHTML();
-    assert(/color:\s*(#1e40af|rgb\(30, 64, 175\))[^>]*>Upside:/.test(html) && /padding-top:\s*10px[^>]*><span[^>]*>Today:/.test(html), "the Upside label is not cobalt, or Today has no gap above it");
+    // Layout H (2026-11-23): gray labels in their own column, on the same baseline as their text; Upside under Today and Next.
+    assert(/vertical-align:\s*baseline[^>]*>Today<\/td>/.test(html) && /vertical-align:\s*baseline[^>]*>Upside<\/td>/.test(html) && html.indexOf(">Today</td>") < html.indexOf(">Upside</td>"), "the Today and Upside labels are not in their baseline-aligned column, or Upside is above Today");
     assert(!html.includes(">Why:<") && !html.includes(">Now:<"), "the report still shows Why or Now");
     const text = (await prev.innerText()).replace(/\s+/g, " ");
     assert(text.includes("Commercial Test Services") && !text.includes("00 Commercial Test Services"), "the '00 ' start shows to partners");
@@ -346,7 +347,7 @@ const idOf = async (name) => (await one("select id from pipeline_items where nam
     if (await incoming.count()) assert((await incoming.innerText()).includes("Replies to your reports and to emails sent from the app show here."), "the Incoming wording");
   });
 
-  await step("The new daily report (release 4): '<Track> · worked on today' lists only records with kept activity; the gray Today box under the opening; Upside above the pill line; the Today line typed on End of day shows; Drop takes a record out; the subject has the day's counts", async () => {
+  await step("The new daily report (release 4; layout H 2026-11-23): '<Track> · N deals worked on today' lists only records with kept activity; the six day counts under the opening; Today, Next, then Upside; the Today line typed on End of day shows; Drop takes a record out; the subject has the day's counts", async () => {
     const pick = await one("select p.id, p.name, p.company_name from pipeline_items p where p.priority_rank = 1 and p.status = 'open' and p.pipeline_id = (select id from pipelines where kind = 'acquisition' limit 1)");
     const name = pick.company_name || pick.name;
     await open("/work/end-of-day");
@@ -362,14 +363,15 @@ const idOf = async (name) => (await one("select id from pipeline_items where nam
     const prev = page.getByTestId("report-preview");
     await prev.waitFor();
     let text = (await prev.innerText()).replace(/\s+/g, " ");
-    assert(/Acquisition · worked on today/i.test(text), `no Acquisition track: ${text.slice(0, 300)}`);
-    assert(!/top priorities/i.test(text.replace("1 to 3 are my top priorities", "")), "a track still reads 'top priorities'");
-    assert(text.includes("Today: about an hour on the deal structure"), "the typed Today line is not in the report");
-    for (const label of ["Listings added", "Deals moved", "Brokers contacted", "Calls and meetings", "Network outreach"]) assert(text.includes(label), `the Today box has no ${label}`);
+    assert(/Acquisition · \d+ deals? worked on today/i.test(text), `no Acquisition track: ${text.slice(0, 300)}`);
+    assert(!/top priorities/i.test(text), "a track still reads 'top priorities'");
+    assert(/top priority/.test(text), "the pick has no 'top priority' mark");
+    assert(text.includes("Today about an hour on the deal structure"), "the typed Today line is not in the report");
+    for (const label of ["Listings reviewed", "Deals added", "Deals moved", "Brokers contacted", "Calls and meetings", "Network outreach"]) assert(text.includes(label), `the day counts have no ${label}`);
     const html = await prev.innerHTML();
-    assert(html.indexOf("data-today-box") > -1 && html.indexOf("data-today-box") < html.search(/Acquisition · worked on today/i), "the Today box is not under the opening");
-    const block = html.slice(html.indexOf(name.replace(/&/g, "&amp;")));
-    assert(block.indexOf("Upside:") > -1 && block.indexOf("Upside:") < block.indexOf("Today:"), "Upside is not above the pill line and Today");
+    assert(html.indexOf("data-today-box") > -1 && html.indexOf("data-today-box") < html.search(/Acquisition · \d+ deals? worked on today/i), "the day counts are not under the opening");
+    const block = html.slice(html.indexOf(name.replace(/^00 /, "").replace(/&/g, "&amp;")));
+    assert(block.indexOf(">Today</td>") > -1 && block.indexOf(">Today</td>") < block.indexOf(">Upside</td>"), "Upside is not under Today");
     await shot("report-release4");
     await page.getByTestId("report-window-close").click();
     // Drop every row about the pick: it leaves the report.
@@ -391,7 +393,7 @@ const idOf = async (name) => (await one("select id from pipeline_items where nam
     await page.getByTestId("report-view").click();
     await prev.waitFor();
     text = (await prev.innerText()).replace(/\s+/g, " ");
-    assert(!text.includes("Today: about an hour on the deal structure"), "a dropped record is still in the report");
+    assert(!text.includes("Today about an hour on the deal structure"), "a dropped record is still in the report");
     await page.getByTestId("report-window-close").click();
     await db.query("update end_of_day set report_edits = report_edits - '_activity_dropped' where day = (select max(day) from end_of_day)");
   });

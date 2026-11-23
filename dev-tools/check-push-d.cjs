@@ -311,7 +311,7 @@ const until = async (fn, msg, tries = 60) => {
     await until(async () => (await page.locator("[data-testid=eod-check][data-key=review]").getAttribute("data-state")) === "2 of 3", "checklist 2 of 3");
     // The checklist on Fridays (2026-11-05; Opening in place of Reasons since 2026-11-15): Opening, Weekly review, Monday's line.
     const checks = await page.getByTestId("eod-check").evaluateAll((els) => els.map((e) => `${e.dataset.key}:${e.querySelector("span:nth-child(2)").textContent}`));
-    assert(JSON.stringify(checks) === JSON.stringify(["opening:Opening", "review:Weekly review", "tomorrow:Monday's line"]), JSON.stringify(checks));
+    assert(JSON.stringify(checks) === JSON.stringify(["opening:Opening", "review:Weekly review", "reviewed:Listings reviewed", "tomorrow:Monday's line"]), JSON.stringify(checks));
     // The field star drafts the third (the AI stand-in's answer), and Use this saves it.
     await card.getByTestId("eod-review-field").nth(2).getByTestId("ai-field-star").click();
     await page.getByTestId("ask-ai-use").waitFor({ timeout: 20000 });

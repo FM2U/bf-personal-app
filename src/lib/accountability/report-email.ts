@@ -68,8 +68,10 @@ export function blocksHtml(blocks: readonly Block[]): string {
 }
 
 /** A section as rewritten with Edit: lines starting with "- " become bullets (indent for a level deeper). */
-export function editedHtml(text: string): string {
+export function editedHtml(text: string, h = false): string {
   const lines = parseEdited(text);
+  const size = h ? `font-size:14.5px;line-height:23px;color:${H.ink};${H_FONT}` : `font-size:13px;line-height:19px;color:${C.ink};${FONT}`;
+  const ul = h ? `margin:4px 0 0 0;padding:0 0 0 18px;list-style-type:disc;${size}` : UL;
   let html = "";
   let open = 0;
   const close = (to: number) => {
@@ -82,12 +84,12 @@ export function editedHtml(text: string): string {
     if (!l.bullet) {
       close(0);
       const parent = lines[i + 1]?.bullet;
-      html += `<div style="font-size:13px;line-height:19px;${parent ? "font-weight:bold;margin-top:4px;" : "margin:0 0 4px 0;"}color:${C.ink};${FONT}">${escapeHtml(l.text)}</div>`;
+      html += `<div style="${size};${parent ? `font-weight:${h ? 600 : "bold"};margin-top:${h ? 14 : 4}px;` : "margin:0 0 4px 0;"}">${escapeHtml(l.text)}</div>`;
       return;
     }
     if (l.depth > open) {
       while (open < l.depth) {
-        html += `<ul style="${UL}${open ? `;color:${C.muted}` : ""}"><li style="${LI}">`;
+        html += `<ul style="${ul}${open ? `;color:${h ? H.ink2 : C.muted}` : ""}"><li style="${LI}">`;
         open++;
       }
     } else {
@@ -141,8 +143,8 @@ function decidedHtml(t: string): string {
   return `<div data-decided="1" style="font-size:12px;line-height:17px;color:${C.muted};margin:2px 0 6px 22px;${FONT}"><b style="color:#334155">Decided this week:</b> ${escapeHtml(t)}.</div>`;
 }
 
-/** The Pipeline table: "Added this week" (green +N, a dash for none) and "In stage today"; equal columns, PIPELINE at the left. */
-export function pipelineHtml(cols: readonly PipelineCol[]): string {
+/** The Pipeline table of the older layout (v8 picks, before release 4): kept for reports built that way. */
+export function pipelineHtmlV8(cols: readonly PipelineCol[]): string {
   const cell = "padding:3px 6px;font-size:13px;line-height:18px;font-weight:bold;border-left:1px solid #eef1f4";
   const head = cols.map((c) => `<td align="center" style="padding:6px 6px 4px 6px;font-size:11px;line-height:14px;color:${C.muted};border-left:1px solid #eef1f4;${FONT}">${escapeHtml(c.label)}</td>`).join("");
   const added = cols.map((c) => `<td align="center" style="${cell};color:${c.added ? C.text.met : "#cbd5e1"};${FONT}">${c.added ? `+${c.added}` : "&ndash;"}</td>`).join("");
@@ -155,52 +157,134 @@ export function pipelineHtml(cols: readonly PipelineCol[]): string {
   );
 }
 
-// ---------- Release 4 (approved 2026-11-16: the mockup claude/2026-11-17-report-mockup.html, Upside above the pill line) ----------
+// ---------- Layout H (Bram, 2026-11-23: claude/2026-11-23-report-layout-h.html) ----------
+//
+// Calm cards on the paper color: the opening card with the six day counts, one card per record worked on today
+// (numbered 1 to N, "◆ top priority" for a pick), Today and Next, then Upside and Size under a hairline, the pipeline
+// card per track, and the tomorrow line and the week in one card. Tables and inline styles only (Gmail, Apple Mail,
+// Outlook); labels and text share one line height on the same baseline, so a label stays level with the first line
+// of its text however many lines the text runs.
 
-/**
- * One record worked on today: its mark (1 to 3 in cobalt for a top priority, a green "+" when new today, a cobalt dot
- * otherwise), the name in bold with its facts, "Upside:" (cobalt label), the stage chip, How strong, day N or "new
- * today", "moved from X today", then "Today:" and "Next:". One table row per line, the gap as the cell's top padding.
- */
-export function workedHtml(w: WorkedRecord, last: boolean): string {
-  const st = w.strength ? STRENGTH[w.strength] : null;
-  const facts = [
-    w.stage ? `<span style="display:inline-block;padding:0 7px;border-radius:999px;border:1px solid ${C.border};background:#f8fafc;font-size:11.5px;line-height:17px;color:#334155">${escapeHtml(w.stage)}</span>` : "",
-    st ? `<span style="font-size:11.5px;font-weight:bold;color:${st.color}">&#9679; ${st.label}</span>` : "",
-    w.since ? `<span style="font-size:11.5px;color:${C.muted}">${st || w.stage ? "&middot; " : ""}${escapeHtml(w.since)}</span>` : "",
-    w.moved ? `<span style="font-size:11.5px;font-weight:bold;color:${C.text.met}">&middot; &#9650; ${escapeHtml(w.moved)}</span>` : "",
-  ].filter(Boolean).join(" ");
-  const label = (t: string) => `<span style="color:${C.cobalt}">${t}</span>`;
-  const row = (gap: number, html: string) => `<tr><td style="padding-top:${gap}px;font-size:13px;line-height:19px;color:${C.ink};${FONT}">${html}</td></tr>`;
-  const lines = [
-    row(0, `<b>${escapeHtml(w.name)}</b>${w.meta ? ` ${MUTED_SPAN(`&middot; ${escapeHtml(w.meta)}`)}` : ""}`),
-    w.upside ? row(5, `${label("Upside:")} ${escapeHtml(w.upside)}`) : "",
-    facts ? row(6, facts) : "",
-    w.today ? row(10, `${label("Today:")} ${escapeHtml(w.today)}`) : "",
-    w.next ? row(w.today ? 5 : 10, `${label("Next:")} ${escapeHtml(w.next)}`) : "",
-  ].filter(Boolean);
-  const mark = typeof w.mark === "number" ? { t: String(w.mark), c: C.cobalt } : w.mark === "+" ? { t: "+", c: C.text.met } : { t: "&#8226;", c: C.cobalt };
-  return (
-    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" data-worked="1" style="border-collapse:collapse;margin-bottom:${last ? 4 : 16}px"><tr>` +
-    `<td width="26" valign="top" style="font-size:13px;line-height:19px;font-weight:bold;color:${mark.c};${FONT}">${mark.t}</td>` +
-    `<td valign="top"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse">${lines.join("")}</table></td></tr></table>`
-  );
+export const H = { paper: "#faf9f7", card: "#ffffff", ink: "#1c1917", ink2: "#635d58", faint: "#8b847e", line: "#ecebe8", hair: "#f1f0ee", rowLine: "#f4f3f1", indigo: "#3b4a8c", hot: "#c2410c", warm: "#b5650d", cold: "#4a6fa5", ok: "#3f7d58", amber: "#b5650d", zero: "#c9c6c2" } as const;
+export const H_FONT = "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif";
+/** The widest the report gets (Bram, 2026-11-23: 640px; a phone shows it at its own width). */
+export const H_WIDTH = 640;
+const H_STRENGTH: Record<string, { label: string; color: string }> = { hot: { label: "Hot", color: H.hot }, warm: { label: "Warm", color: H.warm }, cold: { label: "Cold", color: H.cold } };
+const LH = "22px";
+
+/** A white card on the paper: 12px corners, a hairline border. */
+function cardHtml(inner: string, pad = "22px 24px 18px 24px", gap = 10, attr = ""): string {
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"${attr} style="border-collapse:separate;margin-top:${gap}px;background-color:${H.card};border:1px solid ${H.line};border-radius:12px"><tr><td style="padding:${pad};${H_FONT};color:${H.ink}">${inner}</td></tr></table>`;
 }
 
-/** The gray Today box under the opening: TODAY at the left, the five labels over their numbers, equal columns. */
+/** A small-capitals label (MONDAY, THE WEEK, STAGE). */
+function capsHtml(t: string, extra = ""): string {
+  return `<div style="font-size:11px;line-height:16px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;color:${H.faint};${H_FONT}${extra}">${escapeHtml(t)}</div>`;
+}
+
+/** A label in the fixed 56px column and its text, on the same baseline (Bram, 2026-11-23). */
+function labeledRow(label: string, html: string, o: { size?: string; color?: string; top?: number } = {}): string {
+  const top = o.top ?? 10;
+  return `<tr><td width="56" style="width:56px;vertical-align:baseline;padding-top:${top}px;font-size:12.5px;line-height:${LH};color:${H.faint};${H_FONT}">${escapeHtml(label)}</td><td style="vertical-align:baseline;padding-top:${top}px;font-size:${o.size ?? "14.5px"};line-height:${LH};color:${o.color ?? H.ink};${H_FONT}">${html}</td></tr>`;
+}
+
+/** "ask for tax returns, Mon, Nov 23" with the date in gray after a dot. */
+function nextHtml(next: string): string {
+  const m = /^(.*), ((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), [A-Z][a-z]{2} \d{1,2})$/.exec(next);
+  return m ? `${escapeHtml(m[1])} <span style="color:${H.faint}">&middot; ${escapeHtml(m[2])}</span>` : escapeHtml(next);
+}
+
+/** "moved from Broker call today" as "▲ moved up from Broker call". */
+function movedWords(moved: string): string {
+  const m = /^moved from (.+?)(?: today)?$/.exec(moved);
+  return m ? `moved up from ${m[1]}` : moved;
+}
+
+/** The Size line: small gray label, bold figure, a thin divider between figures. */
+function sizeHtml(size: readonly { label: string; value: string }[]): string {
+  const divider = `<span style="display:inline-block;width:1px;height:12px;background-color:${H.line};margin:0 16px;vertical-align:-1px"></span>`;
+  return size.map((f) => `<span style="white-space:nowrap"><span style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:${H.faint}">${escapeHtml(f.label)}</span>&nbsp;&nbsp;<span style="font-size:14px;font-weight:600;color:${H.ink}">${escapeHtml(f.value)}</span></span>`).join(divider);
+}
+
+/**
+ * One record worked on today (layout H): its number (1 to N, in the order shown), the name, "◆ top priority" at the
+ * right for a pick, the line with the stage, How strong, day N or "new today" and "▲ moved up from X"; Today and Next;
+ * under a hairline the Upside and the Size line (each only when there is one).
+ */
+export function workedHtml(w: WorkedRecord, n: number): string {
+  const st = w.strength ? H_STRENGTH[w.strength] : null;
+  const since = w.since ? w.since.replace(/ since (first contact|start)$/, "") : null;
+  const status = [
+    w.stage ? escapeHtml(w.stage) : "",
+    st ? `<span style="color:${st.color}">&#9679; ${st.label}</span>` : "",
+    since ? escapeHtml(since) : "",
+    w.moved ? `<span style="color:${H.ok}">&#9650; ${escapeHtml(movedWords(w.moved))}</span>` : "",
+  ].filter(Boolean).join(" &middot; ");
+  const pick = typeof w.mark === "number";
+  const num = `<div style="width:22px;height:22px;border-radius:11px;border:1px solid ${H.line};background-color:${H.paper};color:${H.ink2};font-size:12px;font-weight:600;line-height:20px;text-align:center;box-sizing:border-box;${H_FONT}">${n}</div>`;
+  const top =
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse"><tr>` +
+    `<td width="34" valign="top" style="width:34px;vertical-align:top">${num}</td>` +
+    `<td valign="top" style="vertical-align:top;${H_FONT}"><div style="font-size:16px;font-weight:600;line-height:${LH};color:${H.ink}">${escapeHtml(w.name)}</div>${status ? `<div style="font-size:13px;line-height:20px;color:${H.ink2};margin-top:6px">${status}</div>` : ""}</td>` +
+    `<td valign="top" align="right" style="vertical-align:top;text-align:right;line-height:${LH};white-space:nowrap;${H_FONT}">${pick ? `<span data-priority="1" style="font-size:12.5px;color:${H.indigo}"><span style="font-size:11px">&#9670;</span>&nbsp; top priority</span>` : ""}</td>` +
+    `</tr></table>`;
+  const work = [w.today ? labeledRow("Today", escapeHtml(w.today)) : "", w.next ? labeledRow("Next", nextHtml(w.next)) : ""].join("");
+  const size = w.size ?? [];
+  const below = [w.upside ? labeledRow("Upside", escapeHtml(w.upside), { size: "13px", color: H.ink2, top: 12 }) : "", size.length ? labeledRow("Size", sizeHtml(size), { size: "14px", top: w.upside ? 14 : 12 }) : ""].join("");
+  // The work and the background lines sit under the name (34px in), full width to the card's right edge.
+  const workHtml = work ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin-top:8px">${work}</table>` : "";
+  const belowHtml = below ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin-top:16px;border-top:1px solid ${H.hair}">${below}</table>` : "";
+  const inner = top + (workHtml || belowHtml ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse"><tr><td style="padding-left:34px">${workHtml}${belowHtml}</td></tr></table>` : "");
+  return cardHtml(inner, "22px 26px 18px 26px", 10, ` data-worked="1"`);
+}
+
+/**
+ * The six day counts along the bottom of the opening card: large quiet numbers, small labels. Each count is a 96px
+ * block, so a laptop shows the six in one row and a phone wraps them into rows of three (no media query needed);
+ * classic Outlook for Windows gets the same six as table cells.
+ */
 export function boxHtml(box: readonly TodayCount[]): string {
-  const head = box.map((c) => `<td align="center" style="padding:6px 6px 4px 6px;font-size:11px;line-height:14px;color:${C.muted};border-left:1px solid #eef1f4;${FONT}">${escapeHtml(c.label)}</td>`).join("");
-  const nums = box.map((c) => `<td align="center" style="padding:3px 6px 7px 6px;font-size:15px;line-height:20px;font-weight:bold;color:${C.ink};border-left:1px solid #eef1f4;${FONT}">${c.value}</td>`).join("");
-  return (
-    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" data-today-box="1" style="margin:12px 0 6px 0;border-collapse:separate;border:1px solid ${C.border};border-radius:8px;background:#f8fafc;width:100%;table-layout:fixed"><col style="width:84px">` +
-    `<tr><td width="84" rowspan="2" valign="middle" style="padding:6px 10px;font-size:10.5px;line-height:14px;letter-spacing:1px;text-transform:uppercase;font-weight:bold;color:#334155;${FONT}">Today</td>${head}</tr><tr>${nums}</tr></table>`
-  );
+  const one = (c: TodayCount) => `<div style="font-size:22px;line-height:28px;font-weight:500;color:${H.ink};${H_FONT}">${c.value}</div><div style="font-size:11.5px;line-height:15px;color:${H.faint};margin-top:2px;${H_FONT}">${escapeHtml(c.label)}</div>`;
+  const blocks = box.map((c) => `<!--[if mso]><td valign="top" width="96" style="padding-top:14px"><![endif]--><div style="display:inline-block;width:88px;padding-right:8px;vertical-align:top;padding-top:14px">${one(c)}</div><!--[if mso]></td><![endif]-->`).join("");
+  return `<div data-today-box="1" style="margin-top:18px;border-top:1px solid ${H.line};font-size:0;line-height:0"><!--[if mso]><table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><![endif]-->${blocks}<!--[if mso]></tr></table><![endif]--></div>`;
+}
+
+const PIPELINE_SUB: Record<string, string> = {
+  Acquisition: "Each stage from first look to offer: deals in it now, and deals that reached it this week.",
+  "Job search": "Each stage from lead to offer: jobs in it now, and jobs that reached it this week.",
+  Consulting: "Each stage from lead to paid: leads in it now, and leads that reached it this week.",
+};
+
+/** The pipeline card (layout H): Stage, In process (with a short bar), a thin line, This week (green "+N new"). */
+export function pipelineHtml(cols: readonly PipelineCol[], track = "Acquisition"): string {
+  const max = Math.max(1, ...cols.map((c) => c.inStage ?? 0));
+  const sep = `border-left:1px solid ${H.line};padding-left:18px`;
+  const head = (t: string, extra = "") => `<td style="padding-bottom:10px;font-size:11px;line-height:16px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;color:${H.faint};${H_FONT}${extra}">${t}</td>`;
+  const rows = cols
+    .map((c) => {
+      const b = `padding:11px 0;border-top:1px solid ${H.rowLine};${H_FONT}`;
+      const bar = (n: number) => `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;display:inline-table;vertical-align:middle"><tr><td style="width:${Math.max(2, Math.round((70 * n) / max))}px;height:6px;line-height:6px;font-size:0;border-radius:3px;background-color:${n ? "#9ba3c9" : "#e6e8f3"}">&nbsp;</td></tr></table>`;
+      const now = c.inStage === null ? `<span style="font-size:13px;color:${H.faint}">moves on the same day</span>` : `<span style="display:inline-block;width:24px;font-size:16px;font-weight:600;color:${H.ink}">${c.inStage}</span>${bar(c.inStage)}`;
+      const week = c.added ? `<span style="font-size:16px;font-weight:600;color:${H.ok}">+${c.added}</span> <span style="font-size:13px;color:${H.ok}">new</span>` : `<span style="font-size:16px;font-weight:600;color:${H.zero}">0</span> <span style="font-size:13px;color:${H.faint}">new</span>`;
+      return `<tr><td width="118" style="${b};width:118px;font-size:14.5px;color:${H.ink}">${escapeHtml(c.label)}</td><td style="${b}">${now}</td><td width="96" align="right" style="${b};${sep};width:96px;text-align:right;white-space:nowrap">${week}</td></tr>`;
+    })
+    .join("");
+  const inner =
+    `<div style="font-size:15px;line-height:20px;font-weight:600;color:${H.ink};${H_FONT}">${escapeHtml(track)} pipeline</div>` +
+    `<div style="font-size:13px;line-height:18px;color:${H.ink2};margin-top:6px;${H_FONT}">${PIPELINE_SUB[track] ?? PIPELINE_SUB.Acquisition}</div>` +
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin-top:18px"><tr>${head("Stage", ";width:118px")}${head("In process")}${head("This week", `;${sep};text-align:right`)}</tr>${rows}</table>`;
+  return cardHtml(inner, "22px 30px 22px 30px", 24, ` data-pipeline="1"`);
+}
+
+/** The heading over a track's cards: "Acquisition · 4 deals worked on today". */
+function trackHeadingHtml(title: string): string {
+  return `<div style="padding:30px 6px 0 6px;font-size:17px;line-height:24px;font-weight:600;color:${H.ink};${H_FONT}">${escapeHtml(title)}</div>`;
 }
 
 function workedSectionHtml(s: BuiltSection): string {
   const list = s.worked ?? [];
-  const lead = s.key === "acquisition" && list.some((w) => typeof w.mark === "number" || w.mark === "+") ? `<div style="margin:-2px 0 10px 0;font-size:11.5px;line-height:16px;color:${C.muted};${FONT}">1 to 3 are my top priorities; + is new today.</div>` : "";
-  return lead + list.map((w, n) => workedHtml(w, n === list.length - 1)).join("") + (s.pipeline ? pipelineHtml(s.pipeline) : "");
+  const track = s.key === "jobs" ? "Job search" : s.key === "consulting" ? "Consulting" : s.key === "startup" ? "Startup" : "Acquisition";
+  return list.map((w, n) => workedHtml(w, n + 1)).join("") + (s.pipeline ? pipelineHtml(s.pipeline, track) : "");
 }
 
 function prioritiesHtml(s: BuiltSection): string {
@@ -208,12 +292,14 @@ function prioritiesHtml(s: BuiltSection): string {
   // Every pick hidden with Change: nothing in their place (the quiet line is for a track with no picks at all).
   const allHidden = !picks.length && !!s.choices?.length;
   const body = picks.length ? picks.map((pk, n) => pickHtml(pk, n === picks.length - 1)).join("") : allHidden ? "" : muted(s.quiet ?? "No top priorities chosen.");
-  return body + (s.decided ? decidedHtml(s.decided) : "") + (s.pipeline ? pipelineHtml(s.pipeline) : "");
+  return body + (s.decided ? decidedHtml(s.decided) : "") + (s.pipeline ? pipelineHtmlV8(s.pipeline) : "");
 }
 
 /** The body of a section as sent (no heading): its edited text, its tiles or lists, or its line. */
 export function sectionBodyHtml(s: BuiltSection): string {
-  // Release 4: the gray Today box stays under the opening, also when the opening was rewritten with Edit.
+  // Layout H (2026-11-23): the opening in the calm type, the six day counts under it, also after Edit.
+  if (s.key === "opening" && s.box) return (s.edited ? editedHtml(s.edited, true) : s.line ? `<div style="font-size:14.5px;line-height:23px;color:${H.ink};margin-top:14px;${H_FONT}">${escapeHtml(s.line).replace(/\n/g, "<br>")}</div>` : `<div style="font-size:14px;line-height:20px;color:${H.amber};margin-top:14px;${H_FONT}">(no opening yet)</div>`) + boxHtml(s.box);
+  // Release 4 (kept for reports built before layout H; not reached now that the box is drawn above).
   if (s.key === "opening" && s.box) return (s.edited ? editedHtml(s.edited) : s.line ? p(escapeHtml(s.line).replace(/\n/g, "<br>"), ";margin-bottom:4px;font-size:13px;line-height:19px") : `<div style="font-size:13px;line-height:18px;color:${C.text.soon};${FONT}">(no opening yet)</div>`) + boxHtml(s.box);
   if (s.edited) return editedHtml(s.edited);
   if (s.kind === "priorities") return prioritiesHtml(s);
@@ -232,10 +318,11 @@ export function sectionBodyHtml(s: BuiltSection): string {
  * breaks kept. Fix list item 6 (approved 2026-11-06): the normal dark reading color (not muted) and a cobalt left line,
  * slightly thicker (3px). The same HTML in the email, the report window, and every re-shown sent report.
  */
-export function noteHtml(note: string | null | undefined): string {
+export function noteHtml(note: string | null | undefined, h = false): string {
   const t = String(note ?? "").trim();
   if (!t) return "";
-  return `<div data-note="1" style="${NOTE_STYLE}">${escapeHtml(t).replace(/\n/g, "<br>")}</div>`;
+  const style = h ? `margin:10px 6px 4px 6px;padding:2px 0 2px 12px;border-left:3px solid ${H.indigo};font-size:14px;line-height:22px;color:${H.ink};${H_FONT}` : NOTE_STYLE;
+  return `<div data-note="1" style="${style}">${escapeHtml(t).replace(/\n/g, "<br>")}</div>`;
 }
 
 /** The note in the plain-text part: each line after "| ", the same rule on the left. */
@@ -246,6 +333,8 @@ export function noteText(note: string | null | undefined): string {
 
 /** The header: "Daily report" (or "Daily report, with the week"), the date, the status pill. */
 export function headerHtml(d: ReportData): string {
+  // Layout H (2026-11-23): "Daily report" over the date, no rule (the report window shows the same as the email).
+  if (isLayoutH(d)) return `<div style="padding:0 0 4px 0;${H_FONT}"><div style="font-size:13px;line-height:18px;color:${H.faint}">Daily report</div><div style="font-size:22px;line-height:28px;font-weight:600;color:${H.ink};margin-top:2px">${escapeHtml(d.dateShort)}</div></div>`;
   return (
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse"><tr>` +
     `<td valign="middle" style="padding:0 0 10px 0;${FONT}"><div style="font-size:12px;line-height:16px;color:${C.muted}">${d.withWeek && d.layout !== "v8" ? "Daily report, with the week" : "Daily report"}</div>` +
@@ -256,7 +345,16 @@ export function headerHtml(d: ReportData): string {
   );
 }
 
+/** Whether the report uses layout H (2026-11-23): the new layout with the records worked on today and the day counts. */
+export function isLayoutH(d: ReportData): boolean {
+  return d.layout === "v8" && !!d.worked && !!d.box;
+}
+
 export function greetingHtml(d: ReportData): string {
+  if (isLayoutH(d)) {
+    const t = (html: string, extra = "") => `<div style="font-size:14.5px;line-height:23px;color:${H.ink};${H_FONT}${extra}">${html}</div>`;
+    return `<div style="margin-top:12px">${t(`Hey ${escapeHtml(d.partnerFirst)},`)}${d.intro?.trim() ? t(escapeHtml(d.intro.trim()).replace(/\n/g, "<br>"), ";margin-top:6px") : ""}${t(`Here is my report for ${escapeHtml(d.dateShort)}.`, d.intro?.trim() ? ";margin-top:6px" : "")}</div>`;
+  }
   // Send a report (Bram, 2026-11-07): a short note of your own under the greeting, for that send only.
   const intro = d.intro?.trim() ? p(escapeHtml(d.intro.trim()).replace(/\n/g, "<br>"), ";margin-bottom:2px") : "";
   const weekNote = d.withWeek && d.layout !== "v8" ? ` It is ${escapeHtml(d.dateShort.split(",")[0])}, so the week is at the end.` : "";
@@ -264,7 +362,8 @@ export function greetingHtml(d: ReportData): string {
 }
 
 /** The closing; the name under "Thank you," is the Name in Settings (fix list item 10), none when not set. */
-export function closingHtml(signName?: string | null, v8 = false): string {
+export function closingHtml(signName?: string | null, v8 = false, h = false): string {
+  if (h) return `<div style="font-size:14.5px;line-height:23px;color:${H.ink};${H_FONT}">${signName ? `Thank you,<br>${escapeHtml(signName)}` : "Thank you,"}</div>`;
   // v8 (2026-11-15): no "Nothing is required" line.
   const lead = v8 ? "" : p("Nothing is required from you. Reply to this email if you want to talk.", `;color:${C.muted};font-size:13px;margin-top:4px`);
   return lead + p(signName ? `Thank you,<br>${escapeHtml(signName)}` : "Thank you,", ";margin-bottom:0");
@@ -272,6 +371,7 @@ export function closingHtml(signName?: string | null, v8 = false): string {
 
 /** The inner card of the email (what is sent, and what Sent reports shows): the sections this partner gets today. */
 export function reportInnerHtml(d: ReportData): string {
+  if (isLayoutH(d)) return reportInnerHtmlH(d);
   const row = (inner: string, pad: string) => `<tr><td style="padding:${pad}">${inner}</td></tr>`;
   const parts = [row(headerHtml(d), "16px 20px 0 20px"), row(greetingHtml(d), "0 20px 0 20px")];
   // 2026-11-06 (Bram): a note sits first, under the heading and above the section's items.
@@ -286,6 +386,42 @@ export function reportInnerHtml(d: ReportData): string {
   }
   parts.push(row(closingHtml(d.signName, d.layout === "v8"), "10px 20px 18px 20px"));
   return `<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;border-collapse:separate;background-color:#ffffff;border:1px solid ${C.border};border-radius:10px">${parts.join("")}</table>`;
+}
+
+/**
+ * Layout H (Bram, 2026-11-23): the report on the paper color, at most 640px wide (a phone shows it at its own width).
+ * The date, the opening card (greeting, opening, the six day counts), each track's heading and cards with its pipeline
+ * card, the tomorrow line and the week in one card, and the closing.
+ */
+export function reportInnerHtmlH(d: ReportData): string {
+  const out: string[] = [];
+  out.push(`<div style="padding:16px 6px 4px 6px;${H_FONT}"><div style="font-size:13px;line-height:18px;color:${H.faint}">Daily report</div><div style="font-size:22px;line-height:28px;font-weight:600;color:${H.ink};margin-top:2px">${escapeHtml(d.dateShort)}</div></div>`);
+  const text = (html: string, extra = "") => `<div style="font-size:14.5px;line-height:23px;color:${H.ink};${H_FONT}${extra}">${html}</div>`;
+  const greeting = text(`Hey ${escapeHtml(d.partnerFirst)},`) + (d.intro?.trim() ? text(escapeHtml(d.intro.trim()).replace(/\n/g, "<br>"), ";margin-top:6px") : "") + text(`Here is my report for ${escapeHtml(d.dateShort)}.`, d.intro?.trim() ? ";margin-top:6px" : "");
+  const sections = sentSections(d);
+  const opening = sections.find((s) => s.key === "opening");
+  // An empty opening is left out of the email (the window shows "(no opening yet)"); the counts stay.
+  const openBody = opening ? ((opening.line || opening.edited ? sectionBodyHtml(opening) : opening.box ? boxHtml(opening.box) : "") + noteHtml(opening.note, true)) : "";
+  out.push(cardHtml(greeting + openBody, "22px 26px 22px 26px", 12));
+  let rest = "";
+  for (const s of sections) {
+    if (s.key === "opening") continue;
+    if (s.kind === "worked") {
+      out.push(trackHeadingHtml(s.title) + noteHtml(s.note, true) + (s.edited ? cardHtml(editedHtml(s.edited, true)) : sectionBodyHtml(s)));
+      continue;
+    }
+    const body = s.edited ? editedHtml(s.edited, true) : s.kind === "line" ? (s.line ? text(escapeHtml(s.line), ";margin-top:8px") : text("(no line yet)", `;margin-top:8px;color:${H.amber}`)) : sectionBodyHtml(s);
+    rest += `<div data-section="${escapeHtml(s.key)}" style="${rest ? "margin-top:18px" : ""}">${capsHtml(s.title)}${noteHtml(s.note, true)}${body}</div>`;
+  }
+  if (rest) out.push(cardHtml(rest, "20px 26px 20px 26px", 12));
+  out.push(`<div style="padding:22px 6px 0 6px;font-size:14.5px;line-height:23px;color:${H.ink};${H_FONT}">${d.signName ? `Thank you,<br>${escapeHtml(d.signName)}` : "Thank you,"}</div>`);
+  return `<table role="presentation" width="${H_WIDTH}" cellpadding="0" cellspacing="0" border="0" data-layout="h" style="width:100%;max-width:${H_WIDTH}px;border-collapse:collapse;background-color:${H.paper}"><tr><td style="padding:0 0 8px 0">${out.join("")}</td></tr></table>`;
+}
+
+/** The email around the report: the full-width background (the paper color for layout H) with the report centered. */
+export function reportEmailHtml(inner: string): string {
+  const bg = inner.includes('data-layout="h"') ? H.paper : "#f8fafc";
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;background-color:${bg}"><tr><td align="center" style="padding:12px 6px">${inner}</td></tr></table>`;
 }
 
 export function reportSubject(d: ReportData): string {

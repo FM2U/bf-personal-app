@@ -9,11 +9,11 @@
  * "Why it fits"), the stage, Hot/Warm/Cold, "day N" (or "new today") and "moved from X today", the Today line (the
  * AI's or the owner's, else the kept rows in plain words) and the Next line (the next action and its date).
  *
- * The gray Today box (the same five every day): Listings added · Deals moved · Brokers contacted · Calls and meetings
- * · Network outreach.
+ * The day counts (six since push J, 2026-11-23): Listings reviewed · Deals added · Deals moved · Brokers contacted ·
+ * Calls and meetings · Network outreach.
  */
 import type { ActivityRow } from "@/lib/accountability/activity";
-import { nowLine, partnerName, pickMeta } from "@/lib/accountability/report-v8";
+import { money, nowLine, partnerName, pickMeta } from "@/lib/accountability/report-v8";
 import { daysBetween } from "@/lib/calc/dates";
 import { isStrength, pickName, type PriorityColumns, type PriorityKind, type Strength } from "@/lib/work/priorities";
 
@@ -40,30 +40,38 @@ export type WorkedRecord = {
   today: string | null;
   /** The next action and its date ("ask the broker for the CIM, Thu, Nov 19"), or null. */
   next: string | null;
+  /** Layout H (2026-11-23): the Size line, figures only ("Revenue" $4.0M, "EBITDA" $1.1M; a job's "Pay", a lead's "Fee"); empty hides the line. */
+  size?: { label: string; value: string }[];
 };
 
 /** One count in the gray Today box. */
 export type TodayCount = { label: string; value: number };
 
-export const TODAY_BOX_LABELS = ["Listings added", "Deals moved", "Brokers contacted", "Calls and meetings", "Network outreach"] as const;
+/** The day counts (push J, Bram 2026-11-23: six, in this order). */
+export const TODAY_BOX_LABELS = ["Listings reviewed", "Deals added", "Deals moved", "Brokers contacted", "Calls and meetings", "Network outreach"] as const;
 
-/** The gray Today box, always the same five, in this order. */
-export function todayBox(n: { listings: number; moved: number; brokers: number; calls: number; outreach: number }): TodayCount[] {
-  const v = [n.listings, n.moved, n.brokers, n.calls, n.outreach];
+/** The day counts, always the same six, in this order. */
+export function todayBox(n: { reviewed: number; added: number; moved: number; brokers: number; calls: number; outreach: number }): TodayCount[] {
+  const v = [n.reviewed, n.added, n.moved, n.brokers, n.calls, n.outreach];
   return TODAY_BOX_LABELS.map((label, i) => ({ label, value: Math.max(0, Math.round(v[i] || 0)) }));
 }
 
+/** A kept Listing row that took the listing in ("Screened and marked Interested"), not a pass. */
+const tookIn = (r: Pick<ActivityRow, "kind" | "text">) => r.kind === "listing" && /^Screened and marked Interested/.test(r.text);
+
 /**
- * The box's counts from the day's facts less the rows dropped on End of day (release 4): listings from the kept
- * Listing rows, deals moved from the kept Moved rows on acquisition deals, calls and meetings from the kept Call and
- * Meeting rows, and brokers and outreach from the day's emails and calls (the same rules as the targets) less the
- * dropped ones. `comms` are the day's counted contacts with their row id ("comm:<id>").
+ * The counts from the day's facts less the rows dropped on End of day (release 4; six since push J): listings reviewed
+ * from the hand-entered total, deals added from the kept Listing rows that marked a listing Interested, deals moved
+ * from the kept Moved rows on acquisition deals, calls and meetings from the kept Call and Meeting rows, and brokers
+ * and outreach from the day's emails and calls (the same rules as the targets) less the dropped ones. `comms` are the
+ * day's counted contacts with their row id ("comm:<id>").
  */
-export function keptBox(i: { kept: readonly ActivityRow[]; dropped: ReadonlySet<string>; comms: readonly { rowId: string; contactId: string | null; broker: boolean; method: string }[]; acquisitionIds: ReadonlySet<string> }): TodayCount[] {
+export function keptBox(i: { kept: readonly ActivityRow[]; dropped: ReadonlySet<string>; comms: readonly { rowId: string; contactId: string | null; broker: boolean; method: string }[]; acquisitionIds: ReadonlySet<string>; reviewed?: number }): TodayCount[] {
   const isCall = (m: string) => m === "call" || m === "meeting" || m === "video";
   const counted = i.comms.filter((c) => !i.dropped.has(c.rowId) && !!c.contactId && (c.method === "email" || isCall(c.method)));
   return todayBox({
-    listings: i.kept.filter((r) => r.kind === "listing").length,
+    reviewed: i.reviewed ?? 0,
+    added: i.kept.filter(tookIn).length,
     moved: i.kept.filter((r) => r.kind === "move" && i.acquisitionIds.has(recordOfRow(r)?.id ?? "")).length,
     brokers: new Set(counted.filter((c) => c.broker).map((c) => c.contactId)).size,
     calls: i.kept.filter((r) => r.kind === "call" || r.kind === "meeting").length,
@@ -74,7 +82,8 @@ export function keptBox(i: { kept: readonly ActivityRow[]; dropped: ReadonlySet<
 /** The counts after the date in the subject line: the counts above zero, in the box's order, at most three. */
 export function subjectCounts(box: readonly TodayCount[]): string {
   const words: Record<string, [string, string]> = {
-    "Listings added": ["listing added", "listings added"],
+    "Listings reviewed": ["listing reviewed", "listings reviewed"],
+    "Deals added": ["deal added", "deals added"],
     "Deals moved": ["deal moved", "deals moved"],
     "Brokers contacted": ["broker contacted", "brokers contacted"],
     "Calls and meetings": ["call or meeting", "calls and meetings"],
@@ -149,6 +158,8 @@ export function buildWorked(i: {
   history: Row[];
   columns: PriorityColumns | null;
   ebitda: Map<string, number>;
+  /** Layout H (2026-11-23): revenue by deal, for the Size line. */
+  revenue?: Map<string, number>;
   day: string;
   local: (ts: string) => string;
   todayText: Record<string, string>;
@@ -211,6 +222,7 @@ export function buildWorked(i: {
         moved,
         today,
         next: nowLine(item),
+        size: sizeOf(kind, item, i.revenue?.get(String(item.id)) ?? null, i.ebitda.get(String(item.id)) ?? null),
       });
       continue;
     }
@@ -239,4 +251,15 @@ export function buildWorked(i: {
   const rank = (m: WorkedMark) => (typeof m === "number" ? m : m === "+" ? 10 : 20);
   for (const k of ["acquisition", "job", "consulting", "startup"] as const) out[k].sort((a, b) => rank(a.mark) - rank(b.mark) || a.name.localeCompare(b.name));
   return out;
+}
+
+/** The Size line's figures (layout H, 2026-11-23): a deal's revenue and EBITDA, a job's pay, a lead's fee; missing ones left out. */
+export function sizeOf(kind: PriorityKind, item: Row, revenue: number | null, ebitda: number | null): { label: string; value: string }[] {
+  if (kind === "acquisition") return [revenue ? { label: "Revenue", value: money(revenue) } : null, ebitda ? { label: "EBITDA", value: money(ebitda) } : null].filter((x): x is { label: string; value: string } => !!x);
+  if (kind === "job") {
+    const pay = String(item.pay_range ?? "").trim();
+    return pay ? [{ label: "Pay", value: pay }] : [];
+  }
+  if (kind === "consulting") return Number(item.fee) > 0 ? [{ label: "Fee", value: money(Number(item.fee)) }] : [];
+  return [];
 }

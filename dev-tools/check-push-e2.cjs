@@ -616,7 +616,8 @@ const until = async (fn, msg, tries = 60) => {
     await page.getByTestId("report-view").click();
     await page.getByTestId("report-window").waitFor();
     const preview = await page.getByTestId("report-preview").innerText();
-    assert(/Acquisition · worked on today/i.test(preview) && !preview.includes("Priya Natarajan"), preview.slice(0, 400));
+    // Layout H (2026-11-23): "Acquisition · 3 deals worked on today".
+    assert(/Acquisition · \d+ deals? worked on today/i.test(preview) && !preview.includes("Priya Natarajan"), preview.slice(0, 400));
     await page.keyboard.press("Escape");
   });
 
@@ -737,7 +738,7 @@ const until = async (fn, msg, tries = 60) => {
     }
   });
 
-  await step("End of day: the report card's 'Before you send' checklist: Opening and Tomorrow's line with their states, 'N of M done', a click scrolls to the card and outlines it, a green check when done", async () => {
+  await step("End of day: the report card's 'Before you send' checklist: Opening, Listings reviewed and Tomorrow's line with their states, 'N of M done', a click scrolls to the card and outlines it, a green check when done", async () => {
     await db.query("update end_of_day set tomorrow_line = '' where day = $1", [today]);
     await eodTop();
     const list = page.getByTestId("eod-checklist");
@@ -747,11 +748,13 @@ const until = async (fn, msg, tries = 60) => {
     await db.query("update end_of_day set report_edits = report_edits - '_opening' where day = $1", [today]);
     await eodTop();
     r = await rows();
-    assert(r.map((x) => x.key).join(",") === "opening,tomorrow", JSON.stringify(r));
+    // Push J (2026-11-23): Listings reviewed between them, "Not entered yet" until an entry is made.
+    assert(r.map((x) => x.key).join(",") === "opening,reviewed,tomorrow", JSON.stringify(r));
     assert(r[0].state === "Empty" && r[0].text === "Opening Empty" && !r[0].check, JSON.stringify(r[0]));
-    assert(r[1].state === "Empty" && r[1].text === "Tomorrow's line Empty" && !r[1].check, JSON.stringify(r[1]));
+    assert(r[1].state === "Not entered yet" && r[1].text === "Listings reviewed Not entered yet" && !r[1].check, JSON.stringify(r[1]));
+    assert(r[2].state === "Empty" && r[2].text === "Tomorrow's line Empty" && !r[2].check, JSON.stringify(r[2]));
     const doneN = r.filter((x) => x.done === "1").length;
-    assert((await list.innerText()).toUpperCase().startsWith("BEFORE YOU SEND") && (await page.getByTestId("eod-checklist-count").innerText()) === `${doneN} of 2 done`, await page.getByTestId("eod-checklist-count").innerText());
+    assert((await list.innerText()).toUpperCase().startsWith("BEFORE YOU SEND") && (await page.getByTestId("eod-checklist-count").innerText()) === `${doneN} of 3 done`, await page.getByTestId("eod-checklist-count").innerText());
     // The buttons sit right under the checklist.
     const below = await page.evaluate(() => document.querySelector("[data-testid=report-acts]").getBoundingClientRect().top >= document.querySelector("[data-testid=eod-checklist]").getBoundingClientRect().bottom);
     assert(below, "View report and Approve and send under the checklist");
@@ -770,11 +773,22 @@ const until = async (fn, msg, tries = 60) => {
     await page.getByTestId("tomorrow-input").blur();
     await until(async () => (await list.locator("[data-testid=eod-check][data-key=tomorrow]").getAttribute("data-state")) === "Done", "Tomorrow's line Done");
     r = await rows();
-    assert(r[1].check && r[1].done === "1", JSON.stringify(r[1]));
+    assert(r[2].check && r[2].done === "1", JSON.stringify(r[2]));
     const color = await list.locator("[data-testid=eod-check][data-key=tomorrow] > span").last().evaluate((e) => { const p = document.createElement("span"); p.className = "text-status-met"; document.body.appendChild(p); const g = getComputedStyle(p).color; p.remove(); return getComputedStyle(e).color === g; });
     assert(color, "Done in green");
-    const count = await page.getByTestId("eod-checklist-count").innerText();
-    assert(count === "1 of 2 done", count);
+    let count = await page.getByTestId("eod-checklist-count").innerText();
+    assert(count === "1 of 3 done", count);
+    // Listings reviewed: a click goes to Today's activity; an entry of 0 makes the row Done ("0 entered").
+    await list.locator("[data-testid=eod-check][data-key=reviewed]").click();
+    await until(async () => (await page.locator("#eod-activity").getAttribute("class")).includes("field-flash"), "Today's activity is outlined");
+    await page.getByTestId("reviewed-open").click();
+    await page.getByTestId("reviewed-count").fill("0");
+    await page.getByTestId("reviewed-save").click();
+    await page.getByTestId("reviewed-row").first().waitFor();
+    await page.getByTestId("drawer-close").click();
+    await until(async () => (await list.locator("[data-testid=eod-check][data-key=reviewed]").getAttribute("data-state")) === "0 entered", "Listings reviewed 0 entered");
+    count = await page.getByTestId("eod-checklist-count").innerText();
+    assert(count === "2 of 3 done", count);
     await page.evaluate(() => window.scrollTo(0, 0));
     await shot("end-of-day-report-card-1440.png", page.getByTestId("report-card"));
   });
@@ -1061,7 +1075,7 @@ const until = async (fn, msg, tries = 60) => {
     const jake = mails.find((m) => m.to.includes("jake.morgan"));
     const sarah = mails.find((m) => m.to.includes("sarah.klein"));
     assert(jake && sarah, JSON.stringify(mails.map((m) => m.to)));
-    assert(/<div data-note="1" style="[^"]*border-left:3px solid #1e40af[^"]*">Pinecrest is the one to watch\.<br>Dana wants the seller-note numbers before Friday&#39;s call\.<\/div>/.test(jake.html), "Jake's HTML has the Top 3 note");
+    assert(/<div data-note="1" style="[^"]*border-left:3px solid (#1e40af|#3b4a8c)[^"]*">Pinecrest is the one to watch\.<br>Dana wants the seller-note numbers before Friday&#39;s call\.<\/div>/.test(jake.html), "Jake's HTML has the Top 3 note");
     assert(jake.html.includes("Two CIMs came in late") && jake.body.includes("| Pinecrest is the one to watch.\n| Dana wants the seller-note numbers before Friday's call.") && jake.body.includes("| Two CIMs came in late"), "Jake's text part has both notes");
     assert(jake.html.includes("Typed just before sending."), "Save and send sent the note typed just before");
     assert(sarah.html.includes("Pinecrest is the one to watch.") && !sarah.html.includes("Two CIMs came in late") && !sarah.body.includes("Two CIMs came in late"), "Sarah gets the Top 3 note and not the left-out Targets note");
@@ -1096,7 +1110,7 @@ const until = async (fn, msg, tries = 60) => {
     const n = page.getByTestId("sent-html").locator("[data-note]").filter({ hasText: "Pinecrest is the one to watch." });
     await n.waitFor();
     const look = await n.evaluate((e) => ({ text: e.innerText, rule: getComputedStyle(e).borderLeftWidth, ruleColor: getComputedStyle(e).borderLeftColor, color: getComputedStyle(e).color }));
-    assert(look.text.includes("Pinecrest is the one to watch.") && look.rule === "3px" && look.color === "rgb(15, 23, 42)" && look.ruleColor === "rgb(30, 64, 175)", JSON.stringify(look));
+    assert(look.text.includes("Pinecrest is the one to watch.") && look.rule === "3px" && ((look.color === "rgb(15, 23, 42)" && look.ruleColor === "rgb(30, 64, 175)") || (look.color === "rgb(28, 25, 23)" && look.ruleColor === "rgb(59, 74, 140)")), JSON.stringify(look));
     await page.getByTestId("sent-close").click();
   });
 

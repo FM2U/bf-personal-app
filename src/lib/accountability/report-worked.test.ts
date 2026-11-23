@@ -94,7 +94,8 @@ describe("the new daily report: worked on today (release 4, 2026-11-16)", () => 
 
   it("counts the box from the kept rows: a dropped listing, move, call or email is not counted; job moves are not deals", () => {
     const kept: ActivityRow[] = [
-      row("listing:a", "Screened", `/work/deals/${D2}`, { kind: "listing" }),
+      row("listing:a", "Screened and marked Interested", `/work/deals/${D2}`, { kind: "listing" }),
+      row("listing:b", "Screened and passed (Too small)", `/work/deals/${D2}`, { kind: "listing" }),
       row("move:a", "Moved", `/work/deals/${D2}`, { kind: "move" }),
       row("move:b", "Moved", `/work/jobs/${J1}`, { kind: "move" }),
       row("comm:1", "Call with Rachel", `/work/people/p1`, { kind: "call" }),
@@ -107,19 +108,20 @@ describe("the new daily report: worked on today (release 4, 2026-11-16)", () => 
       { rowId: "comm:4", contactId: "p3", broker: true, method: "email" },
       { rowId: "comm:5", contactId: null, broker: false, method: "call" },
     ];
-    const box = keptBox({ kept, dropped: new Set(["comm:4"]), comms, acquisitionIds: new Set([D2]) });
-    expect(box.map((c) => c.value)).toEqual([1, 1, 1, 2, 3]);
+    const box = keptBox({ kept, dropped: new Set(["comm:4"]), comms, acquisitionIds: new Set([D2]), reviewed: 15 });
+    // Listings reviewed 15 (entered by hand), deals added 1 (the pass is not a deal added), moved 1, brokers 1, calls 2, outreach 3.
+    expect(box.map((c) => c.value)).toEqual([15, 1, 1, 1, 2, 3]);
   });
 
-  it("keeps the gray Today box to the same five counts, and the subject names up to three above zero", () => {
-    const box = todayBox({ listings: 2, moved: 3, brokers: 4, calls: 1, outreach: 0 });
-    expect(box.map((c) => `${c.label} ${c.value}`)).toEqual(["Listings added 2", "Deals moved 3", "Brokers contacted 4", "Calls and meetings 1", "Network outreach 0"]);
-    expect(subjectCounts(box)).toBe("2 listings added, 3 deals moved, 4 brokers contacted");
-    expect(subjectCounts(todayBox({ listings: 0, moved: 1, brokers: 0, calls: 1, outreach: 2 }))).toBe("1 deal moved, 1 call or meeting, 2 outreach contacts");
-    expect(subjectCounts(todayBox({ listings: 0, moved: 0, brokers: 0, calls: 0, outreach: 0 }))).toBe("");
+  it("keeps the day counts to the same six, and the subject names up to three above zero", () => {
+    const box = todayBox({ reviewed: 15, added: 2, moved: 3, brokers: 4, calls: 1, outreach: 0 });
+    expect(box.map((c) => `${c.label} ${c.value}`)).toEqual(["Listings reviewed 15", "Deals added 2", "Deals moved 3", "Brokers contacted 4", "Calls and meetings 1", "Network outreach 0"]);
+    expect(subjectCounts(box)).toBe("15 listings reviewed, 2 deals added, 3 deals moved");
+    expect(subjectCounts(todayBox({ reviewed: 0, added: 1, moved: 1, brokers: 0, calls: 1, outreach: 2 }))).toBe("1 deal added, 1 deal moved, 1 call or meeting");
+    expect(subjectCounts(todayBox({ reviewed: 0, added: 0, moved: 0, brokers: 0, calls: 0, outreach: 0 }))).toBe("");
   });
 
-  it("builds the email: tracks 'worked on today', Upside above the pill line, Today and Next, the box under the opening, the Pipeline under Acquisition", () => {
+  it("builds the email in layout H: one numbered card per record worked on today, the priority mark, Today and Next, Upside and Size under a hairline, the counts in the opening card, a pipeline card", () => {
     const worked = build();
     const pipeline = [{ label: "Screened", added: 4, inStage: null }, { label: "CIM review", added: 4, inStage: 5 }];
     const d: ReportData = {
@@ -127,7 +129,7 @@ describe("the new daily report: worked on today (release 4, 2026-11-16)", () => 
       opening: "A deal day: an hour on the Moody structure and a first interview at Harbor Health.",
       tracks: { acquisition: { picks: [], decided: null, pipeline }, job: { picks: [], decided: null, pipeline: null }, consulting: { picks: [], decided: null, pipeline: null }, startup: { picks: [], decided: null, pipeline: null }, startupActive: false },
       worked,
-      box: todayBox({ listings: 2, moved: 3, brokers: 4, calls: 3, outreach: 2 }),
+      box: todayBox({ reviewed: 15, added: 2, moved: 3, brokers: 4, calls: 3, outreach: 2 }),
       signName: "Bram",
       partnerName: "David Ertel",
       partnerFirst: "David",
@@ -149,28 +151,45 @@ describe("the new daily report: worked on today (release 4, 2026-11-16)", () => 
     const sections = buildSections(d);
     expect(sections.map((s) => [s.key, s.title])).toEqual([
       ["opening", expect.any(String)],
-      ["acquisition", "Acquisition · worked on today"],
-      ["jobs", "Job search · worked on today"],
-      ["startup", "Startup · worked on today"],
+      ["acquisition", "Acquisition · 3 deals worked on today"],
+      ["jobs", "Job search · 1 job worked on today"],
+      ["startup", "Startup · 1 project worked on today"],
       ["tomorrow", expect.any(String)],
     ]);
     const html = reportInnerHtml(d);
-    expect(html).toContain("Acquisition · worked on today");
-    expect(html).toContain("1 to 3 are my top priorities; + is new today.");
+    expect(html).toContain('data-layout="h"');
+    expect(html).toContain("max-width:640px");
+    expect(html).toContain("Acquisition · 3 deals worked on today");
+    expect(html).not.toContain("1 to 3 are my top priorities");
     expect(html).toContain("data-today-box");
-    expect(html.indexOf("data-today-box")).toBeLessThan(html.indexOf("Acquisition · worked on today"));
+    expect(html.indexOf("data-today-box")).toBeLessThan(html.indexOf("Acquisition · 3 deals worked on today"));
+    // One card per record, numbered 1 to N; only the pick carries the priority mark.
+    expect(html.match(/data-worked="1"/g)?.length).toBe(5);
+    expect(html.match(/data-priority="1"/g)?.length).toBe(1);
     const moody = html.slice(html.indexOf("Moody &amp; Associates"), html.indexOf("AI-Enabled"));
-    expect(moody.indexOf("Upside:")).toBeGreaterThan(-1);
-    expect(moody.indexOf("Upside:")).toBeLessThan(moody.indexOf("Diligence"));
-    expect(moody.indexOf("Diligence")).toBeLessThan(moody.indexOf("Today:"));
-    expect(moody.indexOf("Today:")).toBeLessThan(moody.indexOf("Next:"));
+    expect(moody).toContain("top priority");
+    expect(moody.indexOf("Diligence")).toBeLessThan(moody.indexOf(">Today<"));
+    expect(moody.indexOf(">Today<")).toBeLessThan(moody.indexOf(">Next<"));
+    expect(moody.indexOf(">Next<")).toBeLessThan(moody.indexOf(">Upside<"));
+    expect(moody).toContain("vertical-align:baseline");
+    expect(moody).toContain("day 9");
+    expect(moody).not.toContain("since first contact");
+    const ai = html.slice(html.indexOf("AI-Enabled"), html.indexOf("Dalton Services"));
+    expect(ai).toContain("new today");
+    expect(ai).toContain("moved up from Interested");
+    expect(ai).not.toContain("top priority");
     expect(html).not.toContain("Why:");
     expect(html).not.toContain("00 AI-Enabled");
-    expect(html.indexOf("data-pipeline")).toBeLessThan(html.indexOf("Job search · worked on today"));
-    expect(html).not.toContain("Consulting · worked on today");
-    expect(reportSubject(d)).toBe("Daily report: Tuesday, Nov 17 · 2 listings added, 3 deals moved, 4 brokers contacted");
+    expect(html.indexOf("data-pipeline")).toBeLessThan(html.indexOf("Job search · 1 job worked on today"));
+    expect(html).toContain("Acquisition pipeline");
+    expect(html).toContain("In process");
+    expect(html).toContain("moves on the same day");
+    expect(html).not.toContain("Consulting · ");
+    // The job's Size line: its pay.
+    expect(html.slice(html.indexOf("Harbor Health"))).toContain("$180K to $210K");
+    expect(reportSubject(d)).toBe("Daily report: Tuesday, Nov 17 · 15 listings reviewed, 2 deals added, 3 deals moved");
     const text = reportText(d);
-    expect(text).toContain("Today: Listings added 2 · Deals moved 3 · Brokers contacted 4 · Calls and meetings 3 · Network outreach 2");
+    expect(text).toContain("Today: Listings reviewed 15 · Deals added 2 · Deals moved 3 · Brokers contacted 4 · Calls and meetings 3 · Network outreach 2");
     expect(text).toContain("1. Moody & Associates Law Office");
     expect(text).toContain("  Upside: Elder law demand rises with an aging population.");
     expect(text).toContain("+ AI-Enabled Back-Office Operations Provider");

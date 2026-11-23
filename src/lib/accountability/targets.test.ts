@@ -105,6 +105,9 @@ describe("judging: weekday versus weekly, the status mark", () => {
     // Push D: Fridays add the Weekly review, "2 of 3" until all three answers are written; the line is Monday's.
     expect(sendChecklist(0, "", "Monday", 2).map((i) => `${i.label}: ${i.state} ${i.done}`)).toEqual(["Reasons: Done true", "Weekly review: 2 of 3 false", "Monday's line: Empty false"]);
     expect(sendChecklist(0, "x", "Monday", 3)[1]).toMatchObject({ key: "review", state: "Done", done: true });
+    // Push J (2026-11-23): Listings reviewed, before the tomorrow line; 0 entered counts as done.
+    expect(sendChecklist(null, "x", "Tomorrow", null, "o", { entered: false, total: 0 }).map((i) => `${i.label}: ${i.state} ${i.done}`)).toEqual(["Opening: Done true", "Listings reviewed: Not entered yet false", "Tomorrow's line: Done true"]);
+    expect(sendChecklist(null, "x", "Tomorrow", null, "o", { entered: true, total: 0 })[1]).toMatchObject({ key: "reviewed", state: "0 entered", done: true });
     expect(noReasonText(2, "Jake")).toBe('2 commitments have no reason yet. Jake sees "(reason still to give)".');
     expect(noReasonText(1, "Jake")).toMatch(/^1 commitment has no reason yet/);
   });

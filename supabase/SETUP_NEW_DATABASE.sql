@@ -4046,3 +4046,26 @@ alter table public.decisions enable row level security;
 create policy owner_only on public.decisions to authenticated using (public.is_owner(owner_id)) with check (public.is_owner(owner_id));
 grant all on table public.decisions to authenticated;
 grant all on table public.decisions to service_role;
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- Listings reviewed (push J, 2026-11-23): how many listings the owner looked at, entered by hand, with where they came
+-- from (BizBuySell, a broker email). Several lines a day add up; 0 is a valid entry (none reviewed that day).
+-- ---------------------------------------------------------------------------------------------------------------
+create table public.listings_reviewed (
+  id uuid default gen_random_uuid() not null,
+  owner_id uuid default auth.uid() not null,
+  day date not null,
+  reviewed integer not null,
+  source text,
+  created_at timestamp with time zone default now() not null,
+  constraint listings_reviewed_pkey primary key (id),
+  constraint listings_reviewed_count_check check (reviewed >= 0 and reviewed <= 2000),
+  constraint listings_reviewed_source_check check (source is null or char_length(source) <= 80),
+  constraint listings_reviewed_owner_id_fkey foreign key (owner_id) references auth.users(id) on delete cascade
+);
+create index listings_reviewed_owner_idx on public.listings_reviewed using btree (owner_id, day);
+create trigger log_change after insert or delete or update on public.listings_reviewed for each row execute function public.log_change();
+alter table public.listings_reviewed enable row level security;
+create policy owner_only on public.listings_reviewed to authenticated using (public.is_owner(owner_id)) with check (public.is_owner(owner_id));
+grant all on table public.listings_reviewed to authenticated;
+grant all on table public.listings_reviewed to service_role;

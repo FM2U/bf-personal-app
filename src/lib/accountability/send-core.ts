@@ -10,7 +10,7 @@ import { sendPermission } from "@/lib/google-scopes";
 import { sentEmailCommunication } from "@/lib/calc/sent-email";
 import { AUTO_KEY, EXTRAS_KEY, loadEndOfDay, NO_EXTRAS, type EndOfDayPage, type ReportExtras } from "@/lib/accountability/data";
 import { REPORT_SECTIONS, type ReportSectionKey } from "@/lib/accountability/partners";
-import { reportFor, reportInnerHtml, reportSubject, reportText, type ReportData } from "@/lib/accountability/report-email";
+import { reportEmailHtml, reportFor, reportInnerHtml, reportSubject, reportText, type ReportData } from "@/lib/accountability/report-email";
 import { cleanChoices, cleanNotes, sentSections, type ReportChoices, type ReportNotes } from "@/lib/accountability/report-sections";
 import { noReasonText, owedReasons, reportSummary } from "@/lib/accountability/targets";
 import { date as fmtDate } from "@/lib/format";
@@ -216,7 +216,7 @@ export async function sendReportCore(sb: SupabaseClient, ctx: Ctx, input: { day:
     }
     const name = p.name || String(contact?.name ?? "");
     const built = buildFor(b.base, name, sections, intro, choices, notes);
-    const html = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;background-color:#f8fafc"><tr><td align="center" style="padding:12px 6px">${built.inner}</td></tr></table>`;
+    const html = reportEmailHtml(built.inner);
     let sent: { id: string; threadId: string | null };
     try {
       const r = await sendGmailMessage(sb, ctx.ownerId, { to: p.email, subject: built.subject, body: built.text, html });
@@ -296,7 +296,7 @@ export async function approveAndSendCore(sb: SupabaseClient, ctx: Ctx, day: stri
     const note = String(intro ?? page.extras.intro ?? "").replace(/\r/g, "").trim().slice(0, 1200);
     if (note) copy.report = { ...copy.report, intro: note };
     const inner = reportInnerHtml(copy.report);
-    const html = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;background-color:#f8fafc"><tr><td align="center" style="padding:12px 6px">${inner}</td></tr></table>`;
+    const html = reportEmailHtml(inner);
     const body = reportText(copy.report);
     const subject = reportSubject(copy.report);
     let sent: { id: string; threadId: string | null };

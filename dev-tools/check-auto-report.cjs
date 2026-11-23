@@ -172,7 +172,7 @@ const auto = async (day) => ((await one("select report_edits from end_of_day whe
     assert((await lines.count()) === ids.length && (await page.locator("[data-testid=today-line][data-ai='1']").count()) === ids.length, `${await lines.count()} Today lines`);
     // The report shows the AI's Today line on each record worked on today.
     await page.getByTestId("report-view").click();
-    await until(async () => (await page.getByTestId("report-preview").innerText()).includes("Today: mock today for"), "the report does not show the Today lines");
+    await until(async () => /Today\s+mock today for/.test(await page.getByTestId("report-preview").innerText()), "the report does not show the Today lines");
     await page.getByTestId("report-window-close").click();
     // Keep the opening; type one Today line over; then Redraft: the kept and typed text stay, the other Today lines are drafted again.
     await page.getByTestId("draft-keep-opening").click();

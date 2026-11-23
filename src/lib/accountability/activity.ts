@@ -7,7 +7,7 @@
  * (release 4) is built from the rows kept. Pure, tested in activity.test.ts.
  */
 
-export type ActivityKind = "listing" | "move" | "done" | "call" | "meeting" | "email" | "work" | "note" | "calendar";
+export type ActivityKind = "listing" | "added" | "move" | "done" | "call" | "meeting" | "email" | "work" | "note" | "calendar" | "reviewed";
 
 export type ActivityRow = {
   /** Stable for the day, so a dropped row stays dropped ("comm:<id>", "move:<name>:<stage>", "cal:<event id>"). */
@@ -48,6 +48,7 @@ export function cleanCalendarRows(v: unknown): ActivityRow[] {
 
 export const ACTIVITY_LABEL: Record<ActivityKind, string> = {
   listing: "Listing",
+  added: "Added",
   move: "Moved",
   done: "Done",
   call: "Call",
@@ -56,6 +57,7 @@ export const ACTIVITY_LABEL: Record<ActivityKind, string> = {
   work: "Work",
   note: "Note",
   calendar: "Calendar",
+  reviewed: "Reviewed",
 };
 
 /** The dropped ids as saved: strings only, at most 500. */

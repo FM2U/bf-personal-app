@@ -54,10 +54,10 @@ export function draftsReadyLine(w: { opening: boolean; tomorrow: boolean; today:
   return `AI drafts of ${list} are ready to check on End of day.`;
 }
 
-/** "2 reasons, tomorrow's line" or null when everything is filled in. */
+/** "2 reasons, tomorrow's line, listings reviewed (not entered yet)" or null when everything is filled in. */
 function stillOpen(page: EndOfDayPage): string | null {
   const owed = owedCount(page);
-  const parts = [owed ? `${owed} ${owed === 1 ? "reason" : "reasons"}` : null, page.review && page.review.answered < 3 ? "the Weekly review" : null, !page.tomorrow.trim() ? `${page.tomorrowLabel.toLowerCase() === "tomorrow" ? "tomorrow's" : `${page.tomorrowLabel}'s`} line` : null].filter(Boolean);
+  const parts = [owed ? `${owed} ${owed === 1 ? "reason" : "reasons"}` : null, page.review && page.review.answered < 3 ? "the Weekly review" : null, !page.tomorrow.trim() ? `${page.tomorrowLabel.toLowerCase() === "tomorrow" ? "tomorrow's" : `${page.tomorrowLabel}'s`} line` : null, page.v8 && page.reviewed && !page.reviewed.entered ? "listings reviewed (not entered yet)" : null].filter(Boolean);
   return parts.length ? parts.join(", ") : null;
 }
 

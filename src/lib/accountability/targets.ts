@@ -542,12 +542,13 @@ export type EodState = "open" | "sent" | "skipped";
  * "Done"), on Fridays (push D) Weekly review ("2 of 3" or "Done"), and the next working day's line ("Empty" or "Done",
  * named "Monday's line" on Friday). `reviewAnswered` is null on other days.
  */
-export function sendChecklist(owed: number | null, tomorrow: string, tomorrowWord: string, reviewAnswered: number | null = null, opening: string | null = null): { key: "reasons" | "review" | "tomorrow" | "opening"; label: string; state: string; done: boolean }[] {
+export function sendChecklist(owed: number | null, tomorrow: string, tomorrowWord: string, reviewAnswered: number | null = null, opening: string | null = null, /** Push J (2026-11-23): Listings reviewed entered today; null leaves the row out. */ reviewed: { entered: boolean; total: number } | null = null): { key: "reasons" | "review" | "tomorrow" | "opening" | "reviewed"; label: string; state: string; done: boolean }[] {
   // The new layout (2026-11-15): no Reasons row (owed null); an Opening row instead (opening not null).
   return [
     ...(opening === null ? [] : [{ key: "opening" as const, label: "Opening", state: opening.trim() ? "Done" : "Empty", done: !!opening.trim() }]),
     ...(owed === null ? [] : [{ key: "reasons" as const, label: "Reasons", state: owed ? `${owed} left` : "Done", done: !owed }]),
     ...(reviewAnswered === null ? [] : [{ key: "review" as const, label: "Weekly review", state: reviewAnswered >= 3 ? "Done" : `${reviewAnswered} of 3`, done: reviewAnswered >= 3 }]),
+    ...(reviewed === null ? [] : [{ key: "reviewed" as const, label: "Listings reviewed", state: reviewed.entered ? `${reviewed.total} entered` : "Not entered yet", done: reviewed.entered }]),
     { key: "tomorrow", label: `${tomorrowWord}'s line`, state: tomorrow.trim() ? "Done" : "Empty", done: !!tomorrow.trim() },
   ];
 }

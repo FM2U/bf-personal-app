@@ -23,7 +23,8 @@ import { AiCardStar, AiFieldStar, AskAiPill, type EodExtras } from "@/components
 import { StatusMark } from "@/components/app/work/targets-ui";
 import { Drawer } from "@/components/app/work/drawer";
 import { TodaysActivityCard } from "@/components/app/work/todays-activity";
-import { AiButton, Confirm, Figure, Line1, Line2, Name, Pill, PinnedBlock, ROW_GRIDS, RowButton, Rows, WorkCard, WorkHeader } from "@/components/app/work/ui";
+import { AiButton, Confirm, Figure, Line1, Line2, Name, Pill, PinnedBlock, ROW_BUTTON_BASE, ROW_GRIDS, RowButton, Rows, WorkCard, WorkHeader } from "@/components/app/work/ui";
+import { ListingsReviewedButton } from "@/components/app/work/listings-reviewed";
 import { eodCountdown, minutesLeftWords } from "@/lib/work/settings";
 import { personHref } from "@/lib/work/people";
 import { cn } from "@/lib/utils";
@@ -55,6 +56,8 @@ const GRID = ROW_GRIDS.eodTarget;
  * the columns the same on every row.
  */
 const PT_ROW = "grid grid-cols-[16px_minmax(0,0.9fr)_minmax(0,1fr)_minmax(0,1fr)_44px] items-center gap-3";
+/** Push J (2026-11-23): the question when Listings reviewed is not entered yet and Approve and send is pressed. */
+const REVIEWED_CHECK = "Listings reviewed is not entered yet. Enter today's number (0 if none), or send anyway.";
 const BTN_LG = "inline-flex h-[38px] w-full min-w-0 shrink-0 min-[421px]:w-auto min-[421px]:flex-1 min-[421px]:basis-0 items-center justify-center gap-2 rounded-[7px] border px-4 text-sm font-medium whitespace-nowrap disabled:pointer-events-none disabled:opacity-50";
 
 const newRequestId = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID().replace(/-/g, "") : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`);
@@ -235,13 +238,13 @@ export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; 
   const badge: EodBadge = state.status === "sent" ? "Sent" : state.status === "skipped" ? "Skipped" : data.eodTime.short;
   /** The weekly review day's name (the review card shows on that day only; Friday unless changed in Settings). */
   const dayWord = data.dateLabel.split(",")[0];
-  const checks = sendChecklist(data.v8 ? null : owedLeft, tomorrow, data.tomorrowLabel, data.review ? reviewAnswered(review) : null, data.v8 ? opening : null);
+  const checks = sendChecklist(data.v8 ? null : owedLeft, tomorrow, data.tomorrowLabel, data.review ? reviewAnswered(review) : null, data.v8 ? opening : null, data.v8 ? data.reviewed : null);
   const checksDone = checks.filter((c) => c.done).length;
   /** The partner whose sections show under the table (View). */
   const [openPartner, setOpenPartner] = useState<string | null>(null);
   const page: AskContext = { page: "end_of_day", label: `End of day, ${data.dateLabel}` };
   // What is still missing before sending: the reasons and the tomorrow line.
-  const needs = [owedLeft ? `${owedLeft} ${owedLeft === 1 ? "reason" : "reasons"} still needed` : null, data.review && reviewAnswered(review) < 3 ? `Weekly review ${reviewAnswered(review)} of 3` : null, !tomorrow.trim() ? `${data.tomorrowLabel}'s line still empty` : null].filter((x): x is string => !!x);
+  const needs = [owedLeft ? `${owedLeft} ${owedLeft === 1 ? "reason" : "reasons"} still needed` : null, data.review && reviewAnswered(review) < 3 ? `Weekly review ${reviewAnswered(review)} of 3` : null, !tomorrow.trim() ? `${data.tomorrowLabel}'s line still empty` : null, data.v8 && data.reviewed && !data.reviewed.entered ? "Listings reviewed not entered yet" : null].filter((x): x is string => !!x);
   const reportTitle = copies.length > 1 ? `Reports to ${toNames(copies)}` : partner ? `Report to ${first}` : "Report";
   const kind = data.friday ? "Daily and week report" : "Daily report";
   // Sent to one partner and not yet to another (a failed send): said under the buttons.
@@ -380,6 +383,8 @@ export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; 
         router.refresh();
         return;
       }
+      // Push J (2026-11-23): Listings reviewed not entered yet asks first (a reminder, not a block).
+      if (!force && data.v8 && data.reviewed && !data.reviewed.entered) return setCheck(REVIEWED_CHECK);
       const r = await approveAndSend(day, requestId.current, force);
       if (!r.ok) {
         if (r.reason === "reasons") return setCheck(r.error);
@@ -433,13 +438,19 @@ export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; 
   };
   const extras: EodExtras = { day, tomorrow, closed: closed ? (state.status as "sent" | "skipped") : null, onUseReasons: useDrafts, onUseTomorrow: useLine, onUseShort: applyShort };
   const n = data.numbers;
-  const cardIds = { reasons: "eod-targets", review: "eod-review", tomorrow: "eod-tomorrow", opening: "eod-opening" };
+  const cardIds = { reasons: "eod-targets", review: "eod-review", tomorrow: "eod-tomorrow", opening: "eod-opening", reviewed: "eod-activity" };
   const checkBox = check ? (
     <Confirm tone="warn" testId="send-check">
       <span>{check}</span>
-      <RowButton onClick={focusFirstReason} data-testid="send-check-give">
-        Give them
-      </RowButton>
+      {check === REVIEWED_CHECK ? (
+        <ListingsReviewedButton day={day} className={cn(ROW_BUTTON_BASE, "border-input bg-white text-slate-800 hover:bg-slate-50")} testId="send-check-reviewed">
+          Enter them
+        </ListingsReviewedButton>
+      ) : (
+        <RowButton onClick={focusFirstReason} data-testid="send-check-give">
+          Give them
+        </RowButton>
+      )}
       <RowButton tone="primary" onClick={() => send(true)} disabled={sending} data-testid="send-check-anyway">
         Send anyway
       </RowButton>

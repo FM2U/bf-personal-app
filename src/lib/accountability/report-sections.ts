@@ -80,7 +80,7 @@ export type ReportData = {
    * tracks read "<Track> · worked on today"; reports built before it keep the top priorities.
    */
   worked?: WorkedTracks | null;
-  /** Release 4: the gray Today box under the opening (Listings added · Deals moved · Brokers contacted · Calls and meetings · Network outreach). */
+  /** Release 4: the gray Today box under the opening (Listings reviewed · Deals added · Deals moved · Brokers contacted · Calls and meetings · Network outreach; six since push J). */
   box?: TodayCount[] | null;
   /** Send a report (Bram, 2026-11-07): a short note of your own under the greeting, for that send only. */
   intro?: string | null;
@@ -535,17 +535,22 @@ function buildV8Sections(d: ReportData): BuiltSection[] {
 
   // Release 4 (2026-11-16): "<Track> · worked on today", the records with kept activity today; a track with no work is left out.
   if (d.worked) {
-    const titleOf: Record<"acquisition" | "jobs" | "consulting" | "startup", string> = { acquisition: "Acquisition · worked on today", jobs: "Job search · worked on today", consulting: "Consulting · worked on today", startup: "Startup · worked on today" };
+    // Layout H (Bram, 2026-11-23): "Acquisition · 4 deals worked on today", the count of records shown.
+    const titleOf = (key: "acquisition" | "jobs" | "consulting" | "startup", n: number) => {
+      const [track, one, many] = { acquisition: ["Acquisition", "deal", "deals"], jobs: ["Job search", "job", "jobs"], consulting: ["Consulting", "lead", "leads"], startup: ["Startup", "project", "projects"] }[key];
+      return `${track} · ${n} ${n === 1 ? one : many} worked on today`;
+    };
     for (const key of ["acquisition", "jobs", "consulting", "startup"] as const) {
       const all = d.worked[TRACK_OF[key]] ?? [];
       if (!all.length) continue;
       const h = new Set(c.hidden?.[key] ?? []);
       const shown = all.filter((w) => !h.has(w.id));
-      const pipeline = key === "acquisition" ? (d.tracks?.acquisition.pipeline ?? null) : null;
+      // Layout H (2026-11-23): the Job search section has its pipeline card too.
+      const pipeline = key === "acquisition" ? (d.tracks?.acquisition.pipeline ?? null) : key === "jobs" ? (d.tracks?.job.pipeline ?? null) : null;
       push({
         ...base,
         key,
-        title: titleOf[key],
+        title: titleOf(key, shown.length),
         kind: "worked",
         line: null,
         worked: shown,

@@ -160,3 +160,9 @@ export const DB_UPDATE_NOTICE_PUSH_E2 = "Database update needed: paste supabase/
  * UPDATE_PREVIEW_PUSH_F.sql runs, every partner shows ticked and unticking one says so.
  */
 export const DB_UPDATE_NOTICE_PUSH_F = "Database update needed: paste supabase/UPDATE_PREVIEW_PUSH_F.sql into the Supabase SQL Editor and run it.";
+
+/**
+ * Push J (2026-11-23): Listings reviewed, entered by hand (listings_reviewed). Before UPDATE_PREVIEW_PUSH_J.sql runs,
+ * the count shows as not entered and saving an entry says so.
+ */
+export const DB_UPDATE_NOTICE_PUSH_J = "Database update needed: paste supabase/UPDATE_PREVIEW_PUSH_J.sql into the Supabase SQL Editor and run it.";
