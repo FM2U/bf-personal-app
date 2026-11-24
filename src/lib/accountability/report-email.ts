@@ -279,9 +279,14 @@ export function workedHtml(w: WorkedRecord, n: number): string {
  * classic Outlook for Windows gets the same six as table cells.
  */
 export function boxHtml(box: readonly TodayCount[]): string {
-  const one = (c: TodayCount) => `<div style="font-size:22px;line-height:28px;font-weight:500;color:${H.ink};${H_FONT}">${c.value}</div><div style="font-size:11.5px;line-height:15px;color:${H.faint};margin-top:2px;${H_FONT}">${escapeHtml(c.label)}</div>`;
-  const blocks = box.map((c) => `<!--[if mso]><td valign="top" width="96" style="padding-top:14px"><![endif]--><div style="display:inline-block;width:88px;padding-right:8px;vertical-align:top;padding-top:14px">${one(c)}</div><!--[if mso]></td><![endif]-->`).join("");
-  return `<div data-today-box="1" style="margin-top:18px;border-top:1px solid ${H.line};font-size:0;line-height:0"><!--[if mso]><table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><![endif]-->${blocks}<!--[if mso]></tr></table><![endif]--></div>`;
+  // 2026-11-23 (Bram, 8:40 pm): calmer spacing. The counts share the card's width in equal columns (never narrower than
+  // 96px, so a phone still wraps them into rows of three), with more room above the numbers, between a number and its
+  // label, and under the row.
+  // Rounded down, so the columns never add up to more than the row (16.67% six times wraps the last count).
+  const pct = (Math.floor(10000 / Math.max(1, box.length)) / 100).toFixed(2);
+  const one = (c: TodayCount) => `<div style="font-size:22px;line-height:28px;font-weight:500;color:${H.ink};${H_FONT}">${c.value}</div><div style="font-size:11.5px;line-height:16px;color:${H.faint};margin-top:5px;${H_FONT}">${escapeHtml(c.label)}</div>`;
+  const blocks = box.map((c) => `<!--[if mso]><td valign="top" width="${pct}%" style="padding-top:20px"><![endif]--><div style="display:inline-block;width:${pct}%;min-width:96px;box-sizing:border-box;padding-right:14px;vertical-align:top;padding-top:20px">${one(c)}</div><!--[if mso]></td><![endif]-->`).join("");
+  return `<div data-today-box="1" style="margin-top:20px;padding-bottom:10px;border-top:1px solid ${H.line};font-size:0;line-height:0"><!--[if mso]><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><![endif]-->${blocks}<!--[if mso]></tr></table><![endif]--></div>`;
 }
 
 const PIPELINE_SUB: Record<string, string> = {

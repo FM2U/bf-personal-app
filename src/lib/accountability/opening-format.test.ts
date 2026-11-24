@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { openingBodyHtml } from "@/lib/accountability/report-email";
+import { boxHtml, openingBodyHtml } from "@/lib/accountability/report-email";
 import { editorHtmlToOpening, openingInlineHtml, openingLines, openingPlain, openingToEditorHtml, wordCount } from "@/lib/accountability/opening-format";
 
 const SAVED = ["**Today was mostly seller calls on three deals:**", "- **Seller and broker calls:** worked through open questions with the Moody Law seller.", "- **Sourcing and screening:** Assura & Catalyst went to CIM."].join("\n");
@@ -63,6 +63,13 @@ describe("the opening with bold and bullets (2026-11-23)", () => {
     expect(old).not.toContain("font-weight");
     // A plain line right above bullets is a heading too; bold inside a bullet still shows.
     expect(openingBodyHtml("Deals\n- **Moody:** one\n- two")).toMatch(/font-weight:bold;">Deals<\/div><ul[^>]*><li[^>]*><b>Moody:<\/b> one/);
+  });
+
+  it("gives the six day counts equal columns that fit one row (2026-11-23)", () => {
+    const html = boxHtml(["Listings reviewed", "Deals added", "Deals moved", "Brokers contacted", "Calls and meetings", "Network outreach"].map((label, value) => ({ label, value })));
+    const widths = [...html.matchAll(/display:inline-block;width:([\d.]+)%;min-width:96px/g)].map((m) => Number(m[1]));
+    expect(widths.length).toBe(6);
+    expect(widths.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(100);
   });
 
   it("counts words", () => {
