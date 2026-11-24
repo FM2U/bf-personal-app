@@ -92,7 +92,9 @@ export function keptBox(i: { kept: readonly ActivityRow[]; dropped: ReadonlySet<
     added: i.kept.filter(tookIn).length,
     moved: i.kept.filter((r) => r.kind === "move" && i.acquisitionIds.has(recordOfRow(r)?.id ?? "")).length,
     brokers: new Set(counted.filter((c) => c.broker).map((c) => c.contactId)).size,
-    calls: i.kept.filter((r) => r.kind === "call" || r.kind === "meeting").length,
+    // Bram, 2026-11-24 2:18 pm: a kept calendar meeting with a person on Contacts is a meeting too (the "cal:" contacts
+    // from calendarContacts, which leaves out a person whose call or meeting that day was also logged by hand).
+    calls: i.kept.filter((r) => r.kind === "call" || r.kind === "meeting").length + i.comms.filter((c) => c.rowId.startsWith("cal:") && !i.dropped.has(c.rowId)).length,
     outreach: counted.length,
   });
 }

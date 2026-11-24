@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calendarContacts } from "@/lib/accountability/report-worked";
+import { calendarContacts, keptBox } from "@/lib/accountability/report-worked";
 import type { ActivityRow } from "@/lib/accountability/activity";
 import { personFilterGroups } from "@/lib/work/people";
 import { brokerText, isBrokerPerson, looksLikePerson, matchName, parseBrokerText, proposeLink, rolesWithBroker, type BrokerChoices } from "@/lib/work/broker-links";
@@ -79,6 +79,17 @@ describe("broker links (push K, 2026-11-24)", () => {
     // B also has a call logged by hand that day: counted from the logged call only.
     const out = calendarContacts(kept, [{ contactId: B, method: "call" }, { contactId: A, method: "email" }], (id) => id === A);
     expect(out).toEqual([{ rowId: "cal:1", contactId: A, broker: true, method: "meeting" }]);
+    // The day counts: the calendar meeting with A is a broker contacted, an outreach, and a meeting; B's logged call
+    // is counted once (not again from B's calendar row); the calendar row about a deal alone is not a meeting.
+    const call: ActivityRow = { id: "comm:9", kind: "call", text: "Call with B", record: null, time: "11:00", href: null };
+    const count = (label: string, rows: readonly ActivityRow[], dropped: string[] = []) =>
+      keptBox({ kept: rows, dropped: new Set(dropped), comms: [{ rowId: "comm:9", contactId: B, broker: false, method: "call" }, ...out], acquisitionIds: new Set() }).find((c) => c.label === label)?.value;
+    expect(count("Calls and meetings", [...kept, call])).toBe(2);
+    expect(count("Brokers contacted", [...kept, call])).toBe(1);
+    expect(count("Network outreach", [...kept, call])).toBe(2);
+    // Dropped on End of day: the calendar meeting no longer counts anywhere.
+    expect(count("Calls and meetings", [...kept, call], ["cal:1"])).toBe(1);
+    expect(count("Brokers contacted", [...kept, call], ["cal:1"])).toBe(0);
   });
 
   it("finds a person under either role with the Role filter on Contacts", () => {
