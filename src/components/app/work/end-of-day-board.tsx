@@ -834,7 +834,7 @@ export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; 
                     onLeave={(text) => {
                       if (text !== data.opening) saveOpeningText(text);
                     }}
-                    placeholder="Where most of the day went, then a line for each kind of work with its result"
+                    placeholder="A bold heading for each kind of work, with one or two bullets under it"
                   />
                 )}
                 {opening.length > OPENING_MAX ? (
@@ -842,7 +842,7 @@ export function EndOfDayBoard({ data, openSend = false }: { data: EndOfDayPage; 
                     The opening can be up to {OPENING_MAX} characters. This one has {opening.length}; the text after that is not saved.
                   </p>
                 ) : null}
-                <p className="mt-2 text-[12.5px] text-muted-foreground">One bold line on where most of the day went, then a bullet for each kind of work with its result. No counts: the report shows them under the opening. Redraft writes the opening, tomorrow&apos;s line and the Today lines again where they are empty or still an AI draft.</p>
+                <p className="mt-2 text-[12.5px] text-muted-foreground">A bold heading for each kind of work, with one or two bullets under it on what was done and its result. No counts: the report shows them under the opening. Redraft writes the opening, tomorrow&apos;s line and the Today lines again where they are empty or still an AI draft.</p>
               </div>
             </WorkCard>
           ) : null}

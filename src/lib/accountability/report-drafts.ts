@@ -58,23 +58,29 @@ export function withoutPlaceholders(line: string): string {
 }
 
 /**
- * The opening as a summary by kind of work (Bram, 2026-11-18: rules settled 7:23 pm, example approved 7:26 pm;
- * claude/2026-11-18-fix-queue.md). Saved with "**" for bold and "- " for bullets (src/lib/accountability/opening-format.ts).
+ * The opening as a summary by kind of work (Bram, 2026-11-18: rules settled 7:23 pm; claude/2026-11-18-fix-queue.md),
+ * laid out as the approved layout H mockup shows it (Bram, 2026-11-23 7:44 pm: a bold heading per kind of work in free
+ * wording, one or two bullets under it, no lead line). Saved with "**" for bold and "- " for bullets
+ * (src/lib/accountability/opening-format.ts). The example is the mockup's own opening.
  */
-export const OPENING_KINDS = ["Sourcing and screening", "Diligence and modeling", "Seller and broker calls", "Deal structuring", "Relationships and referrals", "Job search", "Building the app"] as const;
 export const OPENING_EXAMPLE = [
-  "**Today was mostly seller and broker conversations on three active deals, plus two new deals taken from first look to CIM:**",
-  "- **Seller and broker calls:** worked through open diligence questions with the Moody Law seller; The Association Partner and Catalyst Evaluation Group are both heading to seller calls.",
-  "- **Sourcing and screening:** Assura DSO Division and Catalyst both went from first look to CIM in one day.",
-  "- **Relationships and referrals:** first call with a new broker, and passed Assura to two buyers looking for MSSPs.",
+  "**Catalyst Evaluation Group: deep dive and seller meetings**",
+  "- Held two in-depth conversations with the seller",
+  "- Live product demo, service delivery walkthrough, discussed the seller's goals",
+  "**Deal diligence across three active opportunities**",
+  "- Reviewed financials and built pro forma projections and models",
+  "- Drafted potential deal terms and structures for initial offers (IOIs)",
+  "**Networking and outreach**",
+  "- Connected with a new business broker and discussed deal referrals",
+  "- Personal network outreach re referrals and industry expert connections",
 ].join("\n");
 const OPENING_ASK = [
   '"opening": a summary picture of how the day was spent and how productive it was, as one string with a line break (\\n) between lines. The detail of each record is shown in the report under the opening, so the opening does not repeat it.',
-  '  - First line: one lead line that names where most of the day went ("Today was mostly ...:"), ending in a colon, with ** before it and ** after it (bold).',
-  `  - Then one line per kind of work, each starting with "- " and the kind of work between ** and ** with its colon inside ("- **Job search:** ..."). Pick the kinds from this list only, and only those with work that day, usually two to four: ${OPENING_KINDS.join(", ")}. The kind with the most work comes first.`,
-  "  - After each kind of work: one line (two sentences at most) that names the deals or people and ends with a result or a next step (a stage moved, a decision, something learned, the next call). Never a line that only says someone was contacted or something was shared.",
-  '  - Show how much work it was without time: no hours and no minutes. Use the order, the results, words for scope ("three active deals", "both in one day") and specific verbs ("worked through the open diligence questions").',
-  "  - No step-by-step detail, no internal task names, at most 12 lines in all. No other ** marks and no other formatting.",
+  "  - No lead line and no sentence before the first heading.",
+  '  - A heading line for each kind of work that day, usually two to four, in your own short wording (for example a deal and what was done on it, "Deal diligence across three active opportunities", "Networking and outreach", "Job search"). Each heading is on its own line with ** before it and ** after it (bold), and no colon at its end. The kind of work with the most work comes first.',
+  '  - Under each heading: one or two lines, each starting with "- ", that name the deals or people and say what was done with its result or next step (a stage moved, a decision, something learned, the next call). Never a line that only says someone was contacted or something was shared. No ** marks in these lines.',
+  '  - Show how much work it was without time: no hours and no minutes. Use the order, the results, words for scope ("three active opportunities", "both in one day") and specific verbs ("worked through the open diligence questions").',
+  "  - No step-by-step detail, no internal task names, at most 12 lines in all. No other formatting.",
   "  - Numbers: never a number that repeats a figure in the today box or the Pipeline (listings reviewed, deals added, deals moved, brokers contacted, calls and meetings, network outreach, deals in a stage). Other numbers that add something are allowed: a deal's financials ($1.3M EBITDA), webinars attended, options found, \"2nd broker call\", days in a stage.",
   "  - Names and facts only from the lines below.",
   "  Example of the format and the voice (its names and facts are from another day; never reuse them):",

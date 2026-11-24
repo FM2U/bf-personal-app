@@ -850,7 +850,7 @@ const ai = http.createServer(async (req, res) => {
         // Release 4 (2026-11-16): a Today line for each record worked on today marked "today: write".
         const ids = [...text.matchAll(/^- id ([0-9a-f-]{36}) \| [^|]+ \| ([^|]+) \|.*today: write$/gm)].map((m) => ({ id: m[1], name: m[2].trim() }));
         const reply = {};
-        if (text.includes('"opening"')) reply.opening = "**Mock opening: today was mostly the top deal:**\n- **Seller and broker calls:** the broker call is set.\n- **Diligence and modeling:** one deal is still waiting on numbers.";
+        if (text.includes('"opening"')) reply.opening = "**Mock opening: the top deal**\n- The broker call is set.\n- One deal is still waiting on numbers.";
         if (text.includes('"tomorrow"')) reply.tomorrow = "Mock tomorrow: the seller call prep first, then the two broker follow-ups.";
         if (ids.length) reply.today = ids.map((x) => ({ id: x.id, text: `mock today for ${x.name}: call held, numbers asked for` }));
         // Answers after 3 seconds, like the real AI, so the checks can type while it writes.

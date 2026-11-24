@@ -69,16 +69,19 @@ export function blocksHtml(blocks: readonly Block[]): string {
 }
 
 /**
- * The opening as sent (2026-11-23): each line of the saved opening, "- " lines as real bullets, "**words**" bold.
- * An opening with no bold marks (written before the release, or typed plain) keeps the old Edit look: a line right
- * above bullets is bold. `h` is layout H's calm type; `lead` the space above the first line.
+ * The opening as sent (2026-11-23, the approved layout H mockup: claude/2026-11-23-report-layout-h.html): a bold
+ * heading on its own line for each kind of work, its one or two bullets under it in the quiet color. A line right above
+ * bullets is a heading whether or not it carries bold marks; "**words**" anywhere else is bold; a line with no bullets
+ * under it (an opening written as sentences) reads as plain text. `h` is layout H's calm type; `lead` the space above
+ * the first line.
  */
 export function openingBodyHtml(text: string, h = false, lead = 0): string {
   const lines = openingLines(text);
-  const marked = text.includes("**");
-  const size = h ? `font-size:14.5px;line-height:23px;color:${H.ink};${H_FONT}` : `font-size:13px;line-height:19px;color:${C.ink};${FONT}`;
-  const ul = h ? `margin:6px 0 0 0;padding:0 0 0 20px;list-style-type:disc;${size}` : UL;
-  const li = h ? "margin:0 0 6px 0" : LI;
+  const size = h ? `font-size:14.5px;line-height:23px;${H_FONT}` : `font-size:13px;line-height:19px;${FONT}`;
+  const ink = h ? H.ink : C.ink;
+  const quiet = h ? H.ink2 : C.muted;
+  const ul = `margin:${h ? 6 : 2}px 0 0 0;padding:0 0 0 18px;list-style-type:disc;${size};color:${quiet}`;
+  const li = `margin:${h ? 2 : 0}px 0 ${h ? 0 : 2}px 0`;
   let html = "";
   let inList = false;
   lines.forEach((l, i) => {
@@ -90,8 +93,10 @@ export function openingBodyHtml(text: string, h = false, lead = 0): string {
     }
     if (inList) html += "</ul>";
     inList = false;
-    const heading = !marked && !!lines[i + 1]?.bullet;
-    html += `<div style="${size};margin:${i ? (h ? 10 : 4) : lead}px 0 0 0;${heading ? `font-weight:${h ? 600 : "bold"};` : ""}">${openingInlineHtml(l.text)}</div>`;
+    const heading = !!lines[i + 1]?.bullet;
+    // A heading is bold as a whole, so its own marks are left out.
+    const inner = heading ? openingInlineHtml(l.text.replace(/\*\*/g, "")) : openingInlineHtml(l.text);
+    html += `<div${heading ? ' data-opening-heading="1"' : ""} style="${size};color:${ink};margin:${i ? (heading ? (h ? 14 : 6) : h ? 10 : 4) : lead}px 0 0 0;${heading ? `font-weight:${h ? 600 : "bold"};` : ""}">${inner}</div>`;
   });
   if (inList) html += "</ul>";
   return `<div data-opening="1">${html}</div>`;

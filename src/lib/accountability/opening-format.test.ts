@@ -47,19 +47,22 @@ describe("the opening with bold and bullets (2026-11-23)", () => {
     expect(editorHtmlToOpening("<p>a ** b</p>")).toBe("a b");
   });
 
-  it("draws the opening in the report: a bold lead line, real bullets with bold headings; an opening with no marks as before", () => {
-    const html = openingBodyHtml(SAVED, true, 14);
-    expect(html).toContain("<b>Today was mostly seller calls on three deals:</b>");
-    expect(html.match(/<li /g)?.length).toBe(2);
-    expect(html).toContain("<b>Seller and broker calls:</b> worked through open questions with the Moody Law seller.");
-    expect(html).toContain("Assura &amp; Catalyst");
+  it("draws the opening in the report as the layout H mockup: a bold heading per kind of work, its bullets under it in the quiet color", () => {
+    const text = "**Deal diligence across three active opportunities**\n- Reviewed financials & built models\n- Drafted deal terms\n**Networking and outreach**\n- Connected with a new broker";
+    const html = openingBodyHtml(text, true, 14);
+    expect(html.match(/data-opening-heading="1"/g)?.length).toBe(2);
+    expect(html).toMatch(/font-weight:600;">Deal diligence across three active opportunities<\/div><ul style="[^"]*color:#635d58">/);
+    expect(html.match(/<li /g)?.length).toBe(3);
+    expect(html).toContain("Reviewed financials &amp; built models");
     expect(html).not.toContain("**");
+    // The editor gives the same text back.
+    expect(editorHtmlToOpening(openingToEditorHtml(text))).toBe(text);
+    // An opening written as sentences (before this release) reads as plain text.
     const old = openingBodyHtml("A deal day: an hour on the Moody structure.\nSecond line.", true, 14);
     expect(old).not.toContain("<ul");
-    expect(old).not.toContain("<b>");
-    expect(old).toContain("A deal day: an hour on the Moody structure.");
-    // A plain line right above bullets is a heading, as the Edit box has always shown it.
-    expect(openingBodyHtml("Deals\n- one\n- two")).toMatch(/font-weight:bold;">Deals<\/div><ul/);
+    expect(old).not.toContain("font-weight");
+    // A plain line right above bullets is a heading too; bold inside a bullet still shows.
+    expect(openingBodyHtml("Deals\n- **Moody:** one\n- two")).toMatch(/font-weight:bold;">Deals<\/div><ul[^>]*><li[^>]*><b>Moody:<\/b> one/);
   });
 
   it("counts words", () => {

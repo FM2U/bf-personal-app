@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanDrafts, draftsPrompt, OPENING_EXAMPLE, OPENING_KINDS, tidyOpening, draftTargets, NO_DRAFTS, validateDraftsReply, withoutPlaceholders } from "./report-drafts";
+import { cleanDrafts, draftsPrompt, OPENING_EXAMPLE, tidyOpening, draftTargets, NO_DRAFTS, validateDraftsReply, withoutPlaceholders } from "./report-drafts";
 
 const A = "11111111-1111-4111-8111-111111111111";
 const B = "22222222-2222-4222-8222-222222222222";
@@ -55,19 +55,20 @@ describe("the 4:00 pm AI drafts (step 4, 2026-11-15)", () => {
     expect(withoutPlaceholders("Call Mark at 4:00 pm (Summit)")).toBe("Call Mark at 4:00 pm (Summit)");
   });
 
-  it("asks the opening for a summary by kind of work, with the approved example and no repeated counts (2026-11-23)", () => {
+  it("asks the opening for a bold heading per kind of work with bullets under it, no lead line, the mockup's example, no repeated counts (2026-11-23)", () => {
     const prompt = draftsPrompt({ dateLabel: "Mon", tomorrowLabel: "Tomorrow", dayLines: [], activity: [], records: [], dueNext: [], want: { opening: true, tomorrow: false, today: [] } });
     expect(prompt).not.toContain("2 or 3 plain sentences");
-    expect(prompt).toContain("Today was mostly");
-    for (const k of OPENING_KINDS) expect(prompt).toContain(k);
+    expect(prompt).not.toContain("Today was mostly");
+    expect(prompt).toContain("No lead line");
+    expect(prompt).toContain("in your own short wording");
     expect(prompt).toContain("no hours and no minutes");
     expect(prompt).toContain("never a number that repeats a figure in the today box");
-    expect(prompt).toContain(OPENING_EXAMPLE.split("\n")[1]);
+    for (const l of OPENING_EXAMPLE.split("\n")) expect(prompt).toContain(l);
   });
 
   it("keeps the opening's lines, bold marks and bullets from the reply", () => {
-    const r = validateDraftsReply({ opening: "**Today was mostly calls:**\n\n- **Seller and broker calls:** two calls — both moved.\n• **Job search:** found three options.\n- **Broken: no closing mark" }, { opening: true, tomorrow: false, today: [] });
-    expect(r).toEqual({ ok: true, value: { opening: "**Today was mostly calls:**\n- **Seller and broker calls:** two calls, both moved.\n- **Job search:** found three options.\n- Broken: no closing mark", tomorrow: null, today: {} } });
-    expect(tidyOpening("**Lead:**\\n- **Job search:** x")).toBe("**Lead:**\n- **Job search:** x");
+    const r = validateDraftsReply({ opening: "**Seller calls on two deals**\n\n- Two calls — both moved.\n**Job search**\n• Found three options.\n- **Broken: no closing mark" }, { opening: true, tomorrow: false, today: [] });
+    expect(r).toEqual({ ok: true, value: { opening: "**Seller calls on two deals**\n- Two calls, both moved.\n**Job search**\n- Found three options.\n- Broken: no closing mark", tomorrow: null, today: {} } });
+    expect(tidyOpening("**Job search**\\n- found x")).toBe("**Job search**\n- found x");
   });
 });
