@@ -43,7 +43,10 @@ export function TodaysActivityCard({ day, rows, dropped, targets, closed }: { da
       live = false;
     };
   }, [day]);
-  const all = sortActivity([...rows, ...(cal?.rows ?? [])]);
+  // Push K: a calendar event the app saved as a meeting is one of the page's own rows (same id); the calendar row is
+  // left out while that row is there, and shows again (grayed) once the meeting is dropped.
+  const own = new Set(rows.map((r) => r.id));
+  const all = sortActivity([...rows, ...(cal?.rows ?? []).filter((r) => !own.has(r.id))]);
   const kept = all.filter((r) => !off.has(r.id)).length;
   const toggle = (id: string) => {
     const keep = off.has(id);

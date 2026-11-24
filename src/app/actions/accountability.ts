@@ -23,6 +23,7 @@ import { cleanDrafts, DRAFTS_KEY, NOW_MAX } from "@/lib/accountability/report-dr
 import { editEod } from "@/lib/accountability/eod-write";
 import { ACTIVITY_DROPPED_KEY, cleanDropped, type ActivityRow } from "@/lib/accountability/activity";
 import { dayCalendarRows, refreshCalendarActivity } from "@/lib/accountability/calendar-activity";
+import { handLoggedRowIds, loadDayCalendar, syncCalendarMeetings } from "@/lib/accountability/calendar-meetings-data";
 import { recordOfRow } from "@/lib/accountability/report-worked";
 import { writeReportDrafts } from "@/lib/accountability/report-drafts-run";
 
@@ -608,6 +609,8 @@ export async function setActivityKept(day: string, id: string, keep: boolean, /*
     return { edits: all, patch: { report_html: null, report_edited: false } };
   });
   if (!r.ok) return fail(r.error);
+  // Push K: a calendar row dropped takes its meeting off the person's record; kept again, the meeting is saved again.
+  if (key.startsWith("cal:")) await syncCalendarMeetings(sb, ctx, day).catch(() => false);
   // No full page reload: the card shows the change at once; the report (release 4) is read again in the background.
   done();
   return { ok: true };
@@ -628,5 +631,8 @@ export async function calendarActivity(day: string): Promise<{ ok: true; status:
   const open = !!row && !isFail(row) && row.status === "open";
   const r = open ? await refreshCalendarActivity(sb, ctx, day) : { ...(await dayCalendarRows(sb, ctx, day)), saved: false };
   if (r.saved) done();
-  return { ok: true, status: r.status, rows: r.rows, saved: r.saved };
+  // Push K: an event whose meeting was logged by hand shows as that logged meeting only. (An event the app saved as a
+  // meeting shows as the page's own row of the same id; the card leaves the calendar row out while that row is there.)
+  const byHand = handLoggedRowIds((await loadDayCalendar(sb, ctx, day, r.rows).catch(() => null))?.comms ?? []);
+  return { ok: true, status: r.status, rows: r.rows.filter((x) => !byHand.has(x.id)), saved: r.saved };
 }

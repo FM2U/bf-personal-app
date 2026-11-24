@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireOwner } from "@/lib/auth";
 import { recordWorkEvent } from "@/lib/accountability/events";
-import { addDaysISO } from "@/lib/calc/dates";
+import { addDaysISO, todayInTz } from "@/lib/calc/dates";
+import { eventOf, overlapFor, spanWords, type CalendarEvent } from "@/lib/accountability/calendar-meetings";
+import { loadDayCalendar } from "@/lib/accountability/calendar-meetings-data";
 import { loadCtx, type Ctx } from "@/lib/engine/helpers";
 import { emailAddressProblem } from "@/lib/email-address";
 import { DB_UPDATE_NOTICE_0022, isMissingSchemaError } from "@/lib/schema-guard";
@@ -207,6 +209,8 @@ type LogCallInput = {
   nextDate: string;
   /** Log a meeting (2026-11-16): the same entry, saved as a meeting. */
   kind?: "call" | "meeting";
+  /** Push K: "Log anyway" on the warning that the entry overlaps another calendar meeting. */
+  allowOverlap?: boolean;
 };
 
 /**
@@ -214,7 +218,7 @@ type LogCallInput = {
  * contact's last contact current; the weekly counter reads the same row. The outcome sets the person's next
  * follow-up (what for, date) or the deal's next action (text, due date).
  */
-export async function logCall(input: LogCallInput): Promise<{ ok: true; commId: string; when: string } | Fail> {
+export async function logCall(input: LogCallInput): Promise<{ ok: true; commId: string; when: string; /** Push K: the entry was saved as the calendar meeting it overlaps (the same person); the words to show. */ tied?: string } | (Fail & { /** Push K: the entry overlaps another calendar meeting; "Log anyway" sends it again with allowOverlap. */ overlap?: boolean })> {
   const s = await setup();
   if (isFail(s)) return s;
   const { sb, ctx } = s;
@@ -228,6 +232,7 @@ export async function logCall(input: LogCallInput): Promise<{ ok: true; commId: 
     org = (o as Row | null) ?? null;
     if (!org) return fail("This organization was not found.");
   }
+  let newName: string | null = null;
   // Push K (Bram, 2026-11-24): every call and meeting names a person. A typed name is the person of that name (at the
   // organization first, when the call is logged from one), else a new person on Contacts.
   const meeting = input.kind === "meeting";
@@ -242,11 +247,8 @@ export async function logCall(input: LogCallInput): Promise<{ ok: true; commId: 
       const { data: hit } = await sb.from("contacts").select("*").eq("owner_id", ctx.ownerId).ilike("name", typed).is("archived_at", null).limit(1);
       person = ((hit ?? []) as Row[])[0] ?? null;
     }
-    if (!person) {
-      const { data: made, error: e0 } = await sb.from("contacts").insert({ owner_id: ctx.ownerId, name: typed, organization_id: org?.id ?? null }).select("*").single();
-      if (e0) return notSaved(e0);
-      person = made as Row;
-    }
+    // Not on Contacts: added below, once the call is sure to be saved.
+    if (!person) newName = typed;
   }
   let deal: Row | null = null;
   if (input.dealId) {
@@ -255,7 +257,7 @@ export async function logCall(input: LogCallInput): Promise<{ ok: true; commId: 
     deal = (data as Row | null) ?? null;
     if (!deal) return fail("This deal was not found.");
   }
-  const who = String(person.name);
+
   const minutesRaw = Number(String(input.minutes ?? "").replace(/[^\d.]/g, ""));
   const minutes = Number.isFinite(minutesRaw) && minutesRaw > 0 ? Math.min(1440, Math.round(minutesRaw)) : null;
   // The drawer's time is to the minute. A call logged in the current minute is logged as of now (to the second), so it
@@ -265,6 +267,27 @@ export async function logCall(input: LogCallInput): Promise<{ ok: true; commId: 
   const when = typedWhen && typedWhen.slice(0, 16) !== nowIso.slice(0, 16) ? typedWhen : nowIso;
   const said = cleanText(input.said, 4000);
   const next = clean(input.nextAction, 300);
+  // Push K (Bram, 2026-11-24 3:22 pm): against the day's calendar. A calendar meeting with this same person at an
+  // overlapping time IS this meeting (no second one: what was typed is saved onto it). An overlap with another calendar
+  // meeting is a warning the owner can pass ("Log anyway"), never a stop: calendars are not always up to date.
+  let sameEvent: CalendarEvent | null = null;
+  let onRecord: string | null = null;
+  const cal = await loadDayCalendar(sb, ctx, todayInTz(ctx.tz, new Date(when))).catch(() => null);
+  if (cal?.ready) {
+    const o = overlapFor(cal.events, cal.dropped, when, minutes ?? 0, person ? String(person.id) : "");
+    if (o.same) {
+      sameEvent = o.same;
+      onRecord = cal.comms.find((c) => eventOf(c.calendarEventId) === o.same!.eventId)?.id ?? null;
+    } else if (o.other && !input.allowOverlap) {
+      return { ok: false, error: `This overlaps "${o.other.title}" on your calendar, ${spanWords(o.other.start, o.other.minutes, ctx.tz)}. If both happened, log anyway. If the calendar meeting did not happen, drop it on End of day.`, overlap: true };
+    }
+  }
+  if (!person) {
+    const { data: made, error: e0 } = await sb.from("contacts").insert({ owner_id: ctx.ownerId, name: newName, organization_id: org?.id ?? null }).select("*").single();
+    if (e0) return notSaved(e0);
+    person = made as Row;
+  }
+  const who = String(person.name);
   const row: Row = {
     owner_id: ctx.ownerId,
     occurred_at: when,
@@ -280,8 +303,20 @@ export async function logCall(input: LogCallInput): Promise<{ ok: true; commId: 
     call_minutes: minutes,
     call_outcome: next,
   };
-  const { data, error } = await sb.from("communications").insert(row).select("id").single();
-  if (error) return notSaved(error);
+  let data: { id: string };
+  if (sameEvent && onRecord) {
+    // The calendar meeting is already on record: it takes what was typed, and from now on it is a meeting logged by hand.
+    const patch: Row = { calendar_event_id: sameEvent.eventId, summary: said, call_outcome: next, ...(deal ? { pipeline_item_id: deal.id } : {}) };
+    const { error } = await sb.from("communications").update(patch).eq("owner_id", ctx.ownerId).eq("id", onRecord);
+    if (error) return notSaved(error);
+    data = { id: onRecord };
+  } else {
+    // A calendar meeting that has not been saved yet (it has not ended): this entry is its meeting.
+    const made = await sb.from("communications").insert(sameEvent ? { ...row, occurred_at: sameEvent.start, call_minutes: sameEvent.minutes || minutes, subject: sameEvent.title.slice(0, 300), calendar_event_id: sameEvent.eventId } : row).select("id").single();
+    if (made.error) return notSaved(made.error);
+    data = { id: String(made.data.id) };
+  }
+  const tied = sameEvent ? `This ${meeting ? "meeting" : "call"} is already on your calendar ("${sameEvent.title}", ${spanWords(sameEvent.start, sameEvent.minutes, ctx.tz)}), so it is saved as that one meeting. What you typed is on it.` : undefined;
   if (deal) await sb.from("record_links").insert({ owner_id: ctx.ownerId, from_type: "communications", from_id: data.id, to_type: "pipeline_items", to_id: deal.id, relation: "concerns" });
   const date = input.nextDate === "none" ? null : DATE.test(String(input.nextDate ?? "")) ? String(input.nextDate) : "keep";
   // The outcome on a person: the next follow-up. On a deal: the next action.
@@ -317,7 +352,7 @@ export async function logCall(input: LogCallInput): Promise<{ ok: true; commId: 
     }
   }
   doneQuietly();
-  return { ok: true, commId: String(data.id), when };
+  return { ok: true, commId: String(data.id), when, ...(tied ? { tied } : {}) };
 }
 
 /** "2026-11-03T10:40" in the owner's time zone as an instant (ISO). */

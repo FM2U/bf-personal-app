@@ -77,18 +77,25 @@ function CallForm({ target, today, tz, onOpenChange, onSaved, kind }: { kind: Lo
   const [next, setNext] = useState("");
   const [nextDate, setNextDate] = useState("keep");
   const [error, setError] = useState<string | null>(null);
+  // Push K: the entry overlaps another calendar meeting (a warning with "Log anyway"), or was saved as the calendar
+  // meeting with this same person (a note, then Done).
+  const [overlap, setOverlap] = useState<string | null>(null);
+  const [tied, setTied] = useState<string | null>(null);
   const [pending, start] = useTransition();
-  const dirty = said.trim() !== "" || next.trim() !== "";
+  const dirty = !tied && (said.trim() !== "" || next.trim() !== "");
   useUnsavedWork(dirty, kind === "meeting" ? "The meeting is not logged yet." : "The call is not logged yet.");
   const choices = nextDateChoices(today);
   const person = !!target.contactId && !target.dealId;
-  const save = () =>
+  const save = (allowOverlap = false) =>
     start(async () => {
       setError(null);
+      setOverlap(null);
       if (!who) return setError(kind === "meeting" ? "Who was this meeting with? Pick a person, or type a name to add them to Contacts." : "Who was this call with? Pick a person, or type a name to add them to Contacts.");
-      const r = await logCall({ contactId: fixed ? target.contactId : who.id, dealId: target.dealId, organizationId: target.organizationId ?? null, who: who.name, when, minutes, said, nextAction: next, nextDate, kind });
-      if (!r.ok) return setError(r.error);
-      onOpenChange(false);
+      const r = await logCall({ contactId: fixed ? target.contactId : who.id, dealId: target.dealId, organizationId: target.organizationId ?? null, who: who.name, when, minutes, said, nextAction: next, nextDate, kind, allowOverlap });
+      if (!r.ok) return r.overlap ? setOverlap(r.error) : setError(r.error);
+      // Saved as the calendar meeting with this person: the window stays to say so.
+      if (r.tied) setTied(r.tied);
+      else onOpenChange(false);
       onSaved?.({ minutes: Number(minutes) || 0, nextDate: nextDate === "keep" ? "keep" : nextDate === "none" ? null : nextDate, nextAction: next.trim() || null });
     });
   return (
@@ -138,18 +145,44 @@ function CallForm({ target, today, tz, onOpenChange, onSaved, kind }: { kind: Lo
           {person ? <option value="none">No date</option> : null}
         </select>
       </div>
+      {overlap ? (
+        <div className="mt-4 rounded-[8px] border border-status-soon-border bg-status-soon-bg px-3 py-2.5 text-[13px] leading-5 text-slate-800" role="alert" data-testid="call-overlap">
+          {overlap}
+          <div className="mt-2 flex flex-wrap gap-2">
+            <RowButton tone="primary" onClick={() => save(true)} className="h-8 px-3 text-[12.5px]" disabled={pending} data-testid="call-overlap-anyway">
+              Log anyway
+            </RowButton>
+            <RowButton onClick={() => setOverlap(null)} className="h-8 px-3 text-[12.5px]" disabled={pending}>
+              Cancel
+            </RowButton>
+          </div>
+        </div>
+      ) : null}
+      {tied ? (
+        <div className="mt-4 rounded-[8px] border border-status-met-border bg-status-met-bg px-3 py-2.5 text-[13px] leading-5 text-slate-800" role="status" data-testid="call-tied">
+          {tied}
+        </div>
+      ) : null}
       <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
         {error ? (
           <span className="mr-auto text-[13px] text-status-missed" role="alert" data-testid="call-error">
             {error}
           </span>
         ) : null}
-        <RowButton onClick={() => onOpenChange(false)} className="h-9 px-3.5 text-[13px]" disabled={pending}>
-          Cancel
-        </RowButton>
-        <RowButton tone="primary" onClick={save} className="h-9 px-3.5 text-[13px]" disabled={pending} data-testid="call-save">
-          {pending ? "Saving..." : "Save"}
-        </RowButton>
+        {tied ? (
+          <RowButton tone="primary" onClick={() => onOpenChange(false)} className="h-9 px-3.5 text-[13px]" data-testid="call-tied-done">
+            Done
+          </RowButton>
+        ) : (
+          <>
+            <RowButton onClick={() => onOpenChange(false)} className="h-9 px-3.5 text-[13px]" disabled={pending}>
+              Cancel
+            </RowButton>
+            <RowButton tone="primary" onClick={() => save()} className="h-9 px-3.5 text-[13px]" disabled={pending || !!overlap} data-testid="call-save">
+              {pending ? "Saving..." : "Save"}
+            </RowButton>
+          </>
+        )}
       </div>
       <p className="mt-4 text-[12.5px] leading-5 text-muted-foreground">{kind === "meeting" ? "Saved meetings appear on the timeline as a meeting entry and count toward the weekly outreach target when the person is on Contacts." : "Saved calls appear on the timeline as a call entry and count toward the weekly outreach target when the person is on Contacts."}</p>
     </>

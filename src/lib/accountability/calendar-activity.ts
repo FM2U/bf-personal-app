@@ -6,6 +6,7 @@ import { ACTIVITY_CALENDAR_KEY, cleanCalendarRows, matchCalendar, type ActivityR
 import { editEod } from "@/lib/accountability/eod-write";
 import { loadDayCalendar } from "@/lib/work/calendar-data";
 import { recordHref } from "@/lib/work/task-records";
+import { syncCalendarMeetings } from "@/lib/accountability/calendar-meetings-data";
 
 /**
  * The day's Google Calendar events that belong in Today's activity (release 3b): those with a contact among the people
@@ -48,5 +49,8 @@ export async function refreshCalendarActivity(sb: SupabaseClient, ctx: Ctx, day:
   // Without Google the app's own blocks still come back: they are added, and nothing saved before is taken away.
   if (c.status !== "ok" && !c.rows.length) return { ...c, saved: false };
   const saved = await saveCalendarRows(sb, ctx.ownerId, day, c.rows, c.status !== "ok").catch(() => false);
-  return { ...c, saved };
+  // Push K: an event that has ended and is kept is a meeting on the person's record (only with the calendar read in
+  // full, so a calendar that cannot be reached never takes a saved meeting away).
+  const recorded = c.status === "ok" ? await syncCalendarMeetings(sb, ctx, day, c.rows).catch(() => false) : false;
+  return { ...c, saved: saved || recorded };
 }

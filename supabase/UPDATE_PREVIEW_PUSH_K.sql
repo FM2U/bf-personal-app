@@ -6,6 +6,8 @@
 --   Deals (pipeline_items): two new links, the deal's associate (a second person at the brokerage) and the deal's
 --   brokerage (an organization). The deal's broker uses the link deals already have (primary_contact_id).
 --   People (contacts): a second role ("Also"), from the same list as Role.
+--   Calls and meetings (communications): the Google Calendar event a meeting came from (Bram, 2026-11-24 3:22 pm;
+--   claude/2026-11-24-calendar-meetings-proposal.md), so a calendar meeting is saved once on the person's record.
 --   No row changes. Nothing is deleted. Every new column starts empty.
 --
 -- The last statement is a check. Expected result: one row, push_k_ready = true.
@@ -27,6 +29,7 @@ begin
   alter table public.pipeline_items add column if not exists broker_associate_contact_id uuid;
   alter table public.pipeline_items add column if not exists broker_organization_id uuid;
   alter table public.contacts add column if not exists second_role text;
+  alter table public.communications add column if not exists calendar_event_id text;
 
   if not exists (select 1 from pg_constraint where conname = 'pipeline_items_broker_associate_contact_id_fkey') then
     alter table public.pipeline_items add constraint pipeline_items_broker_associate_contact_id_fkey foreign key (broker_associate_contact_id) references public.contacts(id) on delete set null;
@@ -39,7 +42,9 @@ begin
   end if;
   create index if not exists pipeline_items_broker_org_idx on public.pipeline_items using btree (broker_organization_id);
   create index if not exists pipeline_items_broker_associate_idx on public.pipeline_items using btree (broker_associate_contact_id);
+  -- One meeting per calendar event ("auto:<event id>" when the app saved it, "<event id>" when logged by hand).
+  create unique index if not exists communications_calendar_event_idx on public.communications using btree (owner_id, calendar_event_id) where calendar_event_id is not null;
 end;
 $$;
 
-select (select count(*) from information_schema.columns where table_schema = 'public' and ((table_name = 'pipeline_items' and column_name in ('broker_associate_contact_id', 'broker_organization_id')) or (table_name = 'contacts' and column_name = 'second_role'))) = 3 as push_k_ready;
+select (select count(*) from information_schema.columns where table_schema = 'public' and ((table_name = 'pipeline_items' and column_name in ('broker_associate_contact_id', 'broker_organization_id')) or (table_name = 'contacts' and column_name = 'second_role') or (table_name = 'communications' and column_name = 'calendar_event_id'))) = 4 as push_k_ready;

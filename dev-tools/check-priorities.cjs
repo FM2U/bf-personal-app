@@ -304,6 +304,7 @@ const idOf = async (name) => (await one("select id from pipeline_items where nam
     await d.getByTestId("call-when").fill(`${day.d}T11:00`);
     await d.getByTestId("call-said").fill("Coffee on East Tennessee owners");
     await d.getByTestId("call-save").click();
+    await Promise.race([d.getByTestId("call-overlap").waitFor({ timeout: 5000 }).then(() => d.getByTestId("call-overlap-anyway").click()), d.waitFor({ state: "detached", timeout: 5000 })]).catch(() => {}); // 2026-11-24: the overlap warning, at some times of day
     await until(async () => !!(await one("select id from communications where contact_id = $1 and method = 'meeting' and subject = 'Meeting with Mark Reed'", [mark.id])), "the meeting was not saved");
     await open(`/work/people/${mark.id}`);
     assert((await page.locator("main").innerText()).includes("Meeting with Mark Reed, 60 min"), "the timeline does not show the meeting");
@@ -429,6 +430,8 @@ const idOf = async (name) => (await one("select id from pipeline_items where nam
     assert((await d.innerText()).includes("Log a meeting") && (await d.getByTestId("call-minutes").inputValue()) === "60", "the meeting window");
     await d.getByTestId("call-said").fill("Coffee about two referrals");
     await d.getByTestId("call-save").click();
+    // 2026-11-24: at a time of day that overlaps a calendar meeting with someone else, the window warns first.
+    await Promise.race([d.getByTestId("call-overlap").waitFor({ timeout: 5000 }).then(() => d.getByTestId("call-overlap-anyway").click()), d.waitFor({ state: "detached", timeout: 5000 })]).catch(() => {});
     await until(async () => !!(await one("select id from communications where contact_id = $1 and method = 'meeting' and subject like 'Meeting with %'", [who])), "the meeting was not saved");
     await until(async () => (await page.locator(`[data-testid=person-row][data-person="${who}"]`).innerText()).includes("Meeting logged, 60 min"), "the row does not say Meeting logged");
     await open("/work/people?view=follow");

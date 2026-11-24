@@ -4082,3 +4082,9 @@ alter table public.pipeline_items add constraint pipeline_items_broker_organizat
 alter table public.contacts add constraint contacts_second_role_check check ((second_role is null) or (second_role = any (array['broker'::text, 'lender'::text, 'personal_network'::text, 'service_provider'::text, 'rosara_customer'::text, 'recruiter'::text, 'cofounder_candidate'::text, 'investor'::text, 'consulting_client'::text, 'other'::text])));
 create index pipeline_items_broker_org_idx on public.pipeline_items using btree (broker_organization_id);
 create index pipeline_items_broker_associate_idx on public.pipeline_items using btree (broker_associate_contact_id);
+
+-- Calendar meetings (push K, Bram 2026-11-24 3:22 pm): the Google Calendar event a meeting came from, so a calendar
+-- meeting with a person is saved once on the person's record ("auto:<event id>" when the app saved it, "<event id>"
+-- when the same meeting was logged by hand).
+alter table public.communications add column calendar_event_id text;
+create unique index communications_calendar_event_idx on public.communications using btree (owner_id, calendar_event_id) where calendar_event_id is not null;

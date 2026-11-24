@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calendarContacts, keptBox } from "@/lib/accountability/report-worked";
+import { keptBox } from "@/lib/accountability/report-worked";
 import type { ActivityRow } from "@/lib/accountability/activity";
 import { personFilterGroups } from "@/lib/work/people";
 import { brokerText, isBrokerPerson, looksLikePerson, matchName, parseBrokerText, proposeLink, rolesWithBroker, type BrokerChoices } from "@/lib/work/broker-links";
@@ -71,25 +71,22 @@ describe("broker links (push K, 2026-11-24)", () => {
     expect(brokerText(null, null)).toBeNull();
   });
 
-  it("counts a kept calendar meeting with a person as contact with that person, once", () => {
+  it("counts a calendar event saved as a meeting like a meeting logged by hand, and not at all once dropped", () => {
     const A = "11111111-1111-4111-8111-111111111111";
     const B = "22222222-2222-4222-8222-222222222222";
-    const cal = (id: string, href: string | null): ActivityRow => ({ id, kind: "calendar", text: "Call", record: null, time: "10:00", href });
-    const kept = [cal("cal:1", `/work/people/${A}`), cal("cal:2", `/work/people/${B}`), cal("cal:3", "/work/deals/33333333-3333-4333-8333-333333333333"), cal("cal:4", null)];
-    // B also has a call logged by hand that day: counted from the logged call only.
-    const out = calendarContacts(kept, [{ contactId: B, method: "call" }, { contactId: A, method: "email" }], (id) => id === A);
-    expect(out).toEqual([{ rowId: "cal:1", contactId: A, broker: true, method: "meeting" }]);
-    // The day counts: the calendar meeting with A is a broker contacted, an outreach, and a meeting; B's logged call
-    // is counted once (not again from B's calendar row); the calendar row about a deal alone is not a meeting.
-    const call: ActivityRow = { id: "comm:9", kind: "call", text: "Call with B", record: null, time: "11:00", href: null };
-    const count = (label: string, rows: readonly ActivityRow[], dropped: string[] = []) =>
-      keptBox({ kept: rows, dropped: new Set(dropped), comms: [{ rowId: "comm:9", contactId: B, broker: false, method: "call" }, ...out], acquisitionIds: new Set() }).find((c) => c.label === label)?.value;
-    expect(count("Calls and meetings", [...kept, call])).toBe(2);
-    expect(count("Brokers contacted", [...kept, call])).toBe(1);
-    expect(count("Network outreach", [...kept, call])).toBe(2);
-    // Dropped on End of day: the calendar meeting no longer counts anywhere.
-    expect(count("Calls and meetings", [...kept, call], ["cal:1"])).toBe(1);
-    expect(count("Brokers contacted", [...kept, call], ["cal:1"])).toBe(0);
+    const rows: ActivityRow[] = [
+      { id: "cal:e1", kind: "meeting", text: "Call with Thatcher Brown, 30 min", record: null, time: "10:00", href: null },
+      { id: "comm:9", kind: "call", text: "Call with B", record: null, time: "15:00", href: null },
+      { id: "cal:e7", kind: "calendar", text: "Later today, 30 min", record: null, time: "17:00", href: null },
+    ];
+    const comms = [{ rowId: "cal:e1", contactId: A, broker: true, method: "meeting" }, { rowId: "comm:9", contactId: B, broker: false, method: "call" }];
+    const count = (label: string, dropped: string[] = []) => keptBox({ kept: rows.filter((r) => !dropped.includes(r.id)), dropped: new Set(dropped), comms, acquisitionIds: new Set() }).find((c) => c.label === label)?.value;
+    // The sum of the calendar meeting and the logged call; an event that has not ended (still a Calendar row) is not counted.
+    expect(count("Calls and meetings")).toBe(2);
+    expect(count("Brokers contacted")).toBe(1);
+    expect(count("Network outreach")).toBe(2);
+    expect(count("Calls and meetings", ["cal:e1"])).toBe(1);
+    expect(count("Brokers contacted", ["cal:e1"])).toBe(0);
   });
 
   it("finds a person under either role with the Role filter on Contacts", () => {

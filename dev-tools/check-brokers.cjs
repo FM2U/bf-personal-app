@@ -63,6 +63,10 @@ const until = async (fn, msg, tries = 80) => {
     else await scope.getByTestId(`${testId}-option`).filter({ hasText: how }).first().click();
   };
 
+  // The stand-in's two sample calendar events (12:30 lunch, 15:30 call) are left out, so no step depends on the time
+  // of day the check runs at; the calendar steps add their own events.
+  await fetch(`${process.env.GOOGLE_API_MOCK_URL || "http://localhost:54329"}/__mode`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ calendarEvents: false }) }).catch(() => {});
+
   await step("Sample data is loaded", async () => {
     await open("/settings/data");
     if (!(await page.getByText("Sample data loaded").count()) && (await page.getByTestId("sample-load").count())) {
@@ -259,6 +263,113 @@ const until = async (fn, msg, tries = 80) => {
     const thatcher = await person("Thatcher Brown");
     assert((await all("select 1 from communications where contact_id = $1 and method = 'call'", [thatcher.id])).length === 2, "Thatcher Brown's two calls (the earlier one and today's) are not both on the person");
     await page.getByTestId("report-window-close").click();
+  });
+
+  // ---------- Calendar meetings on record (Bram, 2026-11-24 3:22 pm; claude/2026-11-24-calendar-meetings-proposal.md) ----------
+  const GOOGLE = process.env.GOOGLE_API_MOCK_URL || "http://localhost:54329";
+  const TZ = "America/New_York";
+  const addEvent = async (summary, startMs, endMs) => (await (await fetch(`${GOOGLE}/calendar/v3/calendars/primary/events`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ summary, start: { dateTime: new Date(startMs).toISOString() }, end: { dateTime: new Date(endMs).toISOString() } }) })).json()).id;
+  /** An instant as the Date and time box takes it ("2026-11-24T16:40", the owner's time zone). */
+  const localBox = (ms) => {
+    const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(new Date(ms)).map((x) => [x.type, x.value]));
+    return `${p.year}-${p.month}-${p.day}T${p.hour === "24" ? "00" : p.hour}:${p.minute}`;
+  };
+  const eodReady = async () => {
+    await open("/work/end-of-day");
+    await page.getByTestId("activity-calendar-note").waitFor({ timeout: 20000 });
+    await until(async () => !(await page.getByTestId("activity-calendar-note").innerText()).includes("Reading your calendar"), "the calendar part never finished");
+  };
+  const callsInReport = async () => {
+    await page.getByTestId("report-view").first().click();
+    const prev = page.getByTestId("report-preview");
+    await prev.waitFor({ timeout: 20000 });
+    const m = /(\d+)\s*Calls\s*and\s*meetings/i.exec((await prev.locator("[data-today-box]").first().innerText()).replace(/\s+/g, " "));
+    await page.getByTestId("report-window-close").click();
+    assert(m, "the report has no Calls and meetings count");
+    return Number(m[1]);
+  };
+  let past, ahead, callsBefore;
+  const now = Date.now();
+  // A calendar meeting that ended 90 minutes ago with Thatcher Brown, and one with Mark Reed that starts in 20 minutes.
+  await step("Calendar: a meeting with a person on Contacts that has ended is saved as a meeting on that person's record (once), and shows as one Meeting row on End of day; a meeting that has not ended yet is not saved", async () => {
+    await open("/api/google/connect");
+    await eodReady();
+    callsBefore = await callsInReport();
+    past = await addEvent("Offer review with Thatcher Brown", now - 120 * 60000, now - 90 * 60000);
+    ahead = await addEvent("Check-in with Mark Reed", now + 20 * 60000, now + 50 * 60000);
+    await eodReady();
+    const thatcher = await person("Thatcher Brown");
+    await until(async () => !!(await one("select 1 from communications where calendar_event_id = $1", [`auto:${past}`])), "the ended calendar meeting was not saved as a meeting");
+    const c = await one("select method, direction, contact_id, subject, call_minutes, is_outreach from communications where calendar_event_id = $1", [`auto:${past}`]);
+    assert(c.method === "meeting" && c.direction === "outgoing" && c.contact_id === thatcher.id && c.subject === "Offer review with Thatcher Brown" && c.call_minutes === 30 && c.is_outreach === true, JSON.stringify(c));
+    assert(!(await one("select 1 from communications where calendar_event_id in ($1, $2)", [`auto:${ahead}`, ahead])), "a calendar meeting that has not ended was saved");
+    // Read again: saved once, however often the calendar is read.
+    await eodReady();
+    assert((await one("select count(*)::int n from communications where calendar_event_id = $1", [`auto:${past}`])).n === 1, "the calendar meeting was saved twice");
+    const rows = page.getByTestId("eod-activity").getByTestId("activity-row");
+    const mine = page.locator(`[data-testid=activity-row][data-id="cal:${past}"]`);
+    await until(async () => (await mine.count()) === 1 && (await mine.getAttribute("data-kind")) === "meeting", `the saved meeting is not one Meeting row (rows of that id: ${await mine.count()})`);
+    assert((await page.locator(`[data-testid=activity-row][data-id="cal:${ahead}"]`).getAttribute("data-kind")) === "calendar", "the meeting that has not ended is not a Calendar row");
+    assert(await rows.count(), "no rows");
+    await shot("eod-activity-calendar-meeting", page.getByTestId("eod-activity"));
+    assert((await callsInReport()) === callsBefore + 1, "the calendar meeting does not count under Calls and meetings");
+  });
+
+  await step("The calendar meeting is on the person's Timeline and is their last contact", async () => {
+    const thatcher = await person("Thatcher Brown");
+    await open(`/work/people/${thatcher.id}`);
+    await until(async () => (await page.getByTestId("timeline-events").innerText()).includes("Offer review with Thatcher Brown"), "the calendar meeting is not on the person's Timeline");
+    await shot("person-timeline-calendar-meeting", page.getByTestId("timeline-events"));
+    assert(thatcher.last_contact_at, "the person has no last contact");
+  });
+
+  await step("Drop on End of day takes the calendar meeting off the person's record and out of the count; Keep brings it back", async () => {
+    await eodReady();
+    const mine = page.locator(`[data-testid=activity-row][data-id="cal:${past}"]`);
+    await mine.getByTestId("activity-toggle").click();
+    await until(async () => !(await one("select 1 from communications where calendar_event_id = $1", [`auto:${past}`])), "Drop did not take the meeting off the record");
+    await eodReady();
+    const again = page.locator(`[data-testid=activity-row][data-id="cal:${past}"]`);
+    await until(async () => (await again.count()) === 1 && (await again.getAttribute("data-off")) === "1", "the dropped row is not shown grayed");
+    assert((await callsInReport()) === callsBefore, "the dropped calendar meeting still counts");
+    await again.getByTestId("activity-toggle").click();
+    await until(async () => !!(await one("select 1 from communications where calendar_event_id = $1", [`auto:${past}`])), "Keep did not bring the meeting back");
+  });
+
+  await step("A call logged by hand with the same person at the calendar meeting's time is that one meeting (no second one); with another person at that time the window warns and 'Log anyway' saves it", async () => {
+    const mark = await person("Mark Reed");
+    const thatcher = await person("Thatcher Brown");
+    // The same person: Mark Reed, at the time of his calendar meeting.
+    await open(`/work/people/${mark.id}`);
+    await page.getByTestId("person-page-log-call").click();
+    let form = page.getByTestId("log-call-form");
+    await form.waitFor();
+    await form.getByTestId("call-when").fill(localBox(now + 25 * 60000));
+    await form.getByTestId("call-said").fill("Agreed the next steps on the model.");
+    await page.getByTestId("call-save").click();
+    await page.getByTestId("call-tied").waitFor({ timeout: 20000 });
+    assert((await page.getByTestId("call-tied").innerText()).includes("Check-in with Mark Reed"), await page.getByTestId("call-tied").innerText());
+    await shot("log-call-same-meeting", page.getByTestId("log-call-drawer"));
+    const tied = await all("select id, contact_id, subject, summary, calendar_event_id from communications where calendar_event_id in ($1, $2)", [ahead, `auto:${ahead}`]);
+    assert(tied.length === 1 && tied[0].calendar_event_id === ahead && tied[0].contact_id === mark.id && tied[0].summary === "Agreed the next steps on the model." && tied[0].subject === "Check-in with Mark Reed", JSON.stringify(tied));
+    await page.getByTestId("call-tied-done").click();
+    // Another person at that time: a warning, nothing saved, then Log anyway.
+    await open(`/work/people/${thatcher.id}`);
+    await page.getByTestId("person-page-log-call").click();
+    form = page.getByTestId("log-call-form");
+    await form.waitFor();
+    await form.getByTestId("call-when").fill(localBox(now + 25 * 60000));
+    await form.getByTestId("call-said").fill("A second call at the same time.");
+    const before = (await one("select count(*)::int n from communications")).n;
+    await page.getByTestId("call-save").click();
+    await page.getByTestId("call-overlap").waitFor({ timeout: 20000 });
+    assert(/This overlaps "Check-in with Mark Reed" on your calendar/.test(await page.getByTestId("call-overlap").innerText()), await page.getByTestId("call-overlap").innerText());
+    assert((await one("select count(*)::int n from communications")).n === before, "the call was saved before Log anyway");
+    await shot("log-call-overlap-warning", page.getByTestId("log-call-drawer"));
+    await page.getByTestId("call-overlap-anyway").click();
+    await until(async () => (await one("select count(*)::int n from communications")).n === before + 1, "Log anyway did not save the call");
+    const c = await one("select contact_id, calendar_event_id from communications where summary = 'A second call at the same time.'");
+    assert(c.contact_id === thatcher.id && c.calendar_event_id === null, JSON.stringify(c));
   });
 
   await step("No page showed an error in the browser", async () => {

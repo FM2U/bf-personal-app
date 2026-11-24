@@ -588,7 +588,8 @@ const until = async (fn, msg, tries = 60) => {
     await page.waitForTimeout(300);
     const over = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     assert(over <= 0, `scrolls sideways by ${over}px`);
-    const areaChunks = await strip.locator("[data-testid=eod-today-areas] > span > span").evaluateAll((els) => els.map((e) => new Set([...e.getClientRects()].map((r) => Math.round(r.top))).size));
+    // 2026-11-24: the Next actions done tile only (a calendar meeting on record gives the Calls and meetings tile a split too).
+    const areaChunks = await strip.locator("[data-key=done] [data-testid=eod-today-areas] > span > span").evaluateAll((els) => els.map((e) => new Set([...e.getClientRects()].map((r) => Math.round(r.top))).size));
     assert(areaChunks.length === (followUpsToday ? 5 : 4) && areaChunks.every((n) => n === 1), `an area split inside: ${areaChunks}`);
     await page.setViewportSize({ width: 1440, height: 900 });
     // The drawers.

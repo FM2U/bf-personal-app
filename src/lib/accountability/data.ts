@@ -1,4 +1,5 @@
 import "server-only";
+import { AUTO, eventOf } from "@/lib/accountability/calendar-meetings";
 import { isBrokerPerson } from "@/lib/work/broker-links";
 import { isMissingSchemaError } from "@/lib/schema-guard";
 import { OPENING_MAX } from "@/lib/accountability/opening-format";
@@ -34,7 +35,7 @@ import { loadPriorities, type PrioritiesData } from "@/lib/work/priorities-data"
 import { buildTracks, partnerName } from "@/lib/accountability/report-v8";
 import { cleanDrafts, DRAFTS_KEY, type DraftRecord, type ReportDrafts } from "@/lib/accountability/report-drafts";
 import { ACTIVITY_CALENDAR_KEY, ACTIVITY_DROPPED_KEY, cleanCalendarRows, cleanDropped, sortActivity, uniqueIds, type ActivityRow } from "@/lib/accountability/activity";
-import { buildWorked, keptBox, rowsByRecord, rowWords, calendarContacts } from "@/lib/accountability/report-worked";
+import { buildWorked, keptBox, rowsByRecord, rowWords } from "@/lib/accountability/report-worked";
 import { nextWorkDay } from "@/lib/work-week";
 import { dayTotal, reviewedRows, toEntry, type ReviewedEntry } from "@/lib/accountability/listings-reviewed";
 
@@ -121,7 +122,14 @@ export async function loadFacts(sb: SupabaseClient, ctx: WorkCtx, since: string)
   const [[acq, job, con], { data: items }, { data: hist }, { data: comms }, { data: events }, { data: eods }, { data: people }, { data: notes }, waitRows, { data: doneTasks }] = await Promise.all([
     sb.from("pipeline_items").select("id,name,company_name,pipeline_id,status,stage_id,pass_reason,key_finding,next_action,next_action_due,screened,broker_name,primary_contact_id,updated_at,role_title,what_it_does,location,pay_range,fee,created_at,stage_entered_at,why_fits,strength").eq("owner_id", ctx.ownerId).limit(5000),
     sb.from("stage_history").select("id,item_id,stage_id,entered_at").eq("owner_id", ctx.ownerId).order("entered_at").limit(20000),
-    sb.from("communications").select("id,occurred_at,method,direction,contact_id,awaiting_log,pipeline_item_id,subject,call_minutes,partner_report_id").eq("owner_id", ctx.ownerId).gte("occurred_at", `${since}T00:00:00Z`).limit(5000),
+    // Push K: the calendar event a meeting came from; before the database update the read falls back without it.
+    sb
+      .from("communications")
+      .select("id,occurred_at,method,direction,contact_id,awaiting_log,pipeline_item_id,subject,call_minutes,partner_report_id,calendar_event_id")
+      .eq("owner_id", ctx.ownerId)
+      .gte("occurred_at", `${since}T00:00:00Z`)
+      .limit(5000)
+      .then((r) => (r.error && isMissingSchemaError(r.error) ? sb.from("communications").select("id,occurred_at,method,direction,contact_id,awaiting_log,pipeline_item_id,subject,call_minutes,partner_report_id").eq("owner_id", ctx.ownerId).gte("occurred_at", `${since}T00:00:00Z`).limit(5000) : r)),
     sb.from("work_events").select("kind,record_type,record_id,label,happened_on,happened_at,on_time,meta").eq("owner_id", ctx.ownerId).gte("happened_on", since).limit(5000),
     sb.from("end_of_day").select("day,status").eq("owner_id", ctx.ownerId).eq("status", "skipped").gte("day", since).limit(500),
     // Push K: a person's second role ("Also") counts too; before the database update the read falls back to Role alone.
@@ -267,6 +275,15 @@ export async function loadEodRow(sb: SupabaseClient, ownerId: string, day: strin
 }
 
 /** The report's opening paragraph (v8, 2026-11-15): saved with the day under this key of report_edits. */
+/**
+ * A communication's row id in Today's activity: "comm:<id>", or "cal:<event id>" for a calendar event the app saved as
+ * a meeting (push K), so the row keeps the id its calendar row had and a Drop made before stays a Drop.
+ */
+function commRowId(c: Row): string {
+  const mark = typeof c.calendar_event_id === "string" ? c.calendar_event_id : "";
+  return mark.startsWith(AUTO) ? `cal:${mark.slice(AUTO.length)}` : `comm:${c.id}`;
+}
+
 export const OPENING_KEY = "_opening";
 export { OPENING_MAX };
 export function cleanOpening(v: unknown): string {
@@ -539,7 +556,7 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
         const mins = c.call_minutes ? `, ${Number(c.call_minutes)} min` : "";
         const subject = String(c.subject ?? "").trim();
         const text = kind === "work" ? `${subject || "Work"}${mins}` : kind === "email" ? `Email to ${who ?? "someone not on Contacts"}${subject ? `: ${subject}` : ""}` : `${subject || `${kind === "meeting" ? "Meeting" : "Call"}${who ? ` with ${who}` : ""}`}${mins}`;
-        return { id: `comm:${c.id}`, kind, text, record: about ?? who, time: timeOf(c.occurred_at), href: c.pipeline_item_id ? recordHref({ kind: "deal", id: String(c.pipeline_item_id) }) : c.contact_id ? recordHref({ kind: "person", id: String(c.contact_id) }) : null };
+        return { id: commRowId(c), kind, text, record: about ?? who, time: timeOf(c.occurred_at), href: c.pipeline_item_id ? recordHref({ kind: "deal", id: String(c.pipeline_item_id) }) : c.contact_id ? recordHref({ kind: "person", id: String(c.contact_id) }) : null };
       }),
     ...bundle.raw.notes
       .filter((n) => local(String(n.created_at)) === day && n.body)
@@ -563,7 +580,9 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
   // Release 4 (2026-11-16): the report is built from Today's activity, kept rows only (the app's rows and the calendar
   // rows saved with the day), so a dropped row never reaches the report or the AI.
   const droppedSet = new Set(row.activityDropped);
-  const kept = sortActivity([...activity, ...row.calendarRows]).filter((r) => !droppedSet.has(r.id));
+  // Push K: a calendar event with a meeting on record (saved by the app, or logged by hand) is that meeting's row.
+  const onRecord = new Set(bundle.raw.comms.map((c) => eventOf(c.calendar_event_id as string | null)).filter((x): x is string => !!x).map((e) => `cal:${e}`));
+  const kept = sortActivity([...activity, ...row.calendarRows.filter((r) => !onRecord.has(r.id))]).filter((r) => !droppedSet.has(r.id));
   const keptByRecord = rowsByRecord(kept);
   const worked = i.v8 && i.v8.priorities.ready
     ? buildWorked({ rows: kept, items: bundle.raw.items, projects: i.v8.projects, pipes: { acquisition: bundle.raw.acqId, job: bundle.raw.jobId, consulting: bundle.raw.conId ?? null }, stageById: bundle.raw.stageById, history: bundle.raw.history, columns: i.v8.priorities.columns, ebitda: i.v8.ebitda, revenue: i.v8.revenue, day, local, todayText: Object.fromEntries(Object.entries(row.drafts.today).map(([id, n]) => [id, n.text])) })
@@ -571,12 +590,12 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
   // The gray Today box: the day's counts less the rows dropped (the same rules as the targets).
   const dayComms = bundle.raw.comms
     .filter((c) => local(String(c.occurred_at)) === day && c.direction !== "incoming" && !c.awaiting_log)
-    .map((c) => ({ rowId: `comm:${c.id}`, contactId: c.contact_id ? String(c.contact_id) : null, broker: isBrokerPerson(personById.get(String(c.contact_id ?? ""))), method: String(c.method) }));
+    .map((c) => ({ rowId: commRowId(c), contactId: c.contact_id ? String(c.contact_id) : null, broker: isBrokerPerson(personById.get(String(c.contact_id ?? ""))), method: String(c.method) }));
   const box = keptBox({
     kept,
     dropped: droppedSet,
-    // Push K: a kept calendar meeting with a person on Contacts counts as contact with that person.
-    comms: [...dayComms, ...calendarContacts(kept, dayComms.filter((c) => !droppedSet.has(c.rowId)), (id) => isBrokerPerson(personById.get(id)))],
+    // Push K: a calendar meeting on record is one of the day's communications (row id "cal:<event id>").
+    comms: dayComms,
     acquisitionIds: new Set(bundle.raw.items.filter((r) => String(r.pipeline_id) === String(bundle.raw.acqId)).map((r) => String(r.id).toLowerCase())),
     reviewed: i.v8?.reviewed ? dayTotal(i.v8.reviewed, day).total : 0,
   });
