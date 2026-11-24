@@ -9,6 +9,7 @@ import { ClosedStages } from "@/components/app/work/closed-stages";
 import { DealColumns } from "@/components/app/work/deal-columns";
 import { loadPriorities } from "@/lib/work/priorities-data";
 import { TopPrioritiesCard } from "@/components/app/work/priorities";
+import { BrokersToLinkLine } from "@/components/app/work/brokers-to-link";
 
 export const metadata = { title: "Deals" };
 
@@ -49,7 +50,19 @@ export default async function DealsPage({ searchParams }: { searchParams: Promis
         </>
       ) : (
         <>
-          <DealColumns header={header} before={<TopPrioritiesCard data={prio} kinds={["acquisition"]} />} groups={d.groups} today={d.today} initialFilter={parseDealFilter(sp.filter)} />
+          <DealColumns
+            header={header}
+            before={
+              <>
+                {/* Push K: open deals whose broker is typed text with no person and no brokerage linked. */}
+                <BrokersToLinkLine count={d.groups.flatMap((g) => g.deals).filter((x) => x.brokerLinksReady && !!x.brokerName?.trim() && !x.contactId && !x.brokerageId).length} />
+                <TopPrioritiesCard data={prio} kinds={["acquisition"]} />
+              </>
+            }
+            groups={d.groups}
+            today={d.today}
+            initialFilter={parseDealFilter(sp.filter)}
+          />
           <ClosedStages passed={d.passed} lost={d.lost} closed={d.closed} today={d.today} hint="Sourcing and screening happen on Screen listings; these are deals you said Interested to" />
         </>
       )}

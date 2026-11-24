@@ -61,7 +61,7 @@ function PurposeField({ id, value, onChange, testId = "purpose-field" }: { id: s
 const EMPTY: PersonInput = { name: "", organization: "", role: "broker", purposes: [], email: "", phone: "", linkedin: "", nextFollowUp: "", note: "" };
 
 /** The fields shared by Add a person and the Facts card: label on the left, field on the right, two columns on wide screens. */
-function PersonFields({ f, set, ids, withFollowUp = true, withTitle = false }: { f: PersonInput; set: (k: keyof PersonInput, v: string | string[]) => void; ids: string; withFollowUp?: boolean; withTitle?: boolean }) {
+function PersonFields({ f, set, ids, withFollowUp = true, withTitle = false, withAlso = false }: { f: PersonInput; set: (k: keyof PersonInput, v: string | string[]) => void; ids: string; withFollowUp?: boolean; withTitle?: boolean; /** Push K: the second role, on the Facts card once the database has it. */ withAlso?: boolean }) {
   const field = (k: keyof PersonInput, label: string, node: React.ReactNode) => (
     <div className="grid grid-cols-1 items-center gap-x-3 gap-y-1 sm:grid-cols-[104px_minmax(0,1fr)]" key={k}>
       <label htmlFor={`${ids}-${k}`} className={LABEL}>
@@ -86,6 +86,20 @@ function PersonFields({ f, set, ids, withFollowUp = true, withTitle = false }: {
           ))}
         </select>,
       )}
+      {withAlso
+        ? field(
+            "also",
+            "Also",
+            <select id={`${ids}-also`} value={f.also ?? ""} onChange={(e) => set("also", e.target.value)} className={INPUT} data-testid="person-also">
+              <option value="">No second role</option>
+              {OUTREACH_ROLES.filter((r) => r.key !== "accountability_partner" && r.key !== f.role).map((r) => (
+                <option key={r.key} value={r.key}>
+                  {r.label}
+                </option>
+              ))}
+            </select>,
+          )
+        : null}
       {text("email", "Email", "name@company.com", "email")}
       {field("purposes", "Purpose", <PurposeField id={`${ids}-purposes`} value={f.purposes} onChange={(v) => set("purposes", v)} />)}
       {text("phone", "Phone", "(404) 555-0100")}
@@ -157,7 +171,7 @@ export function PersonFactsForm({ personId, initial, onSaved, onCancel }: { pers
     });
   return (
     <div className="flex flex-col gap-3 px-[22px] pt-3 pb-4" data-testid="person-facts-form">
-      <PersonFields f={f} set={set} ids={ids} withFollowUp={false} withTitle />
+      <PersonFields f={f} set={set} ids={ids} withFollowUp={false} withTitle withAlso={initial.also !== undefined} />
       <div className="flex flex-wrap items-center justify-end gap-2">
         {error ? (
           <span className="mr-auto text-[13px] text-status-missed" role="alert" data-testid="person-error">

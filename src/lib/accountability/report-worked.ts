@@ -60,6 +60,24 @@ export function todayBox(n: { reviewed: number; added: number; moved: number; br
 const tookIn = (r: Pick<ActivityRow, "kind" | "text">) => r.kind === "listing" && /^Screened and marked Interested/.test(r.text);
 
 /**
+ * Push K (Bram, 2026-11-24): the kept Google Calendar rows that are a meeting with a person on Contacts (the row links
+ * to the person's page), as contacts for the day counts, so a calendar meeting with a broker counts toward Brokers
+ * contacted and Network outreach. A person who also has a call or a meeting logged by hand that day is counted from
+ * the logged one only.
+ */
+export function calendarContacts(kept: readonly ActivityRow[], comms: readonly { contactId: string | null; method: string }[], isBroker: (contactId: string) => boolean): { rowId: string; contactId: string; broker: boolean; method: string }[] {
+  const logged = new Set(comms.filter((c) => c.contactId && (c.method === "call" || c.method === "meeting" || c.method === "video")).map((c) => String(c.contactId).toLowerCase()));
+  const out: { rowId: string; contactId: string; broker: boolean; method: string }[] = [];
+  for (const r of kept) {
+    if (r.kind !== "calendar") continue;
+    const id = /^\/work\/people\/([0-9a-f-]{36})(?:$|[/?#])/i.exec(String(r.href ?? ""))?.[1]?.toLowerCase();
+    if (!id || logged.has(id)) continue;
+    out.push({ rowId: r.id, contactId: id, broker: isBroker(id), method: "meeting" });
+  }
+  return out;
+}
+
+/**
  * The counts from the day's facts less the rows dropped on End of day (release 4; six since push J): listings reviewed
  * from the hand-entered total, deals added from the kept Listing rows that marked a listing Interested, deals moved
  * from the kept Moved rows on acquisition deals, calls and meetings from the kept Call and Meeting rows, and brokers

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronUp, Mail, Phone, Users } from "lucide-react";
 import { addDealNote, advanceDeal, makeTodoNextAction, markInterested, markLost, passDeal, saveFacts, saveFindings, saveListingLink, saveListingText, saveNextAction, suggestQuestions, suggestTodos, type FactsInput, type FindingsInput } from "@/app/actions/work";
@@ -28,6 +29,9 @@ import { PassMenu } from "@/components/app/work/pass-menu";
 import { LogCallDrawer } from "@/components/app/work/log-call-drawer";
 import { AiButton, Pill, ROW_COLS, RowButton, WorkCard } from "@/components/app/work/ui";
 import { cn } from "@/lib/utils";
+import { brokerChoices } from "@/app/actions/broker-links";
+import { NamePicker } from "@/components/app/work/name-picker";
+import type { BrokerChoices, BrokerPick, DealBrokerLinks, DealBrokerView } from "@/lib/work/broker-links";
 
 /**
  * The cards of the deal page (/work/deals/[id]). Each card saves through its own server action and shows "Saved" or
@@ -832,7 +836,7 @@ export function Fact({ label, children, testId }: { label: string; children: Rea
  * AI instructions revision 1: Financing (All equity or Equity plus debt) on the deal page, once database update 0029
  * has run (deal.financing is null before it).
  */
-export function DealFactsForm({ deal, onSaved, onCancel, testId = "facts-form", showFinancing = true }: { deal: DealRow; onSaved: () => void; onCancel?: () => void; testId?: string; /** False in the listing popup. */ showFinancing?: boolean }) {
+export function DealFactsForm({ deal, onSaved, onCancel, testId = "facts-form", showFinancing = true, links }: { deal: DealRow; onSaved: () => void; onCancel?: () => void; testId?: string; /** False in the listing popup. */ showFinancing?: boolean; /** Push K (the deal page): the broker, associate and brokerage as links. Without it (a listing, or before the database update) the typed Broker box stays. */ links?: DealBrokerView }) {
   const ids = useId();
   const { pending, state, run } = useSave();
   const initial = (): FactsInput => ({
@@ -855,10 +859,35 @@ export function DealFactsForm({ deal, onSaved, onCancel, testId = "facts-form", 
   });
   const initialKey = JSON.stringify(initial());
   const [f, setF] = useState<FactsInput>(initial);
-  const dirty = JSON.stringify(f) !== initialKey;
+  // Push K: the three picks, and the people and organizations they offer (read when the form opens).
+  const linked = !!links?.ready;
+  const startPicks = (): DealBrokerLinks => ({ broker: links?.broker ?? null, associate: links?.associate ?? null, brokerage: links?.brokerage ?? null });
+  const [picks, setPicks] = useState<DealBrokerLinks>(startPicks);
+  const [choices, setChoices] = useState<BrokerChoices | null>(null);
+  useEffect(() => {
+    if (!linked) return;
+    let on = true;
+    brokerChoices().then((r) => {
+      if (on && r.ok) setChoices(r.choices);
+    });
+    return () => {
+      on = false;
+    };
+  }, [linked]);
+  const peopleOptions = (choices?.people ?? []).map((p) => ({ id: p.id, name: p.name, sub: [p.role, p.organization].filter(Boolean).join(" · ") || null }));
+  const orgOptions = (choices?.organizations ?? []).map((o) => ({ id: o.id, name: o.name, sub: o.kind === "broker" ? "Brokerage" : null }));
+  const pickBroker = (v: BrokerPick) =>
+    setPicks((x) => {
+      // A broker who belongs to an organization fills an empty Brokerage.
+      const person = v?.id ? choices?.people.find((p) => p.id === v.id) : null;
+      const brokerage = !x.brokerage && person?.organizationId && person.organization ? { id: person.organizationId, name: person.organization } : x.brokerage;
+      return { ...x, broker: v, brokerage };
+    });
+  const samePerson = !!picks.broker && !!picks.associate && ((!!picks.broker.id && picks.broker.id === picks.associate.id) || picks.broker.name.trim().toLowerCase() === picks.associate.name.trim().toLowerCase());
+  const dirty = JSON.stringify(f) !== initialKey || (linked && JSON.stringify(picks) !== JSON.stringify(startPicks()));
   useUnsavedWork(dirty, "The facts are not saved yet.");
-  const set = (k: keyof FactsInput) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF((x) => ({ ...x, [k]: e.target.value }));
-  const field = (k: keyof FactsInput, label: string, placeholder = "") => (
+  const set = (k: Exclude<keyof FactsInput, "links">) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF((x) => ({ ...x, [k]: e.target.value }));
+  const field = (k: Exclude<keyof FactsInput, "links">, label: string, placeholder = "") => (
     <div key={k} className="flex min-w-0 flex-col gap-1">
       <label htmlFor={`${ids}-${k}`} className={LABEL}>
         {label}
@@ -889,7 +918,36 @@ export function DealFactsForm({ deal, onSaved, onCancel, testId = "facts-form", 
       {field("askingPrice", "Asking price", "$6.0M")}
       {field("industry", "Industry")}
       {field("location", "Location", "City, ST")}
-      {field("brokerName", "Broker", "Firm, person")}
+      {linked ? (
+        // Push K: three boxes, each a record of its own (a person, a person, an organization). They follow the form's two
+        // columns (Broker and Associate side by side, Brokerage across both), so every box lines up with the fields
+        // above and below and a long name is not cut off in the narrow Facts card.
+        <div className="grid grid-cols-1 gap-x-3.5 gap-y-2.5 sm:col-span-2 sm:grid-cols-2" data-testid="fact-broker-links">
+          <div className="flex min-w-0 flex-col gap-1">
+            <label htmlFor={`${ids}-broker`} className={LABEL}>
+              Broker
+            </label>
+            <NamePicker id={`${ids}-broker`} value={picks.broker} onChange={pickBroker} options={peopleOptions} loading={!choices} addLabel={(t) => `Add "${t}" as a new broker`} placeholder="A person on Contacts, or a new name" testId="fact-broker" />
+          </div>
+          <div className="flex min-w-0 flex-col gap-1">
+            <label htmlFor={`${ids}-associate`} className={LABEL}>
+              Associate (optional)
+            </label>
+            <NamePicker id={`${ids}-associate`} value={picks.associate} onChange={(v) => setPicks((x) => ({ ...x, associate: v }))} options={peopleOptions.filter((p) => p.id !== picks.broker?.id)} loading={!choices} addLabel={(t) => `Add "${t}" as a new broker`} placeholder="Second person at the brokerage" testId="fact-associate" invalid={samePerson} />
+          </div>
+          <div className="flex min-w-0 flex-col gap-1 sm:col-span-2">
+            <label htmlFor={`${ids}-brokerage`} className={LABEL}>
+              Brokerage
+            </label>
+            <NamePicker id={`${ids}-brokerage`} value={picks.brokerage} onChange={(v) => setPicks((x) => ({ ...x, brokerage: v }))} options={orgOptions} loading={!choices} addLabel={(t) => `Add "${t}" as a new brokerage`} placeholder="Filled from the broker, or pick one" testId="fact-brokerage" />
+          </div>
+          <p className={cn("text-[12px] leading-4 sm:col-span-2", samePerson ? "font-medium text-status-missed" : "text-muted-foreground")} data-testid="fact-broker-hint">
+            {samePerson ? "The associate is the same person as the broker. Pick someone else, or clear Associate." : deal.brokerName && !links?.broker && !links?.brokerage ? `Typed before: ${deal.brokerName}. Pick the broker and the brokerage to link them.` : "Anyone picked as Broker or Associate gets the role Broker on Contacts."}
+          </p>
+        </div>
+      ) : (
+        field("brokerName", "Broker", "Firm, person")
+      )}
       {field("source", "Source")}
       {field("yearEstablished", "Year established", "2010")}
       {field("employees", "Employees", "14 full-time")}
@@ -915,7 +973,7 @@ export function DealFactsForm({ deal, onSaved, onCancel, testId = "facts-form", 
             Cancel
           </RowButton>
         ) : null}
-        <RowButton tone="primary" disabled={pending || !dirty} onClick={() => run(() => saveFacts(deal.id, f), onSaved)} data-testid="facts-save">
+        <RowButton tone="primary" disabled={pending || !dirty || samePerson} onClick={() => run(() => saveFacts(deal.id, linked ? { ...f, links: picks } : f), onSaved)} data-testid="facts-save">
           {pending ? "Saving..." : "Save"}
         </RowButton>
       </SaveLine>
@@ -988,7 +1046,7 @@ export function AddLinkInline({ dealId, testId = "add-link", onSaved, onCancel, 
   );
 }
 
-export function FactsCard({ deal }: { deal: DealRow }) {
+export function FactsCard({ deal, links }: { deal: DealRow; /** Push K: the broker, associate and brokerage as links (ready once the database update has run). */ links?: DealBrokerView }) {
   const [editing, setEditing] = useState(false);
   const [saved, setSaved] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -1013,6 +1071,7 @@ export function FactsCard({ deal }: { deal: DealRow }) {
       {editing ? (
         <DealFactsForm
           deal={deal}
+          links={deal.screened ? links : undefined}
           onSaved={() => {
             setEditing(false);
             setSaved(true);
@@ -1032,7 +1091,40 @@ export function FactsCard({ deal }: { deal: DealRow }) {
             {deal.askingMultiple ? <span className="font-normal text-muted-foreground"> ({deal.askingMultiple})</span> : null}
           </Fact>
           <Fact label="Industry">{deal.industry ?? "Not set"}</Fact>
-          <Fact label="Broker">{deal.brokerName ?? deal.contactName ?? "Not set"}</Fact>
+          {links?.ready && deal.screened && (links.broker || links.associate || links.brokerage) ? (
+            <>
+              <Fact label="Broker" testId="fact-broker-shown">
+                {links.broker ? (
+                  <Link href={`/work/people/${links.broker.id}`} className="text-primary-strong hover:underline">
+                    {links.broker.name}
+                  </Link>
+                ) : (
+                  "Not set"
+                )}
+              </Fact>
+              {links.associate ? (
+                <Fact label="Associate" testId="fact-associate-shown">
+                  <Link href={`/work/people/${links.associate.id}`} className="text-primary-strong hover:underline">
+                    {links.associate.name}
+                  </Link>
+                </Fact>
+              ) : null}
+              <Fact label="Brokerage" testId="fact-brokerage-shown">
+                {links.brokerage ? (
+                  <Link href={`/work/people/organizations/${links.brokerage.id}`} className="text-primary-strong hover:underline">
+                    {links.brokerage.name}
+                  </Link>
+                ) : (
+                  "Not set"
+                )}
+              </Fact>
+            </>
+          ) : (
+            <Fact label="Broker" testId="fact-broker-shown">
+              {deal.brokerName ?? deal.contactName ?? "Not set"}
+              {links?.ready && deal.screened && deal.brokerName ? <span className="block text-[12px] font-normal text-status-soon">Typed, not linked yet</span> : null}
+            </Fact>
+          )}
           <Fact label="Source">{deal.source ?? "Not set"}</Fact>
           <Fact label="Year established" testId="fact-year">{deal.yearEstablished ?? "Not known"}</Fact>
           <Fact label="Employees" testId="fact-employees">{deal.employees ?? "Not known"}</Fact>

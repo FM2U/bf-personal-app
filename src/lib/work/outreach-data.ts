@@ -1,4 +1,5 @@
 import "server-only";
+import { isMissingSchemaError } from "@/lib/schema-guard";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { todayInTz } from "@/lib/calc/dates";
 import { buildFacts } from "@/lib/accountability/facts";
@@ -36,6 +37,10 @@ export type PersonRow = {
   organization: string | null;
   roleKey: string | null;
   roleLabel: string | null;
+  /** Push K: the second role ("Also"), and whether the database has it yet (the Facts form shows the field only then). */
+  alsoKey: string | null;
+  alsoLabel: string | null;
+  alsoReady: boolean;
   /** The contact's title ("COO", "Broker, East Tennessee"), shown after the role. */
   title: string | null;
   purposes: PurposeKey[];
@@ -60,6 +65,14 @@ export type PersonRow = {
 
 export const CONTACT_COLUMNS = "id,name,organization_id,outreach_role,title,purposes,notes,email,phone,linkedin_url,follow_up_date,follow_up_note,last_contact_at,last_contact_kind,archived_at,created_at";
 
+/** Push K: the list columns with the second role; read with a fallback to CONTACT_COLUMNS until the update runs. */
+export const CONTACT_COLUMNS_K = `${CONTACT_COLUMNS},second_role`;
+export async function readContacts<T>(run: (columns: string) => PromiseLike<{ data: T; error: { message: string; code?: string } | null }>): Promise<{ data: T; error: { message: string; code?: string } | null }> {
+  const first = await run(CONTACT_COLUMNS_K);
+  if (first.error && isMissingSchemaError(first.error)) return run(CONTACT_COLUMNS);
+  return first;
+}
+
 export function toPersonRow(c: Row, orgName: string | null, tz: string, waits: WaitLine[] = []): PersonRow {
   const note = String(c.notes ?? "").split("\n").map((l) => l.trim()).find(Boolean) ?? null;
   return {
@@ -69,6 +82,9 @@ export function toPersonRow(c: Row, orgName: string | null, tz: string, waits: W
     organization: orgName,
     roleKey: normalizeRole(c.outreach_role as string | null),
     roleLabel: roleLabel(c.outreach_role as string | null),
+    alsoKey: normalizeRole(c.second_role as string | null),
+    alsoLabel: roleLabel(c.second_role as string | null),
+    alsoReady: Object.prototype.hasOwnProperty.call(c, "second_role"),
     title: c.title ? String(c.title) : null,
     purposes: parsePurposes(c.purposes),
     note: note ? note.slice(0, 200) : null,
@@ -130,12 +146,12 @@ async function loadOutreachCounter(sb: SupabaseClient, ctx: Ctx): Promise<Outrea
 
 export async function loadPeople(sb: SupabaseClient, ownerId: string, tz: string): Promise<PersonRow[]> {
   const [{ data, error }, { data: orgs }] = await Promise.all([
-    sb.from("contacts").select(CONTACT_COLUMNS).eq("owner_id", ownerId).order("name").limit(2000),
+    readContacts((columns) => sb.from("contacts").select(columns).eq("owner_id", ownerId).order("name").limit(2000)),
     sb.from("organizations").select("id,name").eq("owner_id", ownerId).limit(2000),
   ]);
   if (error) throw new Error(error.message);
   const orgName = Object.fromEntries(((orgs ?? []) as Row[]).map((o) => [String(o.id), String(o.name)]));
-  return ((data ?? []) as Row[]).map((c) => toPersonRow(c, c.organization_id ? orgName[String(c.organization_id)] ?? null : null, tz));
+  return ((data ?? []) as unknown as Row[]).map((c) => toPersonRow(c, c.organization_id ? orgName[String(c.organization_id)] ?? null : null, tz));
 }
 
 /** The email setup for one person (the Email button on a row): to the person, logged to the contact. */

@@ -116,7 +116,7 @@ export function kindOptions(held: readonly string[]): { value: string; label: st
 }
 
 /** What a person row needs for the filters: the role, the last contact and next follow-up dates, the organization's kind. */
-export type PersonFilterRow = { roleKey: string | null; lastContactOn: string | null; nextFollowUp: string | null; organizationId: string | null };
+export type PersonFilterRow = { roleKey: string | null; /** Push K: the second role ("Also"); the Role filter matches either. */ alsoKey?: string | null; lastContactOn: string | null; nextFollowUp: string | null; organizationId: string | null };
 
 /**
  * Last contact, in groups that never overlap: This week (since Monday), This month (the last 30 days, before this
@@ -147,7 +147,7 @@ export function followUpBucket(date: string | null, today: string, value: string
 /** The four groups of People: Role, Last contact, Follow-up, Organization kind. */
 export function personFilterGroups<T extends PersonFilterRow>(today: string, kindOf: (orgId: string) => string | null, heldKinds: readonly string[]): FilterGroup<T>[] {
   return [
-    { key: "role", title: "Role", options: ROLE_ORDER.map((r) => ({ value: r.key, label: r.label })), test: (p, v) => p.roleKey === v },
+    { key: "role", title: "Role", options: ROLE_ORDER.map((r) => ({ value: r.key, label: r.label })), test: (p, v) => p.roleKey === v || p.alsoKey === v },
     {
       key: "lc",
       title: "Last contact",
@@ -192,7 +192,7 @@ const PROJECT_ORDER = ["off_market_deals", "rosara", "job_search", "consulting"]
  */
 export function followUpFilterGroups<T extends PersonFilterRow & { purposes: readonly string[] }>(): FilterGroup<T>[] {
   return [
-    { key: "role", title: "Role", options: ROLE_ORDER.map((r) => ({ value: r.key, label: r.label })), test: (p, v) => p.roleKey === v },
+    { key: "role", title: "Role", options: ROLE_ORDER.map((r) => ({ value: r.key, label: r.label })), test: (p, v) => p.roleKey === v || p.alsoKey === v },
     {
       key: "proj",
       title: "Project",

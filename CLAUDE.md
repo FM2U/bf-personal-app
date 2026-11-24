@@ -32,6 +32,8 @@ to-dos) plus Accountability (targets, End of day report to partners, weekly and 
   `node dev-tools/check-priorities.cjs` (Top priorities, the daily report, Today's activity, Log a meeting;
   Bram, 2026-11-17),
   `node dev-tools/check-home.cjs` (the new Home: cards, Next actions card, calendar day view, phone order; Bram, 2026-11-17),
+  `node dev-tools/check-brokers.cjs` (broker links: Brokers to link, the deal's Broker, Associate and Brokerage, a person
+  on every call, the second role; Bram, 2026-11-24),
   `node dev-tools/check-ai-rules.cjs` (after any prompt change).
 - Afterwards: `git checkout -- docs/screenshots` and remove untracked images.
 - Vercel build status: `gh api repos/FM2U/bf-personal-app/commits/<sha>/statuses`.

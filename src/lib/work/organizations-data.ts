@@ -6,7 +6,7 @@ import { organizationRecipients } from "@/lib/calc/compose-email";
 import type { Ctx } from "@/lib/engine/helpers";
 import { date as fmtDate } from "@/lib/format";
 import { orgKindLabel, parseOrgKind, type OrgKind } from "@/lib/work/people";
-import { CONTACT_COLUMNS, toPersonRow, type PersonRow } from "@/lib/work/outreach-data";
+import { readContacts, toPersonRow, type PersonRow } from "@/lib/work/outreach-data";
 import { DEFAULT_WAIT_THRESHOLD_DAYS, type WaitLevel } from "@/lib/work/stages";
 import { waitLines, waitSummary } from "@/lib/work/waiting";
 import { loadWaitsFor } from "@/lib/work/waits-data";
@@ -134,7 +134,7 @@ export async function loadOrgPage(sb: SupabaseClient, ctx: Ctx, id: string): Pro
   const o = row as Row | null;
   if (!o) return base;
   const [{ data: people }, { data: allPeople }, { data: orgNames }, { data: taskRows }, { data: notes }, { data: pipes }] = await Promise.all([
-    sb.from("contacts").select(CONTACT_COLUMNS).eq("owner_id", ctx.ownerId).eq("organization_id", id).order("name").limit(500),
+    readContacts((columns) => sb.from("contacts").select(columns).eq("owner_id", ctx.ownerId).eq("organization_id", id).order("name").limit(500)),
     sb.from("contacts").select("id,name,organization_id,archived_at").eq("owner_id", ctx.ownerId).order("name").limit(5000),
     sb.from("organizations").select("id,name").eq("owner_id", ctx.ownerId).limit(5000),
     sb.from("deal_todos").select(RECORD_TASK_COLUMNS).eq("owner_id", ctx.ownerId).eq("record_type", "organizations").eq("record_id", id).limit(500),

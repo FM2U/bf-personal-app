@@ -1,4 +1,5 @@
 import "server-only";
+import { NO_BROKER_VIEW, type DealBrokerView } from "@/lib/work/broker-links";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { todayInTz } from "@/lib/calc/dates";
 import { loadCtx, type Ctx } from "@/lib/engine/helpers";
@@ -62,6 +63,9 @@ export type DealRow = {
   location: string | null;
   industry: string | null;
   brokerName: string | null;
+  /** Push K: the deal's brokerage (an organization), or null; `brokerLinksReady` is false before the database update. */
+  brokerageId: string | null;
+  brokerLinksReady: boolean;
   source: string | null;
   listingUrl: string | null;
   whySelling: string | null;
@@ -230,6 +234,9 @@ const ITEM_COLUMNS_0027 = `${ITEM_COLUMNS},year_established,employees`;
 
 /** Runs a pipeline_items read with the 0027 columns, and again without them when the database does not have them yet. */
 async function readItems<T>(run: (columns: string) => PromiseLike<{ data: T; error: { message: string; code?: string } | null }>): Promise<{ data: T; error: { message: string; code?: string } | null }> {
+  // Push K: the deal's brokerage link, so lists know a broker typed as text from one that is linked.
+  const k = await run(`${ITEM_COLUMNS_0027},broker_organization_id`);
+  if (!k.error || !isMissingSchemaError(k.error)) return k;
   const first = await run(ITEM_COLUMNS_0027);
   if (first.error && isMissingSchemaError(first.error)) return run(ITEM_COLUMNS);
   return first;
@@ -310,6 +317,8 @@ function toDealRow(i: Row, f: Row | undefined, contact: Row | undefined, pipe: W
     location: i.location ?? null,
     industry: i.industry ?? null,
     brokerName: i.broker_name ?? null,
+    brokerageId: i.broker_organization_id ? String(i.broker_organization_id) : null,
+    brokerLinksReady: Object.prototype.hasOwnProperty.call(i, "broker_organization_id"),
     source: i.source ?? null,
     listingUrl: i.listing_url ?? null,
     whySelling: i.why_selling ?? null,
@@ -517,7 +526,7 @@ type DealPageData = {
   passedStageId: string | null;
   lostStageId: string | null;
   /** False before UPDATE_PREVIEW_PUSH_E2.sql (the waits list on the Next action card says so and cannot save). */
-  waitsReady: boolean;
+  waitsReady: boolean; /** Push K: the deal's broker, associate and brokerage as links. */ brokerLinks: DealBrokerView;
 };
 
 /** The deal page: the deal, its timeline (notes, communications, stage moves; newest first), documents, and the email setup. */
@@ -545,11 +554,20 @@ export async function loadDealPage(sb: SupabaseClient, ownerId: string, id: stri
     return cid ? await sb.from("contacts").select("id,name,email,organization_id").eq("id", cid).maybeSingle() : { data: null };
   });
   const composeP = restP.then(([, , , , , , { data: full }]) => (full ? loadComposeSetup(sb, ownerId, "pipeline_items", full as Row).catch(() => null) : null));
+  // Push K: the associate and the brokerage, read at the same moment as the compose setup (no extra trip).
+  const brokerP = restP.then(async ([, , , , , , { data: full }]): Promise<{ associate: Row | null; brokerage: Row | null }> => {
+    const f = full as Row | null;
+    const [a, o] = await Promise.all([
+      f?.broker_associate_contact_id ? sb.from("contacts").select("id,name").eq("id", f.broker_associate_contact_id).maybeSingle() : Promise.resolve({ data: null }),
+      f?.broker_organization_id ? sb.from("organizations").select("id,name").eq("id", f.broker_organization_id).maybeSingle() : Promise.resolve({ data: null }),
+    ]);
+    return { associate: (a.data as Row | null) ?? null, brokerage: (o.data as Row | null) ?? null };
+  });
   // Started early; when the page returns before using one, its failure is dropped, as the read never ran before.
-  for (const p of [rowP, restP, waitsP, repliesP, contactP, composeP]) Promise.resolve(p).catch(() => {});
+  for (const p of [rowP, restP, waitsP, repliesP, contactP, composeP, brokerP]) Promise.resolve(p).catch(() => {});
 
   const ctx = await ctxP;
-  const base: DealPageData = { available: false, notice: null, today: ctx.today, tz: ctx.tz, threshold: ctx.threshold, deal: null, timeline: [], documents: [], todos: [], listingText: null, listingTextReady: false, findingListsReady: false, growthPathsReady: false, buyBox: defaultBuyBoxSettings(), lastContact: null, compose: null, questionsCompose: null, advanceTo: null, passedStageId: null, lostStageId: null, waitsReady: false };
+  const base: DealPageData = { available: false, notice: null, today: ctx.today, tz: ctx.tz, threshold: ctx.threshold, deal: null, brokerLinks: NO_BROKER_VIEW, timeline: [], documents: [], todos: [], listingText: null, listingTextReady: false, findingListsReady: false, growthPathsReady: false, buyBox: defaultBuyBoxSettings(), lastContact: null, compose: null, questionsCompose: null, advanceTo: null, passedStageId: null, lostStageId: null, waitsReady: false };
   const notice = null;
   if (notice) return { ...base, notice };
   const pipe = await pipeP;
@@ -559,6 +577,7 @@ export async function loadDealPage(sb: SupabaseClient, ownerId: string, id: stri
   // Only a deal of the acquisition pipeline opens here (the read above no longer filters by pipeline).
   if (!item || String(item.pipeline_id) !== String(pipe.id)) return { ...base, available: true };
   const [{ data: contact }, [{ data: fin }, { data: notes }, { data: comms }, { data: links }, { data: history }, documents, { data: full }, { data: todoRows }, buyBox], waits, replies, compose] = await Promise.all([contactP, restP, waitsP, repliesP, composeP]);
+  const brokerRows = await brokerP.catch(() => ({ associate: null, brokerage: null }));
   const todos = sortTodos(((todoRows ?? []) as Row[]).map(toTodo));
   // Strengths and risks (database update 0028), growth paths and financing (0029) come with the row read with "*".
   const fullRow = (full as Row | null) ?? {};
@@ -601,6 +620,12 @@ export async function loadDealPage(sb: SupabaseClient, ownerId: string, id: stri
     // Kept on the record (database update 0027), never as a note, so it is not in the Timeline.
     listingText: typeof (full as Row | null)?.listing_text === "string" && String((full as Row).listing_text).trim() ? String((full as Row).listing_text) : null,
     listingTextReady: !!full && Object.prototype.hasOwnProperty.call(full, "listing_text"),
+    brokerLinks: {
+      ready: !!full && Object.prototype.hasOwnProperty.call(full, "broker_organization_id"),
+      broker: contact ? { id: String((contact as Row).id), name: String((contact as Row).name ?? "") } : null,
+      associate: brokerRows.associate ? { id: String(brokerRows.associate.id), name: String(brokerRows.associate.name ?? "") } : null,
+      brokerage: brokerRows.brokerage ? { id: String(brokerRows.brokerage.id), name: String(brokerRows.brokerage.name ?? "") } : null,
+    },
     findingListsReady: !!full && Object.prototype.hasOwnProperty.call(full, "strengths"),
     growthPathsReady: !!full && Object.prototype.hasOwnProperty.call(full, "growth_paths"),
     buyBox,

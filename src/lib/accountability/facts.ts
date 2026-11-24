@@ -9,6 +9,7 @@
  * listing or deal, the person or the deal an email was on, the record a next action was done on). Item 2 of
  * 2026-11-05: a follow-up marked Done on Contacts counts toward Follow-ups on time and as a next action done (Contacts).
  */
+import { isBrokerPerson } from "@/lib/work/broker-links";
 import { passReasonLabel } from "@/lib/work/buy-box";
 import { recordHref } from "@/lib/work/task-records";
 import { displayName } from "@/lib/work/names";
@@ -107,7 +108,7 @@ export function buildFacts(r: FactsRows): { facts: Facts; passes: Pass[] } {
     // An email on a deal opens the deal; otherwise the person (or, with no person, the record it was on).
     const onDeal = c.method === "email" && c.pipeline_item_id && itemArea(c.pipeline_item_id) === "Deals" && itemById.has(String(c.pipeline_item_id));
     const href = onDeal ? itemHref(c.pipeline_item_id) : c.contact_id ? recordHref({ kind: "person", id: String(c.contact_id) }) : itemById.has(String(c.pipeline_item_id ?? "")) ? itemHref(c.pipeline_item_id) : null;
-    facts.comms.push({ on, method: String(c.method), contactId: c.contact_id ? String(c.contact_id) : null, contactName: contact?.name ? String(contact.name) : null, broker: contact?.outreach_role === "broker", href });
+    facts.comms.push({ on, method: String(c.method), contactId: c.contact_id ? String(c.contact_id) : null, contactName: contact?.name ? String(contact.name) : null, broker: isBrokerPerson(contact), href });
   }
   // Item 2 of 2026-11-05: a follow-up marked Done on Contacts is also a next action done, under Contacts (the person's
   // name, the follow-up note as the action). One Done counts once: a second event for the same person, day, and action

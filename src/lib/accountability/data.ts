@@ -1,4 +1,6 @@
 import "server-only";
+import { isBrokerPerson } from "@/lib/work/broker-links";
+import { isMissingSchemaError } from "@/lib/schema-guard";
 import { OPENING_MAX } from "@/lib/accountability/opening-format";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDaysISO, monthStart, todayInTz } from "@/lib/calc/dates";
@@ -32,7 +34,7 @@ import { loadPriorities, type PrioritiesData } from "@/lib/work/priorities-data"
 import { buildTracks, partnerName } from "@/lib/accountability/report-v8";
 import { cleanDrafts, DRAFTS_KEY, type DraftRecord, type ReportDrafts } from "@/lib/accountability/report-drafts";
 import { ACTIVITY_CALENDAR_KEY, ACTIVITY_DROPPED_KEY, cleanCalendarRows, cleanDropped, sortActivity, uniqueIds, type ActivityRow } from "@/lib/accountability/activity";
-import { buildWorked, keptBox, rowsByRecord, rowWords } from "@/lib/accountability/report-worked";
+import { buildWorked, keptBox, rowsByRecord, rowWords, calendarContacts } from "@/lib/accountability/report-worked";
 import { nextWorkDay } from "@/lib/work-week";
 import { dayTotal, reviewedRows, toEntry, type ReviewedEntry } from "@/lib/accountability/listings-reviewed";
 
@@ -122,7 +124,13 @@ export async function loadFacts(sb: SupabaseClient, ctx: WorkCtx, since: string)
     sb.from("communications").select("id,occurred_at,method,direction,contact_id,awaiting_log,pipeline_item_id,subject,call_minutes,partner_report_id").eq("owner_id", ctx.ownerId).gte("occurred_at", `${since}T00:00:00Z`).limit(5000),
     sb.from("work_events").select("kind,record_type,record_id,label,happened_on,happened_at,on_time,meta").eq("owner_id", ctx.ownerId).gte("happened_on", since).limit(5000),
     sb.from("end_of_day").select("day,status").eq("owner_id", ctx.ownerId).eq("status", "skipped").gte("day", since).limit(500),
-    sb.from("contacts").select("id,name,outreach_role,organization_id,archived_at").eq("owner_id", ctx.ownerId).limit(5000),
+    // Push K: a person's second role ("Also") counts too; before the database update the read falls back to Role alone.
+    sb
+      .from("contacts")
+      .select("id,name,outreach_role,second_role,organization_id,archived_at")
+      .eq("owner_id", ctx.ownerId)
+      .limit(5000)
+      .then((r) => (r.error && isMissingSchemaError(r.error) ? sb.from("contacts").select("id,name,outreach_role,organization_id,archived_at").eq("owner_id", ctx.ownerId).limit(5000) : r)),
     sb.from("notes").select("record_id,body,created_at").eq("owner_id", ctx.ownerId).eq("record_type", "pipeline_items").gte("created_at", `${addDaysISO(since, 56)}T00:00:00Z`).limit(5000),
     // Push E2: the waits (several per deal or person).
     loadWaitsFor(sb, ctx.ownerId),
@@ -561,12 +569,14 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
     ? buildWorked({ rows: kept, items: bundle.raw.items, projects: i.v8.projects, pipes: { acquisition: bundle.raw.acqId, job: bundle.raw.jobId, consulting: bundle.raw.conId ?? null }, stageById: bundle.raw.stageById, history: bundle.raw.history, columns: i.v8.priorities.columns, ebitda: i.v8.ebitda, revenue: i.v8.revenue, day, local, todayText: Object.fromEntries(Object.entries(row.drafts.today).map(([id, n]) => [id, n.text])) })
     : null;
   // The gray Today box: the day's counts less the rows dropped (the same rules as the targets).
+  const dayComms = bundle.raw.comms
+    .filter((c) => local(String(c.occurred_at)) === day && c.direction !== "incoming" && !c.awaiting_log)
+    .map((c) => ({ rowId: `comm:${c.id}`, contactId: c.contact_id ? String(c.contact_id) : null, broker: isBrokerPerson(personById.get(String(c.contact_id ?? ""))), method: String(c.method) }));
   const box = keptBox({
     kept,
     dropped: droppedSet,
-    comms: bundle.raw.comms
-      .filter((c) => local(String(c.occurred_at)) === day && c.direction !== "incoming" && !c.awaiting_log)
-      .map((c) => ({ rowId: `comm:${c.id}`, contactId: c.contact_id ? String(c.contact_id) : null, broker: personById.get(String(c.contact_id ?? ""))?.outreach_role === "broker", method: String(c.method) })),
+    // Push K: a kept calendar meeting with a person on Contacts counts as contact with that person.
+    comms: [...dayComms, ...calendarContacts(kept, dayComms.filter((c) => !droppedSet.has(c.rowId)), (id) => isBrokerPerson(personById.get(id)))],
     acquisitionIds: new Set(bundle.raw.items.filter((r) => String(r.pipeline_id) === String(bundle.raw.acqId)).map((r) => String(r.id).toLowerCase())),
     reviewed: i.v8?.reviewed ? dayTotal(i.v8.reviewed, day).total : 0,
   });

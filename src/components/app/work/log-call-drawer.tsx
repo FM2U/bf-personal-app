@@ -1,7 +1,10 @@
 "use client";
 
-import { useId, useState, useTransition } from "react";
+import { useEffect, useId, useState, useTransition } from "react";
 import { logCall } from "@/app/actions/outreach";
+import { brokerChoices } from "@/app/actions/broker-links";
+import { NamePicker, type NameOption } from "@/components/app/work/name-picker";
+import type { BrokerPick } from "@/lib/work/broker-links";
 import { useUnsavedWork } from "@/components/app/unsaved-changes";
 import { date as fmtDate } from "@/lib/format";
 import { nextDateChoices } from "@/lib/work/outreach";
@@ -53,7 +56,21 @@ export function LogCallDrawer({ target, today, tz, open, onOpenChange, onSaved, 
 
 function CallForm({ target, today, tz, onOpenChange, onSaved, kind }: { kind: LogKind; target: LogCallTarget; today: string; tz: string; onOpenChange: (open: boolean) => void; onSaved?: (r: { minutes: number; nextDate: string | null | "keep"; nextAction: string | null }) => void }) {
   const ids = useId();
-  const [who, setWho] = useState(target.who);
+  // Push K (Bram, 2026-11-24): every call and meeting names a person. From a person's own page the person is fixed; from
+  // a deal the box starts with the deal's broker and can be changed; anywhere, a new name is added to Contacts on Save.
+  const fixed = !!target.contactId && !target.dealId;
+  const [who, setWho] = useState<BrokerPick>(target.contactId ? { id: target.contactId, name: target.who } : null);
+  const [people, setPeople] = useState<NameOption[] | null>(null);
+  useEffect(() => {
+    if (fixed) return;
+    let on = true;
+    brokerChoices().then((r) => {
+      if (on && r.ok) setPeople(r.choices.people.map((p) => ({ id: p.id, name: p.name, sub: [p.role, p.organization].filter(Boolean).join(" · ") || null })));
+    });
+    return () => {
+      on = false;
+    };
+  }, [fixed]);
   const [when, setWhen] = useState(() => nowLocal(tz));
   const [minutes, setMinutes] = useState(kind === "meeting" ? "60" : "20");
   const [said, setSaid] = useState("");
@@ -68,7 +85,8 @@ function CallForm({ target, today, tz, onOpenChange, onSaved, kind }: { kind: Lo
   const save = () =>
     start(async () => {
       setError(null);
-      const r = await logCall({ contactId: target.contactId, dealId: target.dealId, organizationId: target.organizationId ?? null, who, when, minutes, said, nextAction: next, nextDate, kind });
+      if (!who) return setError(kind === "meeting" ? "Who was this meeting with? Pick a person, or type a name to add them to Contacts." : "Who was this call with? Pick a person, or type a name to add them to Contacts.");
+      const r = await logCall({ contactId: fixed ? target.contactId : who.id, dealId: target.dealId, organizationId: target.organizationId ?? null, who: who.name, when, minutes, said, nextAction: next, nextDate, kind });
       if (!r.ok) return setError(r.error);
       onOpenChange(false);
       onSaved?.({ minutes: Number(minutes) || 0, nextDate: nextDate === "keep" ? "keep" : nextDate === "none" ? null : nextDate, nextAction: next.trim() || null });
@@ -77,9 +95,13 @@ function CallForm({ target, today, tz, onOpenChange, onSaved, kind }: { kind: Lo
     <>
       <div className="grid grid-cols-1 items-center gap-x-4 gap-y-3 sm:grid-cols-[118px_minmax(0,1fr)]" data-testid="log-call-form">
         <label htmlFor={`${ids}-who`} className={LABEL}>
-          Who
+          With
         </label>
-        <input id={`${ids}-who`} value={who} onChange={(e) => setWho(e.target.value)} disabled={!!target.contactId} className={INPUT} placeholder={kind === "meeting" ? "Who you met with" : "Who you spoke with"} data-testid="call-who" />
+        {fixed ? (
+          <input id={`${ids}-who`} value={target.who} disabled className={INPUT} data-testid="call-who" />
+        ) : (
+          <NamePicker id={`${ids}-who`} value={who} onChange={setWho} options={people ?? []} loading={!people} addLabel={(t) => `Add "${t}" to Contacts`} placeholder={kind === "meeting" ? "The person you met with" : "The person you spoke with"} testId="call-who-pick" inputTestId="call-who" />
+        )}
         <label htmlFor={`${ids}-when`} className={LABEL}>
           Date and time
         </label>

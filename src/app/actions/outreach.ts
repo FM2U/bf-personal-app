@@ -8,7 +8,7 @@ import { addDaysISO } from "@/lib/calc/dates";
 import { loadCtx, type Ctx } from "@/lib/engine/helpers";
 import { emailAddressProblem } from "@/lib/email-address";
 import { DB_UPDATE_NOTICE_0022, isMissingSchemaError } from "@/lib/schema-guard";
-import { parsePurposes, roleForDatabase } from "@/lib/work/outreach";
+import { parsePurposes, roleForDatabase, normalizeRole } from "@/lib/work/outreach";
 import { TODO_MAX_LENGTH } from "@/lib/work/questions";
 import { nextTodoPosition, type DealTodo } from "@/lib/work/todos";
 import type { Row } from "@/lib/types";
@@ -59,7 +59,7 @@ async function organizationByName(sb: SupabaseClient, ctx: Ctx, name: string | n
   return String(made.id);
 }
 
-export type PersonInput = { name: string; organization: string; role: string; purposes: string[]; email: string; phone: string; linkedin: string; nextFollowUp: string; note: string; title?: string; followUpFor?: string };
+export type PersonInput = { /** Push K: the second role ("Also"); "" for none. Left as it is when not given. */ also?: string; name: string; organization: string; role: string; purposes: string[]; email: string; phone: string; linkedin: string; nextFollowUp: string; note: string; title?: string; followUpFor?: string };
 
 function personRow(input: PersonInput, existingNotes: string | null, has0026: boolean): Row {
   const email = clean(input.email, 200);
@@ -119,6 +119,11 @@ export async function savePersonFacts(id: string, input: PersonInput): Promise<{
   if (isFail(orgId)) return orgId;
   const row = personRow({ ...input, nextFollowUp: person.follow_up_date ? String(person.follow_up_date) : "" }, person.notes as string | null, true);
   delete row.follow_up_date;
+  // Push K: Also is saved once the column exists (the row read with "*" shows it); never the same as Role, never partner.
+  if (input.also !== undefined && Object.prototype.hasOwnProperty.call(person, "second_role")) {
+    const also = normalizeRole(input.also);
+    row.second_role = also && also !== "accountability_partner" && also !== normalizeRole(String(row.outreach_role ?? "")) ? also : null;
+  }
   const { error } = await sb.from("contacts").update({ name, organization_id: orgId, ...row }).eq("id", person.id);
   if (error) return notSaved(error);
   done();
@@ -222,10 +227,25 @@ export async function logCall(input: LogCallInput): Promise<{ ok: true; commId: 
     const { data: o } = await sb.from("organizations").select("id,name,next_action,next_action_due").eq("owner_id", ctx.ownerId).eq("id", input.organizationId).maybeSingle();
     org = (o as Row | null) ?? null;
     if (!org) return fail("This organization was not found.");
+  }
+  // Push K (Bram, 2026-11-24): every call and meeting names a person. A typed name is the person of that name (at the
+  // organization first, when the call is logged from one), else a new person on Contacts.
+  const meeting = input.kind === "meeting";
+  if (!person) {
     const typed = clean(input.who, 120);
-    if (typed) {
+    if (!typed) return fail(meeting ? "Who was this meeting with? Pick a person, or type a name to add them to Contacts." : "Who was this call with? Pick a person, or type a name to add them to Contacts.");
+    if (org) {
       const { data: hit } = await sb.from("contacts").select("*").eq("owner_id", ctx.ownerId).eq("organization_id", org.id).ilike("name", typed).limit(1);
       person = ((hit ?? []) as Row[])[0] ?? null;
+    }
+    if (!person) {
+      const { data: hit } = await sb.from("contacts").select("*").eq("owner_id", ctx.ownerId).ilike("name", typed).is("archived_at", null).limit(1);
+      person = ((hit ?? []) as Row[])[0] ?? null;
+    }
+    if (!person) {
+      const { data: made, error: e0 } = await sb.from("contacts").insert({ owner_id: ctx.ownerId, name: typed, organization_id: org?.id ?? null }).select("*").single();
+      if (e0) return notSaved(e0);
+      person = made as Row;
     }
   }
   let deal: Row | null = null;
@@ -235,9 +255,7 @@ export async function logCall(input: LogCallInput): Promise<{ ok: true; commId: 
     deal = (data as Row | null) ?? null;
     if (!deal) return fail("This deal was not found.");
   }
-  const who = person ? String(person.name) : clean(input.who, 120);
-  const meeting = input.kind === "meeting";
-  if (!who) return fail(meeting ? "Say who the meeting was with." : "Say who the call was with.");
+  const who = String(person.name);
   const minutesRaw = Number(String(input.minutes ?? "").replace(/[^\d.]/g, ""));
   const minutes = Number.isFinite(minutesRaw) && minutesRaw > 0 ? Math.min(1440, Math.round(minutesRaw)) : null;
   // The drawer's time is to the minute. A call logged in the current minute is logged as of now (to the second), so it
@@ -252,12 +270,12 @@ export async function logCall(input: LogCallInput): Promise<{ ok: true; commId: 
     occurred_at: when,
     method: meeting ? "meeting" : "call",
     direction: "outgoing",
-    contact_id: person ? person.id : (deal?.primary_contact_id ?? null),
-    organization_id: person?.organization_id ?? deal?.organization_id ?? org?.id ?? null,
+    contact_id: person.id,
+    organization_id: org?.id ?? person.organization_id ?? deal?.organization_id ?? null,
     subject: `${meeting ? "Meeting" : "Call"} with ${who}`,
     summary: said,
-    is_outreach: !!person,
-    purpose: deal ? "general" : person?.is_consulting_lead ? "consulting" : person?.is_deal_source ? "deal_sourcing" : "general",
+    is_outreach: true,
+    purpose: deal ? "general" : person.is_consulting_lead ? "consulting" : person.is_deal_source ? "deal_sourcing" : "general",
     pipeline_item_id: deal?.id ?? null,
     call_minutes: minutes,
     call_outcome: next,
@@ -267,7 +285,7 @@ export async function logCall(input: LogCallInput): Promise<{ ok: true; commId: 
   if (deal) await sb.from("record_links").insert({ owner_id: ctx.ownerId, from_type: "communications", from_id: data.id, to_type: "pipeline_items", to_id: deal.id, relation: "concerns" });
   const date = input.nextDate === "none" ? null : DATE.test(String(input.nextDate ?? "")) ? String(input.nextDate) : "keep";
   // The outcome on a person: the next follow-up. On a deal: the next action.
-  if (person && !deal) {
+  if (!deal && !org) {
     const update: Row = {};
     if (next) update.follow_up_note = next;
     if (date !== "keep") update.follow_up_date = date;

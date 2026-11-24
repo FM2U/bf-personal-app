@@ -173,7 +173,7 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
         }
         right={
           <>
-          <FactsCard deal={growthReady ? deal : { ...deal, financing: null }} />
+          <FactsCard deal={growthReady ? deal : { ...deal, financing: null }} links={d.brokerLinks} />
           <ListingTextCard dealId={deal.id} text={d.listingText} ready={d.listingTextReady} notice={DB_UPDATE_NOTICE_0027} />
           <TimelineCard deal={deal} events={d.timeline} />
           {state.documents ? <DocumentsCard table="pipeline_items" id={deal.id} docs={d.documents} storageKey="work:deal" defaultOpen /> : null}

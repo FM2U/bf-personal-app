@@ -284,7 +284,7 @@ export function PersonFactsCard({ person, records, today }: { person: PersonRow;
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [saved, setSaved] = useState(false);
-  const initial: PersonInput = { name: person.name, organization: person.organization ?? "", role: person.roleKey ?? "other", title: person.title ?? "", purposes: [...person.purposes], email: person.email ?? "", phone: person.phone ?? "", linkedin: person.linkedin ?? "", nextFollowUp: "", note: person.note ?? "" };
+  const initial: PersonInput = { name: person.name, organization: person.organization ?? "", role: person.roleKey ?? "other", ...(person.alsoReady ? { also: person.alsoKey ?? "" } : {}), title: person.title ?? "", purposes: [...person.purposes], email: person.email ?? "", phone: person.phone ?? "", linkedin: person.linkedin ?? "", nextFollowUp: "", note: person.note ?? "" };
   const link = person.linkedin ? (person.linkedin.startsWith("http") ? person.linkedin : `https://${person.linkedin}`) : null;
   return (
     <WorkCard
@@ -322,7 +322,7 @@ export function PersonFactsCard({ person, records, today }: { person: PersonRow;
             )}
           </Fact>
           <Fact label="Role" testId="pf-role">
-            {[person.roleLabel, person.title].filter(Boolean).join(", ") || "Not set"}
+            {[person.roleLabel, person.alsoLabel ? `also ${person.alsoLabel}` : null, person.title].filter(Boolean).join(", ") || "Not set"}
           </Fact>
           <Fact label="Purpose" testId="pf-purpose">
             {purposesText(person.purposes) || "Not set"}

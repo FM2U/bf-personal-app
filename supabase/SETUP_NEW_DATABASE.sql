@@ -4069,3 +4069,16 @@ alter table public.listings_reviewed enable row level security;
 create policy owner_only on public.listings_reviewed to authenticated using (public.is_owner(owner_id)) with check (public.is_owner(owner_id));
 grant all on table public.listings_reviewed to authenticated;
 grant all on table public.listings_reviewed to service_role;
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- Broker links (push K, 2026-11-24): a deal's associate (a second person at the brokerage) and its brokerage (an
+-- organization); the deal's broker is its primary_contact_id. A person's second role ("Also").
+-- ---------------------------------------------------------------------------------------------------------------
+alter table public.pipeline_items add column broker_associate_contact_id uuid;
+alter table public.pipeline_items add column broker_organization_id uuid;
+alter table public.contacts add column second_role text;
+alter table public.pipeline_items add constraint pipeline_items_broker_associate_contact_id_fkey foreign key (broker_associate_contact_id) references public.contacts(id) on delete set null;
+alter table public.pipeline_items add constraint pipeline_items_broker_organization_id_fkey foreign key (broker_organization_id) references public.organizations(id) on delete set null;
+alter table public.contacts add constraint contacts_second_role_check check ((second_role is null) or (second_role = any (array['broker'::text, 'lender'::text, 'personal_network'::text, 'service_provider'::text, 'rosara_customer'::text, 'recruiter'::text, 'cofounder_candidate'::text, 'investor'::text, 'consulting_client'::text, 'other'::text])));
+create index pipeline_items_broker_org_idx on public.pipeline_items using btree (broker_organization_id);
+create index pipeline_items_broker_associate_idx on public.pipeline_items using btree (broker_associate_contact_id);

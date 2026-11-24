@@ -27,7 +27,7 @@ const listing: DealRow = {
   whatItDoes: "One-on-one burnout coaching for physicians, NPs, and PAs",
   location: "Remote",
   industry: "Healthcare coaching",
-  brokerName: "Website Closers",
+  brokerName: "Website Closers", brokerageId: null, brokerLinksReady: false,
   source: "Broker newsletter",
   listingUrl: "https://www.websiteclosers.com/businesses/physician-coaching",
   whySelling: null,

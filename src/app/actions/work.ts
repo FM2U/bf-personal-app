@@ -21,6 +21,8 @@ import { cleanQuestions, countQuestions, mergeQuestions, parseOpenQuestions, que
 import { nextTodoPosition, openTodos, type DealTodo } from "@/lib/work/todos";
 import { deleteWaits } from "@/lib/work/waits-data";
 import type { Row } from "@/lib/types";
+import { saveDealBrokerLinks } from "@/lib/work/broker-links-data";
+import type { DealBrokerLinks } from "@/lib/work/broker-links";
 
 /**
  * The Work module's saves (batch A and Edit batch A). Every action returns { ok: false, error } instead of throwing,
@@ -487,7 +489,7 @@ export async function saveFindings(id: string, input: FindingsInput): Promise<{ 
   };
 }
 
-export type FactsInput = { name: string; companyName: string; whatItDoes: string; location: string; revenue: string; ebitda: string; sde: string; askingPrice: string; industry: string; brokerName: string; source: string; whySelling: string; listingUrl: string; /** Database update 0027; left as it is when not given. */ yearEstablished?: string; /** Database update 0027; left as it is when not given. */ employees?: string; /** Database update 0029 (all equity or equity plus debt); left as it is when not given. */ financing?: DealFinancing };
+export type FactsInput = { /** Push K: the deal's broker, associate and brokerage as links; left as they are when not given (a listing, or before the database update). */ links?: DealBrokerLinks; name: string; companyName: string; whatItDoes: string; location: string; revenue: string; ebitda: string; sde: string; askingPrice: string; industry: string; brokerName: string; source: string; whySelling: string; listingUrl: string; /** Database update 0027; left as it is when not given. */ yearEstablished?: string; /** Database update 0027; left as it is when not given. */ employees?: string; /** Database update 0029 (all equity or equity plus debt); left as it is when not given. */ financing?: DealFinancing };
 
 /** The Facts card: the deal's text facts and its numbers (deal_financials). */
 export async function saveFacts(id: string, input: FactsInput): Promise<{ ok: true } | Fail> {
@@ -507,7 +509,8 @@ export async function saveFacts(id: string, input: FactsInput): Promise<{ ok: tr
       what_it_does: clean(input.whatItDoes, 300),
       location: clean(input.location, 120),
       industry: clean(input.industry, 120),
-      broker_name: clean(input.brokerName, 200),
+      // Push K: with links given, the typed text is written from them below.
+      ...(input.links ? {} : { broker_name: clean(input.brokerName, 200) }),
       source,
       why_selling: clean(input.whySelling, 300),
       listing_url: clean(input.listingUrl, 500),
@@ -523,6 +526,10 @@ export async function saveFacts(id: string, input: FactsInput): Promise<{ ok: tr
   const { data: fin } = await sb.from("deal_financials").select("id").eq("item_id", item.id).maybeSingle();
   const { error: e2 } = fin ? await sb.from("deal_financials").update(numbers).eq("id", fin.id) : await sb.from("deal_financials").insert({ owner_id: ctx.ownerId, item_id: item.id, ...numbers });
   if (e2) return fail(`The facts were saved, but the numbers were not: ${e2.message}`);
+  if (input.links) {
+    const linked = await saveDealBrokerLinks(sb, ctx.ownerId, item, input.links);
+    if (!linked.ok) return fail(`The facts were saved, but the broker was not: ${linked.error}`);
+  }
   // The old task titles follow the name.
   done();
   return { ok: true };
