@@ -162,6 +162,8 @@ export function buildWorked(i: {
   ebitda: Map<string, number>;
   /** Layout H (2026-11-23): revenue by deal, for the Size line. */
   revenue?: Map<string, number>;
+  /** 2026-11-24: SDE by deal, for the Size line when a deal has no EBITDA or the two differ. */
+  sde?: Map<string, number>;
   day: string;
   local: (ts: string) => string;
   todayText: Record<string, string>;
@@ -224,7 +226,7 @@ export function buildWorked(i: {
         moved,
         today,
         next: nowLine(item),
-        size: sizeOf(kind, item, i.revenue?.get(String(item.id)) ?? null, i.ebitda.get(String(item.id)) ?? null),
+        size: sizeOf(kind, item, i.revenue?.get(String(item.id)) ?? null, i.ebitda.get(String(item.id)) ?? null, i.sde?.get(String(item.id)) ?? null),
       });
       continue;
     }
@@ -255,9 +257,24 @@ export function buildWorked(i: {
   return out;
 }
 
-/** The Size line's figures (layout H, 2026-11-23): a deal's revenue and EBITDA, a job's pay, a lead's fee; missing ones left out. */
-export function sizeOf(kind: PriorityKind, item: Row, revenue: number | null, ebitda: number | null): { label: string; value: string }[] {
-  if (kind === "acquisition") return [revenue ? { label: "Revenue", value: money(revenue) } : null, ebitda ? { label: "EBITDA", value: money(ebitda) } : null].filter((x): x is { label: string; value: string } => !!x);
+/** EBITDA and SDE within this share of each other read as the same figure (Bram, 2026-11-24 7:19 pm: 5%). */
+export const SAME_EARNINGS = 0.05;
+
+/**
+ * The earnings on a deal's Size line (Bram, 2026-11-24 7:15 pm): only one of EBITDA and SDE has a number, that one;
+ * both and they are the same or within 5% of each other, EBITDA only; both and they differ by more, both.
+ */
+export function earningsOf(ebitda: number | null, sde: number | null): { label: string; value: string }[] {
+  const e = ebitda ? { label: "EBITDA", value: money(ebitda) } : null;
+  const s = sde ? { label: "SDE", value: money(sde) } : null;
+  if (!e || !s) return [e, s].filter((x): x is { label: string; value: string } => !!x);
+  const close = Math.abs(ebitda! - sde!) <= SAME_EARNINGS * Math.max(Math.abs(ebitda!), Math.abs(sde!));
+  return close ? [e] : [e, s];
+}
+
+/** The Size line's figures (layout H, 2026-11-23): a deal's revenue and its earnings (EBITDA, SDE or both), a job's pay, a lead's fee; missing ones left out. */
+export function sizeOf(kind: PriorityKind, item: Row, revenue: number | null, ebitda: number | null, sde: number | null = null): { label: string; value: string }[] {
+  if (kind === "acquisition") return [...(revenue ? [{ label: "Revenue", value: money(revenue) }] : []), ...earningsOf(ebitda, sde)];
   if (kind === "job") {
     const pay = String(item.pay_range ?? "").trim();
     return pay ? [{ label: "Pay", value: pay }] : [];

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ActivityRow } from "./activity";
-import { buildWorked, keptBox, recordOfRow, rowsLine, rowWords, subjectCounts, todayBox } from "./report-worked";
+import { buildWorked, keptBox, recordOfRow, rowsLine, rowWords, subjectCounts, todayBox, earningsOf, sizeOf } from "./report-worked";
 import { buildSections, type ReportData } from "./report-sections";
 import { reportInnerHtml, reportSubject, reportText } from "./report-email";
 import type { PriorityColumns } from "@/lib/work/priorities";
@@ -197,5 +197,25 @@ describe("the new daily report: worked on today (release 4, 2026-11-16)", () => 
     const hidden = buildSections({ ...d, choices: { hidden: { jobs: [J1] } } }).find((s) => s.key === "jobs")!;
     expect(hidden.worked).toEqual([]);
     expect(hidden.emptyAfterChange).toBe(true);
+  });
+
+  it("shows EBITDA, SDE or both on a deal's Size line (Bram, 2026-11-24: within 5% of each other is the same figure)", () => {
+    const labels = (e: number | null, s: number | null) => earningsOf(e, s).map((x) => `${x.label} ${x.value}`);
+    // Only one has a number: that one, and the other is left out.
+    expect(labels(null, 850_000)).toEqual(["SDE $850K"]);
+    expect(labels(1_300_000, null)).toEqual(["EBITDA $1.3M"]);
+    expect(labels(null, null)).toEqual([]);
+    expect(labels(0, 850_000)).toEqual(["SDE $850K"]);
+    // Both, the same or close: EBITDA only.
+    expect(labels(1_000_000, 1_000_000)).toEqual(["EBITDA $1M"]);
+    expect(labels(1_000_000, 1_040_000)).toEqual(["EBITDA $1M"]);
+    expect(labels(1_040_000, 1_000_000)).toEqual(["EBITDA $1.0M"]);
+    // Both, clearly different: both, EBITDA first.
+    expect(labels(1_000_000, 1_300_000)).toEqual(["EBITDA $1M", "SDE $1.3M"]);
+    expect(labels(1_000_000, 1_060_000).length).toBe(2);
+    // The whole line: revenue first, then the earnings.
+    expect(sizeOf("acquisition", {}, 4_000_000, null, 850_000).map((x) => x.label)).toEqual(["Revenue", "SDE"]);
+    expect(sizeOf("acquisition", {}, 4_000_000, 1_000_000, 1_300_000).map((x) => x.label)).toEqual(["Revenue", "EBITDA", "SDE"]);
+    expect(sizeOf("acquisition", {}, null, 1_100_000).map((x) => x.label)).toEqual(["EBITDA"]);
   });
 });

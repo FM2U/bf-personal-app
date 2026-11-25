@@ -465,7 +465,7 @@ export async function loadEndOfDay(sb: SupabaseClient, ctx: Ctx, day = ctx.today
 }
 
 /** What the new report layout reads besides the facts (v8, 2026-11-15): the picks, EBITDA, projects, decisions, project notes. */
-export type ReportV8Input = { priorities: PrioritiesData; ebitda: Map<string, number>; projects: Row[]; decisions: Row[]; projectNotes: Row[]; /** Push J (2026-11-23): the day's Listings reviewed entries; null before UPDATE_PREVIEW_PUSH_J.sql runs. */ reviewed?: ReviewedEntry[] | null; /** Layout H (2026-11-23): revenue by deal, for the Size line. */ revenue?: Map<string, number> };
+export type ReportV8Input = { priorities: PrioritiesData; ebitda: Map<string, number>; /** 2026-11-24: SDE by deal (the Size line). */ sde?: Map<string, number>; projects: Row[]; decisions: Row[]; projectNotes: Row[]; /** Push J (2026-11-23): the day's Listings reviewed entries; null before UPDATE_PREVIEW_PUSH_J.sql runs. */ reviewed?: ReviewedEntry[] | null; /** Layout H (2026-11-23): revenue by deal, for the Size line. */ revenue?: Map<string, number> };
 
 export async function loadReportV8(sb: SupabaseClient, ownerId: string, day: string): Promise<ReportV8Input> {
   const since = addDaysISO(day, -16);
@@ -479,7 +479,8 @@ export async function loadReportV8(sb: SupabaseClient, ownerId: string, day: str
   ]);
   const ebitda = new Map(((fin.data ?? []) as Row[]).filter((f) => f.ebitda !== null && f.ebitda !== undefined).map((f) => [String(f.item_id), Number(f.ebitda)]));
   const revenue = new Map(((fin.data ?? []) as Row[]).filter((f) => f.revenue !== null && f.revenue !== undefined).map((f) => [String(f.item_id), Number(f.revenue)]));
-  return { priorities, ebitda, revenue, projects: (projects.data ?? []) as Row[], decisions: decisions.error ? [] : ((decisions.data ?? []) as Row[]), projectNotes: (notes.data ?? []) as Row[], reviewed: reviewed.error ? null : ((reviewed.data ?? []) as Row[]).map(toEntry).filter((e): e is ReviewedEntry => !!e) };
+  const sde = new Map(((fin.data ?? []) as Row[]).filter((f) => f.sde !== null && f.sde !== undefined).map((f) => [String(f.item_id), Number(f.sde)]));
+  return { priorities, ebitda, revenue, sde, projects: (projects.data ?? []) as Row[], decisions: decisions.error ? [] : ((decisions.data ?? []) as Row[]), projectNotes: (notes.data ?? []) as Row[], reviewed: reviewed.error ? null : ((reviewed.data ?? []) as Row[]).map(toEntry).filter((e): e is ReviewedEntry => !!e) };
 }
 
 /** Builds the End of day page from loaded rows (shared with the send action, which judges the same way). */
@@ -585,7 +586,7 @@ export function buildEndOfDay(i: { targets: Target[]; bundle: FactsBundle; row: 
   const kept = sortActivity([...activity, ...row.calendarRows.filter((r) => !onRecord.has(r.id))]).filter((r) => !droppedSet.has(r.id));
   const keptByRecord = rowsByRecord(kept);
   const worked = i.v8 && i.v8.priorities.ready
-    ? buildWorked({ rows: kept, items: bundle.raw.items, projects: i.v8.projects, pipes: { acquisition: bundle.raw.acqId, job: bundle.raw.jobId, consulting: bundle.raw.conId ?? null }, stageById: bundle.raw.stageById, history: bundle.raw.history, columns: i.v8.priorities.columns, ebitda: i.v8.ebitda, revenue: i.v8.revenue, day, local, todayText: Object.fromEntries(Object.entries(row.drafts.today).map(([id, n]) => [id, n.text])) })
+    ? buildWorked({ rows: kept, items: bundle.raw.items, projects: i.v8.projects, pipes: { acquisition: bundle.raw.acqId, job: bundle.raw.jobId, consulting: bundle.raw.conId ?? null }, stageById: bundle.raw.stageById, history: bundle.raw.history, columns: i.v8.priorities.columns, ebitda: i.v8.ebitda, revenue: i.v8.revenue, sde: i.v8.sde, day, local, todayText: Object.fromEntries(Object.entries(row.drafts.today).map(([id, n]) => [id, n.text])) })
     : null;
   // The gray Today box: the day's counts less the rows dropped (the same rules as the targets).
   const dayComms = bundle.raw.comms
