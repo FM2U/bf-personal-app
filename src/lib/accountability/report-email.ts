@@ -295,11 +295,10 @@ const PIPELINE_SUB: Record<string, string> = {
   Consulting: "Each stage from lead to paid: leads in it now, and leads that reached it this week.",
 };
 /** 2026-11-25 (Bram: "cryptic"): one plain line per column, under the card's title. */
-const PIPELINE_WORD: Record<string, string> = { Acquisition: "deals", "Job search": "jobs", Consulting: "leads" };
 
 /**
  * The pipeline card (layout H). Since 2026-11-25 (Bram): Stage, In process (in the stage right now, with a short bar),
- * Today (reached the stage today), This week (reached it since the week's first day, today included), with a line
+ * Today (reached the stage today), This week (reached it since the week's first counted day, today included), with one line
  * under the title saying what each column counts. A report built before then has no Today figure and keeps its two
  * columns. Today and This week are narrow number columns, so the card still fits a phone.
  */
@@ -328,16 +327,17 @@ export function pipelineHtml(cols: readonly PipelineCol[], track = "Acquisition"
       return `<tr><td width="118" style="${b};width:118px;font-size:14.5px;color:${H.ink}">${escapeHtml(c.label)}</td><td style="${b}">${now}</td><td width="96" align="right" style="${b};${sep};width:96px;text-align:right;white-space:nowrap">${week}</td></tr>`;
     })
     .join("");
-  const word = PIPELINE_WORD[track] ?? "deals";
+  // Bram, 2026-11-25 8:44 pm: the headings explain themselves; the one thing a reader cannot guess is the day the week's
+  // count starts, so the line under the title says only that.
   const sub = withToday
-    ? `<b style="font-weight:600;color:${H.ink}">In process:</b> ${word} in the stage right now. <b style="font-weight:600;color:${H.ink}">Today:</b> ${word} that reached the stage today. <b style="font-weight:600;color:${H.ink}">This week:</b> ${word} that reached the stage since ${escapeHtml(weekFrom ?? "the week started")}, today included.`
+    ? (weekFrom ? `This week counts from ${escapeHtml(weekFrom)}.` : "")
     : PIPELINE_SUB[track] ?? PIPELINE_SUB.Acquisition;
   const heads = withToday
     ? `${head("Stage", ";width:158px")}${head("In process")}${head("Today", `;${sep};padding-right:8px;text-align:right;width:78px`)}${head("This week", `;${sep};text-align:right;width:84px`)}`
     : `${head("Stage", ";width:118px")}${head("In process")}${head("This week", `;${sep};text-align:right`)}`;
   const inner =
     `<div style="font-size:15px;line-height:20px;font-weight:600;color:${H.ink};${H_FONT}">${escapeHtml(track)} pipeline</div>` +
-    `<div style="font-size:13px;line-height:19px;color:${H.ink2};margin-top:6px;${H_FONT}">${sub}</div>` +
+    (sub ? `<div style="font-size:13px;line-height:19px;color:${H.ink2};margin-top:6px;${H_FONT}">${sub}</div>` : "") +
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin-top:18px"><tr>${heads}</tr>${rows}</table>`;
   return cardHtml(inner, "22px 30px 22px 30px", 24, ` data-pipeline="1"`);
 }

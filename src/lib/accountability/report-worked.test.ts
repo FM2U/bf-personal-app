@@ -185,7 +185,8 @@ describe("the new daily report: worked on today (release 4, 2026-11-16)", () => 
     // 2026-11-25: Stage, In process, Today, This week, with what each column counts under the title; no Screened row.
     expect(html).toContain("In process");
     expect(html).toMatch(/>Today<\/td>/);
-    expect(html).toContain("deals that reached the stage since Monday, today included");
+    expect(html).toContain("This week counts from Monday.");
+    expect(html).not.toContain("in the stage right now");
     expect(html).toContain(`<span style="white-space:nowrap">Broker + seller</span> calls`); // one line when wide, two at most on a phone
     expect(html).not.toContain("moves on the same day");
     expect(html).not.toContain(">Screened<");
