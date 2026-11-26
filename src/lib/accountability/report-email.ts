@@ -312,11 +312,18 @@ export function pipelineHtml(cols: readonly PipelineCol[], track = "Acquisition"
   const rows = cols
     .map((c) => {
       const b = `padding:11px 0;border-top:1px solid ${H.rowLine};${H_FONT}`;
-      const bar = (n: number) => `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;display:inline-table;vertical-align:middle"><tr><td style="width:${Math.max(2, Math.round(((withToday ? 44 : 70) * n) / max))}px;height:6px;line-height:6px;font-size:0;border-radius:3px;background-color:${n ? "#9ba3c9" : "#e6e8f3"}">&nbsp;</td></tr></table>`;
+      const bar = (n: number) => `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;display:inline-table;vertical-align:middle"><tr><td style="width:${Math.max(2, Math.round(((withToday ? 32 : 70) * n) / max))}px;height:6px;line-height:6px;font-size:0;border-radius:3px;background-color:${n ? "#9ba3c9" : "#e6e8f3"}">&nbsp;</td></tr></table>`;
       const now = c.inStage === null ? `<span style="font-size:13px;color:${H.faint}">moves on the same day</span>` : `<span style="display:inline-block;width:24px;font-size:16px;font-weight:600;color:${H.ink}">${c.inStage}</span>${bar(c.inStage)}`;
       // No align attribute on the number cells: the app's report window stacks td[align=right] on a phone (a rule made
       // for the status pill), which would pull Today and This week out of their columns.
-      if (withToday) return `<tr><td width="118" style="${b};width:118px;padding-right:8px;font-size:14.5px;line-height:19px;color:${H.ink}">${escapeHtml(c.label)}</td><td style="${b}">${now}</td><td width="78" style="${b};${sep};width:78px;padding-right:12px;text-align:right;white-space:nowrap">${plus(c.today)}</td><td width="84" style="${b};${sep};width:84px;text-align:right;white-space:nowrap">${plus(c.added)}</td></tr>`;
+      // A stage name stays on one line when the card is wide; on a phone a name of three or more words breaks only
+      // before its last word, so the name takes two lines at most and the columns keep their places.
+      const stageName = (label: string) => {
+        const words = escapeHtml(label).split(" ");
+        const keep = (t: string) => `<span style="white-space:nowrap">${t}</span>`;
+        return words.length <= 2 ? keep(words.join(" ")) : `${keep(words.slice(0, -1).join(" "))} ${words[words.length - 1]}`;
+      };
+      if (withToday) return `<tr><td width="150" style="${b};width:150px;padding-right:8px;font-size:14.5px;line-height:19px;color:${H.ink}">${stageName(c.label)}</td><td style="${b};white-space:nowrap">${now}</td><td width="78" style="${b};${sep};width:78px;padding-right:12px;text-align:right;white-space:nowrap">${plus(c.today)}</td><td width="84" style="${b};${sep};width:84px;text-align:right;white-space:nowrap">${plus(c.added)}</td></tr>`;
       const week = c.added ? `<span style="font-size:16px;font-weight:600;color:${H.ok}">+${c.added}</span> <span style="font-size:13px;color:${H.ok}">new</span>` : `<span style="font-size:16px;font-weight:600;color:${H.zero}">0</span> <span style="font-size:13px;color:${H.faint}">new</span>`;
       return `<tr><td width="118" style="${b};width:118px;font-size:14.5px;color:${H.ink}">${escapeHtml(c.label)}</td><td style="${b}">${now}</td><td width="96" align="right" style="${b};${sep};width:96px;text-align:right;white-space:nowrap">${week}</td></tr>`;
     })
@@ -326,7 +333,7 @@ export function pipelineHtml(cols: readonly PipelineCol[], track = "Acquisition"
     ? `<b style="font-weight:600;color:${H.ink}">In process:</b> ${word} in the stage right now. <b style="font-weight:600;color:${H.ink}">Today:</b> ${word} that reached the stage today. <b style="font-weight:600;color:${H.ink}">This week:</b> ${word} that reached the stage since ${escapeHtml(weekFrom ?? "the week started")}, today included.`
     : PIPELINE_SUB[track] ?? PIPELINE_SUB.Acquisition;
   const heads = withToday
-    ? `${head("Stage", ";width:118px")}${head("In process")}${head("Today", `;${sep};padding-right:12px;text-align:right;width:78px`)}${head("This&nbsp;week", `;${sep};text-align:right;width:84px`)}`
+    ? `${head("Stage", ";width:150px")}${head("In process")}${head("Today", `;${sep};padding-right:12px;text-align:right;width:78px`)}${head("This week", `;${sep};text-align:right;width:84px`)}`
     : `${head("Stage", ";width:118px")}${head("In process")}${head("This week", `;${sep};text-align:right`)}`;
   const inner =
     `<div style="font-size:15px;line-height:20px;font-weight:600;color:${H.ink};${H_FONT}">${escapeHtml(track)} pipeline</div>` +

@@ -72,7 +72,7 @@ describe("the report's tracks (v8, 2026-11-15)", () => {
       // nda entered Interested and NDA signed this week: one record, counted once.
       { label: "CIM review", added: 1, inStage: 1 },
       // dalton moved from Broker call to Seller call this week: the same column, so not added.
-      { label: "Broker and seller calls", added: 0, inStage: 1 },
+      { label: "Broker + seller calls", added: 0, inStage: 1 },
       { label: "Diligence", added: 0, inStage: 1 },
       { label: "IOI/LOI", added: 0, inStage: 1 },
     ]);
@@ -115,7 +115,7 @@ describe("the report's tracks (v8, 2026-11-15)", () => {
     expect(text).toContain("ACQUISITION · TOP PRIORITIES");
     expect(text).toContain("1. Dalton Services · HVAC service, Columbus OH · $2.1M EBITDA");
     expect(text).toContain("  Now: call the owner, Thu, Nov 19");
-    expect(text).toMatch(/Pipeline: CIM review 1 in process, (0|\+1) today, \+1 this week · Broker and seller calls 1 in process, 0 today, 0 this week/);
+    expect(text).toMatch(/Pipeline: CIM review 1 in process, (0|\+1) today, \+1 this week · Broker \+ seller calls 1 in process, 0 today, 0 this week/);
     expect(text).not.toContain("Nothing is required");
   });
 
@@ -150,7 +150,7 @@ describe("the report's tracks (v8, 2026-11-15)", () => {
       local,
       startupActive: false,
     });
-    expect(tt.acquisition.pipeline!.map((c) => [c.label, c.added, c.inStage])).toEqual([["CIM review", 0, 0], ["Broker and seller calls", 1, 0], ["Diligence", 1, 1], ["IOI/LOI", 0, 0]]);
+    expect(tt.acquisition.pipeline!.map((c) => [c.label, c.added, c.inStage])).toEqual([["CIM review", 0, 0], ["Broker + seller calls", 1, 0], ["Diligence", 1, 1], ["IOI/LOI", 0, 0]]);
     expect(tt.job.pipeline).toBeNull();
   });
 

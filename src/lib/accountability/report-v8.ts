@@ -41,7 +41,7 @@ export const PIPELINE_COLUMNS: Record<"acquisition" | "job" | "consulting", { la
     // Bram, 2026-11-25: no Screened row (the day counts show listings reviewed and deals added); every open deal sits
     // in exactly one row, so In process adds up to the active deals.
     { label: "CIM review", stages: ["Interested", "NDA signed", "CIM review"] },
-    { label: "Broker and seller calls", stages: ["Broker call", "Seller call"] },
+    { label: "Broker + seller calls", stages: ["Broker call", "Seller call"] },
     { label: "Diligence", stages: ["Diligence"] },
     { label: "IOI/LOI", stages: ["Partner presentation", "IOI or LOI", "Confirmatory diligence"] },
   ],

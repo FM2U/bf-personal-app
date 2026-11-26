@@ -123,7 +123,7 @@ describe("the new daily report: worked on today (release 4, 2026-11-16)", () => 
 
   it("builds the email in layout H: one numbered card per record worked on today, the priority mark, Today and Next, Upside and Size under a hairline, the counts in the opening card, a pipeline card", () => {
     const worked = build();
-    const pipeline = [{ label: "CIM review", added: 4, inStage: 5, today: 1, since: "Monday" }, { label: "Broker and seller calls", added: 0, inStage: 2, today: 0, since: "Monday" }];
+    const pipeline = [{ label: "CIM review", added: 4, inStage: 5, today: 1, since: "Monday" }, { label: "Broker + seller calls", added: 0, inStage: 2, today: 0, since: "Monday" }];
     const d: ReportData = {
       layout: "v8",
       opening: "A deal day: an hour on the Moody structure and a first interview at Harbor Health.",
@@ -186,7 +186,7 @@ describe("the new daily report: worked on today (release 4, 2026-11-16)", () => 
     expect(html).toContain("In process");
     expect(html).toMatch(/>Today<\/td>/);
     expect(html).toContain("deals that reached the stage since Monday, today included");
-    expect(html).toContain("Broker and seller calls");
+    expect(html).toContain(`<span style="white-space:nowrap">Broker + seller</span> calls`); // one line when wide, two at most on a phone
     expect(html).not.toContain("moves on the same day");
     expect(html).not.toContain(">Screened<");
     expect(html).not.toContain("Consulting · ");
