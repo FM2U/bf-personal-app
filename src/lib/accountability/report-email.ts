@@ -337,8 +337,10 @@ export function pipelineHtml(cols: readonly PipelineCol[], track = "Acquisition"
     : `${head("Stage", ";width:118px")}${head("In process")}${head("This week", `;${sep};text-align:right`)}`;
   const inner =
     `<div style="font-size:15px;line-height:20px;font-weight:600;color:${H.ink};${H_FONT}">${escapeHtml(track)} pipeline</div>` +
-    (sub ? `<div style="font-size:${withToday ? "10px;line-height:15px" : "13px;line-height:19px"};color:${withToday ? "#a8a29c" : H.ink2};margin-top:${withToday ? 4 : 6}px;${H_FONT}">${sub}</div>` : "") +
-    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin-top:18px"><tr>${heads}</tr>${rows}</table>`;
+    (sub && !withToday ? `<div style="font-size:13px;line-height:19px;color:${H.ink2};margin-top:6px;${H_FONT}">${sub}</div>` : "") +
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin-top:18px"><tr>${heads}</tr>${rows}</table>` +
+    // Bram, 2026-11-25 8:59 pm: the week note sits under the last row, at the right, under the This week column.
+    (sub && withToday ? `<div style="font-size:10px;line-height:15px;color:#a8a29c;margin-top:10px;text-align:right;${H_FONT}">${sub}</div>` : "");
   return cardHtml(inner, "22px 30px 22px 30px", 24, ` data-pipeline="1"`);
 }
 
