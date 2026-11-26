@@ -337,7 +337,7 @@ export function pipelineHtml(cols: readonly PipelineCol[], track = "Acquisition"
     : `${head("Stage", ";width:118px")}${head("In process")}${head("This week", `;${sep};text-align:right`)}`;
   const inner =
     `<div style="font-size:15px;line-height:20px;font-weight:600;color:${H.ink};${H_FONT}">${escapeHtml(track)} pipeline</div>` +
-    (sub ? `<div style="font-size:${withToday ? "12px;line-height:17px" : "13px;line-height:19px"};color:${withToday ? H.faint : H.ink2};margin-top:${withToday ? 4 : 6}px;${H_FONT}">${sub}</div>` : "") +
+    (sub ? `<div style="font-size:${withToday ? "10px;line-height:15px" : "13px;line-height:19px"};color:${withToday ? "#a8a29c" : H.ink2};margin-top:${withToday ? 4 : 6}px;${H_FONT}">${sub}</div>` : "") +
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin-top:18px"><tr>${heads}</tr>${rows}</table>`;
   return cardHtml(inner, "22px 30px 22px 30px", 24, ` data-pipeline="1"`);
 }
