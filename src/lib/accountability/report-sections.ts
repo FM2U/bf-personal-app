@@ -513,6 +513,8 @@ export function boxText(box: readonly TodayCount[]): string {
 
 /** The Pipeline table as plain text: "Pipeline: Screened +14 · CIM review +2, 4 in stage · ...". */
 export function pipelineText(cols: readonly PipelineCol[]): string {
+  // 2026-11-25: in process now, reached today, reached this week (a report built before then has no Today figure).
+  if (cols.some((c) => c.today !== undefined)) return `Pipeline: ${cols.map((c) => `${c.label} ${c.inStage ?? 0} in process, ${c.today ? `+${c.today}` : "0"} today, ${c.added ? `+${c.added}` : "0"} this week`).join(" · ")}`;
   return `Pipeline: ${cols.map((c) => `${c.label} ${c.added ? `+${c.added}` : "–"}${c.inStage === null ? "" : `, ${c.inStage} in stage`}`).join(" · ")}`;
 }
 

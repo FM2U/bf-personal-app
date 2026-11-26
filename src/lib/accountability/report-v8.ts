@@ -26,7 +26,7 @@ export type ReportPick = {
   /** "go or no-go on an LOI by Wed, Nov 25"; amber when moved later or passed. */
   next: { words: string; amber: boolean } | null;
 };
-export type PipelineCol = { label: string; added: number | null; inStage: number | null };
+export type PipelineCol = { label: string; added: number | null; inStage: number | null; /** 2026-11-25: records that reached the column today (missing on reports built before then). */ today?: number; /** 2026-11-25: the day the week's count starts on ("Monday"). */ since?: string };
 /** A name as partners see it (Bram, 2026-11-16): the "00 " start of an unnamed listing is left out; it only sorts lists in the app. */
 export function partnerName(name: string): string {
   return name.replace(/^00\s+/, "").trim() || name;
@@ -38,11 +38,12 @@ export type ReportTracks = { acquisition: ReportTrack; job: ReportTrack; consult
 /** The Pipeline table's columns (decided 2026-11-15): each counts the open records in its stages. */
 export const PIPELINE_COLUMNS: Record<"acquisition" | "job" | "consulting", { label: string; stages: string[]; screened?: boolean }[]> = {
   acquisition: [
-    { label: "Screened", stages: [], screened: true },
+    // Bram, 2026-11-25: no Screened row (the day counts show listings reviewed and deals added); every open deal sits
+    // in exactly one row, so In process adds up to the active deals.
     { label: "CIM review", stages: ["Interested", "NDA signed", "CIM review"] },
-    { label: "Seller call", stages: ["Broker call", "Seller call"] },
+    { label: "Broker and seller calls", stages: ["Broker call", "Seller call"] },
     { label: "Diligence", stages: ["Diligence"] },
-    { label: "LOI", stages: ["Partner presentation", "IOI or LOI", "Confirmatory diligence"] },
+    { label: "IOI/LOI", stages: ["Partner presentation", "IOI or LOI", "Confirmatory diligence"] },
   ],
   job: [
     { label: "Lead", stages: ["Lead"] },
@@ -180,13 +181,20 @@ export function buildTracks(i: {
       const d = i.local(String(h.entered_at));
       return d >= i.weekStart && d <= i.day;
     };
+    const weekDayName = new Intl.DateTimeFormat("en-US", { weekday: "long", timeZone: "UTC" }).format(new Date(`${i.weekStart}T12:00:00Z`));
     return PIPELINE_COLUMNS[kind].map((c) => {
       if (c.screened) return { label: c.label, added: i.screenedThisWeek, inStage: null };
       const inCol = (stageId: unknown) => c.stages.includes(i.stageById[String(stageId)]?.name ?? "");
       // A record counts once per column for the week: it entered the column this week from outside it (or new).
       let added = 0;
-      for (const list of byItem.values()) if (list.some((h, n) => inWeek(h) && inCol(h.stage_id) && (n === 0 || !inCol(list[n - 1].stage_id)))) added++;
-      return { label: c.label, added, inStage: open.filter((r) => inCol(r.stage_id)).length };
+      let today = 0;
+      for (const list of byItem.values()) {
+        const entered = (when: (h: Row) => boolean) => list.some((h, n) => when(h) && inCol(h.stage_id) && (n === 0 || !inCol(list[n - 1].stage_id)));
+        if (entered(inWeek)) added++;
+        // 2026-11-25: reached the column today (also counted in the week).
+        if (entered((h) => i.local(String(h.entered_at)) === i.day)) today++;
+      }
+      return { label: c.label, added, inStage: open.filter((r) => inCol(r.stage_id)).length, today, since: weekDayName };
     });
   };
   const track = (kind: PriorityKind): ReportTrack => ({ picks: picksOf(kind), decided: decidedOf(kind), pipeline: kind === "startup" ? null : pipelineOf(kind) });

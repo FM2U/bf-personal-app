@@ -123,7 +123,7 @@ describe("the new daily report: worked on today (release 4, 2026-11-16)", () => 
 
   it("builds the email in layout H: one numbered card per record worked on today, the priority mark, Today and Next, Upside and Size under a hairline, the counts in the opening card, a pipeline card", () => {
     const worked = build();
-    const pipeline = [{ label: "Screened", added: 4, inStage: null }, { label: "CIM review", added: 4, inStage: 5 }];
+    const pipeline = [{ label: "CIM review", added: 4, inStage: 5, today: 1, since: "Monday" }, { label: "Broker and seller calls", added: 0, inStage: 2, today: 0, since: "Monday" }];
     const d: ReportData = {
       layout: "v8",
       opening: "A deal day: an hour on the Moody structure and a first interview at Harbor Health.",
@@ -182,8 +182,13 @@ describe("the new daily report: worked on today (release 4, 2026-11-16)", () => 
     expect(html).not.toContain("00 AI-Enabled");
     expect(html.indexOf("data-pipeline")).toBeLessThan(html.indexOf("Job search · 1 job worked on today"));
     expect(html).toContain("Acquisition pipeline");
+    // 2026-11-25: Stage, In process, Today, This week, with what each column counts under the title; no Screened row.
     expect(html).toContain("In process");
-    expect(html).toContain("moves on the same day");
+    expect(html).toMatch(/>Today<\/td>/);
+    expect(html).toContain("deals that reached the stage since Monday, today included");
+    expect(html).toContain("Broker and seller calls");
+    expect(html).not.toContain("moves on the same day");
+    expect(html).not.toContain(">Screened<");
     expect(html).not.toContain("Consulting · ");
     // The job's Size line: its pay.
     expect(html.slice(html.indexOf("Harbor Health"))).toContain("$180K to $210K");

@@ -294,25 +294,44 @@ const PIPELINE_SUB: Record<string, string> = {
   "Job search": "Each stage from lead to offer: jobs in it now, and jobs that reached it this week.",
   Consulting: "Each stage from lead to paid: leads in it now, and leads that reached it this week.",
 };
+/** 2026-11-25 (Bram: "cryptic"): one plain line per column, under the card's title. */
+const PIPELINE_WORD: Record<string, string> = { Acquisition: "deals", "Job search": "jobs", Consulting: "leads" };
 
-/** The pipeline card (layout H): Stage, In process (with a short bar), a thin line, This week (green "+N new"). */
-export function pipelineHtml(cols: readonly PipelineCol[], track = "Acquisition"): string {
+/**
+ * The pipeline card (layout H). Since 2026-11-25 (Bram): Stage, In process (in the stage right now, with a short bar),
+ * Today (reached the stage today), This week (reached it since the week's first day, today included), with a line
+ * under the title saying what each column counts. A report built before then has no Today figure and keeps its two
+ * columns. Today and This week are narrow number columns, so the card still fits a phone.
+ */
+export function pipelineHtml(cols: readonly PipelineCol[], track = "Acquisition", weekFrom: string | null = null): string {
+  const withToday = cols.some((c) => c.today !== undefined);
   const max = Math.max(1, ...cols.map((c) => c.inStage ?? 0));
-  const sep = `border-left:1px solid ${H.line};padding-left:18px`;
+  const sep = `border-left:1px solid ${H.line};padding-left:${withToday ? 12 : 18}px`;
   const head = (t: string, extra = "") => `<td style="padding-bottom:10px;font-size:11px;line-height:16px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;color:${H.faint};${H_FONT}${extra}">${t}</td>`;
+  const plus = (n: number | null | undefined) => (n ? `<span style="font-size:16px;font-weight:600;color:${H.ok}">+${n}</span>` : `<span style="font-size:16px;font-weight:600;color:${H.zero}">0</span>`);
   const rows = cols
     .map((c) => {
       const b = `padding:11px 0;border-top:1px solid ${H.rowLine};${H_FONT}`;
-      const bar = (n: number) => `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;display:inline-table;vertical-align:middle"><tr><td style="width:${Math.max(2, Math.round((70 * n) / max))}px;height:6px;line-height:6px;font-size:0;border-radius:3px;background-color:${n ? "#9ba3c9" : "#e6e8f3"}">&nbsp;</td></tr></table>`;
+      const bar = (n: number) => `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;display:inline-table;vertical-align:middle"><tr><td style="width:${Math.max(2, Math.round(((withToday ? 44 : 70) * n) / max))}px;height:6px;line-height:6px;font-size:0;border-radius:3px;background-color:${n ? "#9ba3c9" : "#e6e8f3"}">&nbsp;</td></tr></table>`;
       const now = c.inStage === null ? `<span style="font-size:13px;color:${H.faint}">moves on the same day</span>` : `<span style="display:inline-block;width:24px;font-size:16px;font-weight:600;color:${H.ink}">${c.inStage}</span>${bar(c.inStage)}`;
+      // No align attribute on the number cells: the app's report window stacks td[align=right] on a phone (a rule made
+      // for the status pill), which would pull Today and This week out of their columns.
+      if (withToday) return `<tr><td width="118" style="${b};width:118px;padding-right:8px;font-size:14.5px;line-height:19px;color:${H.ink}">${escapeHtml(c.label)}</td><td style="${b}">${now}</td><td width="78" style="${b};${sep};width:78px;padding-right:12px;text-align:right;white-space:nowrap">${plus(c.today)}</td><td width="84" style="${b};${sep};width:84px;text-align:right;white-space:nowrap">${plus(c.added)}</td></tr>`;
       const week = c.added ? `<span style="font-size:16px;font-weight:600;color:${H.ok}">+${c.added}</span> <span style="font-size:13px;color:${H.ok}">new</span>` : `<span style="font-size:16px;font-weight:600;color:${H.zero}">0</span> <span style="font-size:13px;color:${H.faint}">new</span>`;
       return `<tr><td width="118" style="${b};width:118px;font-size:14.5px;color:${H.ink}">${escapeHtml(c.label)}</td><td style="${b}">${now}</td><td width="96" align="right" style="${b};${sep};width:96px;text-align:right;white-space:nowrap">${week}</td></tr>`;
     })
     .join("");
+  const word = PIPELINE_WORD[track] ?? "deals";
+  const sub = withToday
+    ? `<b style="font-weight:600;color:${H.ink}">In process:</b> ${word} in the stage right now. <b style="font-weight:600;color:${H.ink}">Today:</b> ${word} that reached the stage today. <b style="font-weight:600;color:${H.ink}">This week:</b> ${word} that reached the stage since ${escapeHtml(weekFrom ?? "the week started")}, today included.`
+    : PIPELINE_SUB[track] ?? PIPELINE_SUB.Acquisition;
+  const heads = withToday
+    ? `${head("Stage", ";width:118px")}${head("In process")}${head("Today", `;${sep};padding-right:12px;text-align:right;width:78px`)}${head("This&nbsp;week", `;${sep};text-align:right;width:84px`)}`
+    : `${head("Stage", ";width:118px")}${head("In process")}${head("This week", `;${sep};text-align:right`)}`;
   const inner =
     `<div style="font-size:15px;line-height:20px;font-weight:600;color:${H.ink};${H_FONT}">${escapeHtml(track)} pipeline</div>` +
-    `<div style="font-size:13px;line-height:18px;color:${H.ink2};margin-top:6px;${H_FONT}">${PIPELINE_SUB[track] ?? PIPELINE_SUB.Acquisition}</div>` +
-    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin-top:18px"><tr>${head("Stage", ";width:118px")}${head("In process")}${head("This week", `;${sep};text-align:right`)}</tr>${rows}</table>`;
+    `<div style="font-size:13px;line-height:19px;color:${H.ink2};margin-top:6px;${H_FONT}">${sub}</div>` +
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin-top:18px"><tr>${heads}</tr>${rows}</table>`;
   return cardHtml(inner, "22px 30px 22px 30px", 24, ` data-pipeline="1"`);
 }
 
@@ -324,7 +343,7 @@ function trackHeadingHtml(title: string): string {
 /** A worked section's pipeline card, or "" (also drawn on its own by the report window, under the cards with their Edit links). */
 export function workedPipelineHtml(s: BuiltSection): string {
   const track = s.key === "jobs" ? "Job search" : s.key === "consulting" ? "Consulting" : s.key === "startup" ? "Startup" : "Acquisition";
-  return s.pipeline ? pipelineHtml(s.pipeline, track) : "";
+  return s.pipeline ? pipelineHtml(s.pipeline, track, s.pipeline.find((c) => c.since)?.since ?? null) : "";
 }
 
 function workedSectionHtml(s: BuiltSection): string {
