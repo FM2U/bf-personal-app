@@ -306,7 +306,7 @@ const PIPELINE_WORD: Record<string, string> = { Acquisition: "deals", "Job searc
 export function pipelineHtml(cols: readonly PipelineCol[], track = "Acquisition", weekFrom: string | null = null): string {
   const withToday = cols.some((c) => c.today !== undefined);
   const max = Math.max(1, ...cols.map((c) => c.inStage ?? 0));
-  const sep = `border-left:1px solid ${H.line};padding-left:${withToday ? 12 : 18}px`;
+  const sep = `border-left:1px solid ${H.line};padding-left:${withToday ? 8 : 18}px`;
   const head = (t: string, extra = "") => `<td style="padding-bottom:10px;font-size:11px;line-height:16px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;color:${H.faint};${H_FONT}${extra}">${t}</td>`;
   const plus = (n: number | null | undefined) => (n ? `<span style="font-size:16px;font-weight:600;color:${H.ok}">+${n}</span>` : `<span style="font-size:16px;font-weight:600;color:${H.zero}">0</span>`);
   const rows = cols
@@ -323,7 +323,7 @@ export function pipelineHtml(cols: readonly PipelineCol[], track = "Acquisition"
         const keep = (t: string) => `<span style="white-space:nowrap">${t}</span>`;
         return words.length <= 2 ? keep(words.join(" ")) : `${keep(words.slice(0, -1).join(" "))} ${words[words.length - 1]}`;
       };
-      if (withToday) return `<tr><td width="150" style="${b};width:150px;padding-right:8px;font-size:14.5px;line-height:19px;color:${H.ink}">${stageName(c.label)}</td><td style="${b};white-space:nowrap">${now}</td><td width="78" style="${b};${sep};width:78px;padding-right:12px;text-align:right;white-space:nowrap">${plus(c.today)}</td><td width="84" style="${b};${sep};width:84px;text-align:right;white-space:nowrap">${plus(c.added)}</td></tr>`;
+      if (withToday) return `<tr><td width="158" style="${b};width:158px;padding-right:16px;font-size:14.5px;line-height:19px;color:${H.ink}">${stageName(c.label)}</td><td style="${b};white-space:nowrap">${now}</td><td width="78" style="${b};${sep};width:78px;padding-right:8px;text-align:right;white-space:nowrap">${plus(c.today)}</td><td width="84" style="${b};${sep};width:84px;text-align:right;white-space:nowrap">${plus(c.added)}</td></tr>`;
       const week = c.added ? `<span style="font-size:16px;font-weight:600;color:${H.ok}">+${c.added}</span> <span style="font-size:13px;color:${H.ok}">new</span>` : `<span style="font-size:16px;font-weight:600;color:${H.zero}">0</span> <span style="font-size:13px;color:${H.faint}">new</span>`;
       return `<tr><td width="118" style="${b};width:118px;font-size:14.5px;color:${H.ink}">${escapeHtml(c.label)}</td><td style="${b}">${now}</td><td width="96" align="right" style="${b};${sep};width:96px;text-align:right;white-space:nowrap">${week}</td></tr>`;
     })
@@ -333,7 +333,7 @@ export function pipelineHtml(cols: readonly PipelineCol[], track = "Acquisition"
     ? `<b style="font-weight:600;color:${H.ink}">In process:</b> ${word} in the stage right now. <b style="font-weight:600;color:${H.ink}">Today:</b> ${word} that reached the stage today. <b style="font-weight:600;color:${H.ink}">This week:</b> ${word} that reached the stage since ${escapeHtml(weekFrom ?? "the week started")}, today included.`
     : PIPELINE_SUB[track] ?? PIPELINE_SUB.Acquisition;
   const heads = withToday
-    ? `${head("Stage", ";width:150px")}${head("In process")}${head("Today", `;${sep};padding-right:12px;text-align:right;width:78px`)}${head("This week", `;${sep};text-align:right;width:84px`)}`
+    ? `${head("Stage", ";width:158px")}${head("In process")}${head("Today", `;${sep};padding-right:8px;text-align:right;width:78px`)}${head("This week", `;${sep};text-align:right;width:84px`)}`
     : `${head("Stage", ";width:118px")}${head("In process")}${head("This week", `;${sep};text-align:right`)}`;
   const inner =
     `<div style="font-size:15px;line-height:20px;font-weight:600;color:${H.ink};${H_FONT}">${escapeHtml(track)} pipeline</div>` +
